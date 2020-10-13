@@ -9,8 +9,8 @@ import decimal
 import pickle
 import io
 from time import perf_counter
-# from serializeJson module 
-import serializeJson
+# from serializejson module 
+import serializejson
 from SmartFramework.files import  joinPath, directory, removeExistingPathAndCreateFolder
 from SmartFramework.tools.objects import deepCompare
 from SmartFramework.serialize.objects import init_arg, init_args, init_args_filtered_state, init_default, init_default_filtered_state, init_kwarg, init_kwargs, init_kwargs_filtered_state, no_init, no_init_filtered_state,no_init_slots,no_init_slots_and_dict
@@ -30,13 +30,13 @@ serializers = {
         "encoder": pickle.dumps,
         "decoder": pickle.loads
     },
-    "serializeJson": {
-        "encoder": serializeJson.Encoder(),
-        "decoder": serializeJson.Decoder()
+    "serializejson": {
+        "encoder": serializejson.Encoder(),
+        "decoder": serializejson.Decoder()
     },
-    "serializeJson_in_file": {
-        "encoder": serializeJson.Encoder(fp=bytesIO),
-        "decoder": serializeJson.Decoder(fp=bytesIO)
+    "serializejson_in_file": {
+        "encoder": serializejson.Encoder(fp=bytesIO),
+        "decoder": serializejson.Decoder(fp=bytesIO)
     },
     #"serializeRepr": {
     #    "encoder": lambda obj: serializeRepr.dumps(obj, modules=modules),
@@ -283,8 +283,8 @@ for module in [init_arg, init_args_explicite_getstate, init_args_filtered_state_
             categorie_dict[key]= value() 
             autorized_classes.append(value)
 
-#serializeJson.setAutorizedClasses(autorized_classes)   
-#serializeJson.setAutorizedClasses('all')
+#serializejson.setAutorizedClasses(autorized_classes)   
+#serializejson.setAutorizedClasses('all')
 
 """"
     #datetime.datetime, datetime.date, datetime.time, enum.Enum, and uuid.UUID)
@@ -365,10 +365,10 @@ for serializerName, serializer in serializers.items():
                 if serializerName != "pickle":
                     raise
                 break
-            if serializerName != "serializeJson_in_file":
+            if serializerName != "serializejson_in_file":
                 #addInFile(serializerDumpsPath, dumped)
                 pass
-            if serializerName in ( "serializeJson","serializeJson_in_file") : 
+            if serializerName in ( "serializejson","serializejson_in_file") : 
                 serializer['decoder'].set_autorized_classes(serializer['encoder'].get_dumped_classes())
             try:
                 times = []
@@ -407,8 +407,8 @@ for serializerName, serializer in serializers.items():
     if all_ok:
         print("  all is ok !")
 
-serializeJson.dump(dumps_times_by_type, directory(__file__) + '/serialized/dumps_times.json', indent='\t', sort_keys=False)
-serializeJson.dump(loads_times_by_type, directory(__file__) + '/serialized/loads_times.json', indent='\t', sort_keys=False)
+serializejson.dump(dumps_times_by_type, directory(__file__) + '/serialized/dumps_times.json', indent='\t', sort_keys=False)
+serializejson.dump(loads_times_by_type, directory(__file__) + '/serialized/loads_times.json', indent='\t', sort_keys=False)
 
 print("Dumps -------------\n"+'\n'.join((f"{key} : {value:.2f}" for key, value in total_dumps_time_by_serializer.items())))
 print("Loads -------------\n"+'\n'.join((f"{key} : {value:.2f}" for key, value in total_loads_time_by_serializer.items())))
