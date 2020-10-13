@@ -634,7 +634,6 @@ class Decoder(rapidjson.Decoder):
             raise Exception("not yet able to load_iter on %s" % str(type(fp)))
         return self
 
-
     def _inst_from_dict(self, inst):
         class_str = inst["__class__"]
         if self._autorized_classes_strs == "all" or class_str in self._autorized_classes_strs:

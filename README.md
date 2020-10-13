@@ -1,13 +1,10 @@
-#serializejson
+# serializejson
 
 serializejson is a library for the two-way conversion of complex Python objects and [JSON](http://json.org/) build upon [python-rapidjson](https://github.com/python-rapidjson/python-rapidjson)
 	
 **WARNING**:
 serializejson can execute arbitrary Python code if the load parameter autorized_classes is "all" when loading json. 
 Do not load serializejsons from untrusted / unauthenticated sources without carfuly set the autorized_classes parameter. 
-
-Install from github for the latest changes:
-    pip install git+https://github.com/SmartAudioTools/serializejson.git
 
 - serializejson supports Python 3.4 or greater.
 - serializejson can serialize arbitrary python objects (including bytes whick will be serialized in base64) 
@@ -19,6 +16,9 @@ Install from github for the latest changes:
 - serializejson is only time slower than pickle and much more faster than jsonpickle
 - serializejson filter attribut starting with "_" by default (unlik pickle)
 
+# Install
+pip install git+https://github.com/SmartAudioTools/serializejson.git
+	
 # License
 See serializejson/LICENSE for details about the serializejson license.
 
