@@ -18,7 +18,7 @@ Do not load serializejsons from untrusted / unauthenticated sources without carf
 - support circular references and serialize only once time duplicated object (if in a object attribut, not yet list or dictionnaries).
 - try to call attributs setters and propreties setters when loading if set_attributs  = True.
 - accept json with comment (// and /* */).
-- can automaticly reconize objects in json and recreate them, without the need of "__class__" key, if passeds in recognized_classes.
+- can automaticly reconize objects in json and recreate them, without the need of "`__class__`" key, if passeds in recognized_classes.
 - dump and load support string path. 
 
 # Install
