@@ -15,8 +15,8 @@ Do not load serializejsons from untrusted / unauthenticated sources without carf
 - can update an existings objects instead of overide thems (serializejson can be used to save and restore in place a complet application state).
 - filter attribut starting with "_" by default (unlik pickle).
 - numpy arrays can be serialized in list with automatique conversion in both way or in a conveservative way. 
-- support circular references and serialize once duplicated object if in a object attribut.
-- try to call attributs setters and propreties setters when loading with set_attributs  = True.
+- support circular references and serialize only once time duplicated object (if in a object attribut).
+- try to call attributs setters and propreties setters when loading if set_attributs  = True.
 - accept json with comment (// and /* */).
 - can automaticly reconize objects in json and recreate them, without the need of "__class__" key, if passeds in recognized_classes.
 - dump and load support string path. 
