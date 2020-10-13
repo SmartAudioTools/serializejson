@@ -19,6 +19,23 @@ from SmartFramework.serialize.objects.others import init_args_explicite_getstate
 from qtpy import QtCore, QtGui, QtWidgets
 app = QtWidgets.QApplication(sys.argv)
 
+
+def addInFile(path,element,encoding = 'utf_8_sig',newline = '\n'):
+    if isinstance(element, bytes):
+        with open(path,'ab') as f :     
+            if f.tell() != 0 and newline :
+                f.write(newline.encode("ascii"))
+            f.write(element)  
+    elif isinstance(element, str):
+        with open(path,'a',encoding = encoding,newline = newline) as f : 
+            if f.tell() != 0 and newline :
+                f.write(newline)
+            f.write(element)   
+    else : 
+        raise Exception()
+        
+
+
 # --- SERIALIZERS -------------------------------------------------------------
 bytesIO = io.BytesIO()
 
@@ -366,7 +383,7 @@ for serializerName, serializer in serializers.items():
                     raise
                 break
             if serializerName != "serializejson_in_file":
-                #addInFile(serializerDumpsPath, dumped)
+                addInFile(serializerDumpsPath, dumped)
                 pass
             if serializerName in ( "serializejson","serializejson_in_file") : 
                 serializer['decoder'].set_autorized_classes(serializer['encoder'].get_dumped_classes())
