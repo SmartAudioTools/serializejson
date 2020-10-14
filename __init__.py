@@ -61,7 +61,7 @@ def load(
     if iter : 
         return Decoder(**argsDict)
     else:
-        return Decoder(**argsDict)(fp_or_s = fp, obj = obj)
+        return Decoder(**argsDict).load(fp = fp, obj = obj)
 
 def append(
     obj,
