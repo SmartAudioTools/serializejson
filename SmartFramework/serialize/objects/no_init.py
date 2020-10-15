@@ -1,6 +1,4 @@
-def log(elt):
-    pass
-
+from .log import log
 #  without INIT -----------------
 
 class C_New_SaveNothing():

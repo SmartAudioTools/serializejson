@@ -9,9 +9,10 @@ import io
 from time import perf_counter
 from SmartFramework.files import joinPath, directory, removeExistingPathAndCreateFolder
 from SmartFramework.tools.objects import deepCompare
-from SmartFramework.serialize.objects import init_arg, init_args, init_args_filtered_state, init_default, init_default_filtered_state, init_kwarg, init_kwargs, init_kwargs_filtered_state, no_init, no_init_filtered_state,no_init_slots,no_init_slots_and_dict
-from SmartFramework.serialize.objects.others import init_args_explicite_getstate, init_args_filtered_state_explicite_getstate, init_args_ghost_getinitargs, init_default_explicite_getstate, init_default_filtered_state_explicite_getstate, init_default_ghots_getstate, init_kwargs_explicite_getstate, init_kwargs_filtered_state_explicite_getstate, init_default_ghost_getinitargs
-if __file__.endswith(f"serialize/test_serialize.py"):
+from SmartFramework.serialize.objects import init_arg, init_args, init_args_filtered_state, init_default, init_default_filtered_state, init_kwarg, init_kwargs, init_kwargs_filtered_state, no_init, no_init_filtered_state,no_init_slots,no_init_slots_and_dict,no_init_slots_subclass,no_init_setters
+from SmartFramework.serialize.objects import init_args_explicite_getstate, init_args_filtered_state_explicite_getstate, init_args_ghost_getinitargs, init_default_explicite_getstate, init_default_filtered_state_explicite_getstate, init_default_ghots_getstate, init_kwargs_explicite_getstate, init_kwargs_filtered_state_explicite_getstate, init_default_ghost_getinitargs
+from SmartFramework.serialize.objects import log 
+if __file__.endswith("serialize/test_serialize.py"):
     full_smartFramework = True 
     from SmartFramework.serialize import serializeJson as serializejson
     from SmartFramework.serialize import serializePython
@@ -58,22 +59,22 @@ serializers = {
     },
     "serializejson": {
         "encoder": serializejson.Encoder(attributs_filter = None),
-        "decoder": serializejson.Decoder()
+        "decoder": serializejson.Decoder(set_attributs = False)
     },
     "serializejson_in_file": {
-        "encoder": serializejson.Encoder(attributs_filter = None,fp=bytesIO),
-        "decoder": serializejson.Decoder(fp=bytesIO)
+        "encoder": serializejson.Encoder(fp=bytesIO,attributs_filter = None),
+        "decoder": serializejson.Decoder(fp=bytesIO,set_attributs = False)
     },
 }
 
 if full_smartFramework: 
     serializers.update({
      "serializeRepr": {
-            "encoder": lambda obj: serializeRepr.dumps(obj, modules=modules, attributs_filter = None),
+            "encoder": lambda obj: serializeRepr.dumps(obj, modules=modules, attributs_filter = None,set_attributs = False),
             "decoder": lambda obj: serializeRepr.loads(obj, modules=modules)
     },
     "serializePython": {
-        "encoder": lambda obj: serializePython.dumps(obj, attributs_filter = None),
+        "encoder": lambda obj: serializePython.dumps(obj, attributs_filter = None,set_attributs = False),
         "decoder": serializePython.loads
     }
     #"jsonpickle": {
@@ -307,7 +308,7 @@ if full_smartFramework:
         "QVector3D": QtGui.QVector3D(),  # pas reducable dans documentation ?
     }
 autorized_classes = []        
-for module in [init_arg, init_args_explicite_getstate, init_args_filtered_state_explicite_getstate, init_args_filtered_state, init_args_ghost_getinitargs, init_args, init_default_explicite_getstate, init_default_filtered_state_explicite_getstate, init_default_filtered_state, init_default_ghost_getinitargs, init_default_ghots_getstate, init_default, init_kwarg, init_kwargs_explicite_getstate, init_kwargs_filtered_state_explicite_getstate, init_kwargs_filtered_state, init_kwargs, no_init, no_init_filtered_state,no_init_slots,no_init_slots_and_dict]:
+for module in [init_arg, init_args_explicite_getstate, init_args_filtered_state_explicite_getstate, init_args_filtered_state, init_args_ghost_getinitargs, init_args, init_default_explicite_getstate, init_default_filtered_state_explicite_getstate, init_default_filtered_state, init_default_ghost_getinitargs, init_default_ghots_getstate, init_default, init_kwarg, init_kwargs_explicite_getstate, init_kwargs_filtered_state_explicite_getstate, init_kwargs_filtered_state, init_kwargs, no_init, no_init_filtered_state,no_init_slots,no_init_slots_and_dict,no_init_slots_subclass,no_init_setters]:
     objects["object_" + module.__name__] = categorie_dict = dict()
     for key, value in module.__dict__.items():
         if key.startswith("C_") :
@@ -383,9 +384,11 @@ for serializerName, serializer in serializers.items():
                 for i in range(100):
                     bytesIO.seek(0)
                     bytesIO.truncate(0)
+                    log.logs = []
                     t1 = perf_counter()
                     dumped = serializer['encoder'](value)
                     t2 = perf_counter()
+                    dump_logs = log.logs
                     times.append(t2 - t1)
                 time = numpy.median(times)
                 dumps_times_by_type[serializerName][categoryName + " " + key] = round(time * 1000000, 1)
@@ -404,9 +407,11 @@ for serializerName, serializer in serializers.items():
                 times = []
                 for i in range(100):
                     bytesIO.seek(0)
+                    log.logs = []
                     t1 = perf_counter()
                     loaded = serializer['decoder'](dumped)
                     t2 = perf_counter()
+                    load_logs = log.logs
                     #times.append(t2 - t1)
                     times.append(t2 - t1)
                 time = numpy.median(times)
@@ -420,11 +425,22 @@ for serializerName, serializer in serializers.items():
 
             else : 
                 if categoryName.startswith("object"):
-                    unpickle_value = pickle.loads(pickle.dumps(value))
-                    same_as_pickle, pickle_diff_loaded, loaded_diff_pickle = deepCompare(unpickle_value, loaded, return_reason=True)
-                    if serializerName != "pickle" and not same_as_pickle:
-                        all_ok = False
-                        print("  unpickled %s (%s)-> %s -> %s (%s)" % (value.__class__.__name__, str(pickle_diff_loaded), repr(dumped), loaded.__class__.__name__, str(loaded_diff_pickle)))
+
+                    if serializerName != "pickle" :
+                        log.logs = []
+                        pickled = pickle.dumps(value)
+                        pickle_dump_logs = log.logs
+                        log.logs = []
+                        unpickle_value = pickle.loads(pickled)
+                        pickle_load_logs = log.logs
+                        same_as_pickle, pickle_diff_loaded, loaded_diff_pickle = deepCompare(unpickle_value, loaded, return_reason=True)
+                        if not same_as_pickle:
+                            all_ok = False
+                            print("  unpickled %s (%s)-> %s -> %s (%s)" % (value.__class__.__name__, str(pickle_diff_loaded), repr(dumped), loaded.__class__.__name__, str(loaded_diff_pickle)))
+                        if pickle_dump_logs != dump_logs:
+                            print(value.__class__.__name__,':\n   ',pickle_dump_logs,'\n ->',dump_logs)
+                        if pickle_load_logs != load_logs:
+                            print(value.__class__.__name__,':\n   ',pickle_load_logs,'\n ->',load_logs)
                 else :
                     same_as_original, original_diff_loaded, loaded_diff_orginal = deepCompare(value, loaded, return_reason=True)
                     if not same_as_original:

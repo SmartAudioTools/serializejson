@@ -1,7 +1,5 @@
 from SmartFramework.tools.dictionnaires import filtered
-def log(elt):
-    pass
-
+from .log import log
 #  without INIT -----------------
 
 

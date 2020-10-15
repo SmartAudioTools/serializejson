@@ -1,30 +1,33 @@
-def log(elt):
-    pass
+from SmartFramework.tools.dictionnaires import filtered
 
-# with INIT -----------------
 
-class C_InitArgs():
+from .log import log
+# with default INIT -------
+
+class C_SaveNothing_DefaultInit():
     def __init__(self, par1='defaut1', par2='defaut2'):
         log('        __init__(' + par1 + ',' + par2 + ')')
         self._par1 = par1
         self.par2 = par2
 
     def __reduce__(self):
-        initArgs = (self._par1, 'savedArg2')
-        reduce = self.__class__, initArgs # pas besoin de None ou {}
+        reduce = self.__class__, (), self.__getstate__()
         log('        __reduce__ : ' + repr(reduce))
         return reduce
 
+    def __getstate__(self):
+        log('        __getstate__ : {}')
+        return {}
 
-class C_InitArgs_SaveDict_RestoreNothing():  # ne sert pas à grand chose , sauf si on veut se garder la posibilitée de restaurer l'state plus tard
+
+class C_SaveDict_DefaultInit_RestoreNothing():  # ne sert pas à grand chose , sauf si on veut se garder la posibilitée de restaurer l'state plus tard
     def __init__(self, par1='defaut1', par2='defaut2'):
         log('        __init__(' + par1 + ',' + par2 + ')')
         self._par1 = par1
         self.par2 = par2
 
     def __reduce__(self):
-        initArgs = (self._par1, 'savedArg2')
-        reduce = self.__class__, initArgs, self.__dict__
+        reduce = self.__class__, (), self.__dict__
         log('        __reduce__ : ' + repr(reduce))
         return reduce
 
@@ -32,29 +35,26 @@ class C_InitArgs_SaveDict_RestoreNothing():  # ne sert pas à grand chose , sauf
         log('        __setstate__ : pass')
         pass
 
-
-class C_InitArgs_SaveDict_RestoreDict():
+class C_SaveDict_DefaultInit_RestoreDict():
     def __init__(self, par1='defaut1', par2='defaut2'):
         log('        __init__(' + par1 + ',' + par2 + ')')
         self._par1 = par1
         self.par2 = par2
 
     def __reduce__(self):
-        initArgs = (self._par1, 'savedArg2')
-        reduce = self.__class__, initArgs, self.__dict__
+        reduce = self.__class__, (), self.__dict__
         log('        __reduce__ : ' + repr(reduce))
         return reduce
 
 
-class C_InitArgs_SaveDict_SetState():  # sert a pouvoir executer code specifique en plus du init a la restauration et choisir quoi restaurer
+class C_SaveDict_DefaultInit_SetState():  # sert a pouvoir executer code spécifique a la restauration
     def __init__(self, par1='defaut1', par2='defaut2'):
         log('        __init__(' + par1 + ',' + par2 + ')')
         self._par1 = par1
         self.par2 = par2
 
     def __reduce__(self):
-        initArgs = (self._par1, 'savedArg2')
-        reduce = self.__class__, initArgs, self.__dict__
+        reduce = self.__class__, (), self.__dict__
         log('        __reduce__ : ' + repr(reduce))
         return reduce
 
@@ -63,43 +63,38 @@ class C_InitArgs_SaveDict_SetState():  # sert a pouvoir executer code specifique
         log('        __setstate__(' + repr(state) + ')')
 
 
-class C_InitArgs_GetState_RestoreState():
+class C_GetState_DefaultInit_RestoreState():
     def __init__(self, par1='defaut1', par2='defaut2'):
         log('        __init__(' + par1 + ',' + par2 + ')')
         self._par1 = par1
         self.par2 = par2
 
     def __reduce__(self):
-        initArgs = (self._par1, 'savedArg2')
-        reduce = self.__class__, initArgs, {'keySaved': 'ValueSaved'}
+        reduce = self.__class__, (), self.__getstate__()
         log('        __reduce__ : ' + repr(reduce))
         return reduce
-class C_InitArgs_GetState_SetStateDict():  
+
+    def __getstate__(self):
+        state = {'keySaved': 'ValueSaved'}
+        log('        __getstate__ : ' + repr(state))
+        return state
+
+
+class C_GetState_DefaultInit_SetState():
     def __init__(self, par1='defaut1', par2='defaut2'):
         log('        __init__(' + par1 + ',' + par2 + ')')
         self._par1 = par1
         self.par2 = par2
 
     def __reduce__(self):
-        initArgs = (self._par1, 'savedArg2')
-        reduce = self.__class__, initArgs, {'keySaved': 'ValueSaved'}
+        reduce = self.__class__, (), self.__getstate__()
         log('        __reduce__ : ' + repr(reduce))
         return reduce
-    def __setstate__(self, state):
-        self.__dict__.update(state)
-        log('        __setstate__(' + repr(state) + ')')
 
-class C_InitArgs_GetState_SetState():  # plus obligé de auvegarder l'state sous forme de dictionnaire !!!!
-    def __init__(self, par1='defaut1', par2='defaut2'):
-        log('        __init__(' + par1 + ',' + par2 + ')')
-        self._par1 = par1
-        self.par2 = par2
-
-    def __reduce__(self):
-        initArgs = (self._par1, 'savedArg2')
-        reduce = self.__class__, initArgs, 'stateSaved'
-        log('        __reduce__ : ' + repr(reduce))
-        return reduce
+    def __getstate__(self):
+        state = 'stateSaved'
+        log('        __getstate__ : ' + repr(state))
+        return state
 
     def __setstate__(self, state):
         self._par1 = state

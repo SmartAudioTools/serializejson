@@ -1,9 +1,7 @@
-def log(elt):
-    pass
-
+from .log import log
 #  without INIT -----------------
 
-class C_New_SaveNothing():
+class C_New_SaveNothing_slots():
     __slots__ = ('_par1', 'par2')
     def __init__(self, par1='defaut1', par2='defaut2'):
         log('        __init__(' + par1 + ',' + par2 + ')')
@@ -16,7 +14,7 @@ class C_New_SaveNothing():
 
 
 
-class C_New_SaveDict_RestoreNothing():  # ne sert pas à grand chose , sauf si on veut se garder la posibilitée de restaurer l'state plus tard
+class C_New_SaveDict_RestoreNothing_slots():  # ne sert pas à grand chose , sauf si on veut se garder la posibilitée de restaurer l'state plus tard
     __slots__ = ('_par1', 'par2')
     def __init__(self, par1='defaut1', par2='defaut2'):
         log('        __init__(' + par1 + ',' + par2 + ')')
@@ -28,7 +26,7 @@ class C_New_SaveDict_RestoreNothing():  # ne sert pas à grand chose , sauf si o
         pass
 
 
-class C_New_SaveDict_RestoreDict():
+class C_New_SaveDict_RestoreDict_slots():
     __slots__ = ('_par1', 'par2')
     def __init__(self, par1='defaut1', par2='defaut2'):
         log('        __init__(' + par1 + ',' + par2 + ')')
@@ -36,7 +34,7 @@ class C_New_SaveDict_RestoreDict():
         self.par2 = par2
 
 
-class C_New_SaveDict_SetState():  # sert a pouvoir executer code spécifique a la restauration
+class C_New_SaveDict_SetState_slots():  # sert a pouvoir executer code spécifique a la restauration
     __slots__ = ('_par1', 'par2')
     def __init__(self, par1='defaut1', par2='defaut2'):
         log('        __init__(' + par1 + ',' + par2 + ')')
@@ -51,7 +49,7 @@ class C_New_SaveDict_SetState():  # sert a pouvoir executer code spécifique a l
         log('        __setstate__(' + repr(state) + ')')
 
 
-'''class C_New_GetState_RestoreState():
+'''class C_New_GetState_RestoreState_slots():
     __slots__ = ('_par1', 'par2')
     def __init__(self, par1='defaut1', par2='defaut2'):
         log('        __init__(' + par1 + ',' + par2 + ')')
@@ -65,7 +63,7 @@ class C_New_SaveDict_SetState():  # sert a pouvoir executer code spécifique a l
         #return (None,state) # pour compatibilité Pickle , mais merdique pour json 
 '''
 
-class C_New_GetState_SetState():
+class C_New_GetState_SetState_slots():
     __slots__ = ('_par1', 'par2')
     def __init__(self, par1='defaut1', par2='defaut2'):
         log('        __init__(' + par1 + ',' + par2 + ')')

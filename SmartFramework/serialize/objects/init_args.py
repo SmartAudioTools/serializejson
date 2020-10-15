@@ -1,6 +1,4 @@
-def log(elt):
-    pass
-
+from .log import log
 # with INIT -----------------
 
 class C_InitArgs():
