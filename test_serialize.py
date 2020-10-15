@@ -1,23 +1,34 @@
-# from standar library
-import numpy
 import sys
 import math
 import collections
 import datetime
-import time
 import decimal
 import pickle
+import time
 import io
 from time import perf_counter
-# from serializejson module 
-import serializejson
-from SmartFramework.files import  joinPath, directory, removeExistingPathAndCreateFolder
+from SmartFramework.files import joinPath, directory, removeExistingPathAndCreateFolder
 from SmartFramework.tools.objects import deepCompare
 from SmartFramework.serialize.objects import init_arg, init_args, init_args_filtered_state, init_default, init_default_filtered_state, init_kwarg, init_kwargs, init_kwargs_filtered_state, no_init, no_init_filtered_state,no_init_slots,no_init_slots_and_dict
 from SmartFramework.serialize.objects.others import init_args_explicite_getstate, init_args_filtered_state_explicite_getstate, init_args_ghost_getinitargs, init_default_explicite_getstate, init_default_filtered_state_explicite_getstate, init_default_ghots_getstate, init_kwargs_explicite_getstate, init_kwargs_filtered_state_explicite_getstate, init_default_ghost_getinitargs
+if __file__.endswith(f"serialize/test_serialize.py"):
+    full_smartFramework = True 
+    from SmartFramework.serialize import serializeJson as serializejson
+    from SmartFramework.serialize import serializePython
+    from SmartFramework.serialize import serializeRepr
+    from SmartFramework.plot.PlotUI import Curve, Pen
+    from SmartFramework.plot.PlotWithCurveSelectorUI import PlotWithCurveSelectorUI
+    from SmartFramework.plot.ColorEnumerator import ColorEnumerator
+    from qtpy import QtCore, QtGui, QtWidgets
+    app = QtWidgets.QApplication(sys.argv)
+else :
+    full_smartFramework = False
+    import serializejson   
+try : 
+    import numpy
+except : 
+    pass 
 
-from qtpy import QtCore, QtGui, QtWidgets
-app = QtWidgets.QApplication(sys.argv)
 
 
 def addInFile(path,element,encoding = 'utf_8_sig',newline = '\n'):
@@ -34,8 +45,6 @@ def addInFile(path,element,encoding = 'utf_8_sig',newline = '\n'):
     else : 
         raise Exception()
         
-
-
 # --- SERIALIZERS -------------------------------------------------------------
 bytesIO = io.BytesIO()
 
@@ -48,26 +57,30 @@ serializers = {
         "decoder": pickle.loads
     },
     "serializejson": {
-        "encoder": serializejson.Encoder(),
+        "encoder": serializejson.Encoder(attributs_filter = None),
         "decoder": serializejson.Decoder()
     },
     "serializejson_in_file": {
-        "encoder": serializejson.Encoder(fp=bytesIO),
+        "encoder": serializejson.Encoder(attributs_filter = None,fp=bytesIO),
         "decoder": serializejson.Decoder(fp=bytesIO)
     },
-    #"serializeRepr": {
-    #    "encoder": lambda obj: serializeRepr.dumps(obj, modules=modules),
-    #    "decoder": lambda obj: serializeRepr.loads(obj, modules=modules)
-    #},
-    #"serializePython": {
-    #    "encoder": serializePython.dumps,
-    #    "decoder": serializePython.loads
-    #},
+}
+
+if full_smartFramework: 
+    serializers.update({
+     "serializeRepr": {
+            "encoder": lambda obj: serializeRepr.dumps(obj, modules=modules, attributs_filter = None),
+            "decoder": lambda obj: serializeRepr.loads(obj, modules=modules)
+    },
+    "serializePython": {
+        "encoder": lambda obj: serializePython.dumps(obj, attributs_filter = None),
+        "decoder": serializePython.loads
+    }
     #"jsonpickle": {
     #    "encoder": jsonpickle.dumps,
     #    "decoder": jsonpickle.loads
     #},
-}
+})
 
 
 # --- DATAS -------------------------------------------------------------------
@@ -256,42 +269,43 @@ objects.update({
 
 }
 )
-objects["QtWidgets"] = {
-    'QWidget': QtWidgets.QWidget(),
-    #'QCheckBox': QtWidgets.QCheckBox(),
-    #'QDoubleSpinBox': QtWidgets.QDoubleSpinBox(),
-    #'QLineEdit': QtWidgets.QLineEdit(),
-    #'QPlainTextEdit': QtWidgets.QPlainTextEdit(),
-    #"QSpinBox": QtWidgets.QSpinBox(),
-    'QPushButton': QtWidgets.QPushButton(),
+if full_smartFramework: 
+    objects["QtWidgets"] = {
+        'QWidget': QtWidgets.QWidget(),
+        #'QCheckBox': QtWidgets.QCheckBox(),
+        #'QDoubleSpinBox': QtWidgets.QDoubleSpinBox(),
+        #'QLineEdit': QtWidgets.QLineEdit(),
+        #'QPlainTextEdit': QtWidgets.QPlainTextEdit(),
+        #"QSpinBox": QtWidgets.QSpinBox(),
+        'QPushButton': QtWidgets.QPushButton(),
+        }
+    objects["PyQt_pickable"] = {
+        "QByteArray": QtCore.QByteArray(),
+        "QColor": QtGui.QColor(),
+        ## "QChar": tuple_from_reducableQt,
+        "QDate": QtCore.QDate(),
+        "QDateTime": QtCore.QDateTime(),
+        "QKeySequence": QtGui.QKeySequence(),
+        ## "QLatin1Char": tuple_from_reducableQt,
+        ## "QLatin1String": tuple_from_reducableQt,
+        "QLine": QtCore.QLine(),
+        "QLineF": QtCore.QLineF(),
+        ##'QPen': tuple_from_QPen,
+        ##'QBrush': tuple_from_QBrush,
+        "QPoint": QtCore.QPoint(),
+        "QPointF": QtCore.QPointF(),
+        "QPolygon": QtGui.QPolygon(),
+        #"QPolygonF": QtGui.QPolygonF(),
+        "QRect": QtCore.QRect(),
+        "QRectF": QtCore.QRectF(),
+        "QSize": QtCore.QSize(),
+        "QSizeF": QtCore.QSizeF(),
+        ## "QMatrix": tuple_from_reducableQt,
+        ## "QString": tuple_from_reducableQt,
+        "QTime": QtCore.QTime(),
+        "QTransform": QtGui.QTransform(),  # pas reducable dans documentation ?
+        "QVector3D": QtGui.QVector3D(),  # pas reducable dans documentation ?
     }
-objects["PyQt_pickable"] = {
-    "QByteArray": QtCore.QByteArray(),
-    "QColor": QtGui.QColor(),
-    ## "QChar": tuple_from_reducableQt,
-    "QDate": QtCore.QDate(),
-    "QDateTime": QtCore.QDateTime(),
-    "QKeySequence": QtGui.QKeySequence(),
-    ## "QLatin1Char": tuple_from_reducableQt,
-    ## "QLatin1String": tuple_from_reducableQt,
-    "QLine": QtCore.QLine(),
-    "QLineF": QtCore.QLineF(),
-    ##'QPen': tuple_from_QPen,
-    ##'QBrush': tuple_from_QBrush,
-    "QPoint": QtCore.QPoint(),
-    "QPointF": QtCore.QPointF(),
-    "QPolygon": QtGui.QPolygon(),
-    #"QPolygonF": QtGui.QPolygonF(),
-    "QRect": QtCore.QRect(),
-    "QRectF": QtCore.QRectF(),
-    "QSize": QtCore.QSize(),
-    "QSizeF": QtCore.QSizeF(),
-    ## "QMatrix": tuple_from_reducableQt,
-    ## "QString": tuple_from_reducableQt,
-    "QTime": QtCore.QTime(),
-    "QTransform": QtGui.QTransform(),  # pas reducable dans documentation ?
-    "QVector3D": QtGui.QVector3D(),  # pas reducable dans documentation ?
-}
 autorized_classes = []        
 for module in [init_arg, init_args_explicite_getstate, init_args_filtered_state_explicite_getstate, init_args_filtered_state, init_args_ghost_getinitargs, init_args, init_default_explicite_getstate, init_default_filtered_state_explicite_getstate, init_default_filtered_state, init_default_ghost_getinitargs, init_default_ghots_getstate, init_default, init_kwarg, init_kwargs_explicite_getstate, init_kwargs_filtered_state_explicite_getstate, init_kwargs_filtered_state, init_kwargs, no_init, no_init_filtered_state,no_init_slots,no_init_slots_and_dict]:
     objects["object_" + module.__name__] = categorie_dict = dict()
@@ -384,7 +398,6 @@ for serializerName, serializer in serializers.items():
                 break
             if serializerName != "serializejson_in_file":
                 addInFile(serializerDumpsPath, dumped)
-                pass
             if serializerName in ( "serializejson","serializejson_in_file") : 
                 serializer['decoder'].set_autorized_classes(serializer['encoder'].get_dumped_classes())
             try:
@@ -400,6 +413,7 @@ for serializerName, serializer in serializers.items():
                 loads_times_by_type[serializerName][categoryName + " " + key] = round(time * 1000000, 1)
                 total_loads_time_by_serializer[serializerName] += time * 100000
             except:
+                raise
                 print(" unable to loads %s -> %s -> ERROR" % (repr(value), repr(dumped)))
                 all_ok = False
                 #raise
@@ -432,11 +446,7 @@ print("Loads -------------\n"+'\n'.join((f"{key} : {value:.2f}" for key, value i
 
 # --- PLOT BENCHMARK -----------------------------------------------------------------
 
-try : 
-    from qtpy import QtWidgets
-    from SmartFramework.plot.PlotUI import Curve, Pen
-    from SmartFramework.plot.PlotWithCurveSelectorUI import PlotWithCurveSelectorUI
-    from SmartFramework.plot.ColorEnumerator import ColorEnumerator
+if full_smartFramework:
     plotUI = PlotWithCurveSelectorUI(antialising=True, rotation=90)  # ,backgroundColor = QtCore.Qt.black
     colorEnumerator = ColorEnumerator()
     for serializerName in loads_times_by_type.keys():
@@ -449,6 +459,3 @@ try :
         plotUI.addCurve(curve)
     plotUI.show()
     app.exec_()  # pas besoin si on n'utilise pas de signaux
-except :
-    pass 
-    

@@ -480,96 +480,25 @@ Infinity
 	"__init__": "time.struct_time"
 }
 {
-	"__class__": "qtpy.QtWidgets.QWidget"
-}
-{
-	"__class__": "qtpy.QtWidgets.QPushButton"
-}
-{
-	"__class__": "qtpy.QtCore.QByteArray",
-	"__init__": {"__class__":"bytes","__init__":["","ascii"]}
-}
-{
-	"__class__": "qtpy.QtGui.QColor",
-	"__init__": [0,0,0,255]
-}
-{
-	"__class__": "qtpy.QtCore.QDate",
-	"__init__": [0,0,0]
-}
-{
-	"__class__": "qtpy.QtCore.QDateTime",
-	"__init__": [0,0,0,-1,-1,-1,-1,0]
-}
-{
-	"__class__": "qtpy.QtGui.QKeySequence",
-	"__init__": [0,0,0,0]
-}
-{
-	"__class__": "qtpy.QtCore.QLine",
-	"__init__": [0,0,0,0]
-}
-{
-	"__class__": "qtpy.QtCore.QLineF",
-	"__init__": [0.0,0.0,0.0,0.0]
-}
-{
-	"__class__": "qtpy.QtCore.QPoint",
-	"__init__": [0,0]
-}
-{
-	"__class__": "qtpy.QtCore.QPointF",
-	"__init__": [0.0,0.0]
-}
-{
-	"__class__": "qtpy.QtGui.QPolygon",
-	"__init__": [[]]
-}
-{
-	"__class__": "qtpy.QtCore.QRect",
-	"__init__": [0,0,0,0]
-}
-{
-	"__class__": "qtpy.QtCore.QRectF",
-	"__init__": [0.0,0.0,0.0,0.0]
-}
-{
-	"__class__": "qtpy.QtCore.QSize",
-	"__init__": [-1,-1]
-}
-{
-	"__class__": "qtpy.QtCore.QSizeF",
-	"__init__": [-1.0,-1.0]
-}
-{
-	"__class__": "qtpy.QtCore.QTime",
-	"__init__": [-1,-1,-1,-1]
-}
-{
-	"__class__": "qtpy.QtGui.QTransform",
-	"__init__": [1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0]
-}
-{
-	"__class__": "qtpy.QtGui.QVector3D",
-	"__init__": [0.0,0.0,0.0]
-}
-{
 	"__class__": "SmartFramework.serialize.objects.init_arg.C_InitArg",
 	"__init__": "savedArg1"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.init_arg.C_InitArg_SaveDict_RestoreNothing",
 	"__init__": "savedArg1",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.init_arg.C_InitArg_SaveDict_RestoreDict",
 	"__init__": "savedArg1",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.init_arg.C_InitArg_SaveDict_SetState",
 	"__init__": "savedArg1",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
@@ -594,16 +523,19 @@ Infinity
 {
 	"__class__": "SmartFramework.serialize.objects.others.init_args_explicite_getstate.C_SaveDict_SaveArgInit_RestoreNothing",
 	"__init__": ["defaut1","savedArg2"],
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.others.init_args_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict",
 	"__init__": ["defaut1","savedArg2"],
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.others.init_args_explicite_getstate.C_SaveDict_SaveArgInit_SetState",
 	"__init__": ["defaut1","savedArg2"],
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
@@ -655,14 +587,17 @@ Infinity
 }
 {
 	"__class__": "SmartFramework.serialize.objects.others.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_getinitargs",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.others.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_RestoreDict_getinitargs",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.others.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_SetState_getinitargs",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
@@ -680,16 +615,19 @@ Infinity
 {
 	"__class__": "SmartFramework.serialize.objects.init_args.C_InitArgs_SaveDict_RestoreNothing",
 	"__init__": ["defaut1","savedArg2"],
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.init_args.C_InitArgs_SaveDict_RestoreDict",
 	"__init__": ["defaut1","savedArg2"],
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.init_args.C_InitArgs_SaveDict_SetState",
 	"__init__": ["defaut1","savedArg2"],
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
@@ -714,16 +652,19 @@ Infinity
 {
 	"__class__": "SmartFramework.serialize.objects.others.init_default_explicite_getstate.C_SaveDict_DefaultInit_RestoreNothing",
 	"__init__": [],
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.others.init_default_explicite_getstate.C_SaveDict_DefaultInit_RestoreDict",
 	"__init__": [],
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.others.init_default_explicite_getstate.C_SaveDict_DefaultInit_SetState",
 	"__init__": [],
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
@@ -779,14 +720,17 @@ Infinity
 }
 {
 	"__class__": "SmartFramework.serialize.objects.others.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_RestoreNothing_getinitargs",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.others.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_RestoreDict_getinitargs",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.others.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_SetState_getinitargs",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
@@ -818,16 +762,19 @@ Infinity
 {
 	"__class__": "SmartFramework.serialize.objects.init_default.C_InitDefault_SaveDict_RestoreNothing",
 	"__init__": [],
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.init_default.C_InitDefault_SaveDict_RestoreDict",
 	"__init__": [],
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.init_default.C_InitDefault_SaveDict_SetState",
 	"__init__": [],
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
@@ -847,16 +794,19 @@ Infinity
 {
 	"__class__": "SmartFramework.serialize.objects.init_kwarg.C_SaveDict_SaveArgInit_RestoreNothing",
 	"__init__": {"par2":"savedArg2"},
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.init_kwarg.C_SaveDict_SaveArgInit_RestoreDict",
 	"__init__": {"par2":"savedArg2"},
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.init_kwarg.C_SaveDict_SaveArgInit_SetState",
 	"__init__": {"par2":"savedArg2"},
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
@@ -876,16 +826,19 @@ Infinity
 {
 	"__class__": "SmartFramework.serialize.objects.others.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_RestoreNothing",
 	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.others.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict",
 	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.others.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_SetState",
 	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
@@ -943,16 +896,19 @@ Infinity
 {
 	"__class__": "SmartFramework.serialize.objects.init_kwargs.C_InitKwargs_SaveDict_RestoreNothing",
 	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.init_kwargs.C_InitKwargs_SaveDict_RestoreDict",
 	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.init_kwargs.C_InitKwargs_SaveDict_SetState",
 	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
@@ -970,14 +926,17 @@ Infinity
 }
 {
 	"__class__": "SmartFramework.serialize.objects.no_init.C_New_SaveDict_RestoreNothing",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.no_init.C_New_SaveDict_RestoreDict",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.no_init.C_New_SaveDict_SetState",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
@@ -1009,14 +968,17 @@ Infinity
 }
 {
 	"__class__": "SmartFramework.serialize.objects.no_init_slots.C_New_SaveDict_RestoreNothing",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.no_init_slots.C_New_SaveDict_RestoreDict",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.no_init_slots.C_New_SaveDict_SetState",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
@@ -1028,14 +990,17 @@ Infinity
 }
 {
 	"__class__": "SmartFramework.serialize.objects.no_init_slots_and_dict.C_New_SaveDict_RestoreNothing",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.no_init_slots_and_dict.C_New_SaveDict_RestoreDict",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "SmartFramework.serialize.objects.no_init_slots_and_dict.C_New_SaveDict_SetState",
+	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
