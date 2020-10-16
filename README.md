@@ -1,15 +1,16 @@
 # serializejson
 
-**serializejson** is a python library for serialization (and deserialization) of complex Python objects in [JSON](http://json.org/) build upon [python-rapidjson](https://github.com/python-rapidjson/python-rapidjson)
+**serializejson** is a python library for serialization (and deserialization) of complex Python objects in [JSON](http://json.org/) build upon [python-rapidjson](https://github.com/python-rapidjson/python-rapidjson) and [pybase64](https://github.com/mayeut/pybase64)
 	
 >**WARNING**:
 serializejson can execute arbitrary Python code if the load parameter autorized_classes is "all" when loading json. 
 Do not load serializejsons from untrusted / unauthenticated sources without carfuly set the autorized_classes parameter. 
 
-- supports Python 3.4 or greater.
-- serialize arbitrary python objects (bytes and bytearray are quikly serialized and deserializaed in base64).
+- supports Python 3.7 (maybe lower) or greater.
+- serialize arbitrary python objects (bytes and bytearray are very quikly serialized and deserializaed in base64).
 - call the sames objects methodes than pickle. therefore allmost all pickable objects are serializable with serializejson without any modification.
-- serialized objects are human-readable. 
+- serialized objects are human-readable. (Your data will never be unreadable if your code evolved, you will allway be able to modify your data, unlike with pickle)
+- serialized objects take generaly less space than with pickle, a juste a little 30% more if big binaries data (numpy array, bytes, bytearray)
 - only two time slower than pickle and much more faster than jsonpickle.
 - can safely load untrusted / unauthenticated sources if autorized_classes list parameter is set carfuly with stricly necessary objects (unlike pickle). 
 - can update an existings objects instead of overide thems (serializejson can be used to save and restore in place a complet application state).

@@ -3,11 +3,11 @@ import io
 import sys
 from collections import deque
 import rapidjson
+from pybase64 import b64decode
 import numpy
 from numpy import frombuffer,unpackbits,uint8,ndarray,int32,int64
 from numpy import dtype as numpy_dtype
 import gc
-from pybase64 import b64decode
 from _collections_abc import list_iterator
 from .SmartFramework.serialize import serializeParameters
 
