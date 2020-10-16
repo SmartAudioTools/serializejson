@@ -8,8 +8,8 @@ Do not load serializejsons from untrusted / unauthenticated sources without carf
 
 - supports Python 3.7 (maybe lower) or greater.
 - serialize arbitrary python objects (bytes and bytearray are very quikly serialized and deserializaed in base64).
-- call the sames objects methodes than pickle. therefore allmost all pickable objects are serializable with serializejson without any modification.
-- serialized objects are human-readable. (Your data will never be unreadable if your code evolved, you will allway be able to modify your data, unlike with pickle)
+- call the sames objects methodes than pickle. Therefore allmost all pickable objects are serializable with serializejson without any modification.
+- serialized objects are human-readable. (Your datas will never be unreadable if your code evolved, you will allway be able to modify your datas with a text editor, unlike with pickle)
 - serialized objects take generaly less space than with pickle and juste a little 30% more if big binaries data (numpy array, bytes, bytearray)
 - only two time slower than pickle and much more faster than jsonpickle.
 - can safely load untrusted / unauthenticated sources if autorized_classes list parameter is set carfuly with stricly necessary objects (unlike pickle). 
