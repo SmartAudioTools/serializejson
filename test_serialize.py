@@ -12,6 +12,10 @@ from SmartFramework.tools.objects import deepCompare
 from SmartFramework.serialize.objects import init_arg, init_args, init_args_filtered_state, init_default, init_default_filtered_state, init_kwarg, init_kwargs, init_kwargs_filtered_state, no_init, no_init_filtered_state,no_init_slots,no_init_slots_and_dict,no_init_slots_subclass,no_init_setters
 from SmartFramework.serialize.objects import init_args_explicite_getstate, init_args_filtered_state_explicite_getstate, init_args_ghost_getinitargs, init_default_explicite_getstate, init_default_filtered_state_explicite_getstate, init_default_ghots_getstate, init_kwargs_explicite_getstate, init_kwargs_filtered_state_explicite_getstate, init_default_ghost_getinitargs
 from SmartFramework.serialize.objects import log 
+try : 
+    import numpy
+except : 
+    pass 
 if __file__.endswith("serialize/test_serialize.py"):
     full_smartFramework = True 
     from SmartFramework.serialize import serializeJson as serializejson
@@ -25,10 +29,6 @@ if __file__.endswith("serialize/test_serialize.py"):
 else :
     full_smartFramework = False
     import serializejson   
-try : 
-    import numpy
-except : 
-    pass 
 
 
 

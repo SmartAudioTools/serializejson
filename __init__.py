@@ -6,8 +6,8 @@ import numpy
 from numpy import ndarray
 import gc
 from _collections_abc import list_iterator
-from SmartFramework.serialize import serializeParameters 
-from SmartFramework.tools.objects import (
+from .SmartFramework.serialize import serializeParameters 
+from .SmartFramework.tools.objects import (
     instance,
     tupleFromInstance,
     classStrFromClass,

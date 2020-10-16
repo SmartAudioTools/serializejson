@@ -30,7 +30,7 @@ import midi
 from pybase64 import b64decode
 from numpy import frombuffer,unpackbits,uint8,ndarray,int32,int64
 from numpy import dtype as numpy_dtype
-from SmartFramework.serialize import serializeParameters
+from .serialize import serializeParameters
 import sys
 
 #defaultIntType =  numpy_dtype("int_")
