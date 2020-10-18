@@ -28,7 +28,9 @@ Do not load serializejsons from untrusted / unauthenticated sources without carf
 
 
 # Install
+```
 pip install git+https://github.com/SmartAudioTools/serializejson.git
+```
 
 # Usage 
 
