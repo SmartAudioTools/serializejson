@@ -33,16 +33,18 @@ pip install git+https://github.com/SmartAudioTools/serializejson.git
 # Usage 
 
 ## serialization with fonctions API 
-import serializejson 
+```import serializejson 
 object = set([1,2])
 dumped = serializejson.dumps(object)
 print(dumped)
 loaded = serializejson.loads(dumped)
 serializejson.dump("dumped.json",object)
 loaded = serializejson.load("dumped.json")
+```
 
-## serialization with classes based API. (quicker than fonctions API if reuse of Encoder/Decoder for serveral objects)
-import serializejson 
+## serialization with classes based API. 
+(quicker than fonctions API if reuse of Encoder/Decoder for serveral objects)
+```import serializejson 
 object1 = set([1,2])
 object2 = set([3,4])
 encoder = serializejson.Encoder()
@@ -51,6 +53,7 @@ dumped2 = encoder.dumps(object2)
 decoder = serializejson.decoder()
 loaded1 = decoder.loads(dumped1)
 loaded2 = decoder.loads(dumped2)
+```
 	
 # License
 See serializejson/LICENSE for details about the serializejson license.
