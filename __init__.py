@@ -9,7 +9,21 @@ from numpy import frombuffer,unpackbits,uint8,ndarray,int32,int64
 from numpy import dtype as numpy_dtype
 import gc
 from _collections_abc import list_iterator
+import SmartFramework
 from .SmartFramework.serialize import serializeParameters
+from .SmartFramework.tools.objects import (
+    instance,
+    tupleFromInstance,
+    classStrFromClass,
+    encodedB64,
+    classFromClassStr,
+    from_name
+)
+from .SmartFramework.tools import objects
+not_duplicates_types = set([type(None), bool, int, float, str])
+
+
+
 
 # --- FONCTIONS FOR SERIALIZED OBJECTS IN BASE 64------------------------------   
 #defaultIntType =  numpy_dtype("int_")
@@ -65,20 +79,11 @@ def numpyB64(str64,dtype = None,shapeOrLen = None):
     # str -> bytearray : copie ? 
     # bytearray -> nympy : pas de copie 
     #a.flags.writable = True # a priori dangereux , car va pouvoir modifier valeur d'une string... qui est sencé etre imutable .
-fromB64 = numpyB64 # pour pouvoir ouvrir d'anciens fichiers serializés
+#fromB64 = numpyB64 # pour pouvoir ouvrir d'anciens fichiers serializés
 
- 
-from .SmartFramework.tools.objects import (
-    instance,
-    tupleFromInstance,
-    classStrFromClass,
-    encodedB64,
-    classFromClassStr,
-    from_name
-)
-not_duplicates_types = set([type(None), bool, int, float, str])
-
-
+objects.bytearrayB64 = bytearrayB64
+objects.numpyB64 = numpyB64 
+objects.bytesB64 = bytesB64
 
 
 # --- FONCTIONS BASED API ----------------------

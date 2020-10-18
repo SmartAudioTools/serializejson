@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 from ..serialize import serializeParameters
 from ..serialize.serializeQt import tuple_from_qt_classes  # serializableQt, tuple_fromQtInstance
-from ... import numpyB64, bytesB64, bytearrayB64
+try : 
+    from .. import numpyB64, bytesB64, bytearrayB64
+except : 
+    pass
 from ..string.encodings import ascii_printables
 from ..tools.dictionnaires import remove, filtered
 from inspect import isclass
