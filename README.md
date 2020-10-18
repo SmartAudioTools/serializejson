@@ -7,7 +7,7 @@ serializejson can execute arbitrary Python code if the load parameter autorized_
 Do not load serializejsons from untrusted / unauthenticated sources without carfuly set the autorized_classes parameter. 
 
 - supports Python 3.7 (maybe lower) or greater.
-- serialize arbitrary python objects in dictionnary adding '__class__" ,and eventually "__init__" and "__state__" keys 
+- serialize arbitrary python objects in dictionnary adding '__class__" ,and eventually "__init__" and "__state__" keys. 
 - bytes and bytearray are very quikly serialized and deserializaed in base64 tanks to [pybase64](https://github.com/mayeut/pybase64).
 - call the sames objects methodes than pickle. Therefore allmost all pickable objects are serializable with serializejson without any modification.
 - serialized objects are human-readable. (Your datas will never be unreadable if your code evolved, you will allway be able to modify your datas with a text editor, unlike with pickle)
@@ -29,6 +29,28 @@ Do not load serializejsons from untrusted / unauthenticated sources without carf
 
 # Install
 pip install git+https://github.com/SmartAudioTools/serializejson.git
+
+# Usage 
+
+## serialization with fonctions API 
+import serializejson 
+object = set([1,2])
+dumped = serializejson.dumps(object)
+print(dumped)
+loaded = serializejson.loads(dumped)
+serializejson.dump("dumped.json",object)
+loaded = serializejson.load("dumped.json")
+
+## serialization with classes based API. (quicker than fonctions API if reuse of Encoder/Decoder for serveral objects)
+import serializejson 
+object1 = set([1,2])
+object2 = set([3,4])
+encoder = serializejson.Encoder()
+dumped1 = encoder.dumps(object1)
+dumped2 = encoder.dumps(object2)
+decoder = serializejson.decoder()
+loaded1 = decoder.loads(dumped1)
+loaded2 = decoder.loads(dumped2)
 	
 # License
 See serializejson/LICENSE for details about the serializejson license.
