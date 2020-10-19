@@ -14,7 +14,7 @@ Do not load serializejsons from untrusted / unauthenticated sources without carf
 - serialized objects take generaly less space than with pickle and juste a little 30% more if big binaries data (numpy array, bytes, bytearray)
 - only two time slower than pickle and much more faster than jsonpickle.
 - can safely load untrusted / unauthenticated sources if autorized_classes list parameter is set carfuly with stricly necessary objects (unlike pickle). 
-- can update an existings objects instead of overide thems (serializejson can be used to save and restore in place a complet application state).
+- can update existing objects recursively instead of overide thems (serializejson can be used to save and restore in place a complet application state).
 - filter attribut starting with "_" by default (unlike pickle).
 - numpy arrays can be serialized in list with automatique conversion in both way or in a conservative way. 
 - support circular references and serialize only once duplicated object (WARNING :not yet if the object is a list or dictionnary).
@@ -60,6 +60,30 @@ loaded1 = decoder.loads(dumped1)
 encoder.dump(object2,"dumped2.json")
 loaded2 = decoder.load("dumped2.json")
 ```
+
+##update existing object 
+```
+import serializejson 
+object1 = set([1,2])
+object2 = set([3,4])
+dumped1 = serializejson.dumps(object1)
+print(f"id {id(object2)} :  {object2}")
+serializejson.loads(dumped1,obj = object2, updatables_classes = [set])
+print(f"id {id(object2)} :  {object2}")
+```
+
+##iterative serialization and deserialization
+```
+import serializejson 
+encoder = serializejson.Encoder("my_list.json")
+for elt in range(10):
+    encoder.append(elt)
+for elt in Decorder("my_list.json")
+	print(elt)
+```
+
+
+
 	
 # License
 See serializejson/LICENSE for details about the serializejson license.
