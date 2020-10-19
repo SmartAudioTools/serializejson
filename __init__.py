@@ -9,7 +9,6 @@ from numpy import frombuffer,unpackbits,uint8,ndarray,int32,int64
 from numpy import dtype as numpy_dtype
 import gc
 from _collections_abc import list_iterator
-import SmartFramework
 from .SmartFramework.serialize import serializeParameters
 from .SmartFramework.tools.objects import (
     instance,
@@ -613,7 +612,7 @@ class Decoder(rapidjson.Decoder):
                     recognized = False
             if recognized:
                 if self._updating:
-                    if inst["__class__"] in self.updatables_classes_strs:
+                    if inst["__class__"] in self.updatableClassStrs:
                         ancestor = self.ancestors[-1]
                         self.node_has_descendants_to_recreate.add(ancestor)
                     else:
@@ -717,7 +716,7 @@ class Decoder(rapidjson.Decoder):
         # gère le cas où loaded_node est un dictionnaire ----------------------
         if isinstance(loaded_node, dict):
             obj__dict__ = None
-            if hasattr(obj, '__dict__'):
+            if hasattr(obj, '__dict__'): # A REVOIR : ne marche pas avec les slots
                 classStr = loaded_node.get('__class__')
                 if (classStr is not None) and (classStr in self.updatableClassStrs) and (classStr == classStrFromClass(obj.__class__)):
                     obj__dict__ = obj.__dict__
@@ -742,6 +741,11 @@ class Decoder(rapidjson.Decoder):
                                 value = self._exploreListToReCreateObjects(value)
                         obj__dict__[key] = value
                 return obj
+            classStr = loaded_node.get('__class__')
+            if (classStr in self.updatableClassStrs) and (classStr == classStrFromClass(obj.__class__)):
+                if classStr == "set" :
+                    obj.clear()
+                    obj.update(self._exploreDictToReCreateObjects(loaded_node))
             else : # sinon remplace 
                 return self._exploreDictToReCreateObjects(loaded_node)
             
@@ -775,7 +779,7 @@ class Decoder(rapidjson.Decoder):
                 elif isinstance(value, list):
                     loaded_node[key] = self._exploreListToReCreateObjects(value)
         if "__class__" in loaded_node:
-            return instance(**loaded_node)
+            return self._inst_from_dict(loaded_node)
         else :
             return loaded_node
 
@@ -832,9 +836,7 @@ class Decoder(rapidjson.Decoder):
 
     def __next__(self):
         try:
-            return rapidjson.Decoder.__call__(
-                self, self.fp_iter, chunk_size=self.chunk_size
-            )
+            return rapidjson.Decoder.__call__(self, self.fp_iter, chunk_size=self.chunk_size)
         except rapidjson.JSONDecodeError as error:
             self.fp_iter.close()
             if error.args[0] == "Parse error at offset 0: The document is empty.":
@@ -856,6 +858,9 @@ default_autorized_classes_strs = set(
         "SmartFramework.bytesB64",
         "SmartFramework.bytearrayB64",
         "SmartFramework.numpyB64",
+        "serializejson.bytesB64",
+        "serializejson.bytearrayB64",
+        "serializejson.numpyB64",
         "numpy.array",
         "decimal.Decimal",
         "datetime.datetime",

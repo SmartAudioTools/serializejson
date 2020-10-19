@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-
+def sort_dict(d):
+    return {key:d[key] for key in sorted(d)}
+    
 def updateWithoutOverwrite(d1,d2):
     for key in d2.keys()-d1.keys():
         d1[key]=d2[key]
