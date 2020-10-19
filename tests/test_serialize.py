@@ -28,7 +28,7 @@ if __file__.endswith("serialize/test_serialize.py"):
     app = QtWidgets.QApplication(sys.argv)
 else :
     full_smartFramework = False
-    import serializejson   
+    from SmartFramework.serialize import serializeJson as serializejson
 
 
 
