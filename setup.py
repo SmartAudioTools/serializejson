@@ -12,7 +12,7 @@ setup(
     license="MIT",
     packages=find_packages(),
     package_data={"SmartFramework": ["*.pyx", "*.pxd", "data/*.*", "data/**/*.*"]},
-    data_files=[("serialized", ["serialized/*.json","serialized/*.txt"])],
+    data_files=[("serialized", ["serialized/*.json", "serialized/*.txt"])],
     ext_modules=[],  # additional source file(s)),
     include_dirs=[],
     setup_requires=[],

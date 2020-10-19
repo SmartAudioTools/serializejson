@@ -25,10 +25,11 @@ encoder = serializejson.Encoder()
 for elt in range(10):
     encoder.append(elt,"my_list.json")
 print(serializejson.load("my_list.json"))
-"""   
-import serializejson 
+"""
+import serializejson
+
 encoder = serializejson.Encoder("my_list.json")
 for elt in range(1):
     encoder.append(elt)
 for elt in serializejson.Decoder("my_list.json"):
-	print(elt)
+    print(elt)

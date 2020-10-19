@@ -6,6 +6,7 @@ Created on Thu Oct 15 13:42:09 2020
 """
 
 logs = []
-    
-def log(string) : 
+
+
+def log(string):
     logs.append(string)
