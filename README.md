@@ -81,9 +81,6 @@ for elt in range(10):
 for elt in Decorder("my_list.json")
 	print(elt)
 ```
-
-
-
 	
 # License
 See serializejson/LICENSE for details about the serializejson license.

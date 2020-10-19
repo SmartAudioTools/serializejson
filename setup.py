@@ -2,13 +2,8 @@
 
 from setuptools import setup, find_packages
 
-
-
-
-libname = "SmartFramework"
-
 setup(
-    name=libname,
+    name="serializejson",
     version="0.0.1",
     author="Baptiste de La Gorce",
     author_email="baptiste.delagorce@smartaudiotools.com ",
