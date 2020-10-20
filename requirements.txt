@@ -6,7 +6,7 @@ numpy==1.19.2
 qtpy==1.9.0
 PyQt5==5.15.1
 apply==1.5
-python-rapidjson==0.9.1
+git+git://github.com/python-rapidjson/python-rapidjson.git 
 
 #subdependencies
 
