@@ -4,9 +4,14 @@ import sys
 from collections import deque
 import rapidjson
 from pybase64 import b64decode
-import numpy
-from numpy import frombuffer,unpackbits,uint8,ndarray,int32,int64,copy
-from numpy import dtype as numpy_dtype
+try : 
+    import numpy
+    from numpy import frombuffer,unpackbits,uint8,ndarray,int32,int64,copy
+    from numpy import dtype as numpy_dtype
+    use_numpy = True 
+except : 
+    ndarray = None
+    use_numpy = False
 import gc
 from _collections_abc import list_iterator
 from .SmartFramework.serialize import serializeParameters
@@ -870,59 +875,70 @@ default_autorized_classes_strs = set(
         "collections.deque",
     ]
 )   
-_numpy_types = set(
-    (
-            numpy.bool_,
-            numpy.int8,
-            numpy.int16,
-            numpy.int32,
-            numpy.int64,
-            numpy.uint8,
-            numpy.uint16,
-            numpy.uint32,
-            numpy.uint64,
-            numpy.float16,
-            numpy.float32,
-            numpy.float64,
+if use_numpy : 
+    _numpy_types = set(
+        (
+                numpy.bool_,
+                numpy.int8,
+                numpy.int16,
+                numpy.int32,
+                numpy.int64,
+                numpy.uint8,
+                numpy.uint16,
+                numpy.uint32,
+                numpy.uint64,
+                numpy.float16,
+                numpy.float32,
+                numpy.float64,
+        )
     )
-)
-_numpy_float_types = set(
-    (
-            numpy.float16,
-            numpy.float32,
-            numpy.float64,
+    _numpy_float_types = set(
+        (
+                numpy.float16,
+                numpy.float32,
+                numpy.float64,
+        )
     )
-)
-_numpy_int_types = set(
-    (
-            numpy.int8,
-            numpy.int16,
-            numpy.int32,
-            numpy.int64,
-            numpy.uint8,
-            numpy.uint16,
-            numpy.uint32,
-            numpy.uint64,
+    _numpy_int_types = set(
+        (
+                numpy.int8,
+                numpy.int16,
+                numpy.int32,
+                numpy.int64,
+                numpy.uint8,
+                numpy.uint16,
+                numpy.uint32,
+                numpy.uint64,
+        )
     )
-)
-_bool_int_and_float_types  = set(
-    (
-            float,
-            int,
-            bool,
-            numpy.bool_,
-            numpy.int8,
-            numpy.int16,
-            numpy.int32,
-            numpy.int64,
-            numpy.uint8,
-            numpy.uint16,
-            numpy.uint32,
-            numpy.uint64,
-            numpy.float32,
-            numpy.float64,
-    )
-)        
+    _bool_int_and_float_types  = set(
+        (
+                float,
+                int,
+                bool,
+                numpy.bool_,
+                numpy.int8,
+                numpy.int16,
+                numpy.int32,
+                numpy.int64,
+                numpy.uint8,
+                numpy.uint16,
+                numpy.uint32,
+                numpy.uint64,
+                numpy.float32,
+                numpy.float64,
+        )
+    )        
+else :
+    _numpy_types = set()
+    
+    _bool_int_and_float_types  = set(
+        (
+                float,
+                int,
+                bool,
+        )
+    )        
 NoneType = type(None)
 remove_add_braces = {"set", "frozenset", "collections.deque", "tuple"}
 
@@ -1205,15 +1221,18 @@ def _onlyOneDimNumbers(list_or_tuple):
     if len(list_or_tuple) :
         type_first = type(list_or_tuple[0])
         if type_first in _bool_int_and_float_types:
-            try:
-                # ne suffit pas à s'assurer que tout elements de la meme nature
-                # en effet numpy.array([9, numpy.array([2]), 1]) donne
-                # array([9, 2, 1]) qui a pour dtype "int32"
-                np = numpy.array(list_or_tuple, dtype=type_first) # type(list_or_tuple[0]) ne pemet pas de retourner True pour [1,math.nan] 
-                if np.ndim == 1 :
-                    return True 
-            except ValueError:
-                pass
+            if use_numpy : 
+                try:
+                    # ne suffit pas à s'assurer que tout elements de la meme nature
+                    # en effet numpy.array([9, numpy.array([2]), 1]) donne
+                    # array([9, 2, 1]) qui a pour dtype "int32"
+                    np = numpy.array(list_or_tuple, dtype=type_first) # type(list_or_tuple[0]) ne pemet pas de retourner True pour [1,math.nan] 
+                    if np.ndim == 1 :
+                        return True 
+                except ValueError:
+                    pass
+            else : 
+                return all(isinstance(i,type_first) for i in list_or_tuple)
     return False
 
 

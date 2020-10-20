@@ -1,11 +1,6 @@
 # -*- coding: utf-8 -*-
 from ..serialize import serializeParameters
 from ..serialize.serializeQt import tuple_from_qt_classes  # serializableQt, tuple_fromQtInstance
-
-try:
-    from .. import numpyB64, bytesB64, bytearrayB64
-except:
-    pass
 from ..string.encodings import ascii_printables
 from ..tools.dictionnaires import remove, filtered
 from inspect import isclass
@@ -13,13 +8,25 @@ import types
 import inspect
 from pybase64 import b64encode
 from base64 import b64decode
-import qtpy
 from apply import apply
 import copyreg
-import numpy
-from numpy import isnan
+from math import isnan
+try : 
+    import numpy
+    
+    use_numpy = True
+except : 
+    use_numpy = False
 import math
 import _ctypes
+try:
+    from .. import numpyB64, bytesB64, bytearrayB64
+except:
+    pass
+try :
+    import qtpy
+except : 
+    pass
 
 ascii_printables_ = ascii_printables  # sert juste à éviter warning
 # from SmartFramework.serialize.objects.test_serializeJons_update import *
@@ -257,7 +264,7 @@ def deepCompare(a, b, return_reason=False):
         if return_reason:
             return False, type(a), type(b)
         return False
-    if isinstance(a, numpy.ndarray):
+    if use_numpy and isinstance(a, numpy.ndarray):
 
         if a.dtype != b.dtype:
             if return_reason:

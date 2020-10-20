@@ -1,5 +1,7 @@
-import qtpy
-
+try : 
+    import qtpy
+except : 
+    pass
 
 def tuple_from_QPen(inst, classe):
     args = [inst.color()]

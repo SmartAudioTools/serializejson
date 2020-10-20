@@ -6,6 +6,7 @@ import decimal
 import pickle
 import time
 import io
+import statistics
 from time import perf_counter
 from serializejson.SmartFramework.files import joinPath, directory, removeExistingPathAndCreateFolder
 from serializejson.SmartFramework.tools.objects import deepCompare
@@ -38,10 +39,11 @@ from serializejson.SmartFramework.serialize.objects import (
 )
 from serializejson.SmartFramework.serialize.objects import log
 
-try:
+try: 
     import numpy
+    use_numpy = True 
 except:
-    pass
+    use_numpy = False
 if __file__.endswith("serialize/test_serialize.py"):
     full_smartFramework = True
     from SmartFramework.serialize import serializeJson as serializejson
@@ -177,7 +179,6 @@ objects = {
     },
     "dict": {
         "dict": {"var_False": False, "var_True": True, "va_int": 10, "_underscore": "_underscore"},
-        "hackstringbug": {"double backslach": "\\\\", "numpy_array": numpy.array([1, 2])},
     },
 }
 
@@ -185,20 +186,21 @@ objects = {
 objects["tuple"] = {key: tuple(value) for key, value in objects["list"].items()}
 objects["set"] = {key: set(value) for key, value in objects["list"].items()}
 objects["frozenset"] = {key: frozenset(value) for key, value in objects["list"].items()}
-objects["numpy"] = {key: numpy.array(value) for key, value in objects["list"].items()}
-objects["numpy"].update(
-    {
-        # recarray
-        # multidimentional
-        # masqued array ( pour avoir equivalent de nan mais pour tableau d'entier ?)
-        "in_tuple_array": (9, numpy.array([2]), 1),
-        "2D_array": numpy.array([[1, 2], [3, 4]]),
-        "int16_inf_10": numpy.arange(10, dtype=numpy.int16),
-        "int16_sup_9": numpy.arange(10, 20, dtype=numpy.int16),
-        "int16_inf_9999": numpy.arange(9990, 10000, dtype=numpy.int32),
-        "int16_sup_9999": numpy.arange(10000, 10010, dtype=numpy.int32),
-    }
-)
+if use_numpy : 
+    objects["numpy"] = {key: numpy.array(value) for key, value in objects["list"].items()}
+    objects["numpy"].update(
+        {
+            # recarray
+            # multidimentional
+            # masqued array ( pour avoir equivalent de nan mais pour tableau d'entier ?)
+            "in_tuple_array": (9, numpy.array([2]), 1),
+            "2D_array": numpy.array([[1, 2], [3, 4]]),
+            "int16_inf_10": numpy.arange(10, dtype=numpy.int16),
+            "int16_sup_9": numpy.arange(10, 20, dtype=numpy.int16),
+            "int16_inf_9999": numpy.arange(9990, 10000, dtype=numpy.int32),
+            "int16_sup_9999": numpy.arange(10000, 10010, dtype=numpy.int32),
+        }
+    )
 
 
 objects.update(
@@ -413,7 +415,7 @@ for serializerName, serializer in serializers.items():
                     t2 = perf_counter()
                     dump_logs = log.logs
                     times.append(t2 - t1)
-                time = numpy.median(times)
+                time = statistics.median(times)
                 dumps_times_by_type[serializerName][categoryName + " " + key] = round(time * 1000000, 1)
                 total_dumps_time_by_serializer[serializerName] += time * 100000
             except TypeError:
@@ -437,7 +439,7 @@ for serializerName, serializer in serializers.items():
                     load_logs = log.logs
                     # times.append(t2 - t1)
                     times.append(t2 - t1)
-                time = numpy.median(times)
+                time = statistics.median(times)
                 loads_times_by_type[serializerName][categoryName + " " + key] = round(time * 1000000, 1)
                 total_loads_time_by_serializer[serializerName] += time * 100000
             except:
