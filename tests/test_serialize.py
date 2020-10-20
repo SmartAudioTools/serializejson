@@ -7,9 +7,9 @@ import pickle
 import time
 import io
 from time import perf_counter
-from SmartFramework.files import joinPath, directory, removeExistingPathAndCreateFolder
-from SmartFramework.tools.objects import deepCompare
-from SmartFramework.serialize.objects import (
+from serializejson.SmartFramework.files import joinPath, directory, removeExistingPathAndCreateFolder
+from serializejson.SmartFramework.tools.objects import deepCompare
+from serializejson.SmartFramework.serialize.objects import (
     init_arg,
     init_args,
     init_args_filtered_state,
@@ -25,7 +25,7 @@ from SmartFramework.serialize.objects import (
     no_init_slots_subclass,
     no_init_setters,
 )
-from SmartFramework.serialize.objects import (
+from serializejson.SmartFramework.serialize.objects import (
     init_args_explicite_getstate,
     init_args_filtered_state_explicite_getstate,
     init_args_ghost_getinitargs,
@@ -36,7 +36,7 @@ from SmartFramework.serialize.objects import (
     init_kwargs_filtered_state_explicite_getstate,
     init_default_ghost_getinitargs,
 )
-from SmartFramework.serialize.objects import log
+from serializejson.SmartFramework.serialize.objects import log
 
 try:
     import numpy
@@ -55,7 +55,7 @@ if __file__.endswith("serialize/test_serialize.py"):
     app = QtWidgets.QApplication(sys.argv)
 else:
     full_smartFramework = False
-    from SmartFramework.serialize import serializeJson as serializejson
+    import serializejson
 
 
 def addInFile(path, element, encoding="utf_8_sig", newline="\n"):

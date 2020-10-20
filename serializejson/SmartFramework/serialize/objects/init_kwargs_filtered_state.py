@@ -1,5 +1,5 @@
 from apply import apply
-from SmartFramework.tools.dictionnaires import filtered
+from ...tools.dictionnaires import filtered
 
 
 from .log import log
