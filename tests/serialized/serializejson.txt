@@ -71,3 +71,928 @@ Infinity
 	"__init__": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w=="
 }
 []
+[false,true]
+[0,1]
+[2,3]
+[-2,-3]
+[
+	1,
+	NaN
+]
+[0.0,1.0]
+[2.0,3.0]
+[-2.0,-3.0]
+[1.0,NaN]
+[-Infinity,Infinity]
+[
+	false,
+	true,
+	0,
+	1
+]
+[
+	false,
+	true,
+	0.0,
+	1.0
+]
+[
+	0,
+	1,
+	0.0,
+	1.0
+]
+[
+	[
+		1,
+		2
+	],
+	[
+		3,
+		4
+	]
+]
+{
+	"_underscore": "_underscore",
+	"va_int": 10,
+	"var_False": false,
+	"var_True": true
+}
+[]
+[false,true]
+[0,1]
+[2,3]
+[-2,-3]
+[
+	1,
+	NaN
+]
+[0.0,1.0]
+[2.0,3.0]
+[-2.0,-3.0]
+[1.0,NaN]
+[-Infinity,Infinity]
+[
+	false,
+	true,
+	0,
+	1
+]
+[
+	false,
+	true,
+	0.0,
+	1.0
+]
+[
+	0,
+	1,
+	0.0,
+	1.0
+]
+{
+	"__class__": "set",
+	"__init__": []
+}
+{
+	"__class__": "set",
+	"__init__": [false,true]
+}
+{
+	"__class__": "set",
+	"__init__": [0,1]
+}
+{
+	"__class__": "set",
+	"__init__": [2,3]
+}
+{
+	"__class__": "set",
+	"__init__": [-3,-2]
+}
+{
+	"__class__": "set",
+	"__init__": [NaN,1]
+}
+{
+	"__class__": "set",
+	"__init__": [0.0,1.0]
+}
+{
+	"__class__": "set",
+	"__init__": [2.0,3.0]
+}
+{
+	"__class__": "set",
+	"__init__": [-3.0,-2.0]
+}
+{
+	"__class__": "set",
+	"__init__": [NaN,1.0]
+}
+{
+	"__class__": "set",
+	"__init__": [-Infinity,Infinity]
+}
+{
+	"__class__": "set",
+	"__init__": [false,true]
+}
+{
+	"__class__": "set",
+	"__init__": [false,true]
+}
+{
+	"__class__": "set",
+	"__init__": [0,1]
+}
+{
+	"__class__": "frozenset",
+	"__init__": []
+}
+{
+	"__class__": "frozenset",
+	"__init__": [false,true]
+}
+{
+	"__class__": "frozenset",
+	"__init__": [0,1]
+}
+{
+	"__class__": "frozenset",
+	"__init__": [2,3]
+}
+{
+	"__class__": "frozenset",
+	"__init__": [-3,-2]
+}
+{
+	"__class__": "frozenset",
+	"__init__": [NaN,1]
+}
+{
+	"__class__": "frozenset",
+	"__init__": [0.0,1.0]
+}
+{
+	"__class__": "frozenset",
+	"__init__": [2.0,3.0]
+}
+{
+	"__class__": "frozenset",
+	"__init__": [-3.0,-2.0]
+}
+{
+	"__class__": "frozenset",
+	"__init__": [NaN,1.0]
+}
+{
+	"__class__": "frozenset",
+	"__init__": [-Infinity,Infinity]
+}
+{
+	"__class__": "frozenset",
+	"__init__": [false,true]
+}
+{
+	"__class__": "frozenset",
+	"__init__": [false,true]
+}
+{
+	"__class__": "frozenset",
+	"__init__": [0,1]
+}
+{
+	"__class__": "range",
+	"__init__": [0,10,1]
+}
+{
+	"__class__": "slice",
+	"__init__": [1,10,2]
+}
+{
+	"__class__": "collections.deque",
+	"__init__": [1,2]
+}
+{
+	" ": 2,
+	"a": 1,
+	"b": 1,
+	"e": 1,
+	"i": 1,
+	"j": 1,
+	"l": 1,
+	"m": 1,
+	"n": 1,
+	"o": 2,
+	"r": 1,
+	"s": 2,
+	"u": 1
+}
+{
+	"a": 3,
+	"b": 1
+}
+{}
+{
+	"__class__": "decimal.Decimal",
+	"__init__": "0.33"
+}
+{
+	"__class__": "datetime.datetime",
+	"__init__": [2020,3,10,17,30,0,0]
+}
+{
+	"__class__": "datetime.date",
+	"__init__": {"__class__":"serializejson.bytesB64","__init__":"B+QDCg=="}
+}
+{
+	"__class__": "datetime.time",
+	"__init__": {"__class__":"serializejson.bytesB64","__init__":"ER4AAAAA"}
+}
+{
+	"__class__": "datetime.timedelta",
+	"__init__": [30,0,0]
+}
+[
+	2020,
+	5,
+	7,
+	16,
+	8,
+	55,
+	3,
+	128,
+	1
+]
+{
+	"__class__": "type",
+	"__init__": "NoneType"
+}
+{
+	"__class__": "type",
+	"__init__": "bool"
+}
+{
+	"__class__": "type",
+	"__init__": "int"
+}
+{
+	"__class__": "type",
+	"__init__": "float"
+}
+{
+	"__class__": "type",
+	"__init__": "complex"
+}
+{
+	"__class__": "type",
+	"__init__": "str"
+}
+{
+	"__class__": "type",
+	"__init__": "bytes"
+}
+{
+	"__class__": "type",
+	"__init__": "bytearray"
+}
+{
+	"__class__": "type",
+	"__init__": "list"
+}
+{
+	"__class__": "type",
+	"__init__": "dict"
+}
+{
+	"__class__": "type",
+	"__init__": "tuple"
+}
+{
+	"__class__": "type",
+	"__init__": "set"
+}
+{
+	"__class__": "type",
+	"__init__": "frozenset"
+}
+{
+	"__class__": "type",
+	"__init__": "range"
+}
+{
+	"__class__": "type",
+	"__init__": "slice"
+}
+{
+	"__class__": "type",
+	"__init__": "collections.deque"
+}
+{
+	"__class__": "type",
+	"__init__": "collections.Counter"
+}
+{
+	"__class__": "type",
+	"__init__": "collections.OrderedDict"
+}
+{
+	"__class__": "type",
+	"__init__": "collections.defaultdict"
+}
+{
+	"__class__": "type",
+	"__init__": "decimal.Decimal"
+}
+{
+	"__class__": "type",
+	"__init__": "datetime.datetime"
+}
+{
+	"__class__": "type",
+	"__init__": "datetime.date"
+}
+{
+	"__class__": "type",
+	"__init__": "datetime.time"
+}
+{
+	"__class__": "type",
+	"__init__": "datetime.timedelta"
+}
+{
+	"__class__": "type",
+	"__init__": "time.struct_time"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_arg.C_InitArg",
+	"__init__": "savedArg1"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_arg.C_InitArg_SaveDict_RestoreNothing",
+	"__init__": "savedArg1",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_arg.C_InitArg_SaveDict_RestoreDict",
+	"__init__": "savedArg1",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_arg.C_InitArg_SaveDict_SetState",
+	"__init__": "savedArg1",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_arg.C_InitArg_GetState_RestoreState",
+	"__init__": "savedArg1",
+	"keySaved": "ValueSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_arg.C_InitArg_GetState_SetStateDict",
+	"__init__": "savedArg1",
+	"keySaved": "ValueSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_arg.C_InitArg_GetState_SetState",
+	"__init__": "savedArg1",
+	"__state__": "stateSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_explicite_getstate.C_SaveArgInit",
+	"__init__": ["defaut1","savedArg2"]
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_explicite_getstate.C_SaveDict_SaveArgInit_RestoreNothing",
+	"__init__": ["defaut1","savedArg2"],
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict",
+	"__init__": ["defaut1","savedArg2"],
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_explicite_getstate.C_SaveDict_SaveArgInit_SetState",
+	"__init__": ["defaut1","savedArg2"],
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_explicite_getstate.C_GetState_SaveArgInit_RestoreState",
+	"__init__": ["defaut1","savedArg2"],
+	"keySaved": "ValueSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_explicite_getstate.C_GetState_SaveArgInit_SetState",
+	"__init__": ["defaut1","savedArg2"],
+	"__state__": "stateSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_filtered_state_explicite_getstate.C_SaveArgInit_filter",
+	"__init__": ["defaut1","savedArg2"]
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_filter_RestoreNothing",
+	"__init__": ["defaut1","savedArg2"],
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict_filter",
+	"__init__": ["defaut1","savedArg2"],
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_SetState_filter",
+	"__init__": ["defaut1","savedArg2"],
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_filtered_state.C_InitArgs_SaveFilteredDict_RestoreNothing",
+	"__init__": ["defaut1","savedArg2"],
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_filtered_state.C_InitArgs_SaveFilteredDict_RestoreDict",
+	"__init__": ["defaut1","savedArg2"],
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_filtered_state.C_InitArgs_SaveFilteredDict_SetState",
+	"__init__": ["defaut1","savedArg2"],
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_ghost_getinitargs.C_SaveArgInit_getinitargs"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_getinitargs",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_RestoreDict_getinitargs",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_SetState_getinitargs",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_ghost_getinitargs.C_GetState_SaveArgInit_RestoreState_getinitargs",
+	"keySaved": "ValueSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args_ghost_getinitargs.C_GetState_SaveArgInit_SetState_getinitargs",
+	"__state__": "stateSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args.C_InitArgs",
+	"__init__": ["defaut1","savedArg2"]
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args.C_InitArgs_SaveDict_RestoreNothing",
+	"__init__": ["defaut1","savedArg2"],
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args.C_InitArgs_SaveDict_RestoreDict",
+	"__init__": ["defaut1","savedArg2"],
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args.C_InitArgs_SaveDict_SetState",
+	"__init__": ["defaut1","savedArg2"],
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args.C_InitArgs_GetState_RestoreState",
+	"__init__": ["defaut1","savedArg2"],
+	"keySaved": "ValueSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args.C_InitArgs_GetState_SetStateDict",
+	"__init__": ["defaut1","savedArg2"],
+	"keySaved": "ValueSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_args.C_InitArgs_GetState_SetState",
+	"__init__": ["defaut1","savedArg2"],
+	"__state__": "stateSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_explicite_getstate.C_SaveNothing_DefaultInit",
+	"__init__": []
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_explicite_getstate.C_SaveDict_DefaultInit_RestoreNothing",
+	"__init__": [],
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_explicite_getstate.C_SaveDict_DefaultInit_RestoreDict",
+	"__init__": [],
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_explicite_getstate.C_SaveDict_DefaultInit_SetState",
+	"__init__": [],
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_explicite_getstate.C_GetState_DefaultInit_RestoreState",
+	"__init__": [],
+	"keySaved": "ValueSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_explicite_getstate.C_GetState_DefaultInit_SetState",
+	"__init__": [],
+	"__state__": "stateSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_filtered_state_explicite_getstate.C_SaveNothing_DefaultInit",
+	"__init__": []
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_filtered_state_explicite_getstate.C_SaveDict_DefaultInit_RestoreNothing_filter",
+	"__init__": [],
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_filtered_state_explicite_getstate.C_SaveDict_DefaultInit_RestoreDict_filter",
+	"__init__": [],
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_filtered_state_explicite_getstate.C_SaveDict_DefaultInit_SetState_filter",
+	"__init__": [],
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_filtered_state.C_InitDefault_SaveNothing",
+	"__init__": []
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_filtered_state.C_InitDefault_SaveFilteredDict_RestoreNothing",
+	"__init__": [],
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_filtered_state.C_InitDefault_SaveFilteredDict_RestoreDict",
+	"__init__": [],
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_filtered_state.C_InitDefault_SaveFilteredDict_SetState",
+	"__init__": [],
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_ghost_getinitargs.C_SaveNothing_DefaultInit_getinitargs"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_RestoreNothing_getinitargs",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_RestoreDict_getinitargs",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_SetState_getinitargs",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_ghost_getinitargs.C_GetState_DefaultInit_RestoreState_getinitargs",
+	"keySaved": "ValueSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_ghost_getinitargs.C_GetState_DefaultInit_SetState_getinitargs",
+	"__state__": "stateSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_ghots_getstate.C_SaveNothing_DefaultInit",
+	"__init__": []
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_ghots_getstate.C_GetState_DefaultInit_RestoreState",
+	"__init__": [],
+	"keySaved": "ValueSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default_ghots_getstate.C_GetState_DefaultInit_SetState",
+	"__init__": [],
+	"__state__": "stateSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default.C_InitDefault_SaveNothing",
+	"__init__": []
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default.C_InitDefault_SaveDict_RestoreNothing",
+	"__init__": [],
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default.C_InitDefault_SaveDict_RestoreDict",
+	"__init__": [],
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default.C_InitDefault_SaveDict_SetState",
+	"__init__": [],
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default.C_InitDefault_GetState_RestoreState",
+	"__init__": [],
+	"keySaved": "ValueSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_default.C_InitDefault_GetState_SetState",
+	"__init__": [],
+	"__state__": "stateSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwarg.C_SaveArgInit",
+	"__init__": {"par2":"savedArg2"}
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwarg.C_SaveDict_SaveArgInit_RestoreNothing",
+	"__init__": {"par2":"savedArg2"},
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwarg.C_SaveDict_SaveArgInit_RestoreDict",
+	"__init__": {"par2":"savedArg2"},
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwarg.C_SaveDict_SaveArgInit_SetState",
+	"__init__": {"par2":"savedArg2"},
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwarg.C_GetState_SaveArgInit_RestoreState",
+	"__init__": {"par2":"savedArg2"},
+	"keySaved": "ValueSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwarg.C_GetState_SaveArgInit_SetState",
+	"__init__": {"par2":"savedArg2"},
+	"__state__": "stateSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs_explicite_getstate.C_SaveArgInit",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"}
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_RestoreNothing",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_SetState",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs_explicite_getstate.C_GetState_SaveArgInit_RestoreState",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"keySaved": "ValueSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs_explicite_getstate.C_GetState_SaveArgInit_SetState",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__state__": "stateSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs_filtered_state_explicite_getstate.C_SaveArgInit_filter",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"}
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_filter_RestoreNothing",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict_filter",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_SetState_filter",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs_filtered_state.C_InitKwargs_filter",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"}
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs_filtered_state.C_InitKwargs_SaveFilteredDict_RestoreNothing",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs_filtered_state.C_InitKwargs_SaveFilteredDict_RestoreDict",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs_filtered_state.C__InitKwargs_SaveFilteredDict_SetState",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs.C_InitKwargs",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"}
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs.C_InitKwargs_SaveDict_RestoreNothing",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs.C_InitKwargs_SaveDict_RestoreDict",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs.C_InitKwargs_SaveDict_SetState",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs.C_InitKwargs_GetState_RestoreState",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"keySaved": "ValueSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.init_kwargs.C_InitKwargs_GetState_SetState",
+	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__state__": "stateSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init.C_New_SaveNothing"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init.C_New_SaveDict_RestoreNothing",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init.C_New_SaveDict_RestoreDict",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init.C_New_SaveDict_SetState",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init.C_New_GetState_RestoreState",
+	"keySaved": "ValueSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init.C_New_GetState_SetState",
+	"__state__": "stateSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_filtered_state.C_New_SaveNothing"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_filtered_state.C_New_SaveFilteredDict_RestoreNothing",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_filtered_state.C_New_SaveFilteredDict_RestoreDict",
+	"__init__": [],
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_filtered_state.C_New_SaveFilteredDict_SetState",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_slots.C_New_SaveNothing_slots"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_slots.C_New_SaveDict_RestoreNothing_slots",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_slots.C_New_SaveDict_RestoreDict_slots",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_slots.C_New_SaveDict_SetState_slots",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_slots.C_New_GetState_SetState_slots",
+	"__state__": "stateSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_slots_and_dict.C_New_SaveNothing_slots_and_dict"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_slots_and_dict.C_New_SaveDict_RestoreNothing_slots_and_dict",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_slots_and_dict.C_New_SaveDict_RestoreDict_slots_and_dict",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_slots_and_dict.C_New_SaveDict_SetState_slots_and_dict",
+	"_par1": "defaut1",
+	"par2": "defaut2"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_slots_and_dict.C_New_GetState_SetState_slots_and_dict",
+	"__state__": "stateSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_slots_subclass.C_New_SaveNothing_subclass"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_slots_subclass.C_New_SaveDict_RestoreNothing_subclass",
+	"_par1": "defaut1",
+	"par2": "defaut2",
+	"par3": "default3"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_slots_subclass.C_New_SaveDict_RestoreDict_subclass",
+	"_par1": "defaut1",
+	"par2": "defaut2",
+	"par3": "default3"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_slots_subclass.C_New_SaveDict_SetState_subclass",
+	"_par1": "defaut1",
+	"par2": "defaut2",
+	"par3": "default3"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_slots_subclass.C_New_GetState_SetState_subclass",
+	"__state__": "stateSaved"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_setters.C_New_SaveDict_RestoreDict_setters",
+	"a": "a",
+	"b": "b",
+	"c": "c",
+	"d": "d",
+	"e": "e",
+	"f": "f"
+}
+{
+	"__class__": "serializejson.SmartFramework.serialize.objects.no_init_setters.C_New_SaveDict_SetState_setters",
+	"a": "a",
+	"b": "b",
+	"c": "c",
+	"d": "d",
+	"e": "e",
+	"f": "f"
+}
