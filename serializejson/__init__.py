@@ -311,10 +311,10 @@ class Encoder(rapidjson.Encoder):
         if self.single_line_list_numbers:
             for key, value in dic.items():
                 if (
-                    key != "__class__" and
-                    key != "__init__" and
-                    type(value) in (list, tuple) and
-                    _onlyOneDimNumbers(value)
+                    key != "__class__"
+                    and key != "__init__"
+                    and type(value) in (list, tuple)
+                    and _onlyOneDimNumbers(value)
                 ):
 
                     dic[key] = rapidjson.RawJSON(
@@ -365,9 +365,9 @@ class Encoder(rapidjson.Encoder):
                 elif len(initArgs) == 1:
                     type_first = type(initArgs[0])
                     if (
-                        type_first not in (tuple, list) and
-                        not (self.numpy_array_to_list and type_first is numpy.ndarray) and
-                        ((type_first is not dict) or "__class__" in initArgs[0])
+                        type_first not in (tuple, list)
+                        and not (self.numpy_array_to_list and type_first is numpy.ndarray)
+                        and ((type_first is not dict) or "__class__" in initArgs[0])
                     ):
                         dictionnaire["__init__"] = initArgs[0]
                     else:
@@ -681,10 +681,10 @@ class Decoder(rapidjson.Decoder):
             if class_str in remove_add_braces:
                 inst["__init__"] = (inst["__init__"],)
             if (
-                self.numpy_array_from_list and
-                "__init__" in inst and
-                isinstance(inst["__init__"], numpy.ndarray) and
-                id(inst["__init__"]) in self.converted_numpy_array_from_lists
+                self.numpy_array_from_list
+                and "__init__" in inst
+                and isinstance(inst["__init__"], numpy.ndarray)
+                and id(inst["__init__"]) in self.converted_numpy_array_from_lists
             ):
                 inst["__init__"] = inst["__init__"].tolist()
             return instance(**inst)
@@ -698,9 +698,9 @@ class Decoder(rapidjson.Decoder):
             if hasattr(obj, "__dict__"):  # A REVOIR : ne marche pas avec les slots
                 classStr = loaded_node.get("__class__")
                 if (
-                    (classStr is not None) and
-                    (classStr in self.updatableClassStrs) and
-                    (classStr == classStrFromClass(obj.__class__))
+                    (classStr is not None)
+                    and (classStr in self.updatableClassStrs)
+                    and (classStr == classStrFromClass(obj.__class__))
                 ):
                     obj__dict__ = obj.__dict__
             elif isinstance(obj, dict) and ("dict" in self.updatableClassStrs):
@@ -737,7 +737,7 @@ class Decoder(rapidjson.Decoder):
             if isinstance(obj, list) and ("list" in self.updatableClassStrs):
                 # update dans le cas où l'objet pré-existant est une liste
                 len_obj = len(obj)
-                del obj[len(loaded_node):]
+                del obj[len(loaded_node) :]
                 for i, value in enumerate(loaded_node):
                     if i < len_obj and isinstance(value, (list, dict)):
                         obj[i] = self._exploreToUpdate(obj[i], value)
@@ -1173,7 +1173,7 @@ class _json_object_file_iterator(io.FileIO):
                     self.in_squares = False
                     self.in_simple = False
                     self.in_object = False
-                    return s[in_chunk_start: i + 1]
+                    return s[in_chunk_start : i + 1]
             elif not in_object:
                 if ch in separators:
                     in_chunk_start = i + 1
