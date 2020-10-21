@@ -15,6 +15,7 @@ setup(
     author_email="baptiste.delagorce@smartaudiotools.com",
     url="https://github.com/SmartAudioTools/serializejson",
     license="MIT",
+    keywords="pickle json serialize dump dumps rapidjson base64",
     packages=find_packages(),
     install_requires=[
         "pybase64",
