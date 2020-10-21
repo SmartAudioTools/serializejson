@@ -11,21 +11,23 @@ from base64 import b64decode
 from apply import apply
 import copyreg
 from math import isnan
-try : 
+
+try:
     import numpy
-    
+
     use_numpy = True
-except : 
+except:
     use_numpy = False
 import math
 import _ctypes
+
 try:
     from .. import numpyB64, bytesB64, bytearrayB64
 except:
     pass
-try :
+try:
     import qtpy
-except : 
+except:
     pass
 
 ascii_printables_ = ascii_printables  # sert juste à éviter warning

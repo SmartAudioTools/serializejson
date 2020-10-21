@@ -39,9 +39,10 @@ from serializejson.SmartFramework.serialize.objects import (
 )
 from serializejson.SmartFramework.serialize.objects import log
 
-try: 
+try:
     import numpy
-    use_numpy = True 
+
+    use_numpy = True
 except:
     use_numpy = False
 if __file__.endswith("serialize/test_serialize.py"):
@@ -186,7 +187,7 @@ objects = {
 objects["tuple"] = {key: tuple(value) for key, value in objects["list"].items()}
 objects["set"] = {key: set(value) for key, value in objects["list"].items()}
 objects["frozenset"] = {key: frozenset(value) for key, value in objects["list"].items()}
-if use_numpy : 
+if use_numpy:
     objects["numpy"] = {key: numpy.array(value) for key, value in objects["list"].items()}
     objects["numpy"].update(
         {
