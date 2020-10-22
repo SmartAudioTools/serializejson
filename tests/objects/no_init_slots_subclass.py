@@ -55,7 +55,9 @@ class C_New_SaveDict_RestoreDict_subclass(BaseClass):
         self.par3 = par3
 
 
-class C_New_SaveDict_SetState_subclass(BaseClass):  # sert a pouvoir executer code spécifique a la restauration
+class C_New_SaveDict_SetState_subclass(
+    BaseClass
+):  # sert a pouvoir executer code spécifique a la restauration
     __slots__ = ("par3",)
 
     def __init__(self, par1="defaut1", par2="defaut2", par3="default3"):

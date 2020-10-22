@@ -1,5 +1,5 @@
 from apply import apply
-from serializejson import filtered
+from SmartFramework.tools.dictionnaires import filtered
 
 
 from .log import log

@@ -118,150 +118,6 @@ Infinity
     "var_False": false,
     "var_True": true
 }
-[]
-[false,true]
-[0,1]
-[2,3]
-[-2,-3]
-[
-    1,
-    NaN
-]
-[0.0,1.0]
-[2.0,3.0]
-[-2.0,-3.0]
-[1.0,NaN]
-[-Infinity,Infinity]
-[
-    false,
-    true,
-    0,
-    1
-]
-[
-    false,
-    true,
-    0.0,
-    1.0
-]
-[
-    0,
-    1,
-    0.0,
-    1.0
-]
-{
-    "__class__": "set",
-    "__init__": []
-}
-{
-    "__class__": "set",
-    "__init__": [false,true]
-}
-{
-    "__class__": "set",
-    "__init__": [0,1]
-}
-{
-    "__class__": "set",
-    "__init__": [2,3]
-}
-{
-    "__class__": "set",
-    "__init__": [-3,-2]
-}
-{
-    "__class__": "set",
-    "__init__": [NaN,1]
-}
-{
-    "__class__": "set",
-    "__init__": [0.0,1.0]
-}
-{
-    "__class__": "set",
-    "__init__": [2.0,3.0]
-}
-{
-    "__class__": "set",
-    "__init__": [-3.0,-2.0]
-}
-{
-    "__class__": "set",
-    "__init__": [NaN,1.0]
-}
-{
-    "__class__": "set",
-    "__init__": [-Infinity,Infinity]
-}
-{
-    "__class__": "set",
-    "__init__": [false,true]
-}
-{
-    "__class__": "set",
-    "__init__": [false,true]
-}
-{
-    "__class__": "set",
-    "__init__": [0,1]
-}
-{
-    "__class__": "frozenset",
-    "__init__": []
-}
-{
-    "__class__": "frozenset",
-    "__init__": [false,true]
-}
-{
-    "__class__": "frozenset",
-    "__init__": [0,1]
-}
-{
-    "__class__": "frozenset",
-    "__init__": [2,3]
-}
-{
-    "__class__": "frozenset",
-    "__init__": [-3,-2]
-}
-{
-    "__class__": "frozenset",
-    "__init__": [NaN,1]
-}
-{
-    "__class__": "frozenset",
-    "__init__": [0.0,1.0]
-}
-{
-    "__class__": "frozenset",
-    "__init__": [2.0,3.0]
-}
-{
-    "__class__": "frozenset",
-    "__init__": [-3.0,-2.0]
-}
-{
-    "__class__": "frozenset",
-    "__init__": [NaN,1.0]
-}
-{
-    "__class__": "frozenset",
-    "__init__": [-Infinity,Infinity]
-}
-{
-    "__class__": "frozenset",
-    "__init__": [false,true]
-}
-{
-    "__class__": "frozenset",
-    "__init__": [false,true]
-}
-{
-    "__class__": "frozenset",
-    "__init__": [0,1]
-}
 {
     "__class__": "range",
     "__init__": [0,10,1]
@@ -424,6 +280,150 @@ Infinity
 {
     "__class__": "type",
     "__init__": "time.struct_time"
+}
+[]
+[false,true]
+[0,1]
+[2,3]
+[-2,-3]
+[
+    1,
+    NaN
+]
+[0.0,1.0]
+[2.0,3.0]
+[-2.0,-3.0]
+[1.0,NaN]
+[-Infinity,Infinity]
+[
+    false,
+    true,
+    0,
+    1
+]
+[
+    false,
+    true,
+    0.0,
+    1.0
+]
+[
+    0,
+    1,
+    0.0,
+    1.0
+]
+{
+    "__class__": "set",
+    "__init__": []
+}
+{
+    "__class__": "set",
+    "__init__": [false,true]
+}
+{
+    "__class__": "set",
+    "__init__": [0,1]
+}
+{
+    "__class__": "set",
+    "__init__": [2,3]
+}
+{
+    "__class__": "set",
+    "__init__": [-3,-2]
+}
+{
+    "__class__": "set",
+    "__init__": [NaN,1]
+}
+{
+    "__class__": "set",
+    "__init__": [0.0,1.0]
+}
+{
+    "__class__": "set",
+    "__init__": [2.0,3.0]
+}
+{
+    "__class__": "set",
+    "__init__": [-3.0,-2.0]
+}
+{
+    "__class__": "set",
+    "__init__": [NaN,1.0]
+}
+{
+    "__class__": "set",
+    "__init__": [-Infinity,Infinity]
+}
+{
+    "__class__": "set",
+    "__init__": [false,true]
+}
+{
+    "__class__": "set",
+    "__init__": [false,true]
+}
+{
+    "__class__": "set",
+    "__init__": [0,1]
+}
+{
+    "__class__": "frozenset",
+    "__init__": []
+}
+{
+    "__class__": "frozenset",
+    "__init__": [false,true]
+}
+{
+    "__class__": "frozenset",
+    "__init__": [0,1]
+}
+{
+    "__class__": "frozenset",
+    "__init__": [2,3]
+}
+{
+    "__class__": "frozenset",
+    "__init__": [-3,-2]
+}
+{
+    "__class__": "frozenset",
+    "__init__": [NaN,1]
+}
+{
+    "__class__": "frozenset",
+    "__init__": [0.0,1.0]
+}
+{
+    "__class__": "frozenset",
+    "__init__": [2.0,3.0]
+}
+{
+    "__class__": "frozenset",
+    "__init__": [-3.0,-2.0]
+}
+{
+    "__class__": "frozenset",
+    "__init__": [NaN,1.0]
+}
+{
+    "__class__": "frozenset",
+    "__init__": [-Infinity,Infinity]
+}
+{
+    "__class__": "frozenset",
+    "__init__": [false,true]
+}
+{
+    "__class__": "frozenset",
+    "__init__": [false,true]
+}
+{
+    "__class__": "frozenset",
+    "__init__": [0,1]
 }
 {
     "__class__": "tests.objects.init_arg.C_InitArg",

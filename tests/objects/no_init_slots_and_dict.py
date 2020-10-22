@@ -55,7 +55,11 @@ class C_New_SaveDict_SetState_slots_and_dict:  # sert a pouvoir executer code sp
             state, tuple
         ):  # pour compatibilité pickle, qui passe un tuple avec (etat du __dict__ , etat des slots sous forme de dictionnaire)
             self.__dict__.update(state[0])
-            log("        __setstate__(" + repr(sort_dict({**state[0], **state[1]})) + ")")
+            log(
+                "        __setstate__("
+                + repr(sort_dict({**state[0], **state[1]}))
+                + ")"
+            )
             state = state[1]
         else:
             log("        __setstate__(" + repr(sort_dict(state)) + ")")

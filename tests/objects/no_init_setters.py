@@ -5,7 +5,21 @@ from .log import log
 
 class C_New_SaveDict_RestoreDict_setters:
     def __init__(self, a="a", b="b", c="c", d="d", e="e", f="f"):
-        log("        __init__(" + a + "," + b + "," + c + "," + d + "," + e + "," + f + ")")
+        log(
+            "        __init__("
+            + a
+            + ","
+            + b
+            + ","
+            + c
+            + ","
+            + d
+            + ","
+            + e
+            + ","
+            + f
+            + ")"
+        )
         self.a = a
         self.b = b
         self.c = c
@@ -38,7 +52,21 @@ class C_New_SaveDict_RestoreDict_setters:
 
 class C_New_SaveDict_SetState_setters:  # sert a pouvoir executer code spécifique a la restauration
     def __init__(self, a="a", b="b", c="c", d="d", e="e", f="f"):
-        log("        __init__(" + a + "," + b + "," + c + "," + d + "," + e + "," + f + ")")
+        log(
+            "        __init__("
+            + a
+            + ","
+            + b
+            + ","
+            + c
+            + ","
+            + d
+            + ","
+            + e
+            + ","
+            + f
+            + ")"
+        )
         self.a = a
         self.b = b
         self.c = c
