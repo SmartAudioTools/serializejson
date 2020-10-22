@@ -14,7 +14,8 @@ Do not load serializejsons from untrusted / unauthenticated sources without carf
 - calls the same objects methods as pickle. Therefore almost all pickable objects are serializable with serializejson without any modification.
 - serialized objects are human-readable. Your datas will never be unreadable if your code evolved, you will always be able to modify your datas with a text editor, unlike with pickle.
 - serialized objects take generally less space than with pickle and just a little 30% more if big binaries data (numpy array, bytes, bytearray)
-- only two times slower than pickle and much faster than jsonpickle.- can safely load untrusted / unauthenticated sources if autorized_classes list parameter is set carefully with strictly necessary objects (unlike pickle).
+- only two times slower than pickle and much faster than jsonpickle.
+- can safely load untrusted / unauthenticated sources if autorized_classes list parameter is set carefully with strictly necessary objects (unlike pickle).
 - can update existing objects recursively instead of override them (serializejson can be used to save and restore in place a complete application state).
 - filters attribute starting with "_" by default (unlike pickle).
 - numpy arrays can be serialized in list with automatique conversion in both ways or in a conservative way. 
@@ -22,7 +23,8 @@ Do not load serializejsons from untrusted / unauthenticated sources without carf
 - try to call attribute setters and properties setters when loading if set_attributs  = True.
 - accepts json with comment (// and /* */).
 - can automatically recognize objects in json from keys names and recreate them, without the need of "\_\_class\_\_" key, if passed in recognized_classes. It allows loading foreign json serialized with others libraries who only save objects attributes. 
-- dumps and loads support string path. - can iteratively encode (with append) and decode (with iterator) a list in json, saving memory space during the process of serialization et deserialization.
+- dumps and loads support string path. 
+- can iteratively encode (with append) and decode (with iterator) a list in json, saving memory space during the process of serialization et deserialization.
 - WARNING : tuple, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized 
 
 
