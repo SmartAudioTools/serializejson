@@ -18,7 +18,7 @@ def version():
 def long_description():
     with open(os.path.join(__location__, "README.md")) as readme_file:
         readme_str = readme_file.read()
-    with open(os.path.join(__location__, "README.md")) as changelog_file:
+    with open(os.path.join(__location__, "CHANGELOG.md")) as changelog_file:
         changelog_str = changelog_file.read()
     return readme_str + '\n# History\n'  + changelog_str
         
@@ -26,7 +26,7 @@ if __name__ == '__main__':
     setuptools.setup(
         name="serializejson",
         version=version(),
-        description="A python library for fast serialization (and deserialization) of complex Python objects into JSON.",
+        description="A python library for fast serialization and deserialization of complex Python objects into JSON.",
         long_description=long_description(),  
         long_description_content_type="text/markdown",
         author="Baptiste de La Gorce",
