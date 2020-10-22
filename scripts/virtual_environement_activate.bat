@@ -1,1 +1,2 @@
-%~dp0/python_venv/Scripts/activate
+cd..
+./python_venv/Scripts/activate

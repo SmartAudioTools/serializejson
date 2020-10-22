@@ -4,6 +4,7 @@ from collections import deque
 import rapidjson
 try:
     import numpy
+    from numpy import ndarray
     use_numpy = True
 except:
     ndarray = None
@@ -19,7 +20,11 @@ from .SmartFramework.tools.objects import (
     classFromClassStr,
     from_name,
 )
-
+try :
+    rapidjson.dumps(True,indent = "\t")
+    default_indent = "\t"
+except : 
+    default_indent = 4 # "\t"
 __all__ = ['dumps','dump','loads','load','append','Encoder','Decoder']
 
 
@@ -56,7 +61,7 @@ def load(fp, *, obj=None, iter=False, **argsDict):
         return Decoder(**argsDict).load(fp=fp, obj=obj)
 
 
-def append(obj, fp=None, *, indent="\t", **argsDict):
+def append(obj, fp=None, *, indent=default_indent, **argsDict):
     fp = _open_for_append(fp, indent)
     Encoder(**argsDict)(obj, fp)
     _close_for_append(fp, indent)
@@ -75,7 +80,7 @@ class Encoder(rapidjson.Encoder):
         attributs_filter="_",
         bytes_to_string=False,
         ensure_ascii=False,
-        indent="\t",
+        indent=default_indent,
         numpy_array_dumped_base64=True,
         numpy_array_readable_max_size=0,
         numpy_array_to_list=False,
@@ -145,7 +150,7 @@ class Encoder(rapidjson.Encoder):
             self.single_line_list_numbers = single_line_list_numbers
             self.single_line_init = single_line_init
         self.numpy_types_to_python_types = numpy_types_to_python_types
-        self.indent = indent
+        #self.indent = indent
         self.dumped_classes = set()
         self.chunk_size = chunk_size
         self.add_id = add_id
@@ -227,7 +232,7 @@ class Encoder(rapidjson.Encoder):
                         )
                     ),
                 }
-        elif type_inst is ndarray and self.numpy_array_to_list:
+        elif use_numpy and type_inst is ndarray and self.numpy_array_to_list:
             if not self.single_line_list_numbers:
                 return inst.tolist()
             if inst.ndim == 1:

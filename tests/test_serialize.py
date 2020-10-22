@@ -503,10 +503,10 @@ for serializerName, serializer in serializers.items():
         print("  all is ok !")
 
 serializejson.dump(
-    dumps_times_by_type, directory(__file__) + "/serialized/dumps_times.json", indent="\t", sort_keys=False
+    dumps_times_by_type, directory(__file__) + "/serialized/dumps_times.json", sort_keys=False
 )
 serializejson.dump(
-    loads_times_by_type, directory(__file__) + "/serialized/loads_times.json", indent="\t", sort_keys=False
+    loads_times_by_type, directory(__file__) + "/serialized/loads_times.json", sort_keys=False
 )
 
 print(
