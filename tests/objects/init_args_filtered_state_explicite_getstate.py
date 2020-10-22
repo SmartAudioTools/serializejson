@@ -1,25 +1,39 @@
-from ...tools.dictionnaires import filtered
+from serializejson import filtered
+
+
 from .log import log
 
-#  without INIT -----------------
+# with INIT -----------------
 
 
-class C_New_SaveNothing:
+class C_SaveArgInit_filter:
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
         self._par1 = par1
         self.par2 = par2
+
+    def __reduce__(self):
+        initArgs = (self._par1, "savedArg2")
+        reduce = self.__class__, initArgs, self.__getstate__()
+        log("        __reduce__ : " + repr(reduce))
+        return reduce
 
     def __getstate__(self):
         log("        __getstate__ : {}")
         return {}
 
 
-class C_New_SaveFilteredDict_RestoreNothing:  # ne sert pas à grand chose , sauf si on veut se garder la posibilitée de restaurer l'state plus tard
+class C_SaveDict_SaveArgInit_filter_RestoreNothing:  # ne sert pas à grand chose , sauf si on veut se garder la posibilitée de restaurer l'state plus tard
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
         self._par1 = par1
         self.par2 = par2
+
+    def __reduce__(self):
+        initArgs = (self._par1, "savedArg2")
+        reduce = self.__class__, initArgs, self.__getstate__()
+        log("        __reduce__ : " + repr(reduce))
+        return reduce
 
     def __getstate__(self):
         state = filtered(self.__dict__)
@@ -31,14 +45,15 @@ class C_New_SaveFilteredDict_RestoreNothing:  # ne sert pas à grand chose , sau
         pass
 
 
-class C_New_SaveFilteredDict_RestoreDict:
+class C_SaveDict_SaveArgInit_RestoreDict_filter:
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
         self._par1 = par1
         self.par2 = par2
 
     def __reduce__(self):
-        reduce = self.__class__, (), self.__getstate__()
+        initArgs = (self._par1, "savedArg2")
+        reduce = self.__class__, initArgs, self.__getstate__()
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
@@ -48,11 +63,17 @@ class C_New_SaveFilteredDict_RestoreDict:
         return state
 
 
-class C_New_SaveFilteredDict_SetState:  # sert a pouvoir executer code spécifique a la restauration
+class C_SaveDict_SaveArgInit_SetState_filter:  # sert a pouvoir executer code specifique en plus du init a la restauration et choisir quoi restaurer
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
         self._par1 = par1
         self.par2 = par2
+
+    def __reduce__(self):
+        initArgs = (self._par1, "savedArg2")
+        reduce = self.__class__, initArgs, self.__getstate__()
+        log("        __reduce__ : " + repr(reduce))
+        return reduce
 
     def __getstate__(self):
         state = filtered(self.__dict__)

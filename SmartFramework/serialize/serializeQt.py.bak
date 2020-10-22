@@ -18,9 +18,7 @@ def tuple_from_QPen(inst, classe):
 def tuple_from_QBrush(inst, classe):
     args = [inst.color()]
     if inst.style() != 1:
-        args.append(
-            inst.style()
-        )  # pour l'instant ne sais pas comment serialiser une enumeration Qt.SolidLine ect...
+        args.append(inst.style())  # pour l'instant ne sais pas comment serialiser une enumeration Qt.SolidLine ect...
     return classe, tuple(args)
 
 

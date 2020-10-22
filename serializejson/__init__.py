@@ -27,6 +27,7 @@ import sys
 from pybase64 import b64decode
 from SmartFramework.serialize import serializeParameters
 from SmartFramework.tools import objects
+from SmartFramework.tools.dictionnaires import filtered
 from .serializejson import dumps,dump,loads,load,append,Encoder,Decoder
 try:
     from numpy import frombuffer, unpackbits, uint8, ndarray, int32, int64, copy

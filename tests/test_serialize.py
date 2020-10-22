@@ -10,7 +10,7 @@ import statistics
 from time import perf_counter
 from SmartFramework.files import joinPath, directory, removeExistingPathAndCreateFolder
 from SmartFramework.tools.objects import deepCompare
-from SmartFramework.serialize.objects import (
+from .objects import (
     init_arg,
     init_args,
     init_args_filtered_state,
@@ -26,7 +26,7 @@ from SmartFramework.serialize.objects import (
     no_init_slots_subclass,
     no_init_setters,
 )
-from SmartFramework.serialize.objects import (
+from .objects import (
     init_args_explicite_getstate,
     init_args_filtered_state_explicite_getstate,
     init_args_ghost_getinitargs,
@@ -37,7 +37,7 @@ from SmartFramework.serialize.objects import (
     init_kwargs_filtered_state_explicite_getstate,
     init_default_ghost_getinitargs,
 )
-from SmartFramework.serialize.objects import log
+from .objects import log
 
 try:
     import numpy

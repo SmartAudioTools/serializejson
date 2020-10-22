@@ -1,4 +1,4 @@
-from ...tools.dictionnaires import filtered
+from serializejson import filtered
 
 
 from .log import log

@@ -84,9 +84,24 @@ Infinity
 [-2.0,-3.0]
 [1.0,NaN]
 [-Infinity,Infinity]
-[false,true,0,1]
-[false,true,0.0,1.0]
-[0,1,0.0,1.0]
+[
+    false,
+    true,
+    0,
+    1
+]
+[
+    false,
+    true,
+    0.0,
+    1.0
+]
+[
+    0,
+    1,
+    0.0,
+    1.0
+]
 [
     [
         1,
@@ -117,9 +132,24 @@ Infinity
 [-2.0,-3.0]
 [1.0,NaN]
 [-Infinity,Infinity]
-[false,true,0,1]
-[false,true,0.0,1.0]
-[0,1,0.0,1.0]
+[
+    false,
+    true,
+    0,
+    1
+]
+[
+    false,
+    true,
+    0.0,
+    1.0
+]
+[
+    0,
+    1,
+    0.0,
+    1.0
+]
 {
     "__class__": "set",
     "__init__": []
@@ -231,83 +261,6 @@ Infinity
 {
     "__class__": "frozenset",
     "__init__": [0,1]
-}
-{
-    "__class__": "numpy.array",
-    "__init__": [[],"float64"]
-}
-{
-    "__class__": "serializejson.numpyB64",
-    "__init__": ["QA==","bool",2]
-}
-{
-    "__class__": "numpy.array",
-    "__init__": [[0,1],"int32"]
-}
-{
-    "__class__": "numpy.array",
-    "__init__": [[2,3],"int32"]
-}
-{
-    "__class__": "numpy.array",
-    "__init__": [[-2,-3],"int32"]
-}
-{
-    "__class__": "serializejson.numpyB64",
-    "__init__": ["AAAAAAAA8D8AAAAAAAD4fw==","float64"]
-}
-{
-    "__class__": "serializejson.numpyB64",
-    "__init__": ["AAAAAAAAAAAAAAAAAADwPw==","float64"]
-}
-{
-    "__class__": "serializejson.numpyB64",
-    "__init__": ["AAAAAAAAAEAAAAAAAAAIQA==","float64"]
-}
-{
-    "__class__": "serializejson.numpyB64",
-    "__init__": ["AAAAAAAAAMAAAAAAAAAIwA==","float64"]
-}
-{
-    "__class__": "serializejson.numpyB64",
-    "__init__": ["AAAAAAAA8D8AAAAAAAD4fw==","float64"]
-}
-{
-    "__class__": "serializejson.numpyB64",
-    "__init__": ["AAAAAAAA8P8AAAAAAADwfw==","float64"]
-}
-{
-    "__class__": "numpy.array",
-    "__init__": [[0,1,0,1],"int32"]
-}
-{
-    "__class__": "serializejson.numpyB64",
-    "__init__": ["AAAAAAAAAAAAAAAAAADwPwAAAAAAAAAAAAAAAAAA8D8=","float64"]
-}
-{
-    "__class__": "serializejson.numpyB64",
-    "__init__": ["AAAAAAAAAAAAAAAAAADwPwAAAAAAAAAAAAAAAAAA8D8=","float64"]
-}
-[9,{"__class__":"numpy.array","__init__":[[2],"int32"]},1]
-{
-    "__class__": "numpy.array",
-    "__init__": [[[1,2],[3,4]],"int32"]
-}
-{
-    "__class__": "numpy.array",
-    "__init__": [[0,1,2,3,4,5,6,7,8,9],"int16"]
-}
-{
-    "__class__": "serializejson.numpyB64",
-    "__init__": ["CgALAAwADQAOAA8AEAARABIAEwA=","int16"]
-}
-{
-    "__class__": "numpy.array",
-    "__init__": [[9990,9991,9992,9993,9994,9995,9996,9997,9998,9999],"int32"]
-}
-{
-    "__class__": "serializejson.numpyB64",
-    "__init__": ["ECcAABEnAAASJwAAEycAABQnAAAVJwAAFicAABcnAAAYJwAAGScAAA==","int32"]
 }
 {
     "__class__": "range",
@@ -473,560 +426,560 @@ Infinity
     "__init__": "time.struct_time"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_arg.C_InitArg",
+    "__class__": "tests.objects.init_arg.C_InitArg",
     "__init__": "savedArg1"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_arg.C_InitArg_SaveDict_RestoreNothing",
+    "__class__": "tests.objects.init_arg.C_InitArg_SaveDict_RestoreNothing",
     "__init__": "savedArg1",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_arg.C_InitArg_SaveDict_RestoreDict",
+    "__class__": "tests.objects.init_arg.C_InitArg_SaveDict_RestoreDict",
     "__init__": "savedArg1",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_arg.C_InitArg_SaveDict_SetState",
+    "__class__": "tests.objects.init_arg.C_InitArg_SaveDict_SetState",
     "__init__": "savedArg1",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_arg.C_InitArg_GetState_RestoreState",
+    "__class__": "tests.objects.init_arg.C_InitArg_GetState_RestoreState",
     "__init__": "savedArg1",
     "keySaved": "ValueSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_arg.C_InitArg_GetState_SetStateDict",
+    "__class__": "tests.objects.init_arg.C_InitArg_GetState_SetStateDict",
     "__init__": "savedArg1",
     "keySaved": "ValueSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_arg.C_InitArg_GetState_SetState",
+    "__class__": "tests.objects.init_arg.C_InitArg_GetState_SetState",
     "__init__": "savedArg1",
     "__state__": "stateSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_explicite_getstate.C_SaveArgInit",
+    "__class__": "tests.objects.init_args_explicite_getstate.C_SaveArgInit",
     "__init__": ["defaut1","savedArg2"]
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_explicite_getstate.C_SaveDict_SaveArgInit_RestoreNothing",
+    "__class__": "tests.objects.init_args_explicite_getstate.C_SaveDict_SaveArgInit_RestoreNothing",
     "__init__": ["defaut1","savedArg2"],
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict",
+    "__class__": "tests.objects.init_args_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict",
     "__init__": ["defaut1","savedArg2"],
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_explicite_getstate.C_SaveDict_SaveArgInit_SetState",
+    "__class__": "tests.objects.init_args_explicite_getstate.C_SaveDict_SaveArgInit_SetState",
     "__init__": ["defaut1","savedArg2"],
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_explicite_getstate.C_GetState_SaveArgInit_RestoreState",
+    "__class__": "tests.objects.init_args_explicite_getstate.C_GetState_SaveArgInit_RestoreState",
     "__init__": ["defaut1","savedArg2"],
     "keySaved": "ValueSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_explicite_getstate.C_GetState_SaveArgInit_SetState",
+    "__class__": "tests.objects.init_args_explicite_getstate.C_GetState_SaveArgInit_SetState",
     "__init__": ["defaut1","savedArg2"],
     "__state__": "stateSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_filtered_state_explicite_getstate.C_SaveArgInit_filter",
+    "__class__": "tests.objects.init_args_filtered_state_explicite_getstate.C_SaveArgInit_filter",
     "__init__": ["defaut1","savedArg2"]
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_filter_RestoreNothing",
+    "__class__": "tests.objects.init_args_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_filter_RestoreNothing",
     "__init__": ["defaut1","savedArg2"],
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict_filter",
+    "__class__": "tests.objects.init_args_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict_filter",
     "__init__": ["defaut1","savedArg2"],
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_SetState_filter",
+    "__class__": "tests.objects.init_args_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_SetState_filter",
     "__init__": ["defaut1","savedArg2"],
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_filtered_state.C_InitArgs_SaveFilteredDict_RestoreNothing",
+    "__class__": "tests.objects.init_args_filtered_state.C_InitArgs_SaveFilteredDict_RestoreNothing",
     "__init__": ["defaut1","savedArg2"],
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_filtered_state.C_InitArgs_SaveFilteredDict_RestoreDict",
+    "__class__": "tests.objects.init_args_filtered_state.C_InitArgs_SaveFilteredDict_RestoreDict",
     "__init__": ["defaut1","savedArg2"],
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_filtered_state.C_InitArgs_SaveFilteredDict_SetState",
+    "__class__": "tests.objects.init_args_filtered_state.C_InitArgs_SaveFilteredDict_SetState",
     "__init__": ["defaut1","savedArg2"],
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_ghost_getinitargs.C_SaveArgInit_getinitargs"
+    "__class__": "tests.objects.init_args_ghost_getinitargs.C_SaveArgInit_getinitargs"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_getinitargs",
+    "__class__": "tests.objects.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_getinitargs",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_RestoreDict_getinitargs",
+    "__class__": "tests.objects.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_RestoreDict_getinitargs",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_SetState_getinitargs",
+    "__class__": "tests.objects.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_SetState_getinitargs",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_ghost_getinitargs.C_GetState_SaveArgInit_RestoreState_getinitargs",
+    "__class__": "tests.objects.init_args_ghost_getinitargs.C_GetState_SaveArgInit_RestoreState_getinitargs",
     "keySaved": "ValueSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args_ghost_getinitargs.C_GetState_SaveArgInit_SetState_getinitargs",
+    "__class__": "tests.objects.init_args_ghost_getinitargs.C_GetState_SaveArgInit_SetState_getinitargs",
     "__state__": "stateSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args.C_InitArgs",
+    "__class__": "tests.objects.init_args.C_InitArgs",
     "__init__": ["defaut1","savedArg2"]
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args.C_InitArgs_SaveDict_RestoreNothing",
+    "__class__": "tests.objects.init_args.C_InitArgs_SaveDict_RestoreNothing",
     "__init__": ["defaut1","savedArg2"],
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args.C_InitArgs_SaveDict_RestoreDict",
+    "__class__": "tests.objects.init_args.C_InitArgs_SaveDict_RestoreDict",
     "__init__": ["defaut1","savedArg2"],
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args.C_InitArgs_SaveDict_SetState",
+    "__class__": "tests.objects.init_args.C_InitArgs_SaveDict_SetState",
     "__init__": ["defaut1","savedArg2"],
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args.C_InitArgs_GetState_RestoreState",
+    "__class__": "tests.objects.init_args.C_InitArgs_GetState_RestoreState",
     "__init__": ["defaut1","savedArg2"],
     "keySaved": "ValueSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args.C_InitArgs_GetState_SetStateDict",
+    "__class__": "tests.objects.init_args.C_InitArgs_GetState_SetStateDict",
     "__init__": ["defaut1","savedArg2"],
     "keySaved": "ValueSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_args.C_InitArgs_GetState_SetState",
+    "__class__": "tests.objects.init_args.C_InitArgs_GetState_SetState",
     "__init__": ["defaut1","savedArg2"],
     "__state__": "stateSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_explicite_getstate.C_SaveNothing_DefaultInit",
+    "__class__": "tests.objects.init_default_explicite_getstate.C_SaveNothing_DefaultInit",
     "__init__": []
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_explicite_getstate.C_SaveDict_DefaultInit_RestoreNothing",
+    "__class__": "tests.objects.init_default_explicite_getstate.C_SaveDict_DefaultInit_RestoreNothing",
     "__init__": [],
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_explicite_getstate.C_SaveDict_DefaultInit_RestoreDict",
+    "__class__": "tests.objects.init_default_explicite_getstate.C_SaveDict_DefaultInit_RestoreDict",
     "__init__": [],
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_explicite_getstate.C_SaveDict_DefaultInit_SetState",
+    "__class__": "tests.objects.init_default_explicite_getstate.C_SaveDict_DefaultInit_SetState",
     "__init__": [],
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_explicite_getstate.C_GetState_DefaultInit_RestoreState",
+    "__class__": "tests.objects.init_default_explicite_getstate.C_GetState_DefaultInit_RestoreState",
     "__init__": [],
     "keySaved": "ValueSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_explicite_getstate.C_GetState_DefaultInit_SetState",
+    "__class__": "tests.objects.init_default_explicite_getstate.C_GetState_DefaultInit_SetState",
     "__init__": [],
     "__state__": "stateSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_filtered_state_explicite_getstate.C_SaveNothing_DefaultInit",
+    "__class__": "tests.objects.init_default_filtered_state_explicite_getstate.C_SaveNothing_DefaultInit",
     "__init__": []
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_filtered_state_explicite_getstate.C_SaveDict_DefaultInit_RestoreNothing_filter",
+    "__class__": "tests.objects.init_default_filtered_state_explicite_getstate.C_SaveDict_DefaultInit_RestoreNothing_filter",
     "__init__": [],
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_filtered_state_explicite_getstate.C_SaveDict_DefaultInit_RestoreDict_filter",
+    "__class__": "tests.objects.init_default_filtered_state_explicite_getstate.C_SaveDict_DefaultInit_RestoreDict_filter",
     "__init__": [],
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_filtered_state_explicite_getstate.C_SaveDict_DefaultInit_SetState_filter",
+    "__class__": "tests.objects.init_default_filtered_state_explicite_getstate.C_SaveDict_DefaultInit_SetState_filter",
     "__init__": [],
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_filtered_state.C_InitDefault_SaveNothing",
+    "__class__": "tests.objects.init_default_filtered_state.C_InitDefault_SaveNothing",
     "__init__": []
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_filtered_state.C_InitDefault_SaveFilteredDict_RestoreNothing",
+    "__class__": "tests.objects.init_default_filtered_state.C_InitDefault_SaveFilteredDict_RestoreNothing",
     "__init__": [],
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_filtered_state.C_InitDefault_SaveFilteredDict_RestoreDict",
+    "__class__": "tests.objects.init_default_filtered_state.C_InitDefault_SaveFilteredDict_RestoreDict",
     "__init__": [],
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_filtered_state.C_InitDefault_SaveFilteredDict_SetState",
+    "__class__": "tests.objects.init_default_filtered_state.C_InitDefault_SaveFilteredDict_SetState",
     "__init__": [],
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_ghost_getinitargs.C_SaveNothing_DefaultInit_getinitargs"
+    "__class__": "tests.objects.init_default_ghost_getinitargs.C_SaveNothing_DefaultInit_getinitargs"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_RestoreNothing_getinitargs",
+    "__class__": "tests.objects.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_RestoreNothing_getinitargs",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_RestoreDict_getinitargs",
+    "__class__": "tests.objects.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_RestoreDict_getinitargs",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_SetState_getinitargs",
+    "__class__": "tests.objects.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_SetState_getinitargs",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_ghost_getinitargs.C_GetState_DefaultInit_RestoreState_getinitargs",
+    "__class__": "tests.objects.init_default_ghost_getinitargs.C_GetState_DefaultInit_RestoreState_getinitargs",
     "keySaved": "ValueSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_ghost_getinitargs.C_GetState_DefaultInit_SetState_getinitargs",
+    "__class__": "tests.objects.init_default_ghost_getinitargs.C_GetState_DefaultInit_SetState_getinitargs",
     "__state__": "stateSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_ghots_getstate.C_SaveNothing_DefaultInit",
+    "__class__": "tests.objects.init_default_ghots_getstate.C_SaveNothing_DefaultInit",
     "__init__": []
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default_ghots_getstate.C_GetState_DefaultInit_RestoreState",
-    "__init__": [],
-    "keySaved": "ValueSaved"
-}
-{
-    "__class__": "SmartFramework.serialize.objects.init_default_ghots_getstate.C_GetState_DefaultInit_SetState",
-    "__init__": [],
-    "__state__": "stateSaved"
-}
-{
-    "__class__": "SmartFramework.serialize.objects.init_default.C_InitDefault_SaveNothing",
-    "__init__": []
-}
-{
-    "__class__": "SmartFramework.serialize.objects.init_default.C_InitDefault_SaveDict_RestoreNothing",
-    "__init__": [],
-    "_par1": "defaut1",
-    "par2": "defaut2"
-}
-{
-    "__class__": "SmartFramework.serialize.objects.init_default.C_InitDefault_SaveDict_RestoreDict",
-    "__init__": [],
-    "_par1": "defaut1",
-    "par2": "defaut2"
-}
-{
-    "__class__": "SmartFramework.serialize.objects.init_default.C_InitDefault_SaveDict_SetState",
-    "__init__": [],
-    "_par1": "defaut1",
-    "par2": "defaut2"
-}
-{
-    "__class__": "SmartFramework.serialize.objects.init_default.C_InitDefault_GetState_RestoreState",
+    "__class__": "tests.objects.init_default_ghots_getstate.C_GetState_DefaultInit_RestoreState",
     "__init__": [],
     "keySaved": "ValueSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_default.C_InitDefault_GetState_SetState",
+    "__class__": "tests.objects.init_default_ghots_getstate.C_GetState_DefaultInit_SetState",
     "__init__": [],
     "__state__": "stateSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwarg.C_SaveArgInit",
+    "__class__": "tests.objects.init_default.C_InitDefault_SaveNothing",
+    "__init__": []
+}
+{
+    "__class__": "tests.objects.init_default.C_InitDefault_SaveDict_RestoreNothing",
+    "__init__": [],
+    "_par1": "defaut1",
+    "par2": "defaut2"
+}
+{
+    "__class__": "tests.objects.init_default.C_InitDefault_SaveDict_RestoreDict",
+    "__init__": [],
+    "_par1": "defaut1",
+    "par2": "defaut2"
+}
+{
+    "__class__": "tests.objects.init_default.C_InitDefault_SaveDict_SetState",
+    "__init__": [],
+    "_par1": "defaut1",
+    "par2": "defaut2"
+}
+{
+    "__class__": "tests.objects.init_default.C_InitDefault_GetState_RestoreState",
+    "__init__": [],
+    "keySaved": "ValueSaved"
+}
+{
+    "__class__": "tests.objects.init_default.C_InitDefault_GetState_SetState",
+    "__init__": [],
+    "__state__": "stateSaved"
+}
+{
+    "__class__": "tests.objects.init_kwarg.C_SaveArgInit",
     "__init__": {"par2":"savedArg2"}
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwarg.C_SaveDict_SaveArgInit_RestoreNothing",
+    "__class__": "tests.objects.init_kwarg.C_SaveDict_SaveArgInit_RestoreNothing",
     "__init__": {"par2":"savedArg2"},
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwarg.C_SaveDict_SaveArgInit_RestoreDict",
+    "__class__": "tests.objects.init_kwarg.C_SaveDict_SaveArgInit_RestoreDict",
     "__init__": {"par2":"savedArg2"},
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwarg.C_SaveDict_SaveArgInit_SetState",
+    "__class__": "tests.objects.init_kwarg.C_SaveDict_SaveArgInit_SetState",
     "__init__": {"par2":"savedArg2"},
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwarg.C_GetState_SaveArgInit_RestoreState",
+    "__class__": "tests.objects.init_kwarg.C_GetState_SaveArgInit_RestoreState",
     "__init__": {"par2":"savedArg2"},
     "keySaved": "ValueSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwarg.C_GetState_SaveArgInit_SetState",
+    "__class__": "tests.objects.init_kwarg.C_GetState_SaveArgInit_SetState",
     "__init__": {"par2":"savedArg2"},
     "__state__": "stateSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs_explicite_getstate.C_SaveArgInit",
+    "__class__": "tests.objects.init_kwargs_explicite_getstate.C_SaveArgInit",
     "__init__": {"par1":"defaut1","par2":"savedArg2"}
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_RestoreNothing",
+    "__class__": "tests.objects.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_RestoreNothing",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict",
+    "__class__": "tests.objects.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_SetState",
+    "__class__": "tests.objects.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_SetState",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs_explicite_getstate.C_GetState_SaveArgInit_RestoreState",
+    "__class__": "tests.objects.init_kwargs_explicite_getstate.C_GetState_SaveArgInit_RestoreState",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "keySaved": "ValueSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs_explicite_getstate.C_GetState_SaveArgInit_SetState",
+    "__class__": "tests.objects.init_kwargs_explicite_getstate.C_GetState_SaveArgInit_SetState",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "__state__": "stateSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs_filtered_state_explicite_getstate.C_SaveArgInit_filter",
+    "__class__": "tests.objects.init_kwargs_filtered_state_explicite_getstate.C_SaveArgInit_filter",
     "__init__": {"par1":"defaut1","par2":"savedArg2"}
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_filter_RestoreNothing",
+    "__class__": "tests.objects.init_kwargs_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_filter_RestoreNothing",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict_filter",
+    "__class__": "tests.objects.init_kwargs_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict_filter",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_SetState_filter",
+    "__class__": "tests.objects.init_kwargs_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_SetState_filter",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs_filtered_state.C_InitKwargs_filter",
+    "__class__": "tests.objects.init_kwargs_filtered_state.C_InitKwargs_filter",
     "__init__": {"par1":"defaut1","par2":"savedArg2"}
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs_filtered_state.C_InitKwargs_SaveFilteredDict_RestoreNothing",
+    "__class__": "tests.objects.init_kwargs_filtered_state.C_InitKwargs_SaveFilteredDict_RestoreNothing",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs_filtered_state.C_InitKwargs_SaveFilteredDict_RestoreDict",
+    "__class__": "tests.objects.init_kwargs_filtered_state.C_InitKwargs_SaveFilteredDict_RestoreDict",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs_filtered_state.C__InitKwargs_SaveFilteredDict_SetState",
+    "__class__": "tests.objects.init_kwargs_filtered_state.C__InitKwargs_SaveFilteredDict_SetState",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs.C_InitKwargs",
+    "__class__": "tests.objects.init_kwargs.C_InitKwargs",
     "__init__": {"par1":"defaut1","par2":"savedArg2"}
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs.C_InitKwargs_SaveDict_RestoreNothing",
+    "__class__": "tests.objects.init_kwargs.C_InitKwargs_SaveDict_RestoreNothing",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs.C_InitKwargs_SaveDict_RestoreDict",
+    "__class__": "tests.objects.init_kwargs.C_InitKwargs_SaveDict_RestoreDict",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs.C_InitKwargs_SaveDict_SetState",
+    "__class__": "tests.objects.init_kwargs.C_InitKwargs_SaveDict_SetState",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs.C_InitKwargs_GetState_RestoreState",
+    "__class__": "tests.objects.init_kwargs.C_InitKwargs_GetState_RestoreState",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "keySaved": "ValueSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.init_kwargs.C_InitKwargs_GetState_SetState",
+    "__class__": "tests.objects.init_kwargs.C_InitKwargs_GetState_SetState",
     "__init__": {"par1":"defaut1","par2":"savedArg2"},
     "__state__": "stateSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init.C_New_SaveNothing"
+    "__class__": "tests.objects.no_init.C_New_SaveNothing"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init.C_New_SaveDict_RestoreNothing",
+    "__class__": "tests.objects.no_init.C_New_SaveDict_RestoreNothing",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init.C_New_SaveDict_RestoreDict",
+    "__class__": "tests.objects.no_init.C_New_SaveDict_RestoreDict",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init.C_New_SaveDict_SetState",
+    "__class__": "tests.objects.no_init.C_New_SaveDict_SetState",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init.C_New_GetState_RestoreState",
+    "__class__": "tests.objects.no_init.C_New_GetState_RestoreState",
     "keySaved": "ValueSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init.C_New_GetState_SetState",
+    "__class__": "tests.objects.no_init.C_New_GetState_SetState",
     "__state__": "stateSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_filtered_state.C_New_SaveNothing"
+    "__class__": "tests.objects.no_init_filtered_state.C_New_SaveNothing"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_filtered_state.C_New_SaveFilteredDict_RestoreNothing",
+    "__class__": "tests.objects.no_init_filtered_state.C_New_SaveFilteredDict_RestoreNothing",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_filtered_state.C_New_SaveFilteredDict_RestoreDict",
+    "__class__": "tests.objects.no_init_filtered_state.C_New_SaveFilteredDict_RestoreDict",
     "__init__": [],
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_filtered_state.C_New_SaveFilteredDict_SetState",
+    "__class__": "tests.objects.no_init_filtered_state.C_New_SaveFilteredDict_SetState",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_slots.C_New_SaveNothing_slots"
+    "__class__": "tests.objects.no_init_slots.C_New_SaveNothing_slots"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_slots.C_New_SaveDict_RestoreNothing_slots",
+    "__class__": "tests.objects.no_init_slots.C_New_SaveDict_RestoreNothing_slots",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_slots.C_New_SaveDict_RestoreDict_slots",
+    "__class__": "tests.objects.no_init_slots.C_New_SaveDict_RestoreDict_slots",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_slots.C_New_SaveDict_SetState_slots",
+    "__class__": "tests.objects.no_init_slots.C_New_SaveDict_SetState_slots",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_slots.C_New_GetState_SetState_slots",
+    "__class__": "tests.objects.no_init_slots.C_New_GetState_SetState_slots",
     "__state__": "stateSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_slots_and_dict.C_New_SaveNothing_slots_and_dict"
+    "__class__": "tests.objects.no_init_slots_and_dict.C_New_SaveNothing_slots_and_dict"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_slots_and_dict.C_New_SaveDict_RestoreNothing_slots_and_dict",
+    "__class__": "tests.objects.no_init_slots_and_dict.C_New_SaveDict_RestoreNothing_slots_and_dict",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_slots_and_dict.C_New_SaveDict_RestoreDict_slots_and_dict",
+    "__class__": "tests.objects.no_init_slots_and_dict.C_New_SaveDict_RestoreDict_slots_and_dict",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_slots_and_dict.C_New_SaveDict_SetState_slots_and_dict",
+    "__class__": "tests.objects.no_init_slots_and_dict.C_New_SaveDict_SetState_slots_and_dict",
     "_par1": "defaut1",
     "par2": "defaut2"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_slots_and_dict.C_New_GetState_SetState_slots_and_dict",
+    "__class__": "tests.objects.no_init_slots_and_dict.C_New_GetState_SetState_slots_and_dict",
     "__state__": "stateSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_slots_subclass.C_New_SaveNothing_subclass"
+    "__class__": "tests.objects.no_init_slots_subclass.C_New_SaveNothing_subclass"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_slots_subclass.C_New_SaveDict_RestoreNothing_subclass",
+    "__class__": "tests.objects.no_init_slots_subclass.C_New_SaveDict_RestoreNothing_subclass",
     "_par1": "defaut1",
     "par2": "defaut2",
     "par3": "default3"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_slots_subclass.C_New_SaveDict_RestoreDict_subclass",
+    "__class__": "tests.objects.no_init_slots_subclass.C_New_SaveDict_RestoreDict_subclass",
     "_par1": "defaut1",
     "par2": "defaut2",
     "par3": "default3"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_slots_subclass.C_New_SaveDict_SetState_subclass",
+    "__class__": "tests.objects.no_init_slots_subclass.C_New_SaveDict_SetState_subclass",
     "_par1": "defaut1",
     "par2": "defaut2",
     "par3": "default3"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_slots_subclass.C_New_GetState_SetState_subclass",
+    "__class__": "tests.objects.no_init_slots_subclass.C_New_GetState_SetState_subclass",
     "__state__": "stateSaved"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_setters.C_New_SaveDict_RestoreDict_setters",
+    "__class__": "tests.objects.no_init_setters.C_New_SaveDict_RestoreDict_setters",
     "a": "a",
     "b": "b",
     "c": "c",
@@ -1035,7 +988,7 @@ Infinity
     "f": "f"
 }
 {
-    "__class__": "SmartFramework.serialize.objects.no_init_setters.C_New_SaveDict_SetState_setters",
+    "__class__": "tests.objects.no_init_setters.C_New_SaveDict_SetState_setters",
     "a": "a",
     "b": "b",
     "c": "c",

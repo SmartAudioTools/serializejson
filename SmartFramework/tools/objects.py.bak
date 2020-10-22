@@ -199,18 +199,12 @@ def from_name(path, accept_dict_as_object=False, **variables):
                     if in_var:
                         current = variables[element]
                     else:
-                        raise Exception(
-                            "firts element of path must be a name_of_variable"
-                        )
+                        raise Exception("firts element of path must be a name_of_variable")
                     is_first = False
                 else:
                     if in_var:
                         element = variables[element]
-                    if (
-                        accept_dict_as_object
-                        and type(current) is dict
-                        and "__class__" in current
-                    ):
+                    if accept_dict_as_object and type(current) is dict and "__class__" in current:
                         current = current[element]
                     else:
                         current = current.__dict__[element]
@@ -226,18 +220,12 @@ def from_name(path, accept_dict_as_object=False, **variables):
                     if in_var:
                         current = variables[element]
                     else:
-                        raise Exception(
-                            "firts element of path must be a name_of_variable"
-                        )
+                        raise Exception("firts element of path must be a name_of_variable")
                     is_first = False
                 else:
                     if in_var:
                         element = variables[element]
-                    if (
-                        accept_dict_as_object
-                        and type(current) is dict
-                        and "__class__" in current
-                    ):
+                    if accept_dict_as_object and type(current) is dict and "__class__" in current:
                         current = current[element]
                     else:
                         current = current.__dict__[element]
@@ -260,11 +248,7 @@ def from_name(path, accept_dict_as_object=False, **variables):
         else:
             if in_var:
                 element = variables[element]
-            if (
-                accept_dict_as_object
-                and type(current) is dict
-                and "__class__" in current
-            ):
+            if accept_dict_as_object and type(current) is dict and "__class__" in current:
                 current = current[element]
             else:
                 current = current.__dict__[element]
@@ -483,10 +467,7 @@ def isPyQt(obj):
 
 def isInstance(obj):
     return hasattr(obj, "__new__") and not (
-        isinstance(obj, builtInTypes)
-        or inspect.isclass(obj)
-        or inspect.isfunction(obj)
-        or inspect.ismodule(obj)
+        isinstance(obj, builtInTypes) or inspect.isclass(obj) or inspect.isfunction(obj) or inspect.ismodule(obj)
     )  # permet d'eliminer les types de base (int, float etc et les fonctions)
     # return hasattr(obj,'__new__') and ( str(obj.__class__)[1:6] == 'class' or  str(type(obj)) == "<type 'numpy.ndarray'>") and not inspect.isclass(obj) and not inspect.isfunction(obj) # permet d'eliminer les types de base (int, float etc et les fonctions)
 
@@ -667,14 +648,8 @@ def tuple_from_ndarray(inst, classe):
     if (
         (not serializeParameters.numpy_array_dumped_base64)
         or (instCont.size <= serializeParameters.numpy_array_readable_max_size)
-        or (
-            instCont.dtype == "int32"
-            and max(instCont.min(), instCont.max(), key=abs) <= 9999
-        )
-        or (
-            instCont.dtype == "int16"
-            and max(instCont.min(), instCont.max(), key=abs) <= 9
-        )
+        or (instCont.dtype == "int32" and max(instCont.min(), instCont.max(), key=abs) <= 9999)
+        or (instCont.dtype == "int16" and max(instCont.min(), instCont.max(), key=abs) <= 9)
     ):
         return (numpy.array, (instCont.tolist(), instContdtype), None)
     elif instCont.ndim == 1:
@@ -682,11 +657,7 @@ def tuple_from_ndarray(inst, classe):
             if instCont.dtype == bool:
                 return (
                     numpyB64,
-                    (
-                        encodedB64(numpy.packbits(instCont.astype(numpy.uint8))),
-                        "bool",
-                        len(instCont),
-                    ),
+                    (encodedB64(numpy.packbits(instCont.astype(numpy.uint8))), "bool", len(instCont)),
                     None,
                 )
             else:
@@ -699,27 +670,15 @@ def tuple_from_ndarray(inst, classe):
             if instCont.dtype == bool:
                 return (
                     numpyB64,
-                    (
-                        encodedB64(numpy.packbits(instCont.astype(numpy.uint8))),
-                        "bool",
-                        instCont.shape,
-                    ),
+                    (encodedB64(numpy.packbits(instCont.astype(numpy.uint8))), "bool", instCont.shape),
                     None,
                 )
             else:
-                return (
-                    numpyB64,
-                    (encodedB64(instCont), instContdtype, instCont.shape),
-                    None,
-                )
+                return (numpyB64, (encodedB64(instCont), instContdtype, instCont.shape), None)
         else:
             import numpy
 
-            return (
-                numpy.ndarray,
-                (instCont.shape, instContdtype, bytearray(instCont)),
-                None,
-            )
+            return (numpy.ndarray, (instCont.shape, instContdtype, bytearray(instCont)), None)
 
 
 def tuple_from_dtype(inst, classe):
@@ -764,19 +723,7 @@ def tuple_from_float(inst, classe):
 
 
 def tuple_from_datetime(inst, classe):
-    return (
-        classe,
-        (
-            inst.year,
-            inst.month,
-            inst.day,
-            inst.hour,
-            inst.minute,
-            inst.second,
-            inst.microsecond,
-        ),
-        None,
-    )
+    return (classe, (inst.year, inst.month, inst.day, inst.hour, inst.minute, inst.second, inst.microsecond), None)
 
 
 def tuple_from_complex(inst, classe):

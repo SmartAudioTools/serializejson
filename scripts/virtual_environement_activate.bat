@@ -1,2 +1,2 @@
 cd..
-./python_venv/Scripts/activate
+.\python_venv\Scripts\activate
