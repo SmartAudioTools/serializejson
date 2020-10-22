@@ -9,31 +9,27 @@ on:
   pull_request:
     branches: [ master ]
 
-jobs:
-  build:
-
+jobs:        
+  deploy:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [3.7, 3.8, 3.9]
 
     steps:
     - uses: actions/checkout@v2
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Set up Python
       uses: actions/setup-python@v2
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: '3.x'
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install pytest flake8 pep8-naming flake8-bugbear flake8-builtins flake8-docstrings flake8-import-order     
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         pip freeze
-
+        pip install setuptools wheel twine
     - name: Install package
       run: |
         python setup.py install
-
+        
     - name: Lint with flake8
       run: |
  
@@ -47,19 +43,6 @@ jobs:
         cd tests
         pytest
         
-  deploy:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v2
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: '3.x'
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install setuptools wheel twine
     - name: Build and publish
       env:
         TWINE_USERNAME: ${{ secrets.TEST_PYPI_USERNAME }}
