@@ -1,3 +1,4 @@
+#from __future__ import absolute_import
 import sys
 import collections
 import pickle
@@ -6,13 +7,14 @@ import time
 from time import perf_counter
 from SmartFramework.files import joinPath, directory, removeExistingPathAndCreateFolder
 from SmartFramework.tools.objects import deepCompare
+
 try:
     from numpy import median 
     use_numpy = True 
 except:
     from statistics import median
     use_numpy = False
-if __file__.endswith("serialize/test_serialize.py"):
+if __file__.endswith("serialize/test_serialize_vs_pickle.py"):
     full_smartFramework = True
     from qtpy import QtWidgets
     from SmartFramework.serialize import serializeJson as serializejson
@@ -51,39 +53,77 @@ def addInFile(path, element, encoding="utf_8_sig", newline="\n"):
 
 # --- DATAS -------------------------------------------------------------------
 
-from .objects import (
-    log,
-    basic_objects,
-    init_arg,
-    init_args,
-    init_args_filtered_state,
-    init_default,
-    init_default_filtered_state,
-    init_kwarg,
-    init_kwargs,
-    init_kwargs_filtered_state,
-    no_init,
-    no_init_filtered_state,
-    no_init_slots,
-    no_init_slots_and_dict,
-    no_init_slots_subclass,
-    no_init_setters,
-    init_args_explicite_getstate,
-    init_args_filtered_state_explicite_getstate,
-    init_args_ghost_getinitargs,
-    init_default_explicite_getstate,
-    init_default_filtered_state_explicite_getstate,
-    init_default_ghots_getstate,
-    init_kwargs_explicite_getstate,
-    init_kwargs_filtered_state_explicite_getstate,
-    init_default_ghost_getinitargs,
-)
+if __package__ : 
+    from .objects import (
+        log,
+        basic_objects,
+        init_arg,
+        init_args,
+        init_args_filtered_state,
+        init_default,
+        init_default_filtered_state,
+        init_kwarg,
+        init_kwargs,
+        init_kwargs_filtered_state,
+        no_init,
+        no_init_filtered_state,
+        no_init_slots,
+        no_init_slots_and_dict,
+        no_init_slots_subclass,
+        no_init_setters,
+        init_args_explicite_getstate,
+        init_args_filtered_state_explicite_getstate,
+        init_args_ghost_getinitargs,
+        init_default_explicite_getstate,
+        init_default_filtered_state_explicite_getstate,
+        init_default_ghots_getstate,
+        init_kwargs_explicite_getstate,
+        init_kwargs_filtered_state_explicite_getstate,
+        init_default_ghost_getinitargs,
+    )
+else : 
+    from objects import (
+        log,
+        basic_objects,
+        init_arg,
+        init_args,
+        init_args_filtered_state,
+        init_default,
+        init_default_filtered_state,
+        init_kwarg,
+        init_kwargs,
+        init_kwargs_filtered_state,
+        no_init,
+        no_init_filtered_state,
+        no_init_slots,
+        no_init_slots_and_dict,
+        no_init_slots_subclass,
+        no_init_setters,
+        init_args_explicite_getstate,
+        init_args_filtered_state_explicite_getstate,
+        init_args_ghost_getinitargs,
+        init_default_explicite_getstate,
+        init_default_filtered_state_explicite_getstate,
+        init_default_ghots_getstate,
+        init_kwargs_explicite_getstate,
+        init_kwargs_filtered_state_explicite_getstate,
+        init_default_ghost_getinitargs,
+    )
 objects = basic_objects.objects
 if full_smartFramework:
     app = QtWidgets.QApplication(sys.argv)
-    from SmartFramework.serialize.objects import pyqt_objects
+    if __package__ : 
+        from .objects import pyqt_objects
+    else : 
+        from objects import pyqt_objects
     objects.update(pyqt_objects.objects)
-
+if use_numpy : 
+    if __package__ : 
+        from .objects import numpy_objects
+    else : 
+        from objects import numpy_objects
+    objects.update(numpy_objects.objects)
+    
 autorized_classes = []
 for module in [
     init_arg,
