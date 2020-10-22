@@ -8,7 +8,7 @@ def version():
         for line in changelog_file.readlines():
             if line.startswith("##"):
                 open_square = line.find("[")
-                close_square = line.fined("]")
+                close_square = line.find("]")
                 if open_square != -1 and close_square != -1 : 
                     version = line[open_square+1:close_square]
                     if version.replace(".","").isdigit() : 
@@ -38,6 +38,7 @@ if __name__ == '__main__':
         packages=setuptools.find_packages(exclude=("tests",)),
         python_requires='>=3',
         install_requires=[
+            'importlib_metadata; python_version < "3.8"',
             "pybase64",
             "python-rapidjson",
             "apply",
@@ -68,9 +69,8 @@ if __name__ == '__main__':
             'Programming Language :: Python :: 3',
             'Programming Language :: Python :: 3.7',
         ],
-        keywords="pickle json serialize dump dumps rapidjson base64",
         zip_safe = False,
-        data_files = [("", ["LICENSE.txt"])]
+        data_files = [("", ["LICENSE.txt","CHANGELOG.md","pyproject.toml"])]
         
 
     )
