@@ -68,6 +68,8 @@ if __name__ == '__main__':
              'License :: OSI Approved :: MIT License',
             'Programming Language :: Python :: 3',
             'Programming Language :: Python :: 3.7',
+            'Programming Language :: Python :: 3.8',
+            'Programming Language :: Python :: 3.9',
         ],
         zip_safe = False,
         data_files = [("", ["LICENSE.txt","CHANGELOG.md","pyproject.toml"])]
