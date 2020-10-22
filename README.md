@@ -1,6 +1,8 @@
 # serializejson
 
 **serializejson** is a python library for serialization and deserialization of complex Python objects in [JSON](http://json.org/) build upon [python-rapidjson](https://github.com/python-rapidjson/python-rapidjson) and [pybase64](https://github.com/mayeut/pybase64)
+
+![Python package](https://github.com/SmartAudioTools/serializejson/workflows/Python%20package/badge.svg)
 	
 >**WARNING**:
 serializejson can execute arbitrary Python code if the load parameter autorized_classes is "all" when loading json. 
