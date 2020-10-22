@@ -14,10 +14,10 @@ import copyreg
 
 try:
     import numpy
-	from numpy import isnan
+    from numpy import isnan
     use_numpy = True
 except:
-	from math import isnan
+    from math import isnan
     use_numpy = False
 import math
 import _ctypes

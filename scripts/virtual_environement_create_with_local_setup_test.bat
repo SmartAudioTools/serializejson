@@ -6,4 +6,5 @@ IF EXIST "D:/Projets/Python/SmartPython/SmartPython-3.7.1.0-64bit/python-3.7.1.a
   python -m venv python_venv
 )
 .\python_venv\scripts\pip.exe install -e .[test]
-.\python_venv\scripts\activate
+.\python_venv\Scripts\activate
+
