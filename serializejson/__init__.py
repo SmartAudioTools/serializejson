@@ -35,8 +35,8 @@ try:
 except:
     ndarray = None
     use_numpy = False
-
-__version__ = "0.0.1"
+import importlib.metadata
+__version__ = importlib.metadata.version('serializejson')
 
 # --- FONCTIONS FOR SERIALIZED OBJECTS IN BASE 64------------------------------
 # defaultIntType =  numpy_dtype("int_")
