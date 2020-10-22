@@ -2,3 +2,4 @@ python_venv
 *.egg-info
 *.pyc
 .pytest_cache
+build
