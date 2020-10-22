@@ -1,5 +1,6 @@
 # use glob syntax.
 syntax: glob
 python_venv
-SmartFramework.egg-info
+*.egg-info
 *.pyc
+.pytest_cache
