@@ -755,6 +755,10 @@ def tuple_from_bytes(inst, classe):
         raise  #
 
 
+def tuple_from_bool(inst,classe):
+    return (classe, (bool(inst),), None)
+
+
 def tuple_from_int(inst, classe):
     return (classe, (int(inst),), None)
 
@@ -797,6 +801,7 @@ def tuple_from_module(inst, classe):
 
 
 tuple_from_classeName = {
+    "bool_" : tuple_from_bool,
     "ndarray": tuple_from_ndarray,
     "dtype": tuple_from_dtype,
     "bytearray": tuple_from_bytearray,
@@ -809,6 +814,7 @@ tuple_from_classeName = {
     "uint16": tuple_from_int,
     "uint32": tuple_from_int,
     "uint64": tuple_from_int,
+    "float16": tuple_from_float,
     "float32": tuple_from_float,
     "float64": tuple_from_float,
     "datetime": tuple_from_datetime,

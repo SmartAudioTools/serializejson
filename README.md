@@ -89,7 +89,7 @@ print(f"id {id(object2)} :  {object2}")
 ## iterative serialization and deserialization
 ```
 import serializejson 
-encoder = serializejson.Encoder("my_list.json",indent = 0)
+encoder = serializejson.Encoder("my_list.json",indent = None)
 for elt in range(3):
     encoder.append(elt)
 print(open("my_list.json").read())

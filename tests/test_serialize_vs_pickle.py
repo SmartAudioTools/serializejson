@@ -9,12 +9,13 @@ from SmartFramework.files import joinPath, directory, removeExistingPathAndCreat
 from SmartFramework.tools.objects import deepCompare
 
 try:
-    from numpy import median 
-    use_numpy = True 
-except:
+    from numpy import median
+    use_numpy = True
+except ModuleNotFoundError:
     from statistics import median
     use_numpy = False
-if __file__.endswith("serialize/test_serialize_vs_pickle.py"):
+
+if __file__.endswith("serialize/tests/test_serialize_vs_pickle.py"):
     full_smartFramework = True
     from qtpy import QtWidgets
     from SmartFramework.serialize import serializeJson as serializejson
@@ -28,9 +29,7 @@ else:
     import serializejson
 
 
-# Import des objets 
-
-
+# Import des objets
 
 
 def addInFile(path, element, encoding="utf_8_sig", newline="\n"):
@@ -48,12 +47,9 @@ def addInFile(path, element, encoding="utf_8_sig", newline="\n"):
         raise Exception()
 
 
-
-
-
 # --- DATAS -------------------------------------------------------------------
 
-if __package__ : 
+if __package__:
     from .objects import (
         log,
         basic_objects,
@@ -81,7 +77,7 @@ if __package__ :
         init_kwargs_filtered_state_explicite_getstate,
         init_default_ghost_getinitargs,
     )
-else : 
+else:
     from objects import (
         log,
         basic_objects,
@@ -112,18 +108,18 @@ else :
 objects = basic_objects.objects
 if full_smartFramework:
     app = QtWidgets.QApplication(sys.argv)
-    if __package__ : 
+    if __package__:
         from .objects import pyqt_objects
-    else : 
+    else:
         from objects import pyqt_objects
     objects.update(pyqt_objects.objects)
-if use_numpy : 
-    if __package__ : 
+if use_numpy:
+    if __package__:
         from .objects import numpy_objects
-    else : 
+    else:
         from objects import numpy_objects
     objects.update(numpy_objects.objects)
-    
+
 autorized_classes = []
 for module in [
     init_arg,
@@ -151,10 +147,10 @@ for module in [
     no_init_setters,
 ]:
     objects["object_" + module.__name__] = categorie_dict = dict()
-    for key, value in module.__dict__.items():
-        if key.startswith("C_"):
-            categorie_dict[key] = value()
-            autorized_classes.append(value)
+    for class_name, class_ in module.__dict__.items():
+        if class_name.startswith("C_"):
+            categorie_dict[class_name] = class_()
+            autorized_classes.append(class_)
 
 
 """"
@@ -199,35 +195,41 @@ myNamedTuple = MyNamedTuple(**{
 
 
 def test_serialize_vs_pickle():
-    
+
     # --- SERIALIZERS -------------------------------------------------------------
     bytesIO = io.BytesIO()
-    
-    
+
     serializers = {
         "pickle": {"encoder": pickle.dumps, "decoder": pickle.loads},
         "serializejson": {
-            "encoder": serializejson.Encoder(attributs_filter=None),
+            "encoder": serializejson.Encoder(attributs_filter=None,numpy_types_to_python_types = False),
             "decoder": serializejson.Decoder(set_attributs=False),
         },
         "serializejson_in_file": {
-            "encoder": serializejson.Encoder(fp=bytesIO, attributs_filter=None),
+            "encoder": serializejson.Encoder(fp=bytesIO, attributs_filter=None,numpy_types_to_python_types = False),
             "decoder": serializejson.Decoder(fp=bytesIO, set_attributs=False),
         },
     }
-    
+
     if full_smartFramework:
         serializers.update(
             {
                 "serializeRepr": {
                     "encoder": lambda obj: serializeRepr.dumps(
-                        obj, modules=modules, attributs_filter=None, set_attributs=False
+                        obj, 
+                        modules=modules,
+                        attributs_filter=None,
+                        set_attributs=False,
+                        numpy_types_to_python_types = False
                     ),
                     "decoder": lambda obj: serializeRepr.loads(obj, modules=modules),
                 },
                 "serializePython": {
                     "encoder": lambda obj: serializePython.dumps(
-                        obj, attributs_filter=None, set_attributs=False
+                        obj,
+                        attributs_filter=None,
+                        set_attributs=False,
+                        numpy_types_to_python_types = False
                     ),
                     "decoder": serializePython.loads,
                 }
@@ -237,7 +239,7 @@ def test_serialize_vs_pickle():
                 # },
             }
         )
-        
+
     # --- BENCHMARK ----------------------------------------------------------------
 
     dumps_times_by_type = dict()
@@ -310,10 +312,10 @@ def test_serialize_vs_pickle():
                     print(message)
                     all_ok = False
                     raise Exception(message)
-    
+
                 else:
                     if categoryName.startswith("object"):
-    
+
                         if serializerName != "pickle":
                             log.logs = []
                             pickled = pickle.dumps(value)
@@ -338,10 +340,7 @@ def test_serialize_vs_pickle():
                                         str(loaded_diff_pickle),
                                     )
                                 )
-                      
-                                    
-                                    
-                                    
+
                             if pickle_dump_logs != dump_logs:
                                 print(
                                     value.__class__.__name__,
@@ -372,31 +371,31 @@ def test_serialize_vs_pickle():
                                 message = "  %s -> %s -> %s" % (repr_value, repr(dumped), repr_loaded)
                             else:
                                 message = "  %s (%s)-> %s -> %s (%s)" % (
-                                        repr_value,
-                                        str(original_diff_loaded),
-                                        repr(dumped),
-                                        repr_loaded,
-                                        str(loaded_diff_orginal),
-                                    )
+                                    repr_value,
+                                    str(original_diff_loaded),
+                                    repr(dumped),
+                                    repr_loaded,
+                                    str(loaded_diff_orginal),
+                                )
                             print(message)
                             raise_exception = True
-                            if type(value) is tuple :
+                            if type(value) is tuple:
                                 (
                                     same_as_original,
                                     original_diff_loaded,
                                     loaded_diff_orginal,
                                 ) = deepCompare(list(value), loaded, return_reason=True)
-                                if same_as_original:                     
+                                if same_as_original:
                                     raise_exception = False
-                            if type(value) in (collections.Counter,collections.OrderedDict,collections.defaultdict) and dict(value)==  loaded:
+                            if type(value) in (collections.Counter, collections.OrderedDict, collections.defaultdict) and dict(value) == loaded:
                                 raise_exception = False
-                            if type(value) is time.struct_time and list(value) ==  loaded:                                
+                            if type(value) is time.struct_time and list(value) == loaded:
                                 raise_exception = False
                             if raise_exception and serializerName != "serializePython":
                                 raise Exception(message)
         if all_ok:
             print("  all is ok !")
-    
+
     serializejson.dump(
         dumps_times_by_type,
         directory(__file__) + "/serialized/dumps_times.json",
@@ -407,7 +406,7 @@ def test_serialize_vs_pickle():
         directory(__file__) + "/serialized/loads_times.json",
         sort_keys=False,
     )
-    
+
     print(
         "Dumps -------------\n"
         + "\n".join(
@@ -426,9 +425,9 @@ def test_serialize_vs_pickle():
             )
         )
     )
-    
+
     # --- PLOT BENCHMARK -----------------------------------------------------------------
-    
+
     if full_smartFramework:
         plotUI = PlotWithCurveSelectorUI(
             antialising=True, rotation=90
@@ -449,5 +448,6 @@ def test_serialize_vs_pickle():
         plotUI.show()
         app.exec_()  # pas besoin si on n'utilise pas de signaux
 
-if __name__ == "__main__":  
+
+if __name__ == "__main__":
     test_serialize_vs_pickle()

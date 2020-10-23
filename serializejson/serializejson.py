@@ -150,7 +150,10 @@ class Encoder(rapidjson.Encoder):
             self.single_line_list_numbers = single_line_list_numbers
             self.single_line_init = single_line_init
         self.numpy_types_to_python_types = numpy_types_to_python_types
-        self.indent = indent
+        try:
+            self.indent = indent         # bug dans la version de rapidjson avec indent = '\t' activé , qui n'enregistre pas indent
+        except : 
+            pass
         self.dumped_classes = set()
         self.chunk_size = chunk_size
         self.add_id = add_id
@@ -210,7 +213,7 @@ class Encoder(rapidjson.Encoder):
             if type_inst in _numpy_float_types:
                 return float(inst)
             if type_inst is numpy.bool_:
-                return bool(numpy)
+                return bool(inst)
         if type_inst is encodedB64:
             return inst.decode("ascii")
         if type_inst is tuple:
@@ -881,7 +884,7 @@ remove_add_braces = {"set", "frozenset", "collections.deque", "tuple"}
 
 
 def _close_for_append(fp, indent):
-    if not indent:
+    if indent is None:
         try:
             fp.write(b"]")
         except TypeError:
@@ -940,12 +943,12 @@ def _open_for_append(fp, indent):
     elif fp is None:
         raise Exception("fichier incorrect (file, str ou unicode)")
     if length == 0:
-        if not indent:
+        if indent is None:
             fp.write(b"[")
         else:
             fp.write(b"[\n")
     elif length > 2:
-        if not indent:
+        if indent is None:
             try:
                 fp.write(b",")
             except TypeError:
