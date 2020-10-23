@@ -6,7 +6,7 @@ try:
     import numpy
     from numpy import ndarray
     use_numpy = True
-except:
+except ModuleNotFoundError:
     ndarray = None
     use_numpy = False
 import gc
@@ -20,12 +20,12 @@ from SmartFramework.tools.objects import (
     classFromClassStr,
     from_name,
 )
-try :
-    rapidjson.dumps(True,indent = "\t")
+try:
+    rapidjson.dumps(True, indent="\t")
     default_indent = "\t"
-except : 
+except TypeError:
     default_indent = 4 # "\t"
-__all__ = ['dumps','dump','loads','load','append','Encoder','Decoder']
+__all__ = ['dumps', 'dump', 'loads', 'load', 'append', 'Encoder', 'Decoder']
 
 
 #not_duplicates_types = set([type(None), bool, int, float, str])
@@ -45,17 +45,17 @@ def dump(obj, fp, **argsDict):
     Encoder(**argsDict)(obj, fp)
 
 
-def loads(s, *, obj=None, iter=False, **argsDict):  # on ne peut pas en meme temps updater objet
+def loads(s, *, obj=None, iterator=False, **argsDict):  # on ne peut pas en meme temps updater objet
     decoder = Decoder(**argsDict)
-    if iter:
+    if iterator:
         return decoder
     else:
         return decoder(fp_or_s=s, obj=obj)
 
 
-def load(fp, *, obj=None, iter=False, **argsDict):
+def load(fp, *, obj=None, iterator=False, **argsDict):
     """ de-serialise obj à partir de fichier f, qui peut etre un objet  file ou le nom de fichier"""
-    if iter:
+    if iterator:
         return Decoder(**argsDict)
     else:
         return Decoder(**argsDict).load(fp=fp, obj=obj)
@@ -150,7 +150,7 @@ class Encoder(rapidjson.Encoder):
             self.single_line_list_numbers = single_line_list_numbers
             self.single_line_init = single_line_init
         self.numpy_types_to_python_types = numpy_types_to_python_types
-        #self.indent = indent
+        self.indent = indent
         self.dumped_classes = set()
         self.chunk_size = chunk_size
         self.add_id = add_id
@@ -881,7 +881,7 @@ remove_add_braces = {"set", "frozenset", "collections.deque", "tuple"}
 
 
 def _close_for_append(fp, indent):
-    if indent is None:
+    if not indent:
         try:
             fp.write(b"]")
         except TypeError:
@@ -940,12 +940,12 @@ def _open_for_append(fp, indent):
     elif fp is None:
         raise Exception("fichier incorrect (file, str ou unicode)")
     if length == 0:
-        if indent is None:
+        if not indent:
             fp.write(b"[")
         else:
             fp.write(b"[\n")
     elif length > 2:
-        if indent is None:
+        if not indent:
             try:
                 fp.write(b",")
             except TypeError:
@@ -1039,12 +1039,12 @@ class _json_object_file_iterator(io.FileIO):
         self.in_simple = False
         self.in_object = False
         self.backslash_escape = False
-        self.shedule_stop = False
+        self.shedule_break = False
         self.in_chunk_start = 0
         self.s = None
-        s = io.FileIO.read(self, 1)
-        if s not in (b"[", "["):
-            raise Exception('the json data must start with "["')
+        #s = io.FileIO.read(self, 1)
+        #if s not in (b"[", "["):
+        #    raise Exception('the json data must start with "["')
         if "b" in mode:
             self.interesting = set(b'\\"{}[]')
             self.separators = set(b", \t\n\r")
@@ -1055,8 +1055,9 @@ class _json_object_file_iterator(io.FileIO):
             self.chars = list('\\"{}[]')
 
     def read(self, size=-1):
-        if self.shedule_stop:
-            self.shedule_stop = False
+        if self.shedule_break:
+            self.shedule_break = False
+            #print("read(1) : empty")
             return ""
         (
             backslash,
@@ -1084,14 +1085,15 @@ class _json_object_file_iterator(io.FileIO):
             if in_simple:
                 if ch in separators or ch in ("]", 93):
                     if in_chunk_start < i:
-                        self.shedule_stop = True  # on prevoit d'arreter au read suivant sinon , va de tout facon arreter et on ne pourra pas remeter self.shedule_stop à False
+                        self.shedule_break = True  # on prevoit d'arreter au read suivant sinon , va de tout facon arreter et on ne pourra pas remeter self.shedule_break à False
                     # self.seek(chunk_start + i + 1)
                     self.in_chunk_start = (i + 1) % len(s)
                     self.in_quotes = False
-                    self.in_curlys = False
-                    self.in_squares = False
+                    self.in_curlys = 0
+                    self.in_squares = in_squares
                     self.in_simple = False
                     self.in_object = False
+                    #print("read(2): ",s[in_chunk_start:i])
                     return s[in_chunk_start:i]
             elif ch in interesting:
                 check = False
@@ -1103,7 +1105,7 @@ class _json_object_file_iterator(io.FileIO):
                         backslash_escape = True  # we are in a quote and we see a backslash; escape next char
                     elif ch == doublecote:
                         in_quotes = False
-                        check = True
+                        check = True #signale qu'on sort d'un truc et qu'il faudra checker 
                 elif ch == doublecote:  # "
                     in_quotes = True
                     in_object = True
@@ -1115,21 +1117,26 @@ class _json_object_file_iterator(io.FileIO):
                     check = True
                 elif ch == square_open:  # [
                     in_squares += 1
-                    if in_squares:  # inSquare peut commence à -1 si in_square_braclets
+                    if in_squares > 1:
                         in_object = True
+                    else  :
+                        in_chunk_start = (i + 1) % len(s)
                 elif ch == square_close:  # ]
                     in_squares -= 1
                     check = True
-                if check and not in_quotes and not in_curlys and not in_squares:
+                    if not in_squares : # on a ateint la fin de la liste json
+                        return ""
+                if check and not in_quotes and not in_curlys and in_squares < 2:
                     if in_chunk_start < (i + 1):
-                        self.shedule_stop = True  # on prevoit d'arreter au read suivant sinon , va de tout facon arreter et on ne pourra pas remeter self.shedule_stop à False
+                        self.shedule_break = True  # on prevoit d'arreter au read suivant sinon , va de tout facon arreter et on ne pourra pas remeter self.shedule_break à False
                     # self.seek(chunk_start + i + 1)
                     self.in_chunk_start = (i + 1) % len(s)
                     self.in_quotes = False
                     self.in_curlys = False
-                    self.in_squares = False
+                    self.in_squares = in_squares
                     self.in_simple = False
                     self.in_object = False
+                    #print("read(3): ",s[in_chunk_start : i + 1])
                     return s[in_chunk_start : i + 1]
             elif not in_object:
                 if ch in separators:
@@ -1144,6 +1151,7 @@ class _json_object_file_iterator(io.FileIO):
         self.backslash_escape = backslash_escape
         self.in_chunk_start = 0
         if in_chunk_start:
+            #print("read(4): ",s[in_chunk_start:])
             return s[in_chunk_start:]
         return s
 
