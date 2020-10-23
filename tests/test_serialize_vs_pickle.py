@@ -15,8 +15,7 @@ except ModuleNotFoundError:
     from statistics import median
     use_numpy = False
 
-if __file__.endswith("serialize/tests/test_serialize_vs_pickle.py"):
-    full_smartFramework = True
+try:    
     from qtpy import QtWidgets
     from SmartFramework.serialize import serializeJson as serializejson
     from SmartFramework.serialize import serializePython
@@ -24,7 +23,8 @@ if __file__.endswith("serialize/tests/test_serialize_vs_pickle.py"):
     from SmartFramework.plot.PlotUI import Curve, Pen
     from SmartFramework.plot.PlotWithCurveSelectorUI import PlotWithCurveSelectorUI
     from SmartFramework.plot.ColorEnumerator import ColorEnumerator
-else:
+    full_smartFramework = True
+except ImportError:
     full_smartFramework = False
     import serializejson
 
