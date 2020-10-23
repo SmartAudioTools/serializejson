@@ -9,6 +9,7 @@ from SmartFramework.files import joinPath, directory, removeExistingPathAndCreat
 from SmartFramework.tools.objects import deepCompare
 
 try:
+    import numpy
     from numpy import median
     use_numpy = True
 except ModuleNotFoundError:
@@ -379,19 +380,27 @@ def test_serialize_vs_pickle():
                                 )
                             print(message)
                             raise_exception = True
-                            if type(value) is tuple:
-                                (
-                                    same_as_original,
-                                    original_diff_loaded,
-                                    loaded_diff_orginal,
-                                ) = deepCompare(list(value), loaded, return_reason=True)
-                                if same_as_original:
+                            type_value  =type(value)
+                            if serializerName == "serializePython" :
+                                if categoryName == "QtWidgets" :
                                     raise_exception = False
-                            if type(value) in (collections.Counter, collections.OrderedDict, collections.defaultdict) and dict(value) == loaded:
-                                raise_exception = False
-                            if type(value) is time.struct_time and list(value) == loaded:
-                                raise_exception = False
-                            if raise_exception and serializerName != "serializePython":
+                            elif serializerName in ("serializejson","serializejson_in_file"):
+                                # exception pour serializejson 
+                                if type_value is tuple:
+                                    (
+                                        same_as_original,
+                                        original_diff_loaded,
+                                        loaded_diff_orginal,
+                                    ) = deepCompare(list(value), loaded, return_reason=True)
+                                    if same_as_original:
+                                        raise_exception = False
+                                elif type_value in (collections.Counter, collections.OrderedDict, collections.defaultdict) and dict(value) == loaded:
+                                    raise_exception = False
+                                elif type_value is time.struct_time and list(value) == loaded:
+                                    raise_exception = False
+                                elif use_numpy and type_value is numpy.float64 and value == loaded :
+                                    raise_exception = False
+                            if raise_exception:
                                 raise Exception(message)
         if all_ok:
             print("  all is ok !")

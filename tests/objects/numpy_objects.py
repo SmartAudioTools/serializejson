@@ -51,6 +51,6 @@ objects = {
         "numpy_value_uint64": numpy.uint64(),
         "numpy_value_float16": numpy.float16(),
         "numpy_value_float32": numpy.float32(),
-        #"numpy_value_float64": numpy.float64()        
+        "numpy_value_float64": numpy.float64()        
     }
 }

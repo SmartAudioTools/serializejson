@@ -564,6 +564,7 @@ Infinity
     "__class__": "numpy.float32",
     "__init__": 0.0
 }
+0.0
 {
     "__class__": "objects.init_arg.C_InitArg",
     "__init__": "savedArg1"
