@@ -145,10 +145,7 @@ class Encoder(rapidjson.Encoder):
             self.single_line_list_numbers = single_line_list_numbers
             self.single_line_init = single_line_init
         self.numpy_types_to_python_types = numpy_types_to_python_types
-        try:
-            self.indent = indent     # bug dans la version de rapidjson avec indent = '\t' activé , qui n'enregistre pas indent
-        except : 
-            pass
+        self.indent = indent # rapid json enregistre self.indent_char et self.indent_count , mais ne permet pas de savoir si indent = None ...
         self.dumped_classes = set()
         self.chunk_size = chunk_size
         self.add_id = add_id
