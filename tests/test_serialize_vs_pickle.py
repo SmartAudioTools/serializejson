@@ -204,11 +204,11 @@ def test_serialize_vs_pickle():
         "pickle": {"encoder": pickle.dumps, "decoder": pickle.loads},
         "serializejson": {
             "encoder": serializejson.Encoder(attributs_filter=None,numpy_types_to_python_types = False),
-            "decoder": serializejson.Decoder(set_attributs=False),
+            "decoder": serializejson.Decoder(set_attributs=True),
         },
         "serializejson_in_file": {
             "encoder": serializejson.Encoder(fp=bytesIO, attributs_filter=None,numpy_types_to_python_types = False),
-            "decoder": serializejson.Decoder(fp=bytesIO, set_attributs=False),
+            "decoder": serializejson.Decoder(fp=bytesIO, set_attributs=True),
         },
     }
 
@@ -220,7 +220,7 @@ def test_serialize_vs_pickle():
                         obj, 
                         modules=modules,
                         attributs_filter=None,
-                        set_attributs=False,
+                        set_attributs=True,
                         numpy_types_to_python_types = False
                     ),
                     "decoder": lambda obj: serializeRepr.loads(obj, modules=modules),
@@ -229,7 +229,7 @@ def test_serialize_vs_pickle():
                     "encoder": lambda obj: serializePython.dumps(
                         obj,
                         attributs_filter=None,
-                        set_attributs=False,
+                        set_attributs=True,
                         numpy_types_to_python_types = False
                     ),
                     "decoder": serializePython.loads,
@@ -312,7 +312,7 @@ def test_serialize_vs_pickle():
                     message = " unable to loads %s -> %s -> ERROR" % (repr(value), repr(dumped))
                     print(message)
                     all_ok = False
-                    raise Exception(message)
+                    raise 
 
                 else:
                     if categoryName.startswith("object"):
@@ -442,7 +442,7 @@ def test_serialize_vs_pickle():
             antialising=True, rotation=90
         )  # ,backgroundColor = QtCore.Qt.black
         colorEnumerator = ColorEnumerator()
-        for serializerName in loads_times_by_type.keys():
+        for serializerName in reversed(list(loads_times_by_type.keys())):
             color = colorEnumerator.getNewColor()
             varnames, loads_times = zip(*loads_times_by_type[serializerName].items())
             curve = Curve(

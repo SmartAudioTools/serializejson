@@ -50,6 +50,7 @@ objects = {
     },
     "list": {
         "empty": [],
+        "one_int" : [1],
         "bools": [False, True],
         "ints_01": [0, 1],
         "ints_pos": [2, 3],

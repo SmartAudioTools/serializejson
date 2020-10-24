@@ -813,6 +813,7 @@ default_autorized_classes_strs = set(
         "range",
         "slice",
         "collections.deque",
+        "numpy.dtype"
     ]
 )
 if use_numpy:
