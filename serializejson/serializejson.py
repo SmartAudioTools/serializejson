@@ -20,11 +20,6 @@ from SmartFramework.tools.objects import (
     classFromClassStr,
     from_name,
 )
-try:
-    rapidjson.dumps(True, indent="\t")
-    default_indent = "\t"
-except TypeError:
-    default_indent = 4 # "\t"
 __all__ = ['dumps', 'dump', 'loads', 'load', 'append', 'Encoder', 'Decoder']
 
 
@@ -61,7 +56,7 @@ def load(fp, *, obj=None, iterator=False, **argsDict):
         return Decoder(**argsDict).load(fp=fp, obj=obj)
 
 
-def append(obj, fp=None, *, indent=default_indent, **argsDict):
+def append(obj, fp=None, *, indent="\t", **argsDict):
     fp = _open_for_append(fp, indent)
     Encoder(**argsDict)(obj, fp)
     _close_for_append(fp, indent)
@@ -80,7 +75,7 @@ class Encoder(rapidjson.Encoder):
         attributs_filter="_",
         bytes_to_string=False,
         ensure_ascii=False,
-        indent=default_indent,
+        indent="\t",
         numpy_array_dumped_base64=True,
         numpy_array_readable_max_size=0,
         numpy_array_to_list=False,
@@ -151,7 +146,7 @@ class Encoder(rapidjson.Encoder):
             self.single_line_init = single_line_init
         self.numpy_types_to_python_types = numpy_types_to_python_types
         try:
-            self.indent = indent         # bug dans la version de rapidjson avec indent = '\t' activé , qui n'enregistre pas indent
+            self.indent = indent     # bug dans la version de rapidjson avec indent = '\t' activé , qui n'enregistre pas indent
         except : 
             pass
         self.dumped_classes = set()
