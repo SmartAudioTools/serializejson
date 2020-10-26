@@ -1,4 +1,5 @@
-# serializejson
+serializejson
+=============
 
 **serializejson** is a python library for serialization and deserialization of complex Python objects in [JSON](http://json.org/) build upon [python-rapidjson](https://github.com/python-rapidjson/python-rapidjson) and [pybase64](https://github.com/mayeut/pybase64)
 
@@ -28,18 +29,22 @@ Do not load serializejsons from untrusted / unauthenticated sources without carf
 - WARNING : tuple, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized 
 
 
-# Install
+Install
+-------
 ```
 pip install git+https://github.com/SmartAudioTools/serializejson.git
 ```
 
-# Usage 
+Usage 
+-------
 
-## serialization with fonctions API 
+serialization with fonctions API 
+^^^^^^^
 ```
 import serializejson 
 
-# serialize in string
+serialize in string
+"""""""
 object1 = set([1,2])
 dumped1 = serializejson.dumps(object1)
 loaded1 = serializejson.loads(dumped1)
@@ -50,32 +55,37 @@ print(dumped1)
 >}
 
 
-# serialize in file
+serialize in file
+"""""""
 object2 = set([3,4])
 serializejson.dump(object2,"dumped2.json")
 loaded2 = serializejson.load("dumped2.json")
 ```
 
-## serialization with classes based API. 
+serialization with classes based API. 
+^^^^^^^
 (quicker than fonctions API if reuse of Encoder/Decoder for serveral objects)
 ```
 import serializejson 
 encoder = serializejson.Encoder()
 decoder = serializejson.Decoder()
 
-# serialize in string
+serialize in string
+"""""""
 object1 = set([1,2])
 dumped1 = encoder.dumps(object1)
 loaded1 = decoder.loads(dumped1)
 print(dumped1)
 
-# serialize in file
+serialize in file
+"""""""
 object2 = set([3,4])
 encoder.dump(object2,"dumped2.json")
 loaded2 = decoder.load("dumped2.json")
 ```
 
-## update existing object 
+update existing object 
+^^^^^^^
 ```
 import serializejson 
 object1 = set([1,2])
@@ -86,7 +96,8 @@ serializejson.loads(dumped1,obj = object2, updatables_classes = [set])
 print(f"id {id(object2)} :  {object2}")
 ```
 
-## iterative serialization and deserialization
+iterative serialization and deserialization
+^^^^^^^
 ```
 import serializejson 
 encoder = serializejson.Encoder("my_list.json",indent = None)
@@ -101,6 +112,7 @@ for elt in serializejson.Decoder("my_list.json"):
 >2
 ```
 	
-# License
+License
+---------
 See serializejson/LICENSE for details about the serializejson license.
 
