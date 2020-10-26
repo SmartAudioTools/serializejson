@@ -21,8 +21,27 @@ Do not load serializejsons from untrusted / unauthenticated sources without carf
 - dump and load support string path. 
 - can iterativly encode (with append) and decode (with iterator) a list in json, saving memmory space during the process of serialization et deserialization.
 - WARNING : tuple, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized 
-"""
 
+
+
+"""
+"""
+Fonctions API
+===========
+
+Classes API 
+===========
+Encoder
+-------
+.. autoclass:: Encoder
+   :members:
+
+Decoder
+-------
+.. autoclass:: Decoder
+   :members:
+
+"""
 
 from SmartFramework.tools.dictionnaires import filtered
 try:
@@ -99,105 +118,102 @@ def append(obj, fp=None, *, indent="\t", **argsDict):
 
 
 class Encoder(rapidjson.Encoder):
-    """Class-based dumps()-like functionality."""
+    """
+    class for serialization of python objects into json.
+    
+    Args:
+        fp (string or file-like): 
+            path or file-like object. 
+            When specified, the encoded result will be written there
+            and  you will not have to pass it to the dump() methode later. 
+        
+        attributs_filter:
+            objects attributs starting with attributs_filter will not be 
+            serialized. ("_" by default)
+        
+        bytes_to_string:
+            whether bytes must be dumped in string after utf-8 decode.
+        
+        ensure_ascii: 
+            whether non-ascii str are dumped with escaped unicode or utf-8.
+        
+        indent (None, int or "\t"): 
+            indentation width to produce pretty printed JSON
+        
+        numpy_array_dumped_base64: 
+            True:  (by default) numpy array are dumped in base 64 
+            False: numpy array are dumped in readable decimals
+        
+        numpy_array_readable_max_size: 
+            numpy array of smaler size will serialize in readable decimals 
+        
+        numpy_array_to_list: 
+            whether numpy array should be serialized as list. 
+        
+        numpy_types_to_python_types:  
+            wheter numpy ints ans floats must be convert to python types. 
+        
+        single_line_init:
+            whether __init__ must be serialize in one line
+        
+        single_line_list_numbers:
+            whether list of numbers must be serialize in one line
+        
+        sort_keys:    
+            whether dictionary keys should be sorted alphabetically
+        
+        use_numpyB64_bytearrayB64: 
+            save numpy array and bytes array in base 64 with  
+            dump with referencies to serializejson.numpyB64 and 
+            serializejson.bytearrayB64 instead of verbose use of 
+            base64.b64decode. It save space but make the json file 
+            dependent of the serializejson module. 
+        
+        chunk_size: 
+            write the stream in chunks of this size at a time
 
+        skip_invalid_keys (bool) : 
+            whether invalid dict keys will be skipped
+
+        number_mode (int) : 
+            enable particular behaviors in handling numbers
+
+        datetime_mode (int) :  
+            how should datetime, time and date instances be handled
+
+        uuid_mode (int) :  
+            how should UUID instances be handled
+
+        write_mode : 
+            WM_COMPACT:that produces the most compact JSON representation
+            WM_PRETTY: it will use RapidJSON's PrettyWriter
+            WM_single_line_list_numbers: arrays will be kept on a single line
+            
+        bytes_mode : 
+            BM_UTF8
+            BM_NONE
+    """
     def __new__(
         cls,
-        fp:Union[TextIO,BinaryIO, str]=None,
+        fp=None,
         *,
-        attributs_filter:str="_",
-        bytes_to_string:bool=False,
-        ensure_ascii:bool=False,
-        indent:Union[None,str,int]="\t",
-        numpy_array_dumped_base64:bool=True,
-        numpy_array_readable_max_size:int=0,
-        numpy_array_to_list:bool=False,
-        numpy_types_to_python_types:bool=True,
-        single_line_init:bool=True,
-        single_line_list_numbers:bool=True,
-        sort_keys:bool=True,
-        use_numpyB64_bytearrayB64:bool=True,
-        chunk_size:int=65536,
+        attributs_filter="_",
+        bytes_to_string=False,
+        ensure_ascii=False,
+        indent="\t",
+        numpy_array_dumped_base64=True,
+        numpy_array_readable_max_size=0,
+        numpy_array_to_list=False,
+        numpy_types_to_python_types=True,
+        single_line_init=True,
+        single_line_list_numbers=True,
+        sort_keys=True,
+        use_numpyB64_bytearrayB64=True,
+        chunk_size=65536,
         #add_id:bool=False,
         **argsDict
     ):
-        """
-        Create a Encoder instance for serialization of python objects into json.
-        
-        Args:
-            fp (string or file-like): 
-                path or file-like object. 
-                When specified, the encoded result will be written there
-                and  you will not have to pass it to the dump() methode later. 
-            
-            attributs_filter:
-                objects attributs starting with attributs_filter will not be 
-                serialized. ("_" by default)
-            
-            bytes_to_string:
-                whether bytes must be dumped in string after utf-8 decode.
-            
-            ensure_ascii: 
-                whether non-ascii str are dumped with escaped unicode or utf-8.
-            
-            indent (None, int or "\t"): 
-                indentation width to produce pretty printed JSON
-            
-            numpy_array_dumped_base64: 
-                True:  (by default) numpy array are dumped in base 64 
-                False: numpy array are dumped in readable decimals
-            
-            numpy_array_readable_max_size: 
-                numpy array of smaler size will serialize in readable decimals 
-            
-            numpy_array_to_list: 
-                whether numpy array should be serialized as list. 
-            
-            numpy_types_to_python_types:  
-                wheter numpy ints ans floats must be convert to python types. 
-            
-            single_line_init:
-                whether __init__ must be serialize in one line
-            
-            single_line_list_numbers:
-                whether list of numbers must be serialize in one line
-            
-            sort_keys:    
-                whether dictionary keys should be sorted alphabetically
-            
-            use_numpyB64_bytearrayB64: 
-                save numpy array and bytes array in base 64 with  
-                dump with referencies to serializejson.numpyB64 and 
-                serializejson.bytearrayB64 instead of verbose use of 
-                base64.b64decode. It save space but make the json file 
-                dependent of the serializejson module. 
-            
-            chunk_size: 
-                write the stream in chunks of this size at a time
-
-            Herited from rapidjson.Encoder :
-
-            skip_invalid_keys (bool) : 
-                whether invalid dict keys will be skipped
-
-            number_mode (int) : 
-                enable particular behaviors in handling numbers
-
-            datetime_mode (int) :  
-                how should datetime, time and date instances be handled
-
-            uuid_mode (int) :  
-                how should UUID instances be handled
-
-            write_mode : 
-                WM_COMPACT:that produces the most compact JSON representation
-                WM_PRETTY: it will use RapidJSON's PrettyWriter
-                WM_single_line_list_numbers: arrays will be kept on a single line
-                
-            bytes_mode : 
-                BM_UTF8
-                BM_NONE
-        """
+ 
 
         if not bytes_to_string:
             bytes_mode = rapidjson.BM_NONE
@@ -467,76 +483,75 @@ class Encoder(rapidjson.Encoder):
 
 
 class Decoder(rapidjson.Decoder):
-    """Class-based loads()-like functionality."""
+    """
+    Decoder for load objects serialized in json files or strings.
+    
+    Args:
+        fp (string or file-like) : 
+            Path or file-like object containing the json. 
+            When specified, the decoder will read from this file,
+            and  you will not have to pass it to the load() methode later. 
+            
+        autorized_classes (list or string):
+            List of classes (string with qualified name or classes) that
+            serializejson is allowed to recreate from the __class__ 
+            keyword in json. Otherwise the object will stay a dictonnary.            
+            WARNING  : Be very carreful to allow only necessary classes 
+            because a json with {"__class__":"eval","__init__":"do_anything"}
+            "all": alls classes will be recreated with no verifications. 
+            use it only briefly when you are developping and you are 
+            absolutly confident on your json files. Never forget to remove it. 
+            
+        set_attributs (bool):
+            Whether load will try to call set_xxx or setXxx methodes 
+            or xxx property setter for each attributs of serialized objects
+            if the object as no __setstate__ methode.
+            
+        recognized_classes (list):
+            List of classes (string with qualified name or classes) that
+            serializejons will try to recognize from keys names . 
+            
+        accept_comments (bool):
+            Whether serializejson accept to parse json with comments  
+        
+        numpy_array_from_list (bool):
+            Whether list of int or floats wich are loaded into numpy arrays.
+        
+        default_value : 
+            The value returned if the path passed to load desn't exist. 
+        
+        chunk_size (int):
+            Chunk_size for the json file read.
 
+        updatables_classes (list):
+            List of classes (string with qualified name or classes) that
+            serializejson will try to upadate if already in the passed obj.
+            Otherwise the objects are recreated.
+            
+
+
+        Herited from rapidjson.Decoder:
+
+        number_mode (int) : Enable particular behaviors in handling numbers
+        datetime_mode (int) : How should datetime, time and date instances be handled
+        uuid_mode (int) : How should UUID instances be handled
+        parse_mode (int) : Whether the parser should allow non-standard JSON extensions (nan, -inf, inf )
+        """
     def __new__(
         cls,
         fp=None,
         *,
-        autorized_classes:list=[],
-        set_attributs:bool=True,
-        recognized_classes:list=None,
-        accept_comments:bool=False,
-        numpy_array_from_list:bool=False,
+        autorized_classes=[],
+        set_attributs=True,
+        recognized_classes=None,
+        accept_comments=False,
+        numpy_array_from_list=False,
         default_value=None,
-        chunk_size:int=65536,
-        updatables_classes:list=[],
+        chunk_size=65536,
+        updatables_classes=[],
         **argsDict
     ):
-        """
-        Create a Decoder for load objects serialized in json files or strings.
-        
-        Args:
-            fp (string or file-like) : 
-                Path or file-like object containing the json. 
-                When specified, the decoder will read from this file,
-                and  you will not have to pass it to the load() methode later. 
-                
-            autorized_classes (list or string):
-                List of classes (string with qualified name or classes) that
-                serializejson is allowed to recreate from the __class__ 
-                keyword in json. Otherwise the object will stay a dictonnary.            
-                WARNING  : Be very carreful to allow only necessary classes 
-                because a json with {"__class__":"eval","__init__":"do_anything"}
-                "all": alls classes will be recreated with no verifications. 
-                use it only briefly when you are developping and you are 
-                absolutly confident on your json files. Never forget to remove it. 
-                
-            set_attributs (bool):
-                Whether load will try to call set_xxx or setXxx methodes 
-                or xxx property setter for each attributs of serialized objects
-                if the object as no __setstate__ methode.
-                
-            recognized_classes (list):
-                List of classes (string with qualified name or classes) that
-                serializejons will try to recognize from keys names . 
-                
-            accept_comments (bool):
-                Whether serializejson accept to parse json with comments  
-            
-            numpy_array_from_list (bool):
-                Whether list of int or floats wich are loaded into numpy arrays.
-            
-            default_value : 
-                The value returned if the path passed to load desn't exist. 
-            
-            chunk_size (int):
-                Chunk_size for the json file read.
-
-            updatables_classes (list):
-                List of classes (string with qualified name or classes) that
-                serializejson will try to upadate if already in the passed obj.
-                Otherwise the objects are recreated.
-                
-
-
-            Herited from rapidjson.Decoder:
-
-            number_mode (int) : Enable particular behaviors in handling numbers
-            datetime_mode (int) : How should datetime, time and date instances be handled
-            uuid_mode (int) : How should UUID instances be handled
-            parse_mode (int) : Whether the parser should allow non-standard JSON extensions (nan, -inf, inf )
-        """
+       
         if accept_comments:
             parse_mode = rapidjson.PM_COMMENTS
         else:
