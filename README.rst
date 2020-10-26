@@ -1,9 +1,10 @@
 serializejson
 =============
 
-**serializejson** is a python library for serialization and deserialization of complex Python objects in [JSON](http://json.org/) build upon [python-rapidjson](https://github.com/python-rapidjson/python-rapidjson) and [pybase64](https://github.com/mayeut/pybase64)
+**serializejson** is a python library for serialization and deserialization of complex Python objects in 
+`JSON <http://json.org>`_ build upon `python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_ and `pybase64 <https://github.com/mayeut/pybase64>`_
 
-![Python package](https://github.com/SmartAudioTools/serializejson/workflows/Python%20package/badge.svg)
+!`Python package <https://github.com/SmartAudioTools/serializejson/workflows/Python%20package/badge.svg>`
 	
 >**WARNING**:
 serializejson can execute arbitrary Python code if the load parameter autorized_classes is "all" when loading json. 
@@ -11,7 +12,7 @@ Do not load serializejsons from untrusted / unauthenticated sources without carf
 
 - supports Python 3.7 (maybe lower) or greater.
 - serializes arbitrary python objects into a dictionary by adding "\_\_class\_\_" ,and eventually "\_\_init\_\_" and "\_\_state\_\_" keys. 
-- serializes and deserializes bytes and bytearray very quickly in base64 tanks to [pybase64](https://github.com/mayeut/pybase64).
+- serializes and deserializes bytes and bytearray very quickly in base64 tanks to `pybase64 <https://github.com/mayeut/pybase64>`_.
 - calls the same objects methods as pickle. Therefore almost all pickable objects are serializable with serializejson without any modification.
 - serialized objects are human-readable. Your datas will never be unreadable if your code evolved, you will always be able to modify your datas with a text editor, unlike with pickle.
 - serialized objects take generally less space than with pickle and just a little 30% more if big binaries data (numpy array, bytes, bytearray)
