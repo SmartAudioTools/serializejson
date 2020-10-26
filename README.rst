@@ -31,86 +31,80 @@ Do not load serializejsons from untrusted / unauthenticated sources without carf
 
 Install
 -------
-```
-pip install git+https://github.com/SmartAudioTools/serializejson.git
-```
+.. code-block:: python
+	pip install git+https://github.com/SmartAudioTools/serializejson.git
+
 
 Usage 
 -------
 
 serialization with fonctions API 
 ^^^^^^^
-```
-import serializejson 
+.. code-block:: python
+	import serializejson 
 
-serialize in string
-"""""""
-object1 = set([1,2])
-dumped1 = serializejson.dumps(object1)
-loaded1 = serializejson.loads(dumped1)
-print(dumped1)
->{
->        "__class__": "set",
->        "__init__": [1,2]
->}
+	#serialize in string
+	object1 = set([1,2])
+	dumped1 = serializejson.dumps(object1)
+	loaded1 = serializejson.loads(dumped1)
+	print(dumped1)
+	>{
+	>        "__class__": "set",
+	>        "__init__": [1,2]
+	>}
 
 
-serialize in file
-"""""""
-object2 = set([3,4])
-serializejson.dump(object2,"dumped2.json")
-loaded2 = serializejson.load("dumped2.json")
-```
+	#serialize in file
+	object2 = set([3,4])
+	serializejson.dump(object2,"dumped2.json")
+	loaded2 = serializejson.load("dumped2.json")
 
 serialization with classes based API. 
 ^^^^^^^
 (quicker than fonctions API if reuse of Encoder/Decoder for serveral objects)
-```
-import serializejson 
-encoder = serializejson.Encoder()
-decoder = serializejson.Decoder()
+.. code-block:: python
+	import serializejson 
+	encoder = serializejson.Encoder()
+	decoder = serializejson.Decoder()
 
-serialize in string
-"""""""
-object1 = set([1,2])
-dumped1 = encoder.dumps(object1)
-loaded1 = decoder.loads(dumped1)
-print(dumped1)
+	# serialize in string
 
-serialize in file
-"""""""
-object2 = set([3,4])
-encoder.dump(object2,"dumped2.json")
-loaded2 = decoder.load("dumped2.json")
-```
+	.. code-block:: python
+	object1 = set([1,2])
+	dumped1 = encoder.dumps(object1)
+	loaded1 = decoder.loads(dumped1)
+	print(dumped1)
+
+	# serialize in file
+	object2 = set([3,4])
+	encoder.dump(object2,"dumped2.json")
+	loaded2 = decoder.load("dumped2.json")
 
 update existing object 
 ^^^^^^^
-```
-import serializejson 
-object1 = set([1,2])
-object2 = set([3,4])
-dumped1 = serializejson.dumps(object1)
-print(f"id {id(object2)} :  {object2}")
-serializejson.loads(dumped1,obj = object2, updatables_classes = [set])
-print(f"id {id(object2)} :  {object2}")
-```
+.. code-block:: python
+	import serializejson 
+	object1 = set([1,2])
+	object2 = set([3,4])
+	dumped1 = serializejson.dumps(object1)
+	print(f"id {id(object2)} :  {object2}")
+	serializejson.loads(dumped1,obj = object2, updatables_classes = [set])
+	print(f"id {id(object2)} :  {object2}")
 
 iterative serialization and deserialization
 ^^^^^^^
-```
-import serializejson 
-encoder = serializejson.Encoder("my_list.json",indent = None)
-for elt in range(3):
-    encoder.append(elt)
-print(open("my_list.json").read())
-for elt in serializejson.Decoder("my_list.json"):
-    print(elt)
->[0,1,2]
->0
->1
->2
-```
+.. code-block:: python
+	import serializejson 
+	encoder = serializejson.Encoder("my_list.json",indent = None)
+	for elt in range(3):
+		encoder.append(elt)
+	print(open("my_list.json").read())
+	for elt in serializejson.Decoder("my_list.json"):
+		print(elt)
+	>[0,1,2]
+	>0
+	>1
+	>2
 	
 License
 ---------
