@@ -64,6 +64,7 @@ serialization with fonctions API
 serialization with classes based API. 
 ^^^^^^^
 (quicker than fonctions API if reuse of Encoder/Decoder for serveral objects).
+
 .. code-block:: python
 
 	import serializejson 
