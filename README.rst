@@ -6,9 +6,8 @@ serializejson
 
 !`Python package <https://github.com/SmartAudioTools/serializejson/workflows/Python%20package/badge.svg>`
 	
-.. warning:
-	WARNING : serializejson can execute arbitrary Python code if the load parameter autorized_classes is "all" when loading json. 
-	Do not load serializejsons from untrusted / unauthenticated sources without carfuly set the autorized_classes parameter. 
+    WARNING : serializejson can execute arbitrary Python code if the load parameter autorized_classes is "all" when loading json. 
+    Do not load serializejsons from untrusted / unauthenticated sources without carfuly set the autorized_classes parameter. 
 
 - supports Python 3.7 (maybe lower) or greater.
 - serializes arbitrary python objects into a dictionary by adding "\_\_class\_\_" ,and eventually "\_\_init\_\_" and "\_\_state\_\_" keys. 
