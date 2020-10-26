@@ -6,6 +6,7 @@ from ..tools.dictionnaires import remove, filtered
 from inspect import isclass
 import types
 import inspect
+import pybase64
 from pybase64 import b64encode
 from base64 import b64decode
 from apply import apply
@@ -396,7 +397,9 @@ def hasMethod(obj, methode):
     return hasattr(obj, methode) and inspect.ismethod(getattr(obj, methode))
 
 
-classFromClassStr_dict = {}
+classFromClassStr_dict = {
+        'base64.b64decode' : lambda b64 : pybase64.b64decode(b64,validate = True)
+        }
 
 
 def classFromClassStr(string):
@@ -475,7 +478,7 @@ def getClass(obj):
 # TESTS -------------------------------------------------
 
 
-def isPyQt(obj):
+def isQWidget(obj):
     return hasattr(
         obj, "disconnect"
     )  # ATTENTION SI CHANGE, DOIT CHANGER EGALEMENT LE HACK (FAUSSE METHODE) DANS SmarFace/models.py  pyqtConfigure ne marche pas avec PySide2
@@ -678,7 +681,7 @@ def tuple_from_ndarray(inst, classe):
     ):
         return (numpy.array, (instCont.tolist(), instContdtype), None)
     elif instCont.ndim == 1:
-        if serializeParameters.use_numpyB64_bytesB64_bytearrayB64:
+        if serializeParameters.use_numpyB64_bytearrayB64:
             if instCont.dtype == bool:
                 return (
                     numpyB64,
@@ -695,7 +698,7 @@ def tuple_from_ndarray(inst, classe):
             return (numpy.frombuffer, (bytearray(instCont), instContdtype), None)
     else:
 
-        if serializeParameters.use_numpyB64_bytesB64_bytearrayB64:
+        if serializeParameters.use_numpyB64_bytearrayB64:
             if instCont.dtype == bool:
                 return (
                     numpyB64,
@@ -728,7 +731,7 @@ def tuple_from_dtype(inst, classe):
 
 
 def tuple_from_bytearray(inst, classe):
-    if serializeParameters.use_numpyB64_bytesB64_bytearrayB64:
+    if serializeParameters.use_numpyB64_bytearrayB64:
         return (bytearrayB64, (encodedB64(inst),), None)
     else:
         return (bytearray, (bytes(inst),), None)
@@ -746,13 +749,8 @@ def tuple_from_bytes(inst, classe):
             return (bytes, (string, "ascii"), None)
         except:
             pass
-    if serializeParameters.base64_for_bytes:
-        if serializeParameters.use_numpyB64_bytesB64_bytearrayB64:
-            return (bytesB64, (encodedB64(inst),), None)
-        else:
-            return (b64decode, (encodedB64(inst),), None)
-    else:
-        raise  #
+    return (b64decode, (encodedB64(inst),), None)
+
 
 
 def tuple_from_bool(inst,classe):
@@ -907,9 +905,10 @@ def instance(__class__=object, __init__=None, __state__=None, __initArgs__=None,
                                 if hasattr(inst, attributSetMethode):
                                     methode = eval("inst." + attributSetMethode)
                                     methode(value)
-                                inst.__setattr__(
-                                    key, value
-                                )  # permet de gerer à la fois les cas ou key est une propriétée, un attriut dans __dict__ ou dans __slot__
+                                else :
+                                    inst.__setattr__(
+                                        key, value
+                                    )  # permet de gerer à la fois les cas ou key est une propriétée, un attriut dans __dict__ ou dans __slot__
                     else:
                         if hasattr(inst, "__slots__"):
                             for key, value in __state__.items():

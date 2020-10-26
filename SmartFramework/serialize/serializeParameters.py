@@ -4,14 +4,14 @@
 # numpy_array_readable_max_size = 0    # force tout de même à  encoder les tableaux de taille <= numpy_array_readable_max_size, sous forme de liste lisible même si on utilise numpy_array_dumped_base64 = True ( et donc d'utiliser numpy.array au lieu du construcuteur partir de bytes comme numpy.ndarray (pour tableau de dim > 2 si use_numpyB64 == False ), numpyB64 ou autre), paramètre directement ici , ou en paramètre de SerializeInterface et SerializePresetUI
 
 # a regrouper sous un seul parametre determine dependance à SmartFramework
-# use_numpyB64_bytesB64_bytearrayB64 = True
+# use_numpyB64_bytearrayB64 = True
 # use_numpyB64        = True # précise si on doit utiliser mon constructeur SmartFramework.numpyB64() pour les tableau rendant alors le json dependant de ma bibliotheque ou utiliser une syntaxe plus complexe mais où numpy suffit .  l'avantagede numpyB64 est d'etre beaucoup plus compact.
 # use_bytearrayB64    = True     # précise si on doit utiliser mon constructeur SmartFramework.bytearrayB64() pour les bytearray rendant alors le json dependant de ma bibliotheque ou bytearray(base64.b64decode(..))  . l'avantage de bytearrayB64 est d'etre beaucoup plus compact et de déclancher une erreure si y'a un caracter qui est pas dans la base .
 # use_bytesB64        = True	    # précise si on doit utiliser mon constructeur SmartFramework.bytesB64() pour les bytes rendant alors le json dependant de ma bibliotheque ou base64.b64decode . l'avantage de bytesB64 est d'utilsier pyBase64 beaucoup plus rapide que base64 et de déclancher une erreure si y'a un caracter qui est pas dans la base .
 
 # a laisser là  on y toucher à priori pas -----------------------
 
-base64_for_bytes = True  # dit si doit utiliser l'encodage en base64 pour l'encodage des bytes et bytes array, si pas ascii printables. Ce paramètre n'est modifiable que directement ici. Attention s'il est mis à False, si serialize en json plantera sur les bytes avec des valeures < 128 dans tuple_from_bytes => le laisser toujours True ?
+#base64_for_bytes = True  # dit si doit utiliser l'encodage en base64 pour l'encodage des bytes et bytes array, si pas ascii printables. Ce paramètre n'est modifiable que directement ici. Attention s'il est mis à False, si serialize en json plantera sur les bytes avec des valeures < 128 dans tuple_from_bytes => le laisser toujours True ?
 numpyB64_convert_int64_to_int32_and_align_in_Python_32Bit = True  # dis si numpyB64 doit deserialiser les tableau int64 en int32 quand utilise python 32 bits (pour prendre moins de place? ou pour pouvoir deserialiser les classifiers en python 32 bit ?
 
 # noms de fichiers ----------------------------

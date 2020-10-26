@@ -10,18 +10,18 @@ def tuple_from_QPen(inst, classe):
         args.append(inst.width())
         if inst.style() != 1:
             args.append(
-                inst.style()
+                int(inst.style())
             )  # pour l'instant ne sais pas comment serialiser une enumeration Qt.SolidLine ect...
-    return classe, tuple(args)
+    return (classe, tuple(args),None)
 
 
 def tuple_from_QBrush(inst, classe):
     args = [inst.color()]
     if inst.style() != 1:
         args.append(
-            inst.style()
+            int(inst.style())
         )  # pour l'instant ne sais pas comment serialiser une enumeration Qt.SolidLine ect...
-    return classe, tuple(args)
+    return (classe, tuple(args),None)
 
 
 # --- DATA -------------------------------------------------------
@@ -54,12 +54,21 @@ def tuple_from_QPolygon(inst, classe):
     return (classe, initargs, None)
 
 
+def tuple_from_QPolygonF(inst, classe):
+    #tuple_reduce = inst.__reduce__()
+    state= []
+    for point in inst:
+        state.append(point.x())
+        state.append(point.y())
+    return (classe, (state,), None)
+
+
 # --- WIDGETS  -------------------------------------------------------
 
 
 def tuple_from_QSpinBox(inst, classe):
     state = {"value": inst.value()}
-    return (classe, None, state)
+    return (classe, tuple(), state)
 
 
 def tuple_from_QCheckBox(inst, classe):
@@ -67,17 +76,17 @@ def tuple_from_QCheckBox(inst, classe):
         state = {"checked": inst.isChecked()}
     else:
         state = None
-    return (classe, None, state)
+    return (classe, tuple(), state)
 
 
 def tuple_from_QLineEdit(inst, classe):
     state = {"text": inst.text()}
-    return (classe, None, state)
+    return (classe,  tuple(), state)
 
 
 def tuple_from_QPlainTextEdit(inst, classe):
     state = {"plainText": inst.toPlainText()}
-    return (classe, None, state)
+    return (classe,  tuple(), state)
 
 
 tuple_from_qt_classes = {
@@ -100,7 +109,7 @@ tuple_from_qt_classes = {
     "QPoint": tuple_from_reducableQt,
     "QPointF": tuple_from_reducableQt,
     "QPolygon": tuple_from_QPolygon,
-    "QPolygonF": tuple_from_QPolygon,
+    "QPolygonF": tuple_from_QPolygonF,
     "QPushButton": tuple_from_QCheckBox,
     "QRect": tuple_from_reducableQt,
     "QRectF": tuple_from_reducableQt,
