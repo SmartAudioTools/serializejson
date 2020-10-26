@@ -315,7 +315,7 @@ class Encoder(rapidjson.Encoder):
                     "__init__": rapidjson.RawJSON(
                         rapidjson.dumps(
                             list(inst),
-                            default=self.default_one_line,
+                            default=self._default_one_line,
                             ensure_ascii=False,
                             sort_keys=self._sort_keys,
                             bytes_mode=self.bytes_mode,
@@ -329,13 +329,13 @@ class Encoder(rapidjson.Encoder):
             if inst.ndim == 1:
                 return rapidjson.RawJSON(rapidjson.dumps(inst.tolist()))
             return [rapidjson.RawJSON(rapidjson.dumps(elt.tolist())) for elt in inst]  # inst.tolist()
-        dic = self.dict_from_instance(inst)
+        dic = self._dict_from_instance(inst)
         initArgs = dic.get("__init__", None)
         if initArgs is not None and self.single_line_init:  # and  dic["__class__"] in  _oneline_init_classess :
             dic["__init__"] = rapidjson.RawJSON(
                 rapidjson.dumps(
                     initArgs,
-                    default=self.default_one_line,
+                    default=self._default_one_line,
                     ensure_ascii=self.ensure_ascii,
                     sort_keys=self.sort_keys,
                     bytes_mode=self.bytes_mode,
@@ -354,7 +354,7 @@ class Encoder(rapidjson.Encoder):
                     dic[key] = rapidjson.RawJSON(
                         rapidjson.dumps(
                             value,
-                            default=self.default_one_line,
+                            default=self._default_one_line,
                             bytes_mode=self.bytes_mode,
                             **self.kargs
                         )
@@ -368,7 +368,7 @@ class Encoder(rapidjson.Encoder):
         return dic
         # raise TypeError('%r is not JSON serializable' % inst)
 
-    def default_one_line(self, inst):
+    def _default_one_line(self, inst):
         type_inst = type(inst)
         if type_inst is encodedB64:
             return inst.decode("ascii")
@@ -387,9 +387,9 @@ class Encoder(rapidjson.Encoder):
         if type_inst is ndarray and self.numpy_array_to_list:
             # return rapidjson.RawJSON(rapidjson.dumps(inst.tolist(), bytes_mode=dump_bytes_mode))
             return inst.tolist()
-        return self.dict_from_instance(inst)
+        return self._dict_from_instance(inst)
 
-    def dict_from_instance(self, inst):
+    def _dict_from_instance(self, inst):
         classe, initArgs, state = tupleFromInstance(inst)
         if type(classe) is not str:
             classe = classStrFromClass(classe)
@@ -428,7 +428,7 @@ class Encoder(rapidjson.Encoder):
         ):
             return rapidjson.dumps(
                 obj,
-                default=self.default_one_line,
+                default=self._default_one_line,
                 bytes_mode=self.bytes_mode,
                 **self.kargs
             )
