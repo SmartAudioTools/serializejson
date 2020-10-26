@@ -72,7 +72,6 @@ serialization with classes based API.
 
 	# serialize in string
 
-	.. code-block:: python
 	object1 = set([1,2])
 	dumped1 = encoder.dumps(object1)
 	loaded1 = decoder.loads(dumped1)
