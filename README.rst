@@ -32,6 +32,7 @@ Do not load serializejsons from untrusted / unauthenticated sources without carf
 Install
 -------
 .. code-block:: python
+
 	pip install git+https://github.com/SmartAudioTools/serializejson.git
 
 
@@ -41,6 +42,7 @@ Usage
 serialization with fonctions API 
 ^^^^^^^
 .. code-block:: python
+
 	import serializejson 
 
 	#serialize in string
@@ -63,6 +65,7 @@ serialization with classes based API.
 ^^^^^^^
 (quicker than fonctions API if reuse of Encoder/Decoder for serveral objects)
 .. code-block:: python
+
 	import serializejson 
 	encoder = serializejson.Encoder()
 	decoder = serializejson.Decoder()
@@ -83,6 +86,7 @@ serialization with classes based API.
 update existing object 
 ^^^^^^^
 .. code-block:: python
+
 	import serializejson 
 	object1 = set([1,2])
 	object2 = set([3,4])
@@ -94,6 +98,7 @@ update existing object
 iterative serialization and deserialization
 ^^^^^^^
 .. code-block:: python
+
 	import serializejson 
 	encoder = serializejson.Encoder("my_list.json",indent = None)
 	for elt in range(3):
