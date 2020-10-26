@@ -4,21 +4,16 @@ import os
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
 def version():
-    with open(os.path.join(__location__, 'CHANGELOG.md')) as changelog_file:
+    with open(os.path.join(__location__, 'CHANGELOG.rst')) as changelog_file:
         for line in changelog_file.readlines():
-            if line.startswith("##"):
-                open_square = line.find("[")
-                close_square = line.find("]")
-                if open_square != -1 and close_square != -1 : 
-                    version = line[open_square+1:close_square]
-                    if version.replace(".","").isdigit() : 
-                        return version 
-    raise Exception("no valid version in CHANGELOG.md")
+            if line.startswith("Version "):
+                return line[len("Version "):] 
+    raise Exception("no valid version in CHANGELOG.rst")
                 
 def long_description():
-    with open(os.path.join(__location__, "README.md")) as readme_file:
+    with open(os.path.join(__location__, "README.rst")) as readme_file:
         readme_str = readme_file.read()
-    with open(os.path.join(__location__, "CHANGELOG.md")) as changelog_file:
+    with open(os.path.join(__location__, "CHANGELOG.rst")) as changelog_file:
         changelog_str = changelog_file.read()
     return readme_str + '\n# History\n'  + changelog_str
         
