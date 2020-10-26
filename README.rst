@@ -6,7 +6,8 @@ serializejson
 
 !`Python package <https://github.com/SmartAudioTools/serializejson/workflows/Python%20package/badge.svg>`
 	
->**WARNING**:
+.. warning:
+
 serializejson can execute arbitrary Python code if the load parameter autorized_classes is "all" when loading json. 
 Do not load serializejsons from untrusted / unauthenticated sources without carfuly set the autorized_classes parameter. 
 
