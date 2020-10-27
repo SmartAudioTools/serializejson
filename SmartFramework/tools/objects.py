@@ -26,7 +26,8 @@ import _ctypes
 try:
     from .. import numpyB64, bytesB64, bytearrayB64
 except:
-    from serializejson.b64 import numpyB64, bytesB64, bytearrayB64
+    from serializejson import numpyB64, bytesB64, bytearrayB64
+
 try:
     import qtpy
 except:

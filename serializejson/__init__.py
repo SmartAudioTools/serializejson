@@ -69,7 +69,75 @@ except ModuleNotFoundError:
 import gc
 from _collections_abc import list_iterator
 from SmartFramework.serialize import serializeParameters
-from SmartFramework.tools import objects
+
+
+__all__ = ['dumps', 'dump', 'loads', 'load', 'append', 'Encoder', 'Decoder']
+
+
+#not_duplicates_types = set([type(None), bool, int, float, str])
+
+
+# --- FONCTIONS FOR SERIALIZED OBJECTS IN BASE 64------------------------------
+# defaultIntType =  numpy_dtype("int_")
+
+
+nb_bits = sys.maxsize.bit_length() + 1
+
+def bytearrayB64(b64):
+    return bytearray(b64decode(b64, validate=True))
+
+def bytesB64(b64):
+    return b64decode(b64, validate=True)
+
+
+def numpyB64(str64, dtype=None, shapeOrLen=None):
+    decodedBytes = b64decode(str64, validate=True)  # str64 -> bytes : decodage avec copie
+    if dtype in ("bool", bool):
+        numpy_uint8_containing_8bits = frombuffer(decodedBytes, uint8)  # pas de copie -> read only
+        numpy_uint8_containing_8bits = unpackbits(
+            numpy_uint8_containing_8bits
+        )  # copie dans un numpy array de uint8 mutable
+        if shapeOrLen is None:
+            shapeOrLen = len(numpy_uint8_containing_8bits)
+        return ndarray(shapeOrLen, dtype, numpy_uint8_containing_8bits)  # pas de recopie
+    else:
+        if isinstance(dtype, list):
+            dtype = [(str(champName), champType) for champName, champType in dtype]
+        if shapeOrLen is None:
+            array = frombuffer(decodedBytes, dtype)  # pas de recopie
+        else:
+            array = ndarray(shapeOrLen, dtype, decodedBytes)  # pas de recopie
+        if (
+            nb_bits == 32 and serializeParameters.numpyB64_convert_int64_to_int32_and_align_in_Python_32Bit
+        ):  # pour pouvoir deserialiser les classifiers en python 32 bit ?
+            if array.dtype in (int64, "int64"):
+                return array.astype(int32)
+            elif isinstance(dtype, list):
+                newTypes = []
+                for champ in dtype:
+                    champName, champType = champ
+                    if champName:
+                        champType = numpy_dtype(champType)
+                        if champType in (int64, "int64"):
+                            newTypes.append((champName, int32))
+                        else:
+                            newTypes.append((champName, champType))
+                newDtype = numpy_dtype(newTypes, align=True)
+                newN = ndarray(len(array), newDtype)
+                for champName, champType in newTypes:
+                    if champName:
+                        newN[champName][:] = array[champName]
+                return newN
+
+        try:
+            array.flags.writeable = True  # work with numpy < ???
+        except:
+            array = copy(array)
+        return array
+
+
+# --- FONCTIONS BASED API ----------------------
+
 from SmartFramework.tools.objects import (
     instance,
     tupleFromInstance,
@@ -78,16 +146,6 @@ from SmartFramework.tools.objects import (
     classFromClassStr,
     from_name,
 )
-
-__all__ = ['dumps', 'dump', 'loads', 'load', 'append', 'Encoder', 'Decoder']
-
-
-#not_duplicates_types = set([type(None), bool, int, float, str])
-
-
-
-# --- FONCTIONS BASED API ----------------------
-
 
 def dumps(obj, **argsDict):
     return Encoder(**argsDict)(obj)
@@ -924,73 +982,14 @@ class Decoder(rapidjson.Decoder):
                 raise
 
 
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # --- INTERNES  -----------------------------------------------------------------------------------------------------
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-# --- FONCTIONS FOR SERIALIZED OBJECTS IN BASE 64------------------------------
-# defaultIntType =  numpy_dtype("int_")
 
 
-
-nb_bits = sys.maxsize.bit_length() + 1
-
-def bytearrayB64(b64):
-    return bytearray(b64decode(b64, validate=True))
-
-def bytesB64(b64):
-    return b64decode(b64, validate=True)
-
-
-def numpyB64(str64, dtype=None, shapeOrLen=None):
-    decodedBytes = b64decode(str64, validate=True)  # str64 -> bytes : decodage avec copie
-    if dtype in ("bool", bool):
-        numpy_uint8_containing_8bits = frombuffer(decodedBytes, uint8)  # pas de copie -> read only
-        numpy_uint8_containing_8bits = unpackbits(
-            numpy_uint8_containing_8bits
-        )  # copie dans un numpy array de uint8 mutable
-        if shapeOrLen is None:
-            shapeOrLen = len(numpy_uint8_containing_8bits)
-        return ndarray(shapeOrLen, dtype, numpy_uint8_containing_8bits)  # pas de recopie
-    else:
-        if isinstance(dtype, list):
-            dtype = [(str(champName), champType) for champName, champType in dtype]
-        if shapeOrLen is None:
-            array = frombuffer(decodedBytes, dtype)  # pas de recopie
-        else:
-            array = ndarray(shapeOrLen, dtype, decodedBytes)  # pas de recopie
-        if (
-            nb_bits == 32 and serializeParameters.numpyB64_convert_int64_to_int32_and_align_in_Python_32Bit
-        ):  # pour pouvoir deserialiser les classifiers en python 32 bit ?
-            if array.dtype in (int64, "int64"):
-                return array.astype(int32)
-            elif isinstance(dtype, list):
-                newTypes = []
-                for champ in dtype:
-                    champName, champType = champ
-                    if champName:
-                        champType = numpy_dtype(champType)
-                        if champType in (int64, "int64"):
-                            newTypes.append((champName, int32))
-                        else:
-                            newTypes.append((champName, champType))
-                newDtype = numpy_dtype(newTypes, align=True)
-                newN = ndarray(len(array), newDtype)
-                for champName, champType in newTypes:
-                    if champName:
-                        newN[champName][:] = array[champName]
-                return newN
-
-        try:
-            array.flags.writeable = True  # work with numpy < ???
-        except:
-            array = copy(array)
-        return array
-
-objects.bytearrayB64 = bytearrayB64
-objects.numpyB64 = numpyB64
-objects.bytesB64 = bytesB64
 
 default_autorized_classes_strs = set(
     [
