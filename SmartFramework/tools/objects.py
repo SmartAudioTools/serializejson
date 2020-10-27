@@ -669,8 +669,7 @@ def tuple_from_ndarray(inst, classe):
     else:
         instContdtype = instCont.dtype.descr
     if (
-        (not serializeParameters.numpy_array_dumped_base64)
-        or (instCont.size <= serializeParameters.numpy_array_readable_max_size)
+        (instCont.size <= serializeParameters.numpy_array_readable_max_size)
         or (
             instCont.dtype == "int32"
             and max(instCont.min(), instCont.max(), key=abs) <= 9999
@@ -682,7 +681,7 @@ def tuple_from_ndarray(inst, classe):
     ):
         return (numpy.array, (instCont.tolist(), instContdtype), None)
     elif instCont.ndim == 1:
-        if serializeParameters.use_numpyB64_bytearrayB64:
+        if serializeParameters.numpy_array_use_numpyB64:
             if instCont.dtype == bool:
                 return (
                     numpyB64,
@@ -699,7 +698,7 @@ def tuple_from_ndarray(inst, classe):
             return (numpy.frombuffer, (bytearray(instCont), instContdtype), None)
     else:
 
-        if serializeParameters.use_numpyB64_bytearrayB64:
+        if serializeParameters.numpy_array_use_numpyB64:
             if instCont.dtype == bool:
                 return (
                     numpyB64,
@@ -732,7 +731,7 @@ def tuple_from_dtype(inst, classe):
 
 
 def tuple_from_bytearray(inst, classe):
-    if serializeParameters.use_numpyB64_bytearrayB64:
+    if serializeParameters.bytearray_use_bytearrayB6:
         return (bytearrayB64, (encodedB64(inst),), None)
     else:
         return (bytearray, (bytes(inst),), None)
