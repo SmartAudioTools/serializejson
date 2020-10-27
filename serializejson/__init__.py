@@ -1,9 +1,6 @@
 """**serializejson** is a python library for serialization and deserialization of complex Python objects in 
 `JSON <http://json.org>`_ build upon `python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_ and `pybase64 <https://github.com/mayeut/pybase64>`_
 
-	⚠ **serializejson can execute arbitrary Python code if the load parameter autorized_classes is "all" when loading json. 
-	Do not load serializejsons from untrusted / unauthenticated sources without carfuly set the autorized_classes parameter.**
-
 - supports Python 3.7 (maybe lower) or greater.
 - serializes arbitrary python objects into a dictionary by adding "__class__" ,and eventually "__init__" and "__state__" keys. 
 - serializes and deserializes bytes and bytearray very quickly in base64 tanks to `pybase64 <https://github.com/mayeut/pybase64>`_.
@@ -27,23 +24,7 @@
 
 
 """
-"""
-Fonctions API
-===========
 
-Classes API 
-===========
-Encoder
--------
-.. autoclass:: Encoder
-   :members:
-
-Decoder
--------
-.. autoclass:: Decoder
-   :members:
-
-"""
 
 from SmartFramework.tools.dictionnaires import filtered
 try:
@@ -151,16 +132,63 @@ from SmartFramework.tools.objects import (
 )
 
 def dumps(obj, **argsDict):
+    """
+    Dump object into json string. 
+    
+    Args: 
+        obj: object to dump.
+        **argsDict: parameters passed to the Encoder (see documentation).
+    """
     return Encoder(**argsDict)(obj)
 
 
 def dump(obj, fp, **argsDict):
+    """
+    Dump object into json file. 
+    
+    Args: 
+        obj: object to dump.
+        fp (str or file-like): path or file. 
+        **argsDict: parameters passed to the Encoder (see documentation).
+    """
     if isinstance(fp, str):
         fp = open(fp, "wb")
     Encoder(**argsDict)(obj, fp)
 
 
+def append(obj, fp=None, *, indent="\t", **argsDict):
+    """
+    Append object into json file. 
+    
+    Args: 
+        obj: object to dump.
+        fp (str or file-like): 
+            path or file. The file must be empty or containing a json list. 
+        indent: indent passed to Encoder.
+        **argsDict: other parameters passed to the Encoder (see documentation).
+    """
+    fp = _open_for_append(fp, indent)
+    Encoder(**argsDict)(obj, fp)
+    _close_for_append(fp, indent)
+
+
 def loads(s, *, obj=None, iterator=False, **argsDict):  # on ne peut pas en meme temps updater objet
+    """
+    Load object from json string. 
+    
+    Args: 
+        s: 
+            the json string.
+        obj (optional):
+            the obj will be update instead of the creation of a new object.
+        iterator: 
+            if True and the json corespond to a list. Items are read one by one saving RAM.
+        **argsDict: 
+            parameters passed to the Decoder (see documentation).
+        
+    Return:
+        created object, updated object if passed obj or elements iterator if iterator is True.
+    """
     decoder = Decoder(**argsDict)
     if iterator:
         return decoder
@@ -169,17 +197,28 @@ def loads(s, *, obj=None, iterator=False, **argsDict):  # on ne peut pas en meme
 
 
 def load(fp, *, obj=None, iterator=False, **argsDict):
-    """ de-serialise obj à partir de fichier f, qui peut etre un objet  file ou le nom de fichier"""
+    """
+    Load object from json file. 
+    
+    Args: 
+        fp (str or file-like): 
+            the json file.
+        obj (optional):
+            the obj will be update instead of the creation of a new object.
+        iterator: 
+            if True and the json corespond to a list. Items are read one by one saving RAM.
+        **argsDict: 
+            parameters passed to the Decoder (see documentation).
+        
+    Return:
+        created object, updated object if passed obj or elements iterator if iterator is True.
+    """
+
     if iterator:
         return Decoder(**argsDict)
     else:
         return Decoder(**argsDict).load(fp=fp, obj=obj)
 
-
-def append(obj, fp=None, *, indent="\t", **argsDict):
-    fp = _open_for_append(fp, indent)
-    Encoder(**argsDict)(obj, fp)
-    _close_for_append(fp, indent)
 
 
 # --- CLASSES BASED API -------------------------------------------------------
@@ -218,28 +257,15 @@ class Encoder(rapidjson.Encoder):
         
         sort_keys:    
             whether dictionary keys should be sorted alphabetically.
-        
-        use_numpyB64_bytearrayB64: 
-            save numpy array and bytes array in base 64 with  
-            dump with referencies to serializejson.numpyB64 and 
-            serializejson.bytearrayB64 instead of verbose use of 
-            base64.b64decode. It save space but make the json file 
-            dependent of the serializejson module. 
-        
+            
         chunk_size: 
             write the stream in chunks of this size at a time.
             
+    
         bytearray_use_bytearrayB6 : 
             save bytearray with referencies to serializejson.bytearrayB64
             instead of verbose use of base64.b64decode. It save space but make 
             the json file dependent of the serializejson module. 
-            
-        numpy_array_to_list : 
-            whether numpy array should be serialized as list. 
-            If true the numpy array will be indistinctable from true lists.
-            Decoder will be able to recreate numpy array if 
-            numpy_array_from_list parameter is True. But with the the risque 
-            of unwanted convertion of lists to numpy arrays. 
         
         numpy_array_use_numpyB64 : 
             save numpy arrays with referencies to serializejson.numpyB64
@@ -248,6 +274,17 @@ class Encoder(rapidjson.Encoder):
             
         numpy_array_readable_max_size : 
             numpy array of smaler size will be serialized in readable decimals. 
+
+        numpy_array_to_list : 
+            whether numpy array should be serialized as list. 
+          
+            .. warning::
+
+                Use it only for interoperability with other json libraries 
+                Because numpy arrays will be indistinctable from list.
+                Decoder(numpy_array_from_list=True) will be able to 
+                recreate numpy array but but with the the risque of unwanted
+                convertion of lists to numpy arrays. 
             
         numpy_types_to_python_types:
              wheter numpy ints ans floats must be convert to python types.
@@ -291,9 +328,9 @@ class Encoder(rapidjson.Encoder):
         sort_keys=True,
         chunk_size=65536,
         bytearray_use_bytearrayB6=True,
-        numpy_array_to_list=False,
         numpy_array_use_numpyB64=True,
         numpy_array_readable_max_size=0,
+        numpy_array_to_list=False,
         numpy_types_to_python_types=True,
         #add_id:bool=False,
         #**argsDict
@@ -332,6 +369,14 @@ class Encoder(rapidjson.Encoder):
         return self
 
     def dump(self, obj, fp=None):
+        """
+        Dump object into json file. 
+        
+        Args: 
+            obj: object to dump.
+            fp (optional str or file-like): path or file, the object will be 
+                dumped into this file instead into the file passed at Encoder constructor.
+        """
         if fp is None:
             fp = self.fp
         if isinstance(fp, str):
@@ -339,37 +384,35 @@ class Encoder(rapidjson.Encoder):
         self.__call__(obj, stream=fp, chunk_size=self.chunk_size)
 
     def dumps(self, obj):
+        """
+        Dump object into json string. 
+        """
         return self.__call__(obj)
 
-    def append(self, obj, fp=None, *, chunk_size=65536):
+    def append(self, obj, fp=None):
+        """
+        Append object into json file. 
+        
+        Args: 
+            obj: object to dump.
+            fp (optional str or file-like): path or file, the object will be 
+                dumped into this file instead into the file passed at Encoder 
+                constructor.The file must be empty or containing a json list. 
+         """
         if fp is None:
             fp = self.fp
         fp = _open_for_append(fp, self.indent)
-        rapidjson.Encoder.__call__(self, obj, stream=fp, chunk_size=chunk_size)
+        rapidjson.Encoder.__call__(self, obj, stream=fp, chunk_size=self.chunk_size)
         _close_for_append(fp, self.indent)
 
     def get_dumped_classes(self):
+        """
+        Return the all dumped classes. 
+        In order to reuse them as autorize_classes when loading.
+        """
         return self.dumped_classes
 
     def default(self, inst):  # Equivalent au calback "default" qu'on peut passer à dump ou dumps
-        """
-        If implemented, this method is called whenever the serialization machinery finds a Python object that it does not recognize: if possible, the method should returns a JSON encodable version of the value, otherwise raise a TypeError:
-
-        Args:
-            obj : the Python object to be encoded
-
-        Returns:
-            a JSON-serializable value
-
-        Raises :
-            TypeError : the method MUST raise a TypeError if the value is not serializable, otherwisex it will be serialized as None .
-
-        Exemples :
-            if isinstance(obj, Point):
-                return {'x': obj.x, 'y': obj.y}
-            else:
-                raise TypeError('%r is not JSON serializable' % obj)
-        """
         id_ = id(inst)
         if id_ in self._already_serialized:
             return {
@@ -582,12 +625,20 @@ class Decoder(rapidjson.Decoder):
             None : no class are recreated.
             []: only usual classes are recreated.
             [classe1,classe2]:usual classes and classe1,classe2 are recreated.
-            "all": alls classes will be recreated with no verifications.
-            WARNING  : Be very carreful to allow only necessary classes 
-            because a json with {"__class__":"eval","__init__":"do_anything"}
-            use "all" only briefly when you are developping and you are 
-            absolutly confident on your json files. Never forget to remove it. 
-            
+            "all": alls classes will be recreated with no verifications.\n
+            .. warning::
+                
+                Do not load serializejsons from untrusted / unauthenticated 
+                sources without carfuly set the autorized_classes parameter. 
+                serializejson can execute arbitrary Python code if the load 
+                parameter autorized_classes is "all" when loading json for 
+                exemple with json containing 
+                ``{"__class__":"eval","__init__":"do_anything()"}``\n
+                use "all" only briefly when you are developping and you are 
+                absolutly confident on your json files. 
+                Never forget to remove it.                   
+                
+
         recognized_classes (list):
             List of classes (string with qualified name or classes) that
             serializejons will try to recognize from keys names . 
@@ -664,6 +715,20 @@ class Decoder(rapidjson.Decoder):
         return self
 
     def load(self, fp=None, obj=None):
+        """
+        Load object from json file. 
+        
+        Args: 
+            fp (optional str or file-like): 
+                the object will be loaded from this file instead of from the 
+                file passed at Decoder constructor.
+            obj (optional):
+                the obj will be update instead of the creation of a new object.
+            
+        Return:
+            created object or updated object if passed obj.
+        """
+        
         if fp is None:
             fp = self.fp
         if isinstance(fp, str):
@@ -678,18 +743,67 @@ class Decoder(rapidjson.Decoder):
         return self.__call__(fp_or_s=fp_or_s, obj=obj)
 
     def loads(self, s, obj=None):
+        """
+        Load object from json string. 
+        
+        Args: 
+            s: 
+                the json string.
+            obj (optional):
+                the obj will be update instead of the creation of a new object.
+           
+        Return:
+            created object or updated object if passed obj.
+        """
         return self.__call__(fp_or_s=s, obj=obj)
 
     def set_default_value(self, value):
+        """
+        set the value returned if the path passed to load doesn't exist. 
+        if allow to have a default objet at the first script run or 
+        when the json has been deleted.   
+        """
         self.default_value = value
-
-    def set_recognized_classes(self, classes):
-        self._class_from_attributs_names = _get_recognized_classes_dict(classes)
-
+        
     def set_autorized_classes(self, classes):
+        """
+        Set the classes (string with qualified name or classes) that
+        serializejson is allowed to recreate from the __class__ 
+        keyword in json. Otherwise the object will stay a dictonnary.   
+        None : no class are recreated.
+        []: only usual classes are recreated.
+        [classe1,classe2]:usual classes and classe1,classe2 are recreated.
+        "all": alls classes will be recreated with no verifications.\n
+
+        .. warning::
+                
+                Do not load serializejsons from untrusted / unauthenticated 
+                sources without carfuly set the autorized_classes parameter. 
+                serializejson can execute arbitrary Python code if the load 
+                parameter autorized_classes is "all" when loading json for 
+                exemple with json containing 
+                ``{"__class__":"eval","__init__":"do_anything()"}``\n
+                use "all" only briefly when you are developping and you are 
+                absolutly confident on your json files. 
+                Never forget to remove it.         
+
+        """
         self._autorized_classes_strs = _get_autorized_classes_strings(classes)
 
+    def set_recognized_classes(self, classes):
+        """
+        Set the classes (string with qualified name or classes) that
+        serializejons will try to recognize from keys names . 
+        """
+        self._class_from_attributs_names = _get_recognized_classes_dict(classes)
+
+
     def set_updatables_classes(self, updatables):
+        """
+        Set the classes (string with qualified name or classes) that
+        serializejson will try to upadate if already in the passed obj.
+        Otherwise the objects are recreated.       
+        """
         updatableClassStrs = set()
         for updatable in updatables:
             if isinstance(updatable, str):
