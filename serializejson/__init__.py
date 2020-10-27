@@ -1,26 +1,28 @@
-"""serializejson is a python library for serialization (and deserialization) of complex Python objects in [JSON](http://json.org/) build upon [python-rapidjson](https://github.com/python-rapidjson/python-rapidjson) and [pybase64](https://github.com/mayeut/pybase64)
+"""**serializejson** is a python library for serialization and deserialization of complex Python objects in 
+`JSON <http://json.org>`_ build upon `python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_ and `pybase64 <https://github.com/mayeut/pybase64>`_
 
-WARNING: serializejson can execute arbitrary Python code if the load parameter autorized_classes is "all" when loading json. 
-Do not load serializejsons from untrusted / unauthenticated sources without carfuly set the autorized_classes parameter. 
+	⚠ **serializejson can execute arbitrary Python code if the load parameter autorized_classes is "all" when loading json. 
+	Do not load serializejsons from untrusted / unauthenticated sources without carfuly set the autorized_classes parameter.**
 
 - supports Python 3.7 (maybe lower) or greater.
-- serialize arbitrary python objects in dictionnary adding "__class__" ,and eventually "__init__" and "__state__" keys. 
-- bytes and bytearray are very quikly serialized and deserializaed in base64 tanks to [pybase64](https://github.com/mayeut/pybase64).
-- call the sames objects methodes than pickle. Therefore allmost all pickable objects are serializable with serializejson without any modification.
-- serialized objects are human-readable. (Your datas will never be unreadable if your code evolved, you will allway be able to modify your datas with a text editor, unlike with pickle)
-- serialized objects take generaly less space than with pickle and juste a little 30% more if big binaries data (numpy array, bytes, bytearray)
-- only two time slower than pickle and much more faster than jsonpickle.
-- can safely load untrusted / unauthenticated sources if autorized_classes list parameter is set carfuly with stricly necessary objects (unlike pickle). 
-- can update existing objects recursively instead of overide thems (serializejson can be used to save and restore in place a complet application state).
-- filter attribut starting with "_" by default (unlike pickle).
-- numpy arrays can be serialized in list with automatique conversion in both way or in a conservative way. 
-- support circular references and serialize only once duplicated object (WARNING :not yet if the object is a list or dictionnary).
-- try to call attributs setters and propreties setters when loading if set_attributs  = True.
-- accept json with comment (// and /* */).
-- can automaticly recognize objects in json from keys names and recreate them, without the need of "`__class__`" key, if passeds in recognized_classes. It allow to load foreign json serialized with others libraries who only save objects attributs. 
-- dump and load support string path. 
-- can iterativly encode (with append) and decode (with iterator) a list in json, saving memmory space during the process of serialization et deserialization.
-- WARNING : tuple, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized 
+- serializes arbitrary python objects into a dictionary by adding "__class__" ,and eventually "__init__" and "__state__" keys. 
+- serializes and deserializes bytes and bytearray very quickly in base64 tanks to `pybase64 <https://github.com/mayeut/pybase64>`_.
+- calls the same objects methods as pickle. Therefore almost all pickable objects are serializable with serializejson without any modification.
+- serialized objects are human-readable. Your datas will never be unreadable if your code evolved, you will always be able to modify your datas with a text editor, unlike with pickle.
+- serialized objects take generally less space than with pickle and just a little 30% more if big binaries data (numpy array, bytes, bytearray)
+- only two times slower than pickle and much faster than jsonpickle.
+- can safely load untrusted / unauthenticated sources if autorized_classes list parameter is set carefully with strictly necessary objects (unlike pickle).
+- can update existing objects recursively instead of override them (serializejson can be used to save and restore in place a complete application state).
+- filters attribute starting with "_" by default (unlike pickle).
+- numpy arrays can be serialized in list with automatique conversion in both ways or in a conservative way. 
+- supports circular references and serialize only once duplicated objects (WARNING :not yet if the object is a list or dictionary).
+- try to call attribute setters and properties setters when loading if set_attributs  = True.
+- accepts json with comment (// and /* */).
+- can automatically recognize objects in json from keys names and recreate them, without the need of "__class__" key, if passed in recognized_classes. It allows loading foreign json serialized with others libraries who only save objects attributes. 
+- dumps and loads support string path. 
+- can iteratively encode (with append) and decode (with iterator) a list in json, saving memory space during the process of serialization et deserialization.
+- WARNING : tuple, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized 
+
 
 
 
@@ -51,12 +53,15 @@ except :
 __version__ = importlib_metadata.version('serializejson')
 import os
 import io
+import sys
 from collections import deque
 import rapidjson
-from typing import Union,TextIO,BinaryIO
+#from typing import TextIO,BinaryIO
+from pybase64 import b64decode
 try:
     import numpy
-    from numpy import ndarray
+    from numpy import frombuffer, unpackbits, uint8, ndarray, int32, int64, copy
+    from numpy import dtype as numpy_dtype
     use_numpy = True
 except ModuleNotFoundError:
     ndarray = None
@@ -64,6 +69,7 @@ except ModuleNotFoundError:
 import gc
 from _collections_abc import list_iterator
 from SmartFramework.serialize import serializeParameters
+from SmartFramework.tools import objects
 from SmartFramework.tools.objects import (
     instance,
     tupleFromInstance,
@@ -72,6 +78,8 @@ from SmartFramework.tools.objects import (
     classFromClassStr,
     from_name,
 )
+from SmartFramework.serialize import serializeParameters
+
 __all__ = ['dumps', 'dump', 'loads', 'load', 'append', 'Encoder', 'Decoder']
 
 
@@ -129,23 +137,23 @@ class Encoder(rapidjson.Encoder):
         
         attributs_filter:
             objects attributs starting with attributs_filter will not be 
-            serialized. ("_" by default)
-        
-        bytes_to_string:
-            whether bytes must be dumped in string after utf-8 decode.
+            serialized. ("_" by default).
         
         ensure_ascii: 
             whether non-ascii str are dumped with escaped unicode or utf-8.
         
-        indent (None, int or "\t"): 
-            indentation width to produce pretty printed JSON
-        
+        indent (None, int or '\\\\t'): 
+            indentation width to produce pretty printed JSON.
+            None: Json in one line (quicker than with indent).
+            int: new lines and int spaces for indent.
+            '\\\\t': new lines and tabulations for indent
+            (take less space than int > 1).
         numpy_array_dumped_base64: 
-            True:  (by default) numpy array are dumped in base 64 
-            False: numpy array are dumped in readable decimals
+            True:  (by default) numpy array are dumped in base 64. 
+            False: numpy array are dumped in readable decimals.
         
         numpy_array_readable_max_size: 
-            numpy array of smaler size will serialize in readable decimals 
+            numpy array of smaler size will serialize in readable decimals. 
         
         numpy_array_to_list: 
             whether numpy array should be serialized as list. 
@@ -154,13 +162,13 @@ class Encoder(rapidjson.Encoder):
             wheter numpy ints ans floats must be convert to python types. 
         
         single_line_init:
-            whether __init__ must be serialize in one line
+            whether __init__ must be serialize in one line.
         
         single_line_list_numbers:
-            whether list of numbers must be serialize in one line
+            whether list of numbers must be serialize in one line.
         
         sort_keys:    
-            whether dictionary keys should be sorted alphabetically
+            whether dictionary keys should be sorted alphabetically.
         
         use_numpyB64_bytearrayB64: 
             save numpy array and bytes array in base 64 with  
@@ -170,24 +178,28 @@ class Encoder(rapidjson.Encoder):
             dependent of the serializejson module. 
         
         chunk_size: 
-            write the stream in chunks of this size at a time
-
+            write the stream in chunks of this size at a time.
+    """
+    """
+    
+        bytes_to_string:
+            whether bytes must be dumped in string after utf-8 decode.
         skip_invalid_keys (bool) : 
-            whether invalid dict keys will be skipped
+            whether invalid dict keys will be skipped.
 
         number_mode (int) : 
-            enable particular behaviors in handling numbers
+            enable particular behaviors in handling numbers.
 
         datetime_mode (int) :  
-            how should datetime, time and date instances be handled
+            how should datetime, time and date instances be handled.
 
         uuid_mode (int) :  
-            how should UUID instances be handled
+            how should UUID instances be handled.
 
         write_mode : 
-            WM_COMPACT:that produces the most compact JSON representation
-            WM_PRETTY: it will use RapidJSON's PrettyWriter
-            WM_single_line_list_numbers: arrays will be kept on a single line
+            WM_COMPACT:that produces the most compact JSON representation.
+            WM_PRETTY: it will use RapidJSON's PrettyWriter.
+            WM_single_line_list_numbers: arrays will be kept on a single line.
             
         bytes_mode : 
             BM_UTF8
@@ -198,7 +210,7 @@ class Encoder(rapidjson.Encoder):
         fp=None,
         *,
         attributs_filter="_",
-        bytes_to_string=False,
+        #bytes_to_string=False,
         ensure_ascii=False,
         indent="\t",
         numpy_array_dumped_base64=True,
@@ -211,28 +223,28 @@ class Encoder(rapidjson.Encoder):
         use_numpyB64_bytearrayB64=True,
         chunk_size=65536,
         #add_id:bool=False,
-        **argsDict
+        #**argsDict
     ):
  
 
-        if not bytes_to_string:
-            bytes_mode = rapidjson.BM_NONE
-        else:
-            bytes_mode = rapidjson.BM_UTF8
+        #if not bytes_to_string:
+        #   bytes_mode = rapidjson.BM_NONE
+        #else:
+        #    bytes_mode = rapidjson.BM_UTF8
         self = super().__new__(
             cls,
             ensure_ascii=ensure_ascii,
             indent=indent,
             sort_keys=sort_keys,
-            bytes_mode=bytes_mode,
-            **argsDict
+            bytes_mode=rapidjson.BM_NONE,
+            #**argsDict
         )
         self.attributs_filter = attributs_filter
         self.numpy_array_dumped_base64 = numpy_array_dumped_base64
         self.numpy_array_readable_max_size = numpy_array_readable_max_size
         self.use_numpyB64_bytearrayB64 = use_numpyB64_bytearrayB64
         self.fp = fp
-        self.kargs = argsDict
+        #self.kargs = argsDict
         self.numpy_array_to_list = numpy_array_to_list
         if indent is None:
             self.single_line_list_numbers = False
@@ -319,7 +331,7 @@ class Encoder(rapidjson.Encoder):
                             ensure_ascii=False,
                             sort_keys=self._sort_keys,
                             bytes_mode=self.bytes_mode,
-                            **self.kargs
+                            #**self.kargs
                         )
                     ),
                 }
@@ -339,7 +351,7 @@ class Encoder(rapidjson.Encoder):
                     ensure_ascii=self.ensure_ascii,
                     sort_keys=self.sort_keys,
                     bytes_mode=self.bytes_mode,
-                    **self.kargs
+                    #**self.kargs
                 )
             )
         if self.single_line_list_numbers:
@@ -356,7 +368,7 @@ class Encoder(rapidjson.Encoder):
                             value,
                             default=self._default_one_line,
                             bytes_mode=self.bytes_mode,
-                            **self.kargs
+                            #**self.kargs
                         )
                     )
         self._already_serialized_id_dic_to_obj_dic[id(dic)] = (
@@ -430,7 +442,7 @@ class Encoder(rapidjson.Encoder):
                 obj,
                 default=self._default_one_line,
                 bytes_mode=self.bytes_mode,
-                **self.kargs
+                #**self.kargs
             )
         serializeParameters.attributs_filter = self.attributs_filter
         serializeParameters.numpy_array_dumped_base64 = self.numpy_array_dumped_base64
@@ -529,14 +541,15 @@ class Decoder(rapidjson.Decoder):
             Otherwise the objects are recreated.
             
 
-
+    """
+    """
         Herited from rapidjson.Decoder:
 
         number_mode (int) : Enable particular behaviors in handling numbers
         datetime_mode (int) : How should datetime, time and date instances be handled
         uuid_mode (int) : How should UUID instances be handled
         parse_mode (int) : Whether the parser should allow non-standard JSON extensions (nan, -inf, inf )
-        """
+    """
     def __new__(
         cls,
         fp=None,
@@ -549,14 +562,14 @@ class Decoder(rapidjson.Decoder):
         default_value=None,
         chunk_size=65536,
         updatables_classes=[],
-        **argsDict
+        #**argsDict
     ):
        
         if accept_comments:
             parse_mode = rapidjson.PM_COMMENTS
         else:
             parse_mode = rapidjson.PM_NONE
-        self = super().__new__(cls, parse_mode=parse_mode, **argsDict)
+        self = super().__new__(cls, parse_mode=parse_mode)#, **argsDict)
         self.fp = fp
         self.set_attributs = set_attributs
         self._autorized_classes_strs = _get_autorized_classes_strings(autorized_classes)

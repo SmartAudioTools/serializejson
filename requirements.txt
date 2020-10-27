@@ -6,6 +6,8 @@ QtPy==1.9.0
 python-rapidjson==0.9.3 
 wheel
 twine
+sphinx
+sphinx-rtd-theme
 #subdependencies
 atomicwrites==1.4.0
 attrs==20.2.0
