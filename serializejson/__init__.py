@@ -122,7 +122,7 @@ def numpyB64(str64, dtype=None, shapeOrLen=None):
 
 # --- FONCTIONS BASED API ----------------------
 
-from SmartFramework.tools.objects import (
+from SmartFramework.tools.objects import ( # must be after bytearrayB64,bytesB64 and numpyB64 definitions to allow SmartFramework.tools.objects to import bytearrayB64,bytesB64 and numpyB64 
     instance,
     tupleFromInstance,
     classStrFromClass,

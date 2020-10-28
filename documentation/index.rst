@@ -44,8 +44,13 @@ Decode
     .. autofunction:: serializejson.loads
 
 
-Oject's methods to code for serialization
-=========================================
+Custom object serialization
+===========================
+
+Add methods to object for custom serialization
+---------------------------------------------------
+
+    Add methods to object if you can, it is the prefered methode. 
     serializejson use the same methods than pickle and as exactly the same behavior 
     as pickle if Encoder(attributs_filter = None) and Decoder(set_attributs = False)
     If you chose to comeback to pickle, your coded methods will still be useful.
@@ -134,7 +139,39 @@ Oject's methods to code for serialization
             If __setstate __ () is not available, all elements of the dictionary __dict__ 
             or returned by __getstate__ (which in this case will have to return a dict) 
             will be restored as attributes
+            
+Add plugins to serializejson
+----------------------------
 
+    Add plugins to serializejson, if you don't want or can't add methodes to 
+    the object you want to serialize. 
+    
+    **1. Create serializejson/plugins/my_module.py** 
+        with the same name as the module containing your object. 
+    **2. Import this module in serializejson/plugins/__init__.py**
+        .. code-block:: python
+        
+            from . import my_module
+        
+    **3. Create functions named "tuple_from_XXX"**
+        in my_module.py for each objects of your module, with XXX the name of the class. 
+    
+        .. autofunction:: serializejson.plugins.my_module.tuple_from_XXX
+
+        
+    **4. Add "tuple_from_module_class_str" dictionnary in your my_module.py** 
+        if somme of your classes are in submodules
+        otherwise this dictionnary will automaticaly constructed.
+    
+        .. code-block:: python
+        
+            tuple_from_module_class_str = {
+                "my_module.submodule.XXX" :  tuple_from_XXX,
+                "my_module.submodule.YYY" :  tuple_from_YYY,
+            }    
+        
+        
+        
 
 
 Versions
