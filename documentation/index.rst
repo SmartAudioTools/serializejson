@@ -148,18 +148,28 @@ Add plugins to serializejson
     
     **1. Create serializejson/plugins/my_module.py** 
         with the same name as the module containing your object. 
+        
     **2. Import this module in serializejson/plugins/__init__.py**
         .. code-block:: python
         
             from . import my_module
+            
+    **3. make imports in a try in your my_module.py** 
+    
+       .. code-block:: python
+       
+            try: 
+                import my_module
+            except ModuleNotFoundError: 
+                pass   
         
-    **3. Create functions named "tuple_from_XXX"**
+    **4. Create functions named "tuple_from_XXX"**
         in my_module.py for each objects of your module, with XXX the name of the class. 
     
         .. autofunction:: serializejson.plugins.my_module.tuple_from_XXX
 
         
-    **4. Add "tuple_from_module_class_str" dictionnary in your my_module.py** 
+    **5. Add "tuple_from_module_class_str" dictionnary in your my_module.py** 
         if somme of your classes are in submodules
         otherwise this dictionnary will automaticaly constructed.
     
@@ -171,7 +181,9 @@ Add plugins to serializejson
             }    
         
         
-        
+    **6. Share your plugin with serializejson developper**
+        if your plugin is for a wild user library, for include in serializejson next release.
+
 
 
 Versions

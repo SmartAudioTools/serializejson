@@ -2,6 +2,10 @@
 
 
 ""
+try: 
+    import my_module
+except ModuleNotFoundError: 
+    pass   
 
 def tuple_from_XXX(obj):
     """  
