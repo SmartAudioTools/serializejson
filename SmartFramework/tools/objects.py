@@ -184,7 +184,7 @@ def isFunction(obj):
 
 
 def isCallable(obj):
-    return hasattr(obj, "__call__")  # retournera true aussi pour classe.. Ã  revoir ?
+    return hasattr(obj, "__call__")  # retournera true aussi pour classe.. à revoir ?
 
 
 # COMPARAISONS -------------------
@@ -216,7 +216,7 @@ def add_Args(dictLocals):
     # SAVE INIT ARGS TOOLS ---------------
 
     """
-    truc pour sauvegarder automatiquement initArgs Ã   la creation de l'objet
+    truc pour sauvegarder automatiquement initArgs à  la creation de l'objet
 
     def __init__(self) :
         saveInitArgsDict(locals())       # sauve  init Arguments dans dictionnaire __initArgsDict__

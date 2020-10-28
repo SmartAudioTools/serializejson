@@ -1,6 +1,7 @@
 Unreleased
--------------
+----------
     * API changed
+    * add plugins support
     * fix itertive append and decode (not fully tested).
     * fix dump of numpy types without conversion to python types(not yet numpy.float64)
 
