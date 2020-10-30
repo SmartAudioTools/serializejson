@@ -10,7 +10,7 @@ except :
     from serializejson import numpyB64
     from serializejson.tools import encodedB64,classStrFromClass
     from serializejson import serializeParameters
-
+#from rapidjson import RawJSON
 def tuple_from_ndarray(inst):
 
     instCont = numpy.ascontiguousarray(inst)
@@ -29,6 +29,7 @@ def tuple_from_ndarray(inst):
             and max(instCont.min(), instCont.max(), key=abs) <= 9
         )
     ):
+        #return (numpy.array, (RawJSON(numpy.array2string(instCont,separator =',')), instContdtype), None)  plus lent.
         return (numpy.array, (instCont.tolist(), instContdtype), None)
     elif instCont.ndim == 1:
         if serializeParameters.numpy_array_use_numpyB64:

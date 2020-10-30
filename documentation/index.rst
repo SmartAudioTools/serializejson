@@ -47,45 +47,55 @@ Decode
 Custom object serialization
 ===========================
 
-Add methods to object for custom serialization
----------------------------------------------------
+Methode 1 : Add methods to object for custom serialization
+----------------------------------------------------------
 
     Add methods to object if you can, it is the prefered methode. 
     serializejson use the same methods than pickle and as exactly the same behavior 
-    as pickle if Encoder(attributs_filter = None) and Decoder(set_attributs = False)
+    as pickle if Encoder(attributs_filter = None) and Decoder(set_attributs = False).
     If you chose to comeback to pickle, your coded methods will still be useful.
     
-    Depending of your strategie for the recreation of an object you will implement 
-    differents methods. 
-    
+    Depending of your strategie for the recreation and updating of an object you will implement 
+    differents methods :
+       
     .. py:function:: object.__reduce__() 
     
         Code __reduce__() methode if you want to recreated your object with __init__().
-        You have to return a tuple with class,init_args_tuple and optionaly state
-        
-        **Just call __init__ with positionals arguments, without state restore.**
+        You have to return a tuple with class,init_args_tuple and optionaly state depending 
+        how you want to call __init__(). 
+                
+        **Just call __init__() with positionals arguments, without state restore.**
         
         .. code-block:: python
         
             def __reduce__(self):
                     return self.__class__,init_args_tuple,None 
         
-        **Just call __init__ with named arguments without state restore.** 
+        **Just call __init__() with named arguments, without state restore.** 
         more robust if you change later the init args order, but you have to pip install apply
         
         .. code-block:: python
         
             def __reduce__(self):
                     return apply,(self.__class__,None,init_kwargs_dictionnary) 
+                    
+        **Just call __init__() with positionals arguments and named arguments, without state restore.** 
+        more robust if you change later the init args order, but you have to pip install apply
         
-        **Call __init__ with positionals arguments and state restore from filtered attributs**
+        .. code-block:: python
+        
+            def __reduce__(self):
+                    return apply,(self.__class__,init_args_tuple,init_kwargs_dictionnary) 
+                    
+        
+        **Call __init__() with positionals arguments and restore state from filtered attributs**
         
         .. code-block:: python
         
             def __reduce__(self):
                     return self.__class__, init_args_tuple, serializejson.filtered(self.__dict__)
         
-        **Call __init__ with named arguments and state restore from filtered attributs** 
+        **Call __init__() with named arguments and restore state from filtered attributs** 
         more robust if you change later the init args order, but you have to pip install apply
         
         .. code-block:: python
@@ -94,30 +104,39 @@ Add methods to object for custom serialization
                     return apply,(self.__class__,None,init_kwargs_dictionnary) , serializejson.filtered(self.__dict__)
     
     
+        **Call __init__() with positionals arguments and named arguments,  and state restore from filtered attributs** 
+        more robust if you change later the init args order, but you have to pip install apply
+        
+        .. code-block:: python
+        
+            def __reduce__(self):
+                    return apply,(self.__class__,init_args_tuple,init_kwargs_dictionnary) , serializejson.filtered(self.__dict__)
+    
+    
     .. py:function:: object.__getstate__() 
     
     
         Code __getstate__() methode **without __reduce__()**
-        if you doesn't want to call __init__ but only __new__() and you  want to have 
-        a different behavior than serialize self.__ dict__.
-        __getstate__ must return the state of the class as an object that will itself be serialized.
-        If __setstate __ () is not available, the returned object must be a dictionary 
+        if you doesn't want to call __init__() but only __new__() and you  want to have 
+        a different behavior than serialize self.__ dict__ and self.__slots__.
+        __getstate__() must return the state of the class as an object that will itself be serialized.
+        If __setstate__() is not available, the returned object must be a dictionary 
         (elements will be restored as attributes), otherwise the object can be any serializable object
-        
-        .. code-block:: python
-        
-            def __getstate__(self):
-                state = serializejson.filtered(self.__dict__)
-        
+
         
         .. warning::
         
             if __reduce __ () is implemented, __getstate __ () will not be called
         
+                
+        .. code-block:: python
         
+            def __getstate__(self):
+                state = serializejson.filtered(self.__dict__)
+        
+
     
-    
-    .. py:function:: object.__setstate__()
+    .. py:function:: object.__setstate__(state)
     
         Code __setstate__() if you want to have other behavior than the default which 
         consists juste restoring attributs from state.
@@ -125,6 +144,11 @@ Add methods to object for custom serialization
         puts the instance back in the state it was in before serialization.
         can possibly execute initialization code.
         
+        * If __setstate __ () is not available, all elements of the dictionary __dict__ or returned by __getstate__ () (which in this case will have to return a dict) will be restored as attributes. Passively if set_attribut = False (like pickle) or actively with call of setters is set_attribut = True.          
+        * If there is restoring code depending of several elements of state, you should code __setstate__() to avoid  multiple exucution of thise code and multiple intermediary states during the restoration of attributs one by one.        
+        * If there is restoring code and you want a 100 % compatibilité with pickle,  you should put this code in __setstate__() for not depending of set_attributs = True.
+           
+    
         .. code-block:: python
         
             def __setstate__(self, state):
@@ -133,15 +157,20 @@ Add methods to object for custom serialization
                 # other initialization code 
                 ....
                 ....
-                
-        .. note::
-        
-            If __setstate __ () is not available, all elements of the dictionary __dict__ 
-            or returned by __getstate__ (which in this case will have to return a dict) 
-            will be restored as attributes
+
             
-Add plugins to serializejson
-----------------------------
+    .. note::
+        **If you want to make the object updatable:**
+       
+        * put all needed informations for an update in state (returned by __getstate__() or in third position by __reduce__()), because __init__() will not be called when updating. 
+        * minimize informations redundancy for __init__() that is already in state.  
+        * if you need to execute code when updating, put thise code in properties, setters or __setstate__(). 
+        * if there is code depending of several elements of state, you should better code __setstate__ to avoid  multiple exucution of thise code and multiple intermediary states during the restoration of attributs one by one. if you chose to use setters, you must be sure to call load with set_attributs = True (or [...,object])
+        * you can remove call to __init__() using __getsate__() instead of __reduce__(), if you don't need  to execute code in __init__() anymore when object creation, because all needed intialisation code is already in __setstate__().
+    
+            
+Methode 2 : Add plugins to serializejson
+----------------------------------------
 
     Add plugins to serializejson, if you don't want or can't add methodes to 
     the object you want to serialize. 

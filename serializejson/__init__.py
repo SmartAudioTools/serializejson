@@ -132,6 +132,7 @@ from .tools import (
     encodedB64,
     classFromClassStr,
     from_name,
+    _get_set_attributs_classes_strings
 )
 
 def dumps(obj, **argsDict):
@@ -651,10 +652,12 @@ class Decoder(rapidjson.Decoder):
             serializejson will try to upadate if already in the passed obj.
             Otherwise the objects are recreated.
             
-        set_attributs (bool):
+        set_attributs (bool or list):
             Whether load will try to call set_xxx or setXxx methodes 
             or xxx property setter for each attributs of serialized objects
             if the object as no __setstate__ methode.
+            if list of classes or classes qualified names, load will try to call setter only for this classes.
+            
             
         accept_comments (bool):
             Whether serializejson accept to parse json with comments  
@@ -702,7 +705,7 @@ class Decoder(rapidjson.Decoder):
             parse_mode = rapidjson.PM_NONE
         self = super().__new__(cls, parse_mode=parse_mode)#, **argsDict)
         self.fp = fp
-        self.set_attributs = set_attributs
+        self.set_attributs = _get_set_attributs_classes_strings(set_attributs)     
         self._autorized_classes_strs = _get_autorized_classes_strings(autorized_classes)
         self._class_from_attributs_names = _get_recognized_classes_dict(recognized_classes)
         # self.accept_comments = accept_comments

@@ -12,7 +12,7 @@ try:
     import qtpy
 except:
     pass
-
+from collections.abc import Iterable 
 
 
 
@@ -248,22 +248,18 @@ class encodedB64(bytes):
 classFromClassStr_dict = {
         'base64.b64decode' : lambda b64 : pybase64.b64decode(b64,validate = True)
         }
-
-
 def classFromClassStr(string):
     listeModuleClasse = string.rsplit(".", 1)
     if len(listeModuleClasse) == 2:
-        moduleStr, classeStr = listeModuleClasse
-        module = __import__(moduleStr, fromlist=[classeStr])
-        return getattr(module, classeStr)
+        moduleStr, class_str = listeModuleClasse
+        module = __import__(moduleStr, fromlist=[class_str])
+        return getattr(module, class_str)
     else:
         return __builtins__[string]
 
 
 classStrFromClassDict = {}
 # @profile
-
-
 def classStrFromClass(classe):
     if classe in classStrFromClassDict:
         return classStrFromClassDict[classe]
@@ -403,55 +399,61 @@ def instance(__class__=object, __init__=None, __state__=None, __initArgs__=None,
     """créer une instance d'un objet :
     instance(dictionnaire)
     instance(**dictionnaire)
-    instance(classe,__init__,__state__)
-    instance(classe,__init__,**attributsDict)
-    instance(classe(*__init__),__state__)
-    instance(classe(*__init__),**attributsDict)
-    instance(__classe__=...,__init__=...,attribut1 = ..., attribut2 = ...)
+    instance(class_,__init__,__state__)
+    instance(class_,__init__,**attributsDict)
+    instance(class_(*__init__),__state__)
+    instance(class_(*__init__),**attributsDict)
+    instance(__class__=...,__init__=...,attribut1 = ..., attribut2 = ...)
     """
     if __initArgs__ is not None:
         __init__ = __initArgs__  # pour retro-compatibilité avec anciens json
-    # classe,initArgs,state      = __class__,__init__,__state__
-    classe = None
+    # class_,initArgs,state      = __class__,__init__,__state__
+    inst = None
+    #class_str = None
     if __class__ == "type":
         if __init__ == "NoneType":
             return type(None)
         else:
             return classFromClassStr(__init__)
     try:
-        # acceleration en allant directment charcher la classe à partir de la string dans un dictionnaire de cash
-        classe = classFromClassStr_dict[__class__]
+        # acceleration en allant directement charcher la class_ à partir de la string dans un dictionnaire de cash
+        class_ = classFromClassStr_dict[__class__]
+        class_str = __class__
     except KeyError:
         # if __class__ == 'module':
         #    inst = types.ModuleType.module('nom_module')
         if isinstance(__class__, str):
-            classe = classFromClassStr_dict[__class__] = classFromClassStr(__class__)
+            class_ = classFromClassStr_dict[__class__] = classFromClassStr(__class__)
+            class_str = __class__
         elif isinstance(
             __class__, dict
         ):  # permet de gere le cas ou on donne directement un dictionnaire en premier argument
             return instance(**__class__)
-        else:
+        else: 
             if isclass(__class__):
-                classe = __class__
-            elif isInstance(__class__):
+                class_ = __class__
+                class_str = classStrFromClass(__class__)
+            elif isInstance(__class__): # arrrive avec serializeRepr 
                 inst = __class__
+                class_str = classStrFromClass(inst.__class__)
             elif isCallable(__class__):
-                classe = __class__
+                class_ = __class__
+                class_str = classStrFromClass(__class__)
             else:
                 raise Exception(
                     "erreure lors de la creation d'instance le premier parametre de Instance() n'est ni une classe , ni string representant un classe , ni une instance, ni un dictionnaire, ni un callable (fonction)"
                 )
 
-    if classe is not None:
+    if inst is None:
         __init__type = type(__init__)
         if __init__ is None:
-            inst = classe.__new__(classe)
+            inst = class_.__new__(class_)
         elif __init__type in (list, tuple):
-            inst = classe(*__init__)
+            inst = class_(*__init__)
         elif __init__type is dict:
-            inst = classe(**__init__)
+            inst = class_(**__init__)
         else:
-            inst = classe(__init__)  # when braces have been removed during serialization
+            inst = class_(__init__)  # when braces have been removed during serialization
 
     if __state__ or argsSup:
         if __state__ and type(__state__) == dict:
@@ -465,8 +467,10 @@ def instance(__class__=object, __init__=None, __state__=None, __initArgs__=None,
                 inst.__setstate__(__state__)
             else:
                 if type(__state__) is dict:
+                    set_attributs = serializeParameters.set_attributs
                     if (
-                        serializeParameters.set_attributs
+                        set_attributs is True 
+                        or ((set_attributs is not False) and (class_str in set_attributs))
                     ):  # si la variable global setAttributs = True , il tente de faire appel aux setters (NON TESTE)
                         for key, value in __state__.items():
                             attributSetMethode = "set_" + key
@@ -494,19 +498,36 @@ def instance(__class__=object, __init__=None, __state__=None, __initArgs__=None,
 
 
 
-
+# --- Import of plugins -------------------------------------------------------
 import inspect
 from . import plugins
 # import plugins 
 tuple_from_module_class_str = {}
+default_set_attributs = set()
 for module_name,module in   plugins.__dict__.items():
     if not module_name.startswith("__"):
+        if hasattr(module, 'set_attributs'):
+            default_set_attributs.update(module.set_attributs)        
         if hasattr(module, 'tuple_from_module_class_str'):
             tuple_from_module_class_str.update(module.tuple_from_module_class_str)
         else: 
             for function_name,function in module.__dict__.items():
                 if inspect.isfunction(function) and function_name.startswith("tuple_from_"):
-                    classeStr = function_name[len("tuple_from_"):]
+                    class_str = function_name[len("tuple_from_"):]
                     if module_name != "builtins":
-                        classeStr = module_name+'.'+classeStr
-                    tuple_from_module_class_str[classeStr] = function
+                        class_str = module_name+'.'+class_str
+                    tuple_from_module_class_str[class_str] = function
+
+def _get_set_attributs_classes_strings(set_attributs):
+    if isinstance(set_attributs,bool)   :
+        return set_attributs
+    elif isinstance(set_attributs,Iterable):
+        set_attributs_with_defaults = default_set_attributs.copy()
+        for elt in set_attributs:
+            if not isinstance(str):
+                elt = classFromClassStr(elt)
+            set_attributs_with_defaults.add(elt)
+        return set_attributs_with_defaults 
+    else : 
+        raise TypeError("Decoder set_attributs argument must be a bool, list, tuple or set, not '%s'"%type(set_attributs))
+            

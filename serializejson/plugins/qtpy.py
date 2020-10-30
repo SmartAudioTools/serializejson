@@ -88,7 +88,7 @@ def tuple_from_QPlainTextEdit(obj):
     return (obj.__class__,  tuple(), state)
 
 
-
+set_attributs = ["qtpy.QtWidgets.QCheckBox","qtpy.QtWidgets.QDoubleSpinBox","qtpy.QtWidgets.QLineEdit","qtpy.QtWidgets.QPlainTextEdit","qtpy.QtWidgets.QPushButton","qtpy.QtWidgets.QSpinBox"]
 tuple_from_module_class_str =  {
     "qtpy.QtCore.QByteArray": tuple_from_reducableQt,
     "qtpy.QtCore.QDate": tuple_from_reducableQt,

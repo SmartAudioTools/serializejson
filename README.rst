@@ -6,7 +6,7 @@ serializejson
     
     .. warning::
     	⚠ serializejson can execute arbitrary Python code if the load parameter autorized_classes is "all" when loading json. 
-    	Do not load serializejsons from untrusted / unauthenticated sources without carfuly set the autorized_classes parameter.**
+    	Do not load serializejsons from untrusted / unauthenticated sources without carfuly set the autorized_classes parameter.
     
     - supports Python 3.7 (maybe lower) or greater.
     - serializes arbitrary python objects into a dictionary by adding "__class__" ,and eventually "__init__" and "__state__" keys. 
@@ -30,6 +30,15 @@ serializejson
 
 Install
 =======
+
+    **Last offical release**
+    
+    .. code-block::
+    
+    	pip install serializejson
+
+    **Developpement version unreleased**
+    
     .. code-block::
     
     	pip install git+https://github.com/SmartAudioTools/serializejson.git
@@ -63,77 +72,76 @@ License
 Examples
 ================
 
-serialization with fonctions API 
---------------------------------
-    .. code-block:: python
+    **Serialization with fonctions API** 
     
-    	import serializejson 
+        .. code-block:: python
+        
+        	import serializejson 
+        
+        	#serialize in string
+        	object1 = set([1,2])
+        	dumped1 = serializejson.dumps(object1)
+        	loaded1 = serializejson.loads(dumped1)
+        	print(dumped1)
+        	>{
+        	>        "__class__": "set",
+        	>        "__init__": [1,2]
+        	>}
+        
+        
+        	#serialize in file
+        	object2 = set([3,4])
+        	serializejson.dump(object2,"dumped2.json")
+        	loaded2 = serializejson.load("dumped2.json")
     
-    	#serialize in string
-    	object1 = set([1,2])
-    	dumped1 = serializejson.dumps(object1)
-    	loaded1 = serializejson.loads(dumped1)
-    	print(dumped1)
-    	>{
-    	>        "__class__": "set",
-    	>        "__init__": [1,2]
-    	>}
+    **Serialization with classes based API.** 
+        (quicker than fonctions API if reuse of Encoder/Decoder for serveral objects).
+        
+        .. code-block:: python
+        
+        	import serializejson 
+        	encoder = serializejson.Encoder()
+        	decoder = serializejson.Decoder()
+        
+        	# serialize in string
+        
+        	object1 = set([1,2])
+        	dumped1 = encoder.dumps(object1)
+        	loaded1 = decoder.loads(dumped1)
+        	print(dumped1)
+        
+        	# serialize in file
+        	object2 = set([3,4])
+        	encoder.dump(object2,"dumped2.json")
+        	loaded2 = decoder.load("dumped2.json")
     
+    **Update existing object** 
     
-    	#serialize in file
-    	object2 = set([3,4])
-    	serializejson.dump(object2,"dumped2.json")
-    	loaded2 = serializejson.load("dumped2.json")
-
-serialization with classes based API. 
--------------------------------------
-    (quicker than fonctions API if reuse of Encoder/Decoder for serveral objects).
+        .. code-block:: python
+        
+        	import serializejson 
+        	object1 = set([1,2])
+        	object2 = set([3,4])
+        	dumped1 = serializejson.dumps(object1)
+        	print(f"id {id(object2)} :  {object2}")
+        	serializejson.loads(dumped1,obj = object2, updatables_classes = [set])
+        	print(f"id {id(object2)} :  {object2}")
     
-    .. code-block:: python
+    **Iterative serialization and deserialization**
     
-    	import serializejson 
-    	encoder = serializejson.Encoder()
-    	decoder = serializejson.Decoder()
-    
-    	# serialize in string
-    
-    	object1 = set([1,2])
-    	dumped1 = encoder.dumps(object1)
-    	loaded1 = decoder.loads(dumped1)
-    	print(dumped1)
-    
-    	# serialize in file
-    	object2 = set([3,4])
-    	encoder.dump(object2,"dumped2.json")
-    	loaded2 = decoder.load("dumped2.json")
-
-update existing object 
-----------------------
-    .. code-block:: python
-    
-    	import serializejson 
-    	object1 = set([1,2])
-    	object2 = set([3,4])
-    	dumped1 = serializejson.dumps(object1)
-    	print(f"id {id(object2)} :  {object2}")
-    	serializejson.loads(dumped1,obj = object2, updatables_classes = [set])
-    	print(f"id {id(object2)} :  {object2}")
-
-iterative serialization and deserialization
--------------------------------------------
-    .. code-block:: python
-    
-    	import serializejson 
-    	encoder = serializejson.Encoder("my_list.json",indent = None)
-    	for elt in range(3):
-    		encoder.append(elt)
-    	print(open("my_list.json").read())
-    	for elt in serializejson.Decoder("my_list.json"):
-    		print(elt)
-    	>[0,1,2]
-    	>0
-    	>1
-    	>2
-    	
+        .. code-block:: python
+        
+        	import serializejson 
+        	encoder = serializejson.Encoder("my_list.json",indent = None)
+        	for elt in range(3):
+        		encoder.append(elt)
+        	print(open("my_list.json").read())
+        	for elt in serializejson.Decoder("my_list.json"):
+        		print(elt)
+        	>[0,1,2]
+        	>0
+        	>1
+        	>2
+        	
 
 
