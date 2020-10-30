@@ -266,7 +266,7 @@ class Encoder(rapidjson.Encoder):
             write the stream in chunks of this size at a time.
             
     
-        bytearray_use_bytearrayB6 : 
+        bytearray_use_bytearrayB64 : 
             save bytearray with referencies to serializejson.bytearrayB64
             instead of verbose use of base64.b64decode. It save space but make 
             the json file dependent of the serializejson module. 
@@ -331,7 +331,7 @@ class Encoder(rapidjson.Encoder):
         single_line_list_numbers=True,
         sort_keys=True,
         chunk_size=65536,
-        bytearray_use_bytearrayB6=True,
+        bytearray_use_bytearrayB64=True,
         numpy_array_use_numpyB64=True,
         numpy_array_readable_max_size=0,
         numpy_array_to_list=False,
@@ -365,7 +365,7 @@ class Encoder(rapidjson.Encoder):
         self.indent = indent # rapid json enregistre self.indent_char et self.indent_count , mais ne permet pas de savoir si indent = None ...
         self.dumped_classes = set()
         self.chunk_size = chunk_size
-        self.bytearray_use_bytearrayB6 = bytearray_use_bytearrayB6
+        self.bytearray_use_bytearrayB64 = bytearray_use_bytearrayB64
         self.numpy_array_to_list = numpy_array_to_list
         self.numpy_array_use_numpyB64 = numpy_array_use_numpyB64
         self.numpy_array_readable_max_size = numpy_array_readable_max_size
@@ -565,7 +565,7 @@ class Encoder(rapidjson.Encoder):
         serializeParameters.attributs_filter = self.attributs_filter
         serializeParameters.numpy_array_use_numpyB64 = self.numpy_array_use_numpyB64
         serializeParameters.numpy_array_readable_max_size = self.numpy_array_readable_max_size        
-        serializeParameters.bytearray_use_bytearrayB6 = self.bytearray_use_bytearrayB6
+        serializeParameters.bytearray_use_bytearrayB64 = self.bytearray_use_bytearrayB64
         self.dumped_classes = set()
         self._already_serialized = set()
         self._already_serialized_id_dic_to_obj_dic = dict()

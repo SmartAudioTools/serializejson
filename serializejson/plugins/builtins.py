@@ -10,7 +10,7 @@ except:
 
 
 def tuple_from_bytearray(inst):
-    if serializeParameters.bytearray_use_bytearrayB6:
+    if serializeParameters.bytearray_use_bytearrayB64:
         return (bytearrayB64, (encodedB64(inst),), None)
     else:
         return (bytearray, (bytes(inst),), None)

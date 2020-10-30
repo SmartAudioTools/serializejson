@@ -5,8 +5,8 @@ serializejson
     `JSON <http://json.org>`_ build upon `python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_ and `pybase64 <https://github.com/mayeut/pybase64>`_
     
     .. warning::
-    	⚠ serializejson can execute arbitrary Python code if the load parameter autorized_classes is "all" when loading json. 
-    	Do not load serializejsons from untrusted / unauthenticated sources without carfuly set the autorized_classes parameter.
+    	**⚠ serializejson can execute arbitrary Python code when loading json**, if the load parameter autorized_classes is "all". 
+    	Do not load serializejsons from untrusted / unauthenticated sources without carfuly set the load autorized_classes parameter.
     
     - supports Python 3.7 (maybe lower) or greater.
     - serializes arbitrary python objects into a dictionary by adding "__class__" ,and eventually "__init__" and "__state__" keys. 

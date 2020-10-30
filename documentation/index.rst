@@ -101,7 +101,9 @@ Methode 1 : Add methods to object for custom serialization
         .. code-block:: python
         
             def __reduce__(self):
-                    return apply,(self.__class__,None,init_kwargs_dictionnary) , serializejson.filtered(self.__dict__)
+                    return  apply,
+                            (self.__class__,None,init_kwargs_dictionnary),
+                            serializejson.filtered(self.__dict__)
     
     
         **Call __init__() with positionals arguments and named arguments,  and state restore from filtered attributs** 
@@ -110,7 +112,9 @@ Methode 1 : Add methods to object for custom serialization
         .. code-block:: python
         
             def __reduce__(self):
-                    return apply,(self.__class__,init_args_tuple,init_kwargs_dictionnary) , serializejson.filtered(self.__dict__)
+                    return apply,
+                           (self.__class__,init_args_tuple,init_kwargs_dictionnary),
+                           serializejson.filtered(self.__dict__)
     
     
     .. py:function:: object.__getstate__() 
@@ -118,7 +122,7 @@ Methode 1 : Add methods to object for custom serialization
     
         Code __getstate__() methode **without __reduce__()**
         if you doesn't want to call __init__() but only __new__() and you  want to have 
-        a different behavior than serialize self.__ dict__ and self.__slots__.
+        a different behavior than serialize self.__dict__ and self.__slots__.
         __getstate__() must return the state of the class as an object that will itself be serialized.
         If __setstate__() is not available, the returned object must be a dictionary 
         (elements will be restored as attributes), otherwise the object can be any serializable object
@@ -199,8 +203,9 @@ Methode 2 : Add plugins to serializejson
 
         
     **5. Add "tuple_from_module_class_str" dictionnary in your module_name.py** 
-        if somme of your classes are in submodules
-        otherwise this dictionnary will automaticaly constructed.
+        if somme of your classes are in submodules. 
+        Otherwise this dictionnary will be automaticaly constructed by serializejson 
+        when loading plugins, considering that all object are in the root module. 
     
         .. code-block:: python
         
@@ -209,8 +214,8 @@ Methode 2 : Add plugins to serializejson
                 "module_name.submodule.YYY" :  tuple_from_YYY,
             }    
         
-    **6. If you want to call objects attributs setters (set_attribut1,setAttribut1 or attribut1 propertie setter)**
-         when loading json add a "set_attributs" list with qualified names of concerned objects. 
+    **6. Add a "set_attributs" list if you want to call objects attributs setters**
+        like set_attribut1,setAttribut1 or attribut1 propertie setter, when loading json add a  with qualified names of concerned objects. 
         
         .. code-block:: python
 
