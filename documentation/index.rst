@@ -148,8 +148,23 @@ Methode 1 : Add methods to object for custom serialization
         puts the instance back in the state it was in before serialization.
         can possibly execute initialization code.
         
-        * If __setstate __ () is not available, all elements of the dictionary __dict__ or returned by __getstate__ () (which in this case will have to return a dict) will be restored as attributes. Passively if set_attribut = False (like pickle) or actively with call of setters is set_attribut = True.          
-        * If there is restoring code depending of several elements of state, you should code __setstate__() to avoid  multiple exucution of thise code and multiple intermediary states during the restoration of attributs one by one.        
+        .. note::
+        
+            If __setstate __() is not available, all elements of self.__dict__, self.__slots__ or returned by __getstate__ () (which in this case will have to return a dict) will be restored as attributes. 
+            
+            * Passively if set_attribut = False (like pickle) 
+            * actively with call of setters if set_attribut = True or set_attribut =  [..,your_object]. In alphabetic order if sort_keys=True or in random order if sort_keys=False.    
+
+            You should better add the __setate__() methode to your oject : 
+            
+            * If you want to call setter in a different order than alphabetic order.
+            * If you want to be robust to a attribut name change.
+            * If you want to be robust to this set_attribut parameter change. 
+            * If you want to avoid transitional states during setting of attribut one by one.
+            * If you want the same bahavior than pickle, for being able to comme back to pickle.
+           
+            
+        * If there is restoring code depending of several elements of state, you should code __setstate__() to avoid  transitional states during the restoration of attributs one by one.        
         * If there is restoring code and you want a 100 % compatibilité with pickle,  you should put this code in __setstate__() for not depending of set_attributs = True.
            
     
@@ -164,14 +179,31 @@ Methode 1 : Add methods to object for custom serialization
 
             
     .. note::
+         
+        
         **If you want to make the object updatable:**
+        
+        **Save all needed informations outside of __init__ args when dumping:**
+        
+        * put all needed informations for an update in state (returned by __getstate__() or in third position by __reduce__()), because __init__() will not be called when updating, and all init args will be discard. 
+        * minimize informations redundancy for __init__() that is already in state  (returned in second position by __reduce__()       
+        * you can remove call to __init__() using __getsate__() instead of __reduce__(), if you don't need  to execute code in __init__() anymore when object creation, because all needed intialisation code is already in __setstate__() or setters.
+
+               
+        **Allow restauration of this informations:**
        
-        * put all needed informations for an update in state (returned by __getstate__() or in third position by __reduce__()), because __init__() will not be called when updating. 
-        * minimize informations redundancy for __init__() that is already in state.  
-        * if you need to execute code when updating, put thise code in properties, setters or __setstate__(). 
-        * if there is code depending of several elements of state, you should better code __setstate__ to avoid  multiple exucution of thise code and multiple intermediary states during the restoration of attributs one by one. if you chose to use setters, you must be sure to call load with set_attributs = True (or [...,object])
-        * you can remove call to __init__() using __getsate__() instead of __reduce__(), if you don't need  to execute code in __init__() anymore when object creation, because all needed intialisation code is already in __setstate__().
-    
+        *  In  __setstate__()  methode called with the state.
+        
+            - If you want to call setter in a different order than alphabetic order.
+            - If you want to be robust to a attribut name change or set_attribut parameter change. 
+            - If you want to avoid transitional states during setting of attribut one by one.
+               
+        * Othewise the all elements of the state dictionary will be restored as attributes. 
+        
+            - Passively if set_attribut = False (like pickle). 
+            - Actively with call of setters, if set_attribut=True or set_attribut=[your_object] (in alphabetic order if sort_keys=True or in random order if sort_keys=False).    
+              ⚠ You must be sure to ever call load with set_attributs = True (or [...,object]) or add a plugin for thise object withs set_attribus = [object]
+
             
 Methode 2 : Add plugins to serializejson
 ----------------------------------------

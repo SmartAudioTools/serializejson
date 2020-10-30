@@ -656,8 +656,25 @@ class Decoder(rapidjson.Decoder):
             Whether load will try to call set_xxx or setXxx methodes 
             or xxx property setter for each attributs of serialized objects
             if the object as no __setstate__ methode.
-            if list of classes or classes qualified names, load will try to call setter only for this classes.
+            if set_attributs is a list of classes or classes qualified names, 
+            load will try to call setter only for this classes 
+            and for classes defined in plugins set_attributs lists 
+            (see documentation section "Add plugins to serializejson" ) 
             
+            .. warning::
+                **The attribut's setters are called in the json order !**
+                
+                - Always use sort_keys = True when dumping, for determinist behaviour, because  (then alphabetic)
+                - Be carful if you rename a attribut because setters calls order can still change .  
+                - If set_attribut = True (or list) serializejson will differ from pickle who don't call attribut's setters (for concerned objects)
+                
+                **You should better add the __setate__() methode to your oject :**
+                
+                - If you want to call setter in a different order than alphabetic order.
+                - If you want to be robust to a attribut name change.
+                - If you want to be robust to this set_attribut parameter change. 
+                - If you want to avoid transitional states during setting of attribut one by one.
+                - If you want the same bahavior than pickle, for being able to come back to pickle.
             
         accept_comments (bool):
             Whether serializejson accept to parse json with comments  
@@ -756,7 +773,24 @@ class Decoder(rapidjson.Decoder):
             s: 
                 the json string.
             obj (optional):
-                the obj will be update instead of the creation of a new object.
+                the obj will be updated instead of the creation of a new object.
+                
+                
+                .. note::
+                    
+                    **Updating an object** consist to restore is state recursively. 
+                    
+                    * Neither __new__() neither __init__()  will be called. 
+                    * All sub-objet in updatables_classes will be updated, otherwise will be recreated.
+                    * If the object has a __setstate__() methode, this methode will be called with the state.
+                    * Othewise the all elements of the state dictionary will be restored as attributes. Passively if set_attribut = False (like pickle). Actively if set_attribut=True or set_attribut=[your_object], with call of setters (in alphabetic order if sort_keys=True or in random order if sort_keys=False).    
+                
+                .. warning::
+                    
+                    You must be sur to have all the needed information in the state and not in the __init__ args who will be discard. 
+                    See "If you want to make the object updatable" note at the end of "Add methods to object for custom serializatio" section.
+
+                    
            
         Return:
             created object or updated object if passed obj.
