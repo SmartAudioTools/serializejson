@@ -3,7 +3,7 @@
 
 ""
 try: 
-    import my_module
+    import module_name
 except ModuleNotFoundError: 
     pass   
 

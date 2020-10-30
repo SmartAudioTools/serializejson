@@ -21,7 +21,7 @@ serializejson
     - numpy arrays can be serialized in list with automatique conversion in both ways or in a conservative way. 
     - supports circular references and serialize only once duplicated objects (WARNING :not yet if the object is a list or dictionary).
     - try to call attribute setters and properties setters when loading if set_attributs  = True.
-    - accepts json with comment (// and /* */).
+    - accepts json with comment (// and /\* \*/).
     - can automatically recognize objects in json from keys names and recreate them, without the need of "__class__" key, if passed in recognized_classes. It allows loading foreign json serialized with others libraries who only save objects attributes. 
     - dumps and loads support string path. 
     - can iteratively encode (with append) and decode (with iterator) a list in json, saving memory space during the process of serialization et deserialization.

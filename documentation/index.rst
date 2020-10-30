@@ -175,42 +175,50 @@ Methode 2 : Add plugins to serializejson
     Add plugins to serializejson, if you don't want or can't add methodes to 
     the object you want to serialize. 
     
-    **1. Create serializejson/plugins/my_module.py** 
+    **1. Create serializejson/plugins/module_name.py** 
         with the same name as the module containing your object. 
         
     **2. Import this module in serializejson/plugins/__init__.py**
         .. code-block:: python
         
-            from . import my_module
+            from . import module_name
             
-    **3. make imports in a try in your my_module.py** 
+    **3. make imports in a try in your module_name.py** 
     
        .. code-block:: python
        
             try: 
-                import my_module
+                import module_name
             except ModuleNotFoundError: 
                 pass   
         
     **4. Create functions named "tuple_from_XXX"**
-        in my_module.py for each objects of your module, with XXX the name of the class. 
+        in module_name.py for each objects of your module, with XXX the name of the class. 
     
-        .. autofunction:: serializejson.plugins.my_module.tuple_from_XXX
+        .. autofunction:: serializejson.plugins.module_name.tuple_from_XXX
 
         
-    **5. Add "tuple_from_module_class_str" dictionnary in your my_module.py** 
+    **5. Add "tuple_from_module_class_str" dictionnary in your module_name.py** 
         if somme of your classes are in submodules
         otherwise this dictionnary will automaticaly constructed.
     
         .. code-block:: python
         
             tuple_from_module_class_str = {
-                "my_module.submodule.XXX" :  tuple_from_XXX,
-                "my_module.submodule.YYY" :  tuple_from_YYY,
+                "module_name.submodule.XXX" :  tuple_from_XXX,
+                "module_name.submodule.YYY" :  tuple_from_YYY,
             }    
         
+    **6. If you want to call objects attributs setters (set_attribut1,setAttribut1 or attribut1 propertie setter)**
+         when loading json add a "set_attributs" list with qualified names of concerned objects. 
         
-    **6. Share your plugin with serializejson developper**
+        .. code-block:: python
+
+            set_attributs = ["module_name.XXX","module_name.YYY"]
+
+        
+    **7. Share your plugin with serializejson developper**
+    
         if your plugin is for a wild user library, for include in serializejson next release.
 
 
