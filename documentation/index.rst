@@ -61,38 +61,45 @@ Methode 1 : Add methods to object for custom serialization
     .. py:function:: object.__reduce__() 
     
         Code __reduce__() methode if you want to recreated your object with __init__().
-        You have to return a tuple with class,init_args_tuple and optionaly state depending 
+        You have to return a tuple with : class,init_args_tuple and optionaly state depending 
         how you want to call __init__(). 
-                
+        
+        .. warning::
+            
+            Alternatively you can return a tuple with : callable returning instance of the desired class, callable arguments tuple, and optionaly state. 
+            **In thise case the callable will be considered as the class by autorized_classes, updatable_classes and set_attributs parameters.**
+            Except for "apply" in wich case, the first element of the tuple in second position is considered as the class. 
+            **Never put "apply" in autorized_classes, it allow untrusted json to execute arbitrary code.**  
+
+            
         **Just call __init__() with positionals arguments, without state restore.**
         
         .. code-block:: python
         
             def __reduce__(self):
+                    init_args_tuple = (1,) # tuple with 1 element need comma
                     return self.__class__,init_args_tuple,None 
         
         **Just call __init__() with named arguments, without state restore.** 
-        more robust if you change later the init args order, but you have to pip install apply
+        naming argument allow you to skeep first arguments if they have default
+        values and is robust if you change later the init args order, but you 
+        have to pip install apply
         
         .. code-block:: python
         
             def __reduce__(self):
+                    init_kwargs_dictionnary = {"arg3":3}
                     return apply,(self.__class__,None,init_kwargs_dictionnary) 
                     
         **Just call __init__() with positionals arguments and named arguments, without state restore.** 
-        more robust if you change later the init args order, but you have to pip install apply
-        
-        .. code-block:: python
-        
-            def __reduce__(self):
-                    return apply,(self.__class__,init_args_tuple,init_kwargs_dictionnary) 
-                    
+     
         
         **Call __init__() with positionals arguments and restore state from filtered attributs**
         
         .. code-block:: python
         
             def __reduce__(self):
+                    init_args_tuple = (1,) # tuple with 1 element need comma
                     return self.__class__, init_args_tuple, serializejson.filtered(self.__dict__)
         
         **Call __init__() with named arguments and restore state from filtered attributs** 
@@ -101,21 +108,10 @@ Methode 1 : Add methods to object for custom serialization
         .. code-block:: python
         
             def __reduce__(self):
+                    init_kwargs_dictionnary = {"arg3":3}
                     return  apply,
                             (self.__class__,None,init_kwargs_dictionnary),
                             serializejson.filtered(self.__dict__)
-    
-    
-        **Call __init__() with positionals arguments and named arguments,  and state restore from filtered attributs** 
-        more robust if you change later the init args order, but you have to pip install apply
-        
-        .. code-block:: python
-        
-            def __reduce__(self):
-                    return apply,
-                           (self.__class__,init_args_tuple,init_kwargs_dictionnary),
-                           serializejson.filtered(self.__dict__)
-    
     
     .. py:function:: object.__getstate__() 
     
