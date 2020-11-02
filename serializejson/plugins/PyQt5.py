@@ -99,6 +99,8 @@ def tuple_from_QWidget(obj):
     return (get_class(obj),  tuple(), None)
     
 
+#encoder_plugins_parameters_default_values = {}
+
 set_attributs = {
         "qtpy.QtWidgets.QCheckBox",
         "qtpy.QtWidgets.QDoubleSpinBox",

@@ -132,7 +132,9 @@ from .tools import (
     encodedB64,
     classFromClassStr,
     from_name,
-    _get_set_attributs_classes_strings
+    _get_set_attributs_classes_strings,
+    encoder_plugins_parameters_keys,
+    encoder_plugins_parameters_default_values
 )
 
 def dumps(obj, **argsDict):
@@ -277,11 +279,11 @@ class Encoder(rapidjson.Encoder):
             the json file dependent of the serializejson module. 
             
         numpy_array_readable_max_size (dict):
-            for each numpy dtype keys (str) define the maximum size for serialization in readable numbers.
-            if value = -1 there is no maximum and all numy array of this dtype are serialized in readable numbers.
+            for each dtype numpy_array_readable_max_size define the maximum array size for serialization in readable numbers.
+            if value = -1 there is no maximum and numy array of this dtype are all serialized in readable numbers.
             By default numpy_array_readable_max_size = {"int32":-1}
             
-            .. warning::
+            .. note::
                 
                 serialization in readable decimals can take much less space in int32 if values < 9999,
                 but is much slower than in base 64 for big arrays. If you have lot or big numpy int32 arrays and 
@@ -303,6 +305,13 @@ class Encoder(rapidjson.Encoder):
         numpy_types_to_python_types:
              wheter numpy ints ans floats must be convert to python types.
              It save space and generaly don't 
+             
+             
+        **plugins_parameters :
+            extra keys arguments are stocked in "serializeParameters" 
+            global module and accessible in plugins module in order to allow
+            the choice between serilialisation options in plugins. 
+            
 
     """
     """
@@ -346,8 +355,7 @@ class Encoder(rapidjson.Encoder):
         numpy_array_readable_max_size={'int32':-1},
         numpy_array_to_list=False,
         numpy_types_to_python_types=True,
-        #add_id:bool=False,
-        #**argsDict
+        **plugins_parameters
     ):
  
 
@@ -380,6 +388,12 @@ class Encoder(rapidjson.Encoder):
         self.numpy_array_use_numpyB64 = numpy_array_use_numpyB64
         self.numpy_array_readable_max_size = numpy_array_readable_max_size
         self.numpy_types_to_python_types = numpy_types_to_python_types
+        unexpected_keywords_arguments = set(plugins_parameters) - encoder_plugins_parameters_keys
+        if unexpected_keywords_arguments:
+            raise  TypeError("serializejson.Encoder got unexpected keywords arguments '"+', '.join(unexpected_keywords_arguments)+"'")     
+        self.plugins_parameters = encoder_plugins_parameters_default_values.copy()
+        self.plugins_parameters.update(plugins_parameters)
+            
         return self
 
     def dump(self, obj, fp=None):
@@ -576,6 +590,7 @@ class Encoder(rapidjson.Encoder):
         serializeParameters.numpy_array_use_numpyB64 = self.numpy_array_use_numpyB64
         serializeParameters.numpy_array_readable_max_size = self.numpy_array_readable_max_size        
         serializeParameters.bytearray_use_bytearrayB64 = self.bytearray_use_bytearrayB64
+        serializeParameters.__dict__.update(self.plugins_parameters)
         self.dumped_classes = set()
         self._already_serialized = set()
         self._already_serialized_id_dic_to_obj_dic = dict()
@@ -722,8 +737,7 @@ class Decoder(rapidjson.Decoder):
         accept_comments=False,
         numpy_array_from_list=False,
         default_value=None,
-        chunk_size=65536,
-        #**argsDict
+        chunk_size=65536
     ):
        
         if accept_comments:

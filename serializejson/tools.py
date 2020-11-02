@@ -478,8 +478,15 @@ from . import plugins
 # import plugins 
 tuple_from_module_class_str = {}
 default_set_attributs = set()
+encoder_plugins_parameters_default_values = {}
+decoder_plugins_parameters_default_values = {}
+
 for module_name,module in   plugins.__dict__.items():
     if not module_name.startswith("__"):
+        if hasattr(module, 'encoder_plugins_parameters_default_values'):
+            encoder_plugins_parameters_default_values.update(module.encoder_plugins_parameters_default_values)  
+        if hasattr(module, 'decoder_plugins_parameters_default_values'):
+            decoder_plugins_parameters_default_values.update(module.decoder_plugins_parameters_default_values)  
         if hasattr(module, 'set_attributs'):
             default_set_attributs.update(module.set_attributs)        
         if hasattr(module, 'tuple_from_module_class_str'):
@@ -491,6 +498,8 @@ for module_name,module in   plugins.__dict__.items():
                     if module_name != "builtins":
                         class_str = module_name+'.'+class_str
                     tuple_from_module_class_str[class_str] = function
+encoder_plugins_parameters_keys= set(encoder_plugins_parameters_default_values)
+decoder_plugins_parameters_keys= set(decoder_plugins_parameters_default_values)
 
 def _get_set_attributs_classes_strings(set_attributs):
     if isinstance(set_attributs,bool)   :
