@@ -241,6 +241,32 @@ Methode 2 : Add plugins to serializejson
     
         .. autofunction:: serializejson.plugins.module_name.tuple_from_XXX
 
+    **5. Automaticaly add parameters to Encoder, dump and dumps for control your plugins options**
+       
+           .. code-block:: python
+           
+                from serializejson import serializeParameters
+                def tuple_from_XXX(obj):
+                    if serializeParameters.module_name_option_name : 
+                        init_args = ...
+                        state  = ...
+                    else : 
+                        init_args = ...
+                        state  = ...
+                    return (obj.__class__,init_args,state)
+                encoder_plugins_parameters_default_values = {"module_name_option_name" : False}
+            
+        
+        You can now use thise option for Encoding : 
+        
+            .. code-block:: python
+    
+                import serializejson
+                import module_name 
+                obj = module_name.XXX()
+                encoder = Encoder(module_name_option_name = True)
+                dumped = encoder.dumps(obj)
+                print(dumped)
         
     **5. Add "tuple_from_module_class_str" dictionnary in your module_name.py** 
         if somme of your classes are in submodules. 
