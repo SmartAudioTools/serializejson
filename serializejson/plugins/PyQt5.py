@@ -1,3 +1,6 @@
+#from pybase64 import b64encode
+#from ..tools import encodedB64
+
 try:
     import qtpy
     def get_class(obj):
@@ -47,16 +50,23 @@ def tuple_from_QColor(obj):
 
 
 def tuple_from_QPolygon(obj):
-    tuple_reduce = obj.__reduce__()
-    initargs = tuple_reduce[1][2]
-    return (get_class(obj), initargs, None)
-
-
-def tuple_from_QPolygonF(obj):
+    #return (get_class(obj), obj.__reduce__()[1][2], None)  # donne une liste avec les points falten, qui n'est pas envoyable au construteur.....
     state= []
     for point in obj:
-        state.append(point.x())
-        state.append(point.y())
+        state.append(point)
+    return (get_class(obj), (state,), None)
+
+
+    
+    
+def tuple_from_QPolygonF(obj):
+    #data = obj.data()
+    #data.setsize(16*obj.size())
+    #state =  encodedB64(b64encode(data))
+    #return ("serializejson.plugins.PyQt5.QPolygonF", (state,), None)
+    state= []
+    for point in obj:
+        state.append(point)
     return (get_class(obj), (state,), None)
 
 

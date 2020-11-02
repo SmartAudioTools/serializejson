@@ -276,9 +276,17 @@ class Encoder(rapidjson.Encoder):
             instead of verbose use of base64.b64decode. It save space but make 
             the json file dependent of the serializejson module. 
             
-        numpy_array_readable_max_size : 
-            numpy array of smaler size will be serialized in readable decimals. 
-
+        numpy_array_readable_max_size (dict):
+            for each numpy dtype keys (str) define the maximum size for serialization in readable numbers.
+            if value = -1 there is no maximum and all numy array of this dtype are serialized in readable numbers.
+            By default numpy_array_readable_max_size = {"int32":-1}
+            
+            .. warning::
+                
+                serialization in readable decimals can take much less space in int32 if values < 9999,
+                but is much slower than in base 64 for big arrays. If you have lot or big numpy int32 arrays and 
+                performances matter you should pass numpy_array_readable_max_size = {}
+            
         numpy_array_to_list : 
             whether numpy array should be serialized as list. 
           
@@ -333,7 +341,7 @@ class Encoder(rapidjson.Encoder):
         chunk_size=65536,
         bytearray_use_bytearrayB64=True,
         numpy_array_use_numpyB64=True,
-        numpy_array_readable_max_size=0,
+        numpy_array_readable_max_size={'int32':-1},
         numpy_array_to_list=False,
         numpy_types_to_python_types=True,
         #add_id:bool=False,

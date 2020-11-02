@@ -11,29 +11,33 @@ except :
     from serializejson.tools import encodedB64,classStrFromClass
     from serializejson import serializeParameters
 #from rapidjson import RawJSON
+    
+    
+_numpy_float_types = set(
+        (
+            numpy.float16,
+            numpy.float32,
+            numpy.float64,
+        )
+    )
+    
 def tuple_from_ndarray(inst):
 
     instCont = numpy.ascontiguousarray(inst)
-    if instCont.dtype.fields is None:
-        instContdtype = str(instCont.dtype)
+    dtype = instCont.dtype
+    if dtype.fields is None:
+        instContdtype = str(dtype)
+        if instContdtype in serializeParameters.numpy_array_readable_max_size : 
+            max_size = serializeParameters.numpy_array_readable_max_size[instContdtype]
+            if max_size == -1 or instCont.size <= max_size:
+                return ("numpy.array", (instCont.tolist(), instContdtype), None)
     else:
-        instContdtype = instCont.dtype.descr
-    if (
-        (instCont.size <= serializeParameters.numpy_array_readable_max_size)
-        or (
-            instCont.dtype == "int32"
-            and max(instCont.min(), instCont.max(), key=abs) <= 9999
-        )
-        or (
-            instCont.dtype == "int16"
-            and max(instCont.min(), instCont.max(), key=abs) <= 9
-        )
-    ):
+        instContdtype = dtype.descr
+
         #return (numpy.array, (RawJSON(numpy.array2string(instCont,separator =',')), instContdtype), None)  plus lent.
-        return ("numpy.array", (instCont.tolist(), instContdtype), None)
-    elif instCont.ndim == 1:
+    if instCont.ndim == 1:
         if serializeParameters.numpy_array_use_numpyB64:
-            if instCont.dtype == bool:
+            if dtype == bool:
                 return (
                     numpyB64,
                     (
@@ -50,7 +54,7 @@ def tuple_from_ndarray(inst):
     else:
 
         if serializeParameters.numpy_array_use_numpyB64:
-            if instCont.dtype == bool:
+            if dtype == bool:
                 return (
                     numpyB64,
                     (

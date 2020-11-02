@@ -242,7 +242,7 @@ class encodedB64(bytes):
 
 
 classFromClassStr_dict = {
-        'base64.b64decode' : lambda b64 : pybase64.b64decode(b64,validate = True)
+        'base64.b64decode' : lambda b64 : pybase64.b64decode(b64,validate = True) # allow to accelerete base 64 decode
         }
 def classFromClassStr(string):
     listeModuleClasse = string.rsplit(".", 1)
