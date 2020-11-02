@@ -18,7 +18,7 @@ def tuple_from_QPen(obj):
         if obj.style() != 1:
             args.append(
                 int(obj.style())
-            )  # pour l'objant ne sais pas comment serialiser une enumeration Qt.SolidLine ect...
+            )  # pour l'instant ne sais pas comment serialiser une enumeration Qt.SolidLine ect...
     return (get_class(obj), tuple(args),None)
 
 
@@ -27,7 +27,7 @@ def tuple_from_QBrush(obj):
     if obj.style() != 1:
         args.append(
             int(obj.style())
-        )  # pour l'objant ne sais pas comment serialiser une enumeration Qt.SolidLine ect...
+        )  # pour l'instant ne sais pas comment serialiser une enumeration Qt.SolidLine ect...
     return (get_class(obj), tuple(args),None)
 
 
