@@ -5,11 +5,11 @@ except ModuleNotFoundError:
 try:
     from SmartFramework import  numpyB64
     from SmartFramework.serialize.tools import encodedB64,classStrFromClass
-    from SmartFramework.serialize import serializeParameters
+    from SmartFramework.serialize import serialize_parameters
 except :
     from serializejson import numpyB64
     from serializejson.tools import encodedB64,classStrFromClass
-    from serializejson import serializeParameters
+    from serializejson import serialize_parameters
 #from rapidjson import RawJSON
     
     
@@ -19,8 +19,8 @@ def tuple_from_ndarray(inst):
     dtype = instCont.dtype
     if dtype.fields is None:
         instContdtype = str(dtype)
-        if instContdtype in serializeParameters.numpy_array_readable_max_size : 
-            max_size = serializeParameters.numpy_array_readable_max_size[instContdtype]
+        if instContdtype in serialize_parameters.numpy_array_readable_max_size : 
+            max_size = serialize_parameters.numpy_array_readable_max_size[instContdtype]
             if max_size == -1 or instCont.size <= max_size:
                 return ("numpy.array", (instCont.tolist(), instContdtype), None)
     else:
@@ -28,7 +28,7 @@ def tuple_from_ndarray(inst):
 
         #return (numpy.array, (RawJSON(numpy.array2string(instCont,separator =',')), instContdtype), None)  plus lent.
     if instCont.ndim == 1:
-        if serializeParameters.numpy_array_use_numpyB64:
+        if serialize_parameters.numpy_array_use_numpyB64:
             if dtype == bool:
                 return (
                     numpyB64,
@@ -45,7 +45,7 @@ def tuple_from_ndarray(inst):
             return ("numpy.frombuffer", (bytearray(instCont), instContdtype), None)
     else:
 
-        if serializeParameters.numpy_array_use_numpyB64:
+        if serialize_parameters.numpy_array_use_numpyB64:
             if dtype == bool:
                 return (
                     numpyB64,

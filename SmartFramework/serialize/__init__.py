@@ -4,4 +4,4 @@ class ExceptionPyQt(Exception):  # exception pour tout le module
 
 # from SmartFramework.tools.dictionnaires import filtered
 
-# __all__  = ['serializeJson','serializePython','serializeAsModule','serializeTiny','serializeRepr','serializeParameters','ExceptionPyQt']
+# __all__  = ['serializeJson','serializePython','serializeAsModule','serializeTiny','serializeRepr','serialize_parameters','ExceptionPyQt']

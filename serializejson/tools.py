@@ -1,4 +1,4 @@
-from . import serializeParameters
+from . import serialize_parameters
 from SmartFramework.string.encodings import ascii_printables
 from SmartFramework.tools.dictionnaires import filtered
 from SmartFramework.tools.objects import isInstance,isCallable
@@ -360,8 +360,8 @@ def tupleFromInstance(inst):
                 state = tupleReduce[2]
             else:
                 state = None
-    if serializeParameters.attributs_filter and type(state) is dict:
-        state = filtered(state, filterChar=serializeParameters.attributs_filter)
+    if serialize_parameters.attributs_filter and type(state) is dict:
+        state = filtered(state, filterChar=serialize_parameters.attributs_filter)
     return (classe, initArgs, state)
 
 
@@ -441,7 +441,7 @@ def instance(__class__=object, __init__=None, __state__=None, __initArgs__=None,
                 inst.__setstate__(__state__)
             else:
                 if type(__state__) is dict:
-                    set_attributs = serializeParameters.set_attributs
+                    set_attributs = serialize_parameters.set_attributs
                     if (
                         set_attributs is True 
                         or ((set_attributs is not False) and (class_str in set_attributs))

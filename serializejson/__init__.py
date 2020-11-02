@@ -55,7 +55,7 @@ except ModuleNotFoundError:
     use_numpy = False
 import gc
 from _collections_abc import list_iterator
-from SmartFramework.serialize import serializeParameters
+from . import serialize_parameters
 
 
 __all__ = ['dumps', 'dump', 'loads', 'load', 'append', 'Encoder', 'Decoder']
@@ -95,7 +95,7 @@ def numpyB64(str64, dtype=None, shapeOrLen=None):
         else:
             array = ndarray(shapeOrLen, dtype, decodedBytes)  # pas de recopie
         if (
-            nb_bits == 32 and serializeParameters.numpyB64_convert_int64_to_int32_and_align_in_Python_32Bit
+            nb_bits == 32 and serialize_parameters.numpyB64_convert_int64_to_int32_and_align_in_Python_32Bit
         ):  # pour pouvoir deserialiser les classifiers en python 32 bit ?
             if array.dtype in (int64, "int64"):
                 return array.astype(int32)
@@ -308,7 +308,7 @@ class Encoder(rapidjson.Encoder):
              
              
         **plugins_parameters :
-            extra keys arguments are stocked in "serializeParameters" 
+            extra keys arguments are stocked in "serialize_parameters" 
             global module and accessible in plugins module in order to allow
             the choice between serilialisation options in plugins. 
             
@@ -586,11 +586,11 @@ class Encoder(rapidjson.Encoder):
                 bytes_mode=self.bytes_mode,
                 #**self.kargs
             )
-        serializeParameters.attributs_filter = self.attributs_filter
-        serializeParameters.numpy_array_use_numpyB64 = self.numpy_array_use_numpyB64
-        serializeParameters.numpy_array_readable_max_size = self.numpy_array_readable_max_size        
-        serializeParameters.bytearray_use_bytearrayB64 = self.bytearray_use_bytearrayB64
-        serializeParameters.__dict__.update(self.plugins_parameters)
+        serialize_parameters.attributs_filter = self.attributs_filter
+        serialize_parameters.numpy_array_use_numpyB64 = self.numpy_array_use_numpyB64
+        serialize_parameters.numpy_array_readable_max_size = self.numpy_array_readable_max_size        
+        serialize_parameters.bytearray_use_bytearrayB64 = self.bytearray_use_bytearrayB64
+        serialize_parameters.__dict__.update(self.plugins_parameters)
         self.dumped_classes = set()
         self._already_serialized = set()
         self._already_serialized_id_dic_to_obj_dic = dict()
@@ -971,7 +971,7 @@ class Decoder(rapidjson.Decoder):
             >>> decoder(io.BytesIO(b'"\xe2\x82\xac 0.50"'))
             '€ 0.50'
         """
-        serializeParameters.set_attributs = self.set_attributs
+        serialize_parameters.set_attributs = self.set_attributs
         self.converted_numpy_array_from_lists = set()
         self._counter = 0
         self._updating = False
