@@ -293,10 +293,12 @@ class Encoder(rapidjson.Encoder):
             .. warning::
 
                 Use it only for interoperability with other json libraries 
-                Because numpy arrays will be indistinctable from list.
+                because numpy arrays will be indistinctable from list.
                 Decoder(numpy_array_from_list=True) will be able to 
                 recreate numpy array but but with the the risque of unwanted
                 convertion of lists to numpy arrays. 
+                If want want readeable values in your json, use instead
+                numpy_array_readable_max_size wich is not destructive.
             
         numpy_types_to_python_types:
              wheter numpy ints ans floats must be convert to python types.
