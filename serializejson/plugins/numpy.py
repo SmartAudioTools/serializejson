@@ -13,14 +13,6 @@ except :
 #from rapidjson import RawJSON
     
     
-_numpy_float_types = set(
-        (
-            numpy.float16,
-            numpy.float32,
-            numpy.float64,
-        )
-    )
-    
 def tuple_from_ndarray(inst):
 
     instCont = numpy.ascontiguousarray(inst)
