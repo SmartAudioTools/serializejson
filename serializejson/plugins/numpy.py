@@ -30,7 +30,7 @@ def tuple_from_ndarray(inst):
         )
     ):
         #return (numpy.array, (RawJSON(numpy.array2string(instCont,separator =',')), instContdtype), None)  plus lent.
-        return (numpy.array, (instCont.tolist(), instContdtype), None)
+        return ("numpy.array", (instCont.tolist(), instContdtype), None)
     elif instCont.ndim == 1:
         if serializeParameters.numpy_array_use_numpyB64:
             if instCont.dtype == bool:
@@ -46,7 +46,7 @@ def tuple_from_ndarray(inst):
             else:
                 return (numpyB64, (encodedB64(instCont), instContdtype), None)
         else:
-            return (numpy.frombuffer, (bytearray(instCont), instContdtype), None)
+            return ("numpy.frombuffer", (bytearray(instCont), instContdtype), None)
     else:
 
         if serializeParameters.numpy_array_use_numpyB64:

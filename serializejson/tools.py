@@ -8,10 +8,6 @@ import pybase64
 from pybase64 import b64encode
 from apply import apply
 import copyreg
-try:
-    import qtpy
-except:
-    pass
 from collections.abc import Iterable 
 
 
@@ -263,43 +259,21 @@ classStrFromClassDict = {}
 def classStrFromClass(classe):
     if classe in classStrFromClassDict:
         return classStrFromClassDict[classe]
-    if classe is types.ModuleType:
-        s = "types.ModuleType"
-    else:
-        module = moduleStrFromClass(classe)
-        # ce n'est pas une bonne idée de tenter de suprimer ou modifier "__main__" car il ne retrouvera pas le bon module , alors que le module pointé par __main__ contiendra toujour les definition de classe , si c'est toujours lui qu'on execute .
-        # if module == "__main__":
-        #    import __main__
-        #    if hasattr(__main__,"__file__"):
-        #        module = name(__main__.__file__) # peut planter (notament dans console ou designer )
-        if module == "builtins":
-            s = classe.__name__
+    module = classe.__module__
+    # ce n'est pas une bonne idée de tenter de suprimer ou modifier "__main__" car il ne retrouvera pas le bon module , alors que le module pointé par __main__ contiendra toujour les definition de classe , si c'est toujours lui qu'on execute .
+    # if module == "__main__":
+    #    import __main__
+    #    if hasattr(__main__,"__file__"):
+    #        module = name(__main__.__file__) # peut planter (notament dans console ou designer )
+    if module == "builtins":
+        if classe is types.ModuleType:
+            s = "types.ModuleType"
         else:
-            s = module + "." + classe.__name__
-            if s == "numpy.core.multiarray.array":
-                s = "numpy.array"
-            elif s == "numpy.core.multiarray.frombuffer":
-                s = "numpy.frombuffer"
+            s = classe.__name__
+    else:
+        s = module + "." + classe.__name__
     classStrFromClassDict[classe] = s
     return s
-
-
-def moduleStrFromClass(classe):
-    module = classe.__module__
-    classeName = classe.__name__
-    if module.startswith("PyQt"):
-        if module.startswith("PyQt5"):
-            module = "qtpy" + module[5:]
-        else:
-            if classeName in qtpy.QtCore.__dict__:
-                module = "qtpy.QtCore"
-            if classeName in qtpy.QtGui.__dict__:
-                module = "qtpy.QtGui"
-            if classeName in qtpy.QtWidgets.__dict__:
-                module = "qtpy.QtWidgets"
-    elif module.startswith("PySide2"):
-        module = "qtpy" + module[7:]
-    return module
 
 
 # CONVERSIONS NON RECURSIVES -------------------------------------------
@@ -489,7 +463,7 @@ def instance(__class__=object, __init__=None, __state__=None, __initArgs__=None,
                     else:
                         if hasattr(inst, "__slots__"):
                             for key, value in __state__.items():
-                                inst.__setattr__(key, value)
+                                inst.__setattr__(key, value) # ATTENTION va aussi restaure  propriétés alors qu'on ne le souhaite pas forcement...
                         else:
                             inst.__dict__.update(__state__)  # ou copy(state) ou deep(copy) ?
                 else:
@@ -530,4 +504,5 @@ def _get_set_attributs_classes_strings(set_attributs):
         return set_attributs_with_defaults 
     else : 
         raise TypeError("Decoder set_attributs argument must be a bool, list, tuple or set, not '%s'"%type(set_attributs))
-            
+        
+        

@@ -44,8 +44,13 @@ Decode
     .. autofunction:: serializejson.loads
 
 
+
+
 Custom object serialization
 ===========================
+
+
+
 
 Methode 1 : Add methods to object for custom serialization
 ----------------------------------------------------------
@@ -173,10 +178,12 @@ Methode 1 : Add methods to object for custom serialization
                 ....
                 ....
 
-            
+     
+    .. _updatable-note-label:
+           
     .. note::
          
-        
+       
         **If you want to make the object updatable:**
         
         **Save all needed informations outside of __init__ args when dumping:**
@@ -200,10 +207,15 @@ Methode 1 : Add methods to object for custom serialization
             - Actively with call of setters, if set_attribut=True or set_attribut=[your_object] (in alphabetic order if sort_keys=True or in random order if sort_keys=False).    
               ⚠ You must be sure to ever call load with set_attributs = True (or [...,object]) or add a plugin for thise object withs set_attribus = [object]
 
+
+
+
+
+
             
 Methode 2 : Add plugins to serializejson
 ----------------------------------------
-
+    
     Add plugins to serializejson, if you don't want or can't add methodes to 
     the object you want to serialize. 
     

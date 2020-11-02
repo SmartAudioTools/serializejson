@@ -781,14 +781,14 @@ class Decoder(rapidjson.Decoder):
                     **Updating an object** consist to restore is state recursively. 
                     
                     * Neither __new__() neither __init__()  will be called. 
-                    * All sub-objet in updatables_classes will be updated, otherwise will be recreated.
+                    * All childrens of updatables_classes will be updated, otherwise will be recreated.
                     * If the object has a __setstate__() methode, this methode will be called with the state.
-                    * Othewise the all elements of the state dictionary will be restored as attributes. Passively if set_attribut = False (like pickle). Actively if set_attribut=True or set_attribut=[your_object], with call of setters (in alphabetic order if sort_keys=True or in random order if sort_keys=False).    
+                    * Othewise the all elements of the state dictionary will be restored as attributes. Passively if set_attribut = False (like pickle). Actively if set_attribut=True or set_attribut=[your object's class], with call of setters (in alphabetic order if sort_keys=True or in random order if sort_keys=False).    
                 
                 .. warning::
                     
-                    You must be sur to have all the needed information in the state and not in the __init__ args who will be discard. 
-                    See "If you want to make the object updatable" note at the end of "Add methods to object for custom serializatio" section.
+                    You must be sur to have all the needed information in the state and not in the __init__ args who will be discard when updating. 
+                    See :ref:`"If you want to make the object updatable"<updatable-note-label>` .
 
                     
            
