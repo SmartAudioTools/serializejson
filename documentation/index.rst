@@ -77,46 +77,46 @@ Methode 1 : Add methods to object for custom serialization
             **Never put "apply" in autorized_classes, it allow untrusted json to execute arbitrary code.**  
 
             
-        **Just call __init__() with positionals arguments, without state restore.**
+        **Call __init__() with positionals arguments, without state restore.**
+            
+            .. code-block:: python
+            
+                def __reduce__(self):
+                        init_args_tuple = (1,) # tuple with 1 element need comma
+                        return self.__class__,init_args_tuple 
         
-        .. code-block:: python
+        **Call __init__() with named arguments, without state restore.** 
         
-            def __reduce__(self):
-                    init_args_tuple = (1,) # tuple with 1 element need comma
-                    return self.__class__,init_args_tuple,None 
-        
-        **Just call __init__() with named arguments, without state restore.** 
-        naming argument allow you to skeep first arguments if they have default
-        values and is robust if you change later the init args order, but you 
-        have to pip install apply
-        
-        .. code-block:: python
-        
-            def __reduce__(self):
-                    init_kwargs_dictionnary = {"arg3":3}
-                    return apply,(self.__class__,None,init_kwargs_dictionnary) 
-                    
-        **Just call __init__() with positionals arguments and named arguments, without state restore.** 
-     
+            naming argument allow you to skeep first arguments if they have default
+            values and is robust if you change later the init args order, but you 
+            have to pip install apply
+            
+            .. code-block:: python
+            
+                def __reduce__(self):
+                        init_kwargs_dictionnary = {"arg3":3}
+                        return apply,(self.__class__,None,init_kwargs_dictionnary)
+                         
         
         **Call __init__() with positionals arguments and restore state from filtered attributs**
         
-        .. code-block:: python
-        
-            def __reduce__(self):
-                    init_args_tuple = (1,) # tuple with 1 element need comma
-                    return self.__class__, init_args_tuple, serializejson.filtered(self.__dict__)
+            .. code-block:: python
+            
+                def __reduce__(self):
+                        init_args_tuple = (1,) # tuple with 1 element need comma
+                        return self.__class__, init_args_tuple, serializejson.filtered(self.__dict__)
         
         **Call __init__() with named arguments and restore state from filtered attributs** 
-        more robust if you change later the init args order, but you have to pip install apply
         
-        .. code-block:: python
-        
-            def __reduce__(self):
-                    init_kwargs_dictionnary = {"arg3":3}
-                    return  apply,
-                            (self.__class__,None,init_kwargs_dictionnary),
-                            serializejson.filtered(self.__dict__)
+            more robust if you change later the init args order, but you have to pip install apply
+            
+            .. code-block:: python
+            
+                def __reduce__(self):
+                        init_kwargs_dictionnary = {"arg3":3}
+                        return  apply,
+                                (self.__class__,None,init_kwargs_dictionnary),
+                                serializejson.filtered(self.__dict__)
     
     .. py:function:: object.__getstate__() 
     
@@ -245,9 +245,9 @@ Methode 2 : Add plugins to serializejson
        
            .. code-block:: python
            
-                from serializejson import serializeParameters
+                from serializejson import serialize_parameters
                 def tuple_from_XXX(obj):
-                    if serializeParameters.module_name_option_name : 
+                    if serialize_parameters.module_name_option_name : 
                         init_args = ...
                         state  = ...
                     else : 
@@ -264,9 +264,14 @@ Methode 2 : Add plugins to serializejson
                 import serializejson
                 import module_name 
                 obj = module_name.XXX()
-                encoder = Encoder(module_name_option_name = True)
-                dumped = encoder.dumps(obj)
-                print(dumped)
+                # Function API 
+                print(serializejson.dumps(obj,module_name_option_name = True))
+                # Class API
+                encoder = serializejson.Encoder(module_name_option_name = True)
+                print(encoder.dumps(obj))
+                
+
+                
         
     **5. Add "tuple_from_module_class_str" dictionnary in your module_name.py** 
         if somme of your classes are in submodules. 

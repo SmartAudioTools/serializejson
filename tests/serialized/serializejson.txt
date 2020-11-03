@@ -85,24 +85,9 @@ Infinity
 [-2.0,-3.0]
 [1.0,NaN]
 [-Infinity,Infinity]
-[
-	false,
-	true,
-	0,
-	1
-]
-[
-	false,
-	true,
-	0.0,
-	1.0
-]
-[
-	0,
-	1,
-	0.0,
-	1.0
-]
+[false,true,0,1]
+[false,true,0.0,1.0]
+[0,1,0.0,1.0]
 [
 	[
 		1,
@@ -297,24 +282,9 @@ Infinity
 [-2.0,-3.0]
 [1.0,NaN]
 [-Infinity,Infinity]
-[
-	false,
-	true,
-	0,
-	1
-]
-[
-	false,
-	true,
-	0.0,
-	1.0
-]
-[
-	0,
-	1,
-	0.0,
-	1.0
-]
+[false,true,0,1]
+[false,true,0.0,1.0]
+[0,1,0.0,1.0]
 {
 	"__class__": "set",
 	"__init__": []
@@ -435,6 +405,289 @@ Infinity
 	"__class__": "frozenset",
 	"__init__": [0,1]
 }
+{
+	"__class__": "qtpy.QtWidgets.QWidget",
+	"__init__": []
+}
+{
+	"__class__": "qtpy.QtWidgets.QCheckBox",
+	"__init__": [],
+	"checked": false
+}
+{
+	"__class__": "qtpy.QtWidgets.QDoubleSpinBox",
+	"__init__": [],
+	"value": 0.0
+}
+{
+	"__class__": "qtpy.QtWidgets.QLineEdit",
+	"__init__": [],
+	"text": ""
+}
+{
+	"__class__": "qtpy.QtWidgets.QPlainTextEdit",
+	"__init__": [],
+	"plainText": ""
+}
+{
+	"__class__": "qtpy.QtWidgets.QSpinBox",
+	"__init__": [],
+	"value": 0
+}
+{
+	"__class__": "qtpy.QtWidgets.QPushButton",
+	"__init__": []
+}
+{
+	"__class__": "qtpy.QtCore.QByteArray",
+	"__init__": {"__class__":"bytes","__init__":["","ascii"]}
+}
+{
+	"__class__": "qtpy.QtGui.QColor",
+	"__init__": [0,0,0,255]
+}
+{
+	"__class__": "qtpy.QtCore.QDate",
+	"__init__": [0,0,0]
+}
+{
+	"__class__": "qtpy.QtCore.QDateTime",
+	"__init__": [0,0,0,-1,-1,-1,-1,0]
+}
+{
+	"__class__": "qtpy.QtGui.QKeySequence",
+	"__init__": [0,0,0,0]
+}
+{
+	"__class__": "qtpy.QtCore.QLine",
+	"__init__": [0,0,0,0]
+}
+{
+	"__class__": "qtpy.QtCore.QLineF",
+	"__init__": [0.0,0.0,0.0,0.0]
+}
+{
+	"__class__": "qtpy.QtGui.QPen",
+	"__init__": {"__class__":"qtpy.QtGui.QColor","__init__":[0,0,0,255]}
+}
+{
+	"__class__": "qtpy.QtGui.QBrush",
+	"__init__": [{"__class__":"qtpy.QtGui.QColor","__init__":[0,0,0,255]},0]
+}
+{
+	"__class__": "qtpy.QtCore.QPoint",
+	"__init__": [0,0]
+}
+{
+	"__class__": "qtpy.QtCore.QPointF",
+	"__init__": [0.0,0.0]
+}
+{
+	"__class__": "qtpy.QtGui.QPolygon",
+	"__init__": [[]]
+}
+{
+	"__class__": "qtpy.QtGui.QPolygonF",
+	"__init__": [[]]
+}
+{
+	"__class__": "qtpy.QtCore.QRect",
+	"__init__": [0,0,0,0]
+}
+{
+	"__class__": "qtpy.QtCore.QRectF",
+	"__init__": [0.0,0.0,0.0,0.0]
+}
+{
+	"__class__": "qtpy.QtCore.QSize",
+	"__init__": [-1,-1]
+}
+{
+	"__class__": "qtpy.QtCore.QSizeF",
+	"__init__": [-1.0,-1.0]
+}
+{
+	"__class__": "qtpy.QtCore.QTime",
+	"__init__": [-1,-1,-1,-1]
+}
+{
+	"__class__": "qtpy.QtGui.QTransform",
+	"__init__": [1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0]
+}
+{
+	"__class__": "qtpy.QtGui.QVector3D",
+	"__init__": [0.0,0.0,0.0]
+}
+{
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["","float64"]
+}
+{
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["QA==","bool",2]
+}
+{
+	"__class__": "numpy.array",
+	"__init__": [[0,1],"int32"]
+}
+{
+	"__class__": "numpy.array",
+	"__init__": [[2,3],"int32"]
+}
+{
+	"__class__": "numpy.array",
+	"__init__": [[-2,-3],"int32"]
+}
+{
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["AAAAAAAA8D8AAAAAAAD4fw==","float64"]
+}
+{
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["AAAAAAAAAAAAAAAAAADwPw==","float64"]
+}
+{
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["AAAAAAAAAEAAAAAAAAAIQA==","float64"]
+}
+{
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["AAAAAAAAAMAAAAAAAAAIwA==","float64"]
+}
+{
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["AAAAAAAA8D8AAAAAAAD4fw==","float64"]
+}
+{
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["AAAAAAAA8P8AAAAAAADwfw==","float64"]
+}
+{
+	"__class__": "numpy.array",
+	"__init__": [[0,1,0,1],"int32"]
+}
+{
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["AAAAAAAAAAAAAAAAAADwPwAAAAAAAAAAAAAAAAAA8D8=","float64"]
+}
+{
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["AAAAAAAAAAAAAAAAAADwPwAAAAAAAAAAAAAAAAAA8D8=","float64"]
+}
+[9,{"__class__":"numpy.array","__init__":[[2],"int32"]},1]
+{
+	"__class__": "numpy.array",
+	"__init__": [[[1,2],[3,4]],"int32"]
+}
+{
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["AAABAAIAAwAEAAUABgAHAAgACQA=","int16"]
+}
+{
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["CgALAAwADQAOAA8AEAARABIAEwA=","int16"]
+}
+{
+	"__class__": "numpy.array",
+	"__init__": [[9990,9991,9992,9993,9994,9995,9996,9997,9998,9999],"int32"]
+}
+{
+	"__class__": "numpy.array",
+	"__init__": [[10000,10001,10002,10003,10004,10005,10006,10007,10008,10009],"int32"]
+}
+{
+	"__class__": "type",
+	"__init__": "numpy.bool_"
+}
+{
+	"__class__": "type",
+	"__init__": "numpy.int8"
+}
+{
+	"__class__": "type",
+	"__init__": "numpy.int16"
+}
+{
+	"__class__": "type",
+	"__init__": "numpy.int32"
+}
+{
+	"__class__": "type",
+	"__init__": "numpy.int64"
+}
+{
+	"__class__": "type",
+	"__init__": "numpy.uint8"
+}
+{
+	"__class__": "type",
+	"__init__": "numpy.uint16"
+}
+{
+	"__class__": "type",
+	"__init__": "numpy.uint32"
+}
+{
+	"__class__": "type",
+	"__init__": "numpy.uint64"
+}
+{
+	"__class__": "type",
+	"__init__": "numpy.float16"
+}
+{
+	"__class__": "type",
+	"__init__": "numpy.float32"
+}
+{
+	"__class__": "type",
+	"__init__": "numpy.float64"
+}
+{
+	"__class__": "numpy.bool_",
+	"__init__": false
+}
+{
+	"__class__": "numpy.int8",
+	"__init__": 0
+}
+{
+	"__class__": "numpy.int16",
+	"__init__": 0
+}
+{
+	"__class__": "numpy.int32",
+	"__init__": 0
+}
+{
+	"__class__": "numpy.int64",
+	"__init__": 0
+}
+{
+	"__class__": "numpy.uint8",
+	"__init__": 0
+}
+{
+	"__class__": "numpy.uint16",
+	"__init__": 0
+}
+{
+	"__class__": "numpy.uint32",
+	"__init__": 0
+}
+{
+	"__class__": "numpy.uint64",
+	"__init__": 0
+}
+{
+	"__class__": "numpy.float16",
+	"__init__": 0.0
+}
+{
+	"__class__": "numpy.float32",
+	"__init__": 0.0
+}
+0.0
 {
 	"__class__": "objects.init_arg.C_InitArg",
 	"__init__": "savedArg1"

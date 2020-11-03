@@ -15,9 +15,12 @@ try:
 except ModuleNotFoundError:
     from statistics import median
     use_numpy = False
-
 try:    
     from qtpy import QtWidgets
+    use_qtpy= True
+except ModuleNotFoundError:
+    use_qtpy= False
+try:    
     from SmartFramework.serialize import serializeJson as serializejson
     from SmartFramework.serialize import serializePython
     from SmartFramework.serialize import serializeRepr
@@ -107,7 +110,7 @@ else:
         init_default_ghost_getinitargs,
     )
 objects = basic_objects.objects
-if full_smartFramework:
+if use_qtpy:
     app = QtWidgets.QApplication(sys.argv)
     if __package__:
         from .objects import pyqt_objects
