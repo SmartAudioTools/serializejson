@@ -1,4 +1,3 @@
-from base64 import b64decode
 try:
     from SmartFramework import  bytearrayB64
     from SmartFramework.serialize.tools import encodedB64,classStrFromClass
@@ -24,7 +23,7 @@ def tuple_from_bytes(inst):
             return (bytes, (string, "ascii"), None)
         except:
             pass
-    return (b64decode, (encodedB64(inst),), None)
+    return ("base64.b64decode", (encodedB64(inst),), None) # 99.8 % du temps sur obj = bytes(numpy.arange(2**18,dtype=numpy.float64).data)
 
 
 

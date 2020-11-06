@@ -259,7 +259,7 @@ class Encoder(rapidjson.Encoder):
             whether __init__ must be serialize in one line.
         
         single_line_list_numbers:
-            whether list of numbers must be serialize in one line.
+            whether list of numbers of same type must be serialize in one line.
         
         sort_keys:    
             whether dictionary keys should be sorted alphabetically.
@@ -267,7 +267,6 @@ class Encoder(rapidjson.Encoder):
         chunk_size: 
             write the stream in chunks of this size at a time.
             
-    
         bytearray_use_bytearrayB64 : 
             save bytearray with referencies to serializejson.bytearrayB64
             instead of verbose use of base64.b64decode. It save space but make 
@@ -294,13 +293,14 @@ class Encoder(rapidjson.Encoder):
           
             .. warning::
 
-                Use it only for interoperability with other json libraries 
-                because numpy arrays will be indistinctable from list.
-                Decoder(numpy_array_from_list=True) will be able to 
-                recreate numpy array but but with the the risque of unwanted
-                convertion of lists to numpy arrays. 
+                Use it only for interoperability with other json libraries.
                 If want want readeable values in your json, use instead
                 numpy_array_readable_max_size wich is not destructive.
+                With numpy_array_to_list True :
+                * numpy arrays will be indistinctable from list in json. 
+                * Decoder(numpy_array_from_list=True) will recreate numpy array from lists of  bool, int or float, if not a __init__ args list, with the the risque of unwanted convertion of lists to numpy arrays. 
+                * dtype of the numpy array will be loosed loosed if not bool, int32 or float64 and converted to the bool, int32 or float64 when loading
+                * Empty numpy array will be converted to [] without any way to guess the dtype and will stay an emplty list when loading event with numpy_array_from_list = True
             
         numpy_types_to_python_types:
              wheter numpy ints ans floats must be convert to python types.
@@ -333,7 +333,7 @@ class Encoder(rapidjson.Encoder):
         write_mode : 
             WM_COMPACT:that produces the most compact JSON representation.
             WM_PRETTY: it will use RapidJSON's PrettyWriter.
-            WM_single_line_list_numbers: arrays will be kept on a single line.
+            WM_SINGLE_LINE_ARRAY: arrays will be kept on a single line.
             
         bytes_mode : 
             BM_UTF8
@@ -352,7 +352,7 @@ class Encoder(rapidjson.Encoder):
         chunk_size=65536,
         bytearray_use_bytearrayB64=True,
         numpy_array_use_numpyB64=True,
-        numpy_array_readable_max_size={'int32':-1},
+        numpy_array_readable_max_size={}, #'int32':-1
         numpy_array_to_list=False,
         numpy_types_to_python_types=True,
         **plugins_parameters
@@ -369,6 +369,7 @@ class Encoder(rapidjson.Encoder):
             indent=indent,
             sort_keys=sort_keys,
             bytes_mode=rapidjson.BM_NONE,
+            number_mode = rapidjson.NM_NAN
             #**argsDict
         )
         self.attributs_filter = attributs_filter
@@ -381,6 +382,7 @@ class Encoder(rapidjson.Encoder):
             self.single_line_list_numbers = single_line_list_numbers
             self.single_line_init = single_line_init
         self.indent = indent # rapid json enregistre self.indent_char et self.indent_count , mais ne permet pas de savoir si indent = None ...
+        self._dump_one_line = indent is None
         self.dumped_classes = set()
         self.chunk_size = chunk_size
         self.bytearray_use_bytearrayB64 = bytearray_use_bytearrayB64
@@ -439,7 +441,8 @@ class Encoder(rapidjson.Encoder):
         In order to reuse them as autorize_classes when loading.
         """
         return self.dumped_classes
-
+    
+    #@profile
     def default(self, inst):  # Equivalent au calback "default" qu'on peut passer à dump ou dumps
         id_ = id(inst)
         if id_ in self._already_serialized:
@@ -457,7 +460,7 @@ class Encoder(rapidjson.Encoder):
             if type_inst is numpy.bool_:
                 return bool(inst)
         if type_inst is encodedB64:
-            return inst.decode("ascii")
+            return bytes.decode(inst.encoded_bytes)# inst.encoded_bytes.decode("ascii")   # 52% du temps dans default pour obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
         if type_inst is tuple:
             # isinstance(inst,tuple) attrape les struct_time # je l'ai mis là plutot que dans tupleFromInstance car très spécifique à json et les tuples n'ont pas de réduce contrairement à set , qui lui est pour l'instant traité dans dict_from_instance -> tupleFromInstance
             self.dumped_classes.add(tuple)
@@ -470,46 +473,54 @@ class Encoder(rapidjson.Encoder):
                         rapidjson.dumps(
                             list(inst),
                             default=self._default_one_line,
-                            ensure_ascii=False,
+                            ensure_ascii=self.ensure_ascii,
                             sort_keys=self.sort_keys,
                             bytes_mode=self.bytes_mode,
+                            number_mode = self.number_mode
                             #**self.kargs
                         )
                     ),
                 }
         elif use_numpy and type_inst is ndarray and self.numpy_array_to_list:
-            if not self.single_line_list_numbers:
-                return inst.tolist()
+            if self._dump_one_line or not self.single_line_list_numbers:
+                return inst.tolist() # A REVOIR : pas génial... va tester si nombres tous du meme type et ne pas pas utiliser rapidjson.NM_NATIVE? 
+            if inst.dtype in _numpy_float_dtypes :
+                number_mode = self.number_mode
+            else : 
+                number_mode = rapidjson.NM_NATIVE # permet décceler pas mal 
             if inst.ndim == 1:
-                return rapidjson.RawJSON(rapidjson.dumps(inst.tolist()))
-            return [rapidjson.RawJSON(rapidjson.dumps(elt.tolist())) for elt in inst]  # inst.tolist()
-        dic = self._dict_from_instance(inst)
+                return rapidjson.RawJSON(rapidjson.dumps(inst.tolist(),ensure_ascii=False,number_mode = number_mode))
+            return [rapidjson.RawJSON(rapidjson.dumps(elt.tolist(),ensure_ascii=False,number_mode = number_mode)) for elt in inst]  # inst.tolist()
+        dic = self._dict_from_instance(inst) # 8.6 % (correspond au temps pour conversion en b64 avec pybase64.b64encode) du temps sur  obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
         initArgs = dic.get("__init__", None)
-        if initArgs is not None and self.single_line_init:  # and  dic["__class__"] in  _oneline_init_classess :
-            dic["__init__"] = rapidjson.RawJSON(
+        if isinstance(initArgs,list) and not self._dump_one_line and self.single_line_init :  # and  dic["__class__"] in  _oneline_init_classess :
+            dic["__init__"] = rapidjson.RawJSON( # 91.2 % du temps avec obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
                 rapidjson.dumps(
                     initArgs,
                     default=self._default_one_line,
                     ensure_ascii=self.ensure_ascii,
                     sort_keys=self.sort_keys,
                     bytes_mode=self.bytes_mode,
+                    number_mode = self.number_mode
                     #**self.kargs
                 )
             )
-        if self.single_line_list_numbers:
+        if not self._dump_one_line and self.single_line_list_numbers:
             for key, value in dic.items():
                 if (
                     key != "__class__"
                     and key != "__init__"
                     and type(value) in (list, tuple)
-                    and _onlyOneDimNumbers(value)
+                    and _onlyOneDimSameTypeNumbers(value)
                 ):
 
                     dic[key] = rapidjson.RawJSON(
                         rapidjson.dumps(
                             value,
+                            ensure_ascii=self.ensure_ascii,
                             default=self._default_one_line,
                             bytes_mode=self.bytes_mode,
+                            number_mode = self.number_mode
                             #**self.kargs
                         )
                     )
@@ -521,11 +532,11 @@ class Encoder(rapidjson.Encoder):
         #    dic["_id"] = id_
         return dic
         # raise TypeError('%r is not JSON serializable' % inst)
-
+    #@profile
     def _default_one_line(self, inst):
         type_inst = type(inst)
         if type_inst is encodedB64:
-            return inst.decode("ascii")
+            return inst.encoded_bytes.decode("ascii")
         if type_inst in _numpy_types and self.numpy_types_to_python_types:
             if type_inst in _numpy_int_types:
                 return int(inst)
@@ -539,12 +550,11 @@ class Encoder(rapidjson.Encoder):
             self.dumped_classes.add(tuple)
             return {"__class__": "tuple", "__init__": [list(inst)]}
         if type_inst is ndarray and self.numpy_array_to_list:
-            # return rapidjson.RawJSON(rapidjson.dumps(inst.tolist(), bytes_mode=dump_bytes_mode))
             return inst.tolist()
         return self._dict_from_instance(inst)
-
+    
     def _dict_from_instance(self, inst):
-        classe, initArgs, state = tupleFromInstance(inst)
+        classe, initArgs, state = tupleFromInstance(inst) # 97.5 %du temps sur obj = bytes(numpy.arange(2**18,dtype=numpy.float64).data)
         if type(classe) is not str:
             classe = classStrFromClass(classe)
         self.dumped_classes.add(classe)
@@ -578,12 +588,14 @@ class Encoder(rapidjson.Encoder):
         if (
             type(obj) in (list, tuple)
             and self.single_line_list_numbers
-            and _onlyOneDimNumbers(obj)
+            and _onlyOneDimSameTypeNumbers(obj)
         ):
             return rapidjson.dumps(
                 obj,
+                ensure_ascii=False,
                 default=self._default_one_line,
                 bytes_mode=self.bytes_mode,
+                number_mode=self.number_mode 
                 #**self.kargs
             )
         serialize_parameters.attributs_filter = self.attributs_filter
@@ -892,9 +904,9 @@ class Decoder(rapidjson.Decoder):
         # self._deserializeds.add()
         if self._updating:
             self.ancestors.pop()  # se retire lui meme
-        classStr = inst.get("__class__", None)
-        if classStr:
-            if classStr == "serializeJson.from_name":
+        class_str = inst.get("__class__", None)
+        if class_str:
+            if class_str == "serializeJson.from_name":
                 # inst["devrait"] = "pas etre là" #permetait de verifier que le dictionnaire a bien été remplacé par un objet
                 if self.root:
                     try:
@@ -909,7 +921,7 @@ class Decoder(rapidjson.Decoder):
                         pass
                 self.duplicates_to_replace.append(inst)
             elif self._updating:
-                if classStr in self.updatableClassStrs:
+                if class_str in self.updatableClassStrs:
                     ancestor = self.ancestors[-1]
                     self.node_has_descendants_to_recreate.add(ancestor)
                 else:
@@ -1015,8 +1027,10 @@ class Decoder(rapidjson.Decoder):
             del self.ancestors
             del self.node_has_descendants_to_recreate
             self._updating = False
+        if obj is not None : 
+            return obj
         return loaded
-
+    
     def __iter__(self):
         self._updating = False
         fp = self.fp
@@ -1047,43 +1061,94 @@ class Decoder(rapidjson.Decoder):
 
         # gère le cas où loaded_node est un dictionnaire ----------------------
         if isinstance(loaded_node, dict):
-            obj__dict__ = None
-            if hasattr(obj, "__dict__"):  # A REVOIR : ne marche pas avec les slots
-                classStr = loaded_node.get("__class__")
+            obj_keys = None # plutot que set vide un objet peut ne pas avoir d'attributs ni de slots initialisés
+            if isinstance(obj, dict) and ("dict" in self.updatableClassStrs):
+                is_dict = True
+                obj_keys= set(obj)
+                obj
+            else :  # s'assure que c'est une instance 
+                is_dict = False 
+                class_str = loaded_node.get("__class__")
                 if (
-                    (classStr is not None)
-                    and (classStr in self.updatableClassStrs)
-                    and (classStr == classStrFromClass(obj.__class__))
+                    (class_str is not None)
+                    and (class_str in self.updatableClassStrs)
+                    and (class_str == classStrFromClass(obj.__class__))
                 ):
-                    obj__dict__ = obj.__dict__
-            elif isinstance(obj, dict) and ("dict" in self.updatableClassStrs):
-                obj__dict__ = obj
-            if obj__dict__:
+                    if class_str == "set":
+                        # on peut udpate le set MAIS PAS LES OJECTS QUI SONT DEDANS !!!! car on ne sait pas quel existant correspond à quel element json
+                        obj.clear()
+                        obj.update(self._exploreDictToReCreateObjects(loaded_node))
+                        return obj
+                    if hasattr(obj, "__setstate__"):  
+                        # j'ai du remplacer hasMethod(inst,"__setstate__") par hasattr(inst,"__setstate__") pour pouvoir deserialiser des sklearn.tree._tree.Tree en json "__setstate__" n'est pas reconnu comme étant une methdoe !? alors que bien là .
+                        if "__state__" in loaded_node:
+                            obj.__setstate__(loaded_node["__state__"])
+                        else : 
+                            loaded_node.__delitem__("__class__")
+                            if "__init__" in loaded_node : 
+                                loaded_node.__delitem__("__init__")
+                            obj.__setstate__(loaded_node)
+                        return obj
+                    if hasattr(obj, "__dict__"):  # A REVOIR : ne marche pas avec les slots
+                        obj_keys = set(obj.__dict__)
+                    if hasattr(obj, "__slots__"):
+                        if obj_keys is None : 
+                            obj_keys = set()
+                        for base_class in obj.__class__.__mro__[:-1]:  # on ne prend pas le dernier qui est toujours (?) object
+                            for slot in getattr(base_class, "__slots__", ()):  
+                                # on utilise pas directement base_class.__slots__  car une classe de base n'a pas forcement redefinit __slots__
+                                if hasattr(obj, slot):
+                                    obj_keys.add(slot)
+            if obj_keys is not None:
+                if not is_dict:
+                    
+                    set_attributs = serialize_parameters.set_attributs
+                    set_attributs = (set_attributs is True 
+                            or ((set_attributs is not False) and (class_str in set_attributs)))
+                
                 # update dans le cas où l'objet pré-existant est un objet (avec __dict__ pas encore __slot__) ou un dictionnaire --
                 loaded_node_has_descendants_to_recreate = id(loaded_node) in self.node_has_descendants_to_recreate
-                # suprime les attributs de l'objet qui ne sont pas dans loaded..
-                only_in_obj = set(obj__dict__) - set(loaded_node)
+                
+                # suprime les attributs de l'objet qui ne sont pas dans loaded.. 
+                only_in_obj = obj_keys - set(loaded_node)
                 for key in only_in_obj:
                     if not key.startswith("_"):
-                        del obj__dict__[key]
+                        if is_dict :
+                            del(obj[key])
+                        else : 
+                            obj.__delattr__(key)
+                # update ou recrer les autres attributs
                 for key, value in loaded_node.items():
                     if key not in ("__class__", "__init__"):
-                        if key in obj__dict__:
-                            value = self._exploreToUpdate(obj__dict__[key], value)
+                        if key in obj_keys:
+                            if is_dict :
+                                old_value = obj[key]
+                            else : 
+                                old_value =  obj.__getattribute__(key)
+                            value = self._exploreToUpdate(old_value, value)
                         elif loaded_node_has_descendants_to_recreate:
                             if isinstance(value, dict):
                                 value = self._exploreDictToReCreateObjects(value)
                             elif isinstance(value, list):
                                 value = self._exploreListToReCreateObjects(value)
-                        obj__dict__[key] = value
+                        if is_dict :
+                            obj[key] = value
+                        elif set_attributs :
+                            attributSetMethode = "set_" + key
+                            if hasattr(obj, attributSetMethode):
+                                methode = obj.__getattribute__(attributSetMethode)
+                                methode(value)
+                            else:
+                                attributSetMethode = "set" + key[0].upper() + key[1:]
+                                if hasattr(obj, attributSetMethode):
+                                    methode = obj.__getattribute__(attributSetMethode)
+                                    methode(value)
+                                else :
+                                    obj.__setattr__(key, value)
+                        else: 
+                            obj.__setattr__(key, value)
                 return obj
-            classStr = loaded_node.get("__class__")
-            if (classStr in self.updatableClassStrs) and (classStr == classStrFromClass(obj.__class__)):
-                if classStr == "set":
-                    obj.clear()
-                    obj.update(self._exploreDictToReCreateObjects(loaded_node))
-            else:  # sinon remplace
-                return self._exploreDictToReCreateObjects(loaded_node)
+            return self._exploreDictToReCreateObjects(loaded_node)
 
         # gère le cas où loaded_node est une liste  ---------------------------
         if isinstance(loaded_node, list):
@@ -1130,44 +1195,25 @@ class Decoder(rapidjson.Decoder):
     # ---------------------------------
 
     def _end_array_if_numpy_array_from_list(self, sequence):
-        """This is called, if implemented, when a JSON array has been completely parsed, and can be used replace it with an arbitrary different value:
-
-        Args:
-            sequence : an instance implement the mutable sequence protocol
-
-        Returns:
-            a new value
-
-        Exemples :
-            >>> class TupleDecoder(Decoder):
-            ...   def end_array(self, a):
-            ...     return tuple(a)
-            ...
-            >>> td = TupleDecoder()
-            >>> res = td('[{"one": [1]}, {"two":[2,3]}]')
-            >>> isinstance(res, tuple)
-            True
-            >>> res[0]
-            {'one': (1,)}
-            >>> res[1]
-            {'two': (2, 3)}
-        """
-        if len(sequence):
-            if isinstance(sequence[0], int):
-                dtype = int
-            elif isinstance(sequence[0], float):
-                dtype = float
-            elif isinstance(sequence[0], numpy.ndarray):
-                dtype = sequence[0].dtype
-            else:
-                return sequence
-            try:
-                array = numpy.array(sequence, dtype=dtype)
+        if _onlyOneDimSameTypeNumbers(sequence):
+            array = numpy.array(sequence, dtype=type(sequence[0]))
+            self.converted_numpy_array_from_lists.add(id(array))
+            return array
+        if len(sequence) and isinstance(sequence[0],ndarray) :
+            first_elt = sequence[0]
+            first_elt_shape = first_elt.shape 
+            first_elt_dtype = first_elt.dtype
+            if  all((
+                    isinstance(elt,ndarray)
+                    and elt.dtype is first_elt_dtype
+                    and elt.shape == first_elt_shape
+                    )
+                    for elt in sequence) :
+                array = numpy.array(sequence, dtype=first_elt_dtype)  
                 self.converted_numpy_array_from_lists.add(id(array))
                 return array
-            except ValueError:
-                pass
         return sequence
+        
 
     def __next__(self):
         try:
@@ -1217,6 +1263,14 @@ default_autorized_classes_strs = set(
     ]
 )
 if use_numpy:
+    _numpy_float_dtypes = set(
+        (
+            numpy.dtype("float16"),
+            numpy.dtype("float32"),
+            numpy.dtype("float64")
+        )
+    )
+    
     _numpy_types = set(
         (
             numpy.bool_,
@@ -1560,22 +1614,9 @@ class _json_object_file_iterator(io.FileIO):
         return s
 
 
-def _onlyOneDimNumbers(list_or_tuple):
+def _onlyOneDimSameTypeNumbers(list_or_tuple):
     if len(list_or_tuple):
         type_first = type(list_or_tuple[0])
         if type_first in _bool_int_and_float_types:
-            if use_numpy:
-                try:
-                    # ne suffit pas à s'assurer que tout elements de la meme nature
-                    # en effet numpy.array([9, numpy.array([2]), 1]) donne
-                    # array([9, 2, 1]) qui a pour dtype "int32"
-                    np = numpy.array(
-                        list_or_tuple, dtype=type_first
-                    )  # type(list_or_tuple[0]) ne pemet pas de retourner True pour [1,math.nan]
-                    if np.ndim == 1:
-                        return True
-                except ValueError:
-                    pass
-            else:
-                return all(isinstance(i, type_first) for i in list_or_tuple)
+            return all(type(i) is type_first for i in list_or_tuple)
     return False

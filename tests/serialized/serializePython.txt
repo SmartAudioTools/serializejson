@@ -1,0 +1,681 @@
+﻿obj=None
+obj=True
+obj=False
+obj=0
+obj=1
+obj=2
+obj=-2
+obj=0.0
+obj=1.0
+obj=2.0
+obj=0.5
+obj=-0.5
+import math
+obj=math.nan
+import math
+obj=math.inf
+import math
+obj=math.inf
+obj=(1+4j)
+obj='bonjour'
+obj='héhé'
+obj="salut ! j'ai bien mangé"
+obj='aé'
+obj='€'
+obj='鼅'
+obj='Доброе утро'
+obj="hé!\nbonjour\nvous êtes prêts?\nmoi j'ai mangé"
+obj="hÃ©!\nbonjour\nvous Ãªtes prÃªts?\nmoi j'ai mangé"
+obj="hÃ©!\nbonjour\nvous Ãªtes prÃªts pour partir dans les pr\\Ã¨s ?\nnmoi j'ai mangé"
+obj="hÃ©!\nbonjour\nvous Ãªtes prÃªts pour partir sur l'Ã®le de brÃ©hat ? moi j'ai mangé"
+obj='é€€'
+obj='é€€é££\né'
+obj=b''
+obj=b'bonjour'
+obj=b'bonjour les "amis"'
+obj=b'bonjour les "amis"\\\n'
+import base64
+obj=base64.b64decode(b'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8=')
+import base64
+obj=base64.b64decode(b'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w==')
+obj=bytearray(b'')
+obj=bytearray(b'bonjour')
+import SmartFramework
+obj=SmartFramework.bytearrayB64(b'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8=')
+import SmartFramework
+obj=SmartFramework.bytearrayB64(b'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w==')
+obj=[]
+obj=[1]
+obj=[False,True]
+obj=[0,1]
+obj=[2,3]
+obj=[-2,-3]
+import math
+obj=[1,math.nan]
+obj=[0.0,1.0]
+obj=[2.0,3.0]
+obj=[-2.0,-3.0]
+import math
+obj=[1.0,math.nan]
+import math
+obj=[-math.inf,math.inf]
+obj=[False,True,0,1]
+obj=[False,True,0.0,1.0]
+obj=[0,1,0.0,1.0]
+obj=[[1,2],[3,4]]
+obj={
+	'_underscore':'_underscore',
+	'va_int':10,
+	'var_False':False,
+	'var_True':True
+}
+obj=range(0,10,1)
+obj=slice(1,10,2)
+import collections
+obj=collections.deque([1,2])
+import collections
+obj=collections.Counter({' ':2,'a':1,'b':1,'e':1,'i':1,'j':1,'l':1,'m':1,'n':1,'o':2,'r':1,'s':2,'u':1})
+import collections
+obj=collections.OrderedDict({'a':3,'b':1})
+import collections
+obj=collections.defaultdict(list)
+import decimal
+obj=decimal.Decimal('0.33')
+import datetime
+obj=datetime.datetime(2020,3,10,17,30,0,0)
+import base64
+import datetime
+obj=datetime.date(base64.b64decode(b'B+QDCg=='))
+import base64
+import datetime
+obj=datetime.time(base64.b64decode(b'ER4AAAAA'))
+import datetime
+obj=datetime.timedelta(30,0,0)
+import time
+obj=time.struct_time(
+	(2020,5,7,16,8,55,3,128,1),
+	{
+		'tm_gmtoff':None,
+		'tm_zone':None
+	}
+)
+obj=type(None)
+obj=bool
+obj=int
+obj=float
+obj=complex
+obj=str
+obj=bytes
+obj=bytearray
+obj=list
+obj=dict
+obj=tuple
+obj=set
+obj=frozenset
+obj=range
+obj=slice
+import collections
+obj=collections.deque
+import collections
+obj=collections.Counter
+import collections
+obj=collections.OrderedDict
+import collections
+obj=collections.defaultdict
+import decimal
+obj=decimal.Decimal
+import datetime
+obj=datetime.datetime
+import datetime
+obj=datetime.date
+import datetime
+obj=datetime.time
+import datetime
+obj=datetime.timedelta
+import time
+obj=time.struct_time
+obj=()
+obj=(1,)
+obj=(False,True)
+obj=(0,1)
+obj=(2,3)
+obj=(-2,-3)
+import math
+obj=(1,math.nan)
+obj=(0.0,1.0)
+obj=(2.0,3.0)
+obj=(-2.0,-3.0)
+import math
+obj=(1.0,math.nan)
+import math
+obj=(-math.inf,math.inf)
+obj=(False,True,0,1)
+obj=(False,True,0.0,1.0)
+obj=(0,1,0.0,1.0)
+obj=set()
+obj={1}
+obj={False,True}
+obj={0,1}
+obj={2,3}
+obj={-3,-2}
+import math
+obj={math.nan,1}
+obj={0.0,1.0}
+obj={2.0,3.0}
+obj={-3.0,-2.0}
+import math
+obj={math.nan,1.0}
+import math
+obj={-math.inf,math.inf}
+obj={False,True}
+obj={False,True}
+obj={0,1}
+obj=frozenset([])
+obj=frozenset([1])
+obj=frozenset([False,True])
+obj=frozenset([0,1])
+obj=frozenset([2,3])
+obj=frozenset([-3,-2])
+import math
+obj=frozenset([math.nan,1])
+obj=frozenset([0.0,1.0])
+obj=frozenset([2.0,3.0])
+obj=frozenset([-3.0,-2.0])
+import math
+obj=frozenset([math.nan,1.0])
+import math
+obj=frozenset([-math.inf,math.inf])
+obj=frozenset([False,True])
+obj=frozenset([False,True])
+obj=frozenset([0,1])
+import qtpy.QtWidgets
+obj=qtpy.QtWidgets.QWidget()
+import qtpy.QtWidgets
+obj=qtpy.QtWidgets.QCheckBox()
+obj.setChecked(False)
+import qtpy.QtWidgets
+obj=qtpy.QtWidgets.QDoubleSpinBox()
+obj.setValue(0.0)
+import qtpy.QtWidgets
+obj=qtpy.QtWidgets.QLineEdit()
+obj.setText('')
+import qtpy.QtWidgets
+obj=qtpy.QtWidgets.QPlainTextEdit()
+obj.setPlainText('')
+import qtpy.QtWidgets
+obj=qtpy.QtWidgets.QSpinBox()
+obj.setValue(0)
+import qtpy.QtWidgets
+obj=qtpy.QtWidgets.QPushButton()
+import qtpy.QtCore
+obj=qtpy.QtCore.QByteArray(b'')
+import qtpy.QtGui
+obj=qtpy.QtGui.QColor(0,0,0,255)
+import qtpy.QtCore
+obj=qtpy.QtCore.QDate(0,0,0)
+import qtpy.QtCore
+obj=qtpy.QtCore.QDateTime(0,0,0,-1,-1,-1,-1,0)
+import qtpy.QtGui
+obj=qtpy.QtGui.QKeySequence(0,0,0,0)
+import qtpy.QtCore
+obj=qtpy.QtCore.QLine(0,0,0,0)
+import qtpy.QtCore
+obj=qtpy.QtCore.QLineF(0.0,0.0,0.0,0.0)
+import qtpy.QtGui
+obj=qtpy.QtGui.QPen(qtpy.QtGui.QColor(0,0,0,255))
+import qtpy.QtGui
+obj=qtpy.QtGui.QBrush(qtpy.QtGui.QColor(0,0,0,255),0)
+import qtpy.QtCore
+obj=qtpy.QtCore.QPoint(0,0)
+import qtpy.QtCore
+obj=qtpy.QtCore.QPointF(0.0,0.0)
+import qtpy.QtGui
+obj=qtpy.QtGui.QPolygon([])
+import qtpy.QtGui
+obj=qtpy.QtGui.QPolygonF([])
+import qtpy.QtCore
+obj=qtpy.QtCore.QRect(0,0,0,0)
+import qtpy.QtCore
+obj=qtpy.QtCore.QRectF(0.0,0.0,0.0,0.0)
+import qtpy.QtCore
+obj=qtpy.QtCore.QSize(-1,-1)
+import qtpy.QtCore
+obj=qtpy.QtCore.QSizeF(-1.0,-1.0)
+import qtpy.QtCore
+obj=qtpy.QtCore.QTime(-1,-1,-1,-1)
+import qtpy.QtGui
+obj=qtpy.QtGui.QTransform(1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0)
+import qtpy.QtGui
+obj=qtpy.QtGui.QVector3D(0.0,0.0,0.0)
+import SmartFramework
+obj=SmartFramework.numpyB64(b'','float64')
+import SmartFramework
+obj=SmartFramework.numpyB64(b'QA==','bool',2)
+import numpy
+obj=numpy.array([0,1],'int32')
+import numpy
+obj=numpy.array([2,3],'int32')
+import numpy
+obj=numpy.array([-2,-3],'int32')
+import SmartFramework
+obj=SmartFramework.numpyB64(b'AAAAAAAA8D8AAAAAAAD4fw==','float64')
+import SmartFramework
+obj=SmartFramework.numpyB64(b'AAAAAAAAAAAAAAAAAADwPw==','float64')
+import SmartFramework
+obj=SmartFramework.numpyB64(b'AAAAAAAAAEAAAAAAAAAIQA==','float64')
+import SmartFramework
+obj=SmartFramework.numpyB64(b'AAAAAAAAAMAAAAAAAAAIwA==','float64')
+import SmartFramework
+obj=SmartFramework.numpyB64(b'AAAAAAAA8D8AAAAAAAD4fw==','float64')
+import SmartFramework
+obj=SmartFramework.numpyB64(b'AAAAAAAA8P8AAAAAAADwfw==','float64')
+import numpy
+obj=numpy.array([0,1,0,1],'int32')
+import SmartFramework
+obj=SmartFramework.numpyB64(b'AAAAAAAAAAAAAAAAAADwPwAAAAAAAAAAAAAAAAAA8D8=','float64')
+import SmartFramework
+obj=SmartFramework.numpyB64(b'AAAAAAAAAAAAAAAAAADwPwAAAAAAAAAAAAAAAAAA8D8=','float64')
+import numpy
+obj=(9,numpy.array([2],'int32'),1)
+import numpy
+obj=numpy.array([[1,2],[3,4]],'int32')
+import SmartFramework
+obj=SmartFramework.numpyB64(b'AAABAAIAAwAEAAUABgAHAAgACQA=','int16')
+import SmartFramework
+obj=SmartFramework.numpyB64(b'CgALAAwADQAOAA8AEAARABIAEwA=','int16')
+import numpy
+obj=numpy.array([9990,9991,9992,9993,9994,9995,9996,9997,9998,9999],'int32')
+import numpy
+obj=numpy.array([10000,10001,10002,10003,10004,10005,10006,10007,10008,10009],'int32')
+import numpy
+obj=numpy.bool_
+import numpy
+obj=numpy.int8
+import numpy
+obj=numpy.int16
+import numpy
+obj=numpy.int32
+import numpy
+obj=numpy.int64
+import numpy
+obj=numpy.uint8
+import numpy
+obj=numpy.uint16
+import numpy
+obj=numpy.uint32
+import numpy
+obj=numpy.uint64
+import numpy
+obj=numpy.float16
+import numpy
+obj=numpy.float32
+import numpy
+obj=numpy.float64
+import numpy
+obj=numpy.bool_(False)
+import numpy
+obj=numpy.int8(0)
+import numpy
+obj=numpy.int16(0)
+import numpy
+obj=numpy.int32(0)
+import numpy
+obj=numpy.int64(0)
+import numpy
+obj=numpy.uint8(0)
+import numpy
+obj=numpy.uint16(0)
+import numpy
+obj=numpy.uint32(0)
+import numpy
+obj=numpy.uint64(0)
+import numpy
+obj=numpy.float16(0.0)
+import numpy
+obj=numpy.float32(0.0)
+import numpy
+obj=numpy.float64(0.0)
+import objects.init_arg
+obj=objects.init_arg.C_InitArg('savedArg1')
+import objects.init_arg
+obj=objects.init_arg.C_InitArg_SaveDict_RestoreNothing('savedArg1')
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_arg
+obj=objects.init_arg.C_InitArg_SaveDict_RestoreDict('savedArg1')
+obj._par1='defaut1'
+obj.par2='defaut2'
+import objects.init_arg
+obj=objects.init_arg.C_InitArg_SaveDict_SetState('savedArg1')
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_arg
+obj=objects.init_arg.C_InitArg_GetState_RestoreState('savedArg1')
+obj.keySaved='ValueSaved'
+import objects.init_arg
+obj=objects.init_arg.C_InitArg_GetState_SetStateDict('savedArg1')
+obj.__setstate__({'keySaved':'ValueSaved'})
+import objects.init_arg
+obj=objects.init_arg.C_InitArg_GetState_SetState('savedArg1')
+obj.__setstate__('stateSaved')
+import objects.init_args_explicite_getstate
+obj=objects.init_args_explicite_getstate.C_SaveArgInit('defaut1','savedArg2')
+import objects.init_args_explicite_getstate
+obj=objects.init_args_explicite_getstate.C_SaveDict_SaveArgInit_RestoreNothing('defaut1','savedArg2')
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_args_explicite_getstate
+obj=objects.init_args_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict('defaut1','savedArg2')
+obj._par1='defaut1'
+obj.par2='defaut2'
+import objects.init_args_explicite_getstate
+obj=objects.init_args_explicite_getstate.C_SaveDict_SaveArgInit_SetState('defaut1','savedArg2')
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_args_explicite_getstate
+obj=objects.init_args_explicite_getstate.C_GetState_SaveArgInit_RestoreState('defaut1','savedArg2')
+obj.keySaved='ValueSaved'
+import objects.init_args_explicite_getstate
+obj=objects.init_args_explicite_getstate.C_GetState_SaveArgInit_SetState('defaut1','savedArg2')
+obj.__setstate__('stateSaved')
+import objects.init_args_filtered_state_explicite_getstate
+obj=objects.init_args_filtered_state_explicite_getstate.C_SaveArgInit_filter('defaut1','savedArg2')
+import objects.init_args_filtered_state_explicite_getstate
+obj=objects.init_args_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_filter_RestoreNothing('defaut1','savedArg2')
+obj.__setstate__({'par2':'defaut2'})
+import objects.init_args_filtered_state_explicite_getstate
+obj=objects.init_args_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict_filter('defaut1','savedArg2')
+obj.par2='defaut2'
+import objects.init_args_filtered_state_explicite_getstate
+obj=objects.init_args_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_SetState_filter('defaut1','savedArg2')
+obj.__setstate__({'par2':'defaut2'})
+import objects.init_args_filtered_state
+obj=objects.init_args_filtered_state.C_InitArgs_SaveFilteredDict_RestoreNothing('defaut1','savedArg2')
+obj.__setstate__({'par2':'defaut2'})
+import objects.init_args_filtered_state
+obj=objects.init_args_filtered_state.C_InitArgs_SaveFilteredDict_RestoreDict('defaut1','savedArg2')
+obj.par2='defaut2'
+import objects.init_args_filtered_state
+obj=objects.init_args_filtered_state.C_InitArgs_SaveFilteredDict_SetState('defaut1','savedArg2')
+obj.__setstate__({'par2':'defaut2'})
+import objects.init_args_ghost_getinitargs
+obj=objects.init_args_ghost_getinitargs.C_SaveArgInit_getinitargs.__new__(objects.init_args_ghost_getinitargs.C_SaveArgInit_getinitargs)
+import objects.init_args_ghost_getinitargs
+obj=objects.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_getinitargs.__new__(objects.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_getinitargs)
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_args_ghost_getinitargs
+obj=objects.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_RestoreDict_getinitargs.__new__(objects.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_RestoreDict_getinitargs)
+obj._par1='defaut1'
+obj.par2='defaut2'
+import objects.init_args_ghost_getinitargs
+obj=objects.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_SetState_getinitargs.__new__(objects.init_args_ghost_getinitargs.C_SaveDict_SaveArgInit_SetState_getinitargs)
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_args_ghost_getinitargs
+obj=objects.init_args_ghost_getinitargs.C_GetState_SaveArgInit_RestoreState_getinitargs.__new__(objects.init_args_ghost_getinitargs.C_GetState_SaveArgInit_RestoreState_getinitargs)
+obj.keySaved='ValueSaved'
+import objects.init_args_ghost_getinitargs
+obj=objects.init_args_ghost_getinitargs.C_GetState_SaveArgInit_SetState_getinitargs.__new__(objects.init_args_ghost_getinitargs.C_GetState_SaveArgInit_SetState_getinitargs)
+obj.__setstate__('stateSaved')
+import objects.init_args
+obj=objects.init_args.C_InitArgs('defaut1','savedArg2')
+import objects.init_args
+obj=objects.init_args.C_InitArgs_SaveDict_RestoreNothing('defaut1','savedArg2')
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_args
+obj=objects.init_args.C_InitArgs_SaveDict_RestoreDict('defaut1','savedArg2')
+obj._par1='defaut1'
+obj.par2='defaut2'
+import objects.init_args
+obj=objects.init_args.C_InitArgs_SaveDict_SetState('defaut1','savedArg2')
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_args
+obj=objects.init_args.C_InitArgs_GetState_RestoreState('defaut1','savedArg2')
+obj.keySaved='ValueSaved'
+import objects.init_args
+obj=objects.init_args.C_InitArgs_GetState_SetStateDict('defaut1','savedArg2')
+obj.__setstate__({'keySaved':'ValueSaved'})
+import objects.init_args
+obj=objects.init_args.C_InitArgs_GetState_SetState('defaut1','savedArg2')
+obj.__setstate__('stateSaved')
+import objects.init_default_explicite_getstate
+obj=objects.init_default_explicite_getstate.C_SaveNothing_DefaultInit()
+import objects.init_default_explicite_getstate
+obj=objects.init_default_explicite_getstate.C_SaveDict_DefaultInit_RestoreNothing()
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_default_explicite_getstate
+obj=objects.init_default_explicite_getstate.C_SaveDict_DefaultInit_RestoreDict()
+obj._par1='defaut1'
+obj.par2='defaut2'
+import objects.init_default_explicite_getstate
+obj=objects.init_default_explicite_getstate.C_SaveDict_DefaultInit_SetState()
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_default_explicite_getstate
+obj=objects.init_default_explicite_getstate.C_GetState_DefaultInit_RestoreState()
+obj.keySaved='ValueSaved'
+import objects.init_default_explicite_getstate
+obj=objects.init_default_explicite_getstate.C_GetState_DefaultInit_SetState()
+obj.__setstate__('stateSaved')
+import objects.init_default_filtered_state_explicite_getstate
+obj=objects.init_default_filtered_state_explicite_getstate.C_SaveNothing_DefaultInit()
+import objects.init_default_filtered_state_explicite_getstate
+obj=objects.init_default_filtered_state_explicite_getstate.C_SaveDict_DefaultInit_RestoreNothing_filter()
+obj.__setstate__({'par2':'defaut2'})
+import objects.init_default_filtered_state_explicite_getstate
+obj=objects.init_default_filtered_state_explicite_getstate.C_SaveDict_DefaultInit_RestoreDict_filter()
+obj.par2='defaut2'
+import objects.init_default_filtered_state_explicite_getstate
+obj=objects.init_default_filtered_state_explicite_getstate.C_SaveDict_DefaultInit_SetState_filter()
+obj.__setstate__({'par2':'defaut2'})
+import objects.init_default_filtered_state
+obj=objects.init_default_filtered_state.C_InitDefault_SaveNothing()
+import objects.init_default_filtered_state
+obj=objects.init_default_filtered_state.C_InitDefault_SaveFilteredDict_RestoreNothing()
+obj.__setstate__({'par2':'defaut2'})
+import objects.init_default_filtered_state
+obj=objects.init_default_filtered_state.C_InitDefault_SaveFilteredDict_RestoreDict()
+obj.par2='defaut2'
+import objects.init_default_filtered_state
+obj=objects.init_default_filtered_state.C_InitDefault_SaveFilteredDict_SetState()
+obj.__setstate__({'par2':'defaut2'})
+import objects.init_default_ghost_getinitargs
+obj=objects.init_default_ghost_getinitargs.C_SaveNothing_DefaultInit_getinitargs.__new__(objects.init_default_ghost_getinitargs.C_SaveNothing_DefaultInit_getinitargs)
+import objects.init_default_ghost_getinitargs
+obj=objects.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_RestoreNothing_getinitargs.__new__(objects.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_RestoreNothing_getinitargs)
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_default_ghost_getinitargs
+obj=objects.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_RestoreDict_getinitargs.__new__(objects.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_RestoreDict_getinitargs)
+obj._par1='defaut1'
+obj.par2='defaut2'
+import objects.init_default_ghost_getinitargs
+obj=objects.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_SetState_getinitargs.__new__(objects.init_default_ghost_getinitargs.C_SaveDict_DefaultInit_SetState_getinitargs)
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_default_ghost_getinitargs
+obj=objects.init_default_ghost_getinitargs.C_GetState_DefaultInit_RestoreState_getinitargs.__new__(objects.init_default_ghost_getinitargs.C_GetState_DefaultInit_RestoreState_getinitargs)
+obj.keySaved='ValueSaved'
+import objects.init_default_ghost_getinitargs
+obj=objects.init_default_ghost_getinitargs.C_GetState_DefaultInit_SetState_getinitargs.__new__(objects.init_default_ghost_getinitargs.C_GetState_DefaultInit_SetState_getinitargs)
+obj.__setstate__('stateSaved')
+import objects.init_default_ghots_getstate
+obj=objects.init_default_ghots_getstate.C_SaveNothing_DefaultInit()
+import objects.init_default_ghots_getstate
+obj=objects.init_default_ghots_getstate.C_GetState_DefaultInit_RestoreState()
+obj.keySaved='ValueSaved'
+import objects.init_default_ghots_getstate
+obj=objects.init_default_ghots_getstate.C_GetState_DefaultInit_SetState()
+obj.__setstate__('stateSaved')
+import objects.init_default
+obj=objects.init_default.C_InitDefault_SaveNothing()
+import objects.init_default
+obj=objects.init_default.C_InitDefault_SaveDict_RestoreNothing()
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_default
+obj=objects.init_default.C_InitDefault_SaveDict_RestoreDict()
+obj._par1='defaut1'
+obj.par2='defaut2'
+import objects.init_default
+obj=objects.init_default.C_InitDefault_SaveDict_SetState()
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_default
+obj=objects.init_default.C_InitDefault_GetState_RestoreState()
+obj.keySaved='ValueSaved'
+import objects.init_default
+obj=objects.init_default.C_InitDefault_GetState_SetState()
+obj.__setstate__('stateSaved')
+import objects.init_kwarg
+obj=objects.init_kwarg.C_SaveArgInit(par2='savedArg2')
+import objects.init_kwarg
+obj=objects.init_kwarg.C_SaveDict_SaveArgInit_RestoreNothing(par2='savedArg2')
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_kwarg
+obj=objects.init_kwarg.C_SaveDict_SaveArgInit_RestoreDict(par2='savedArg2')
+obj._par1='defaut1'
+obj.par2='defaut2'
+import objects.init_kwarg
+obj=objects.init_kwarg.C_SaveDict_SaveArgInit_SetState(par2='savedArg2')
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_kwarg
+obj=objects.init_kwarg.C_GetState_SaveArgInit_RestoreState(par2='savedArg2')
+obj.keySaved='ValueSaved'
+import objects.init_kwarg
+obj=objects.init_kwarg.C_GetState_SaveArgInit_SetState(par2='savedArg2')
+obj.__setstate__('stateSaved')
+import objects.init_kwargs_explicite_getstate
+obj=objects.init_kwargs_explicite_getstate.C_SaveArgInit(par1='defaut1',par2='savedArg2')
+import objects.init_kwargs_explicite_getstate
+obj=objects.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_RestoreNothing(par1='defaut1',par2='savedArg2')
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_kwargs_explicite_getstate
+obj=objects.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict(par1='defaut1',par2='savedArg2')
+obj._par1='defaut1'
+obj.par2='defaut2'
+import objects.init_kwargs_explicite_getstate
+obj=objects.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_SetState(par1='defaut1',par2='savedArg2')
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_kwargs_explicite_getstate
+obj=objects.init_kwargs_explicite_getstate.C_GetState_SaveArgInit_RestoreState(par1='defaut1',par2='savedArg2')
+obj.keySaved='ValueSaved'
+import objects.init_kwargs_explicite_getstate
+obj=objects.init_kwargs_explicite_getstate.C_GetState_SaveArgInit_SetState(par1='defaut1',par2='savedArg2')
+obj.__setstate__('stateSaved')
+import objects.init_kwargs_filtered_state_explicite_getstate
+obj=objects.init_kwargs_filtered_state_explicite_getstate.C_SaveArgInit_filter(par1='defaut1',par2='savedArg2')
+import objects.init_kwargs_filtered_state_explicite_getstate
+obj=objects.init_kwargs_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_filter_RestoreNothing(par1='defaut1',par2='savedArg2')
+obj.__setstate__({'par2':'defaut2'})
+import objects.init_kwargs_filtered_state_explicite_getstate
+obj=objects.init_kwargs_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict_filter(par1='defaut1',par2='savedArg2')
+obj.par2='defaut2'
+import objects.init_kwargs_filtered_state_explicite_getstate
+obj=objects.init_kwargs_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_SetState_filter(par1='defaut1',par2='savedArg2')
+obj.__setstate__({'par2':'defaut2'})
+import objects.init_kwargs_filtered_state
+obj=objects.init_kwargs_filtered_state.C_InitKwargs_filter(par1='defaut1',par2='savedArg2')
+import objects.init_kwargs_filtered_state
+obj=objects.init_kwargs_filtered_state.C_InitKwargs_SaveFilteredDict_RestoreNothing(par1='defaut1',par2='savedArg2')
+obj.__setstate__({'par2':'defaut2'})
+import objects.init_kwargs_filtered_state
+obj=objects.init_kwargs_filtered_state.C_InitKwargs_SaveFilteredDict_RestoreDict(par1='defaut1',par2='savedArg2')
+obj.par2='defaut2'
+import objects.init_kwargs_filtered_state
+obj=objects.init_kwargs_filtered_state.C__InitKwargs_SaveFilteredDict_SetState(par1='defaut1',par2='savedArg2')
+obj.__setstate__({'par2':'defaut2'})
+import objects.init_kwargs
+obj=objects.init_kwargs.C_InitKwargs(par1='defaut1',par2='savedArg2')
+import objects.init_kwargs
+obj=objects.init_kwargs.C_InitKwargs_SaveDict_RestoreNothing(par1='defaut1',par2='savedArg2')
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_kwargs
+obj=objects.init_kwargs.C_InitKwargs_SaveDict_RestoreDict(par1='defaut1',par2='savedArg2')
+obj._par1='defaut1'
+obj.par2='defaut2'
+import objects.init_kwargs
+obj=objects.init_kwargs.C_InitKwargs_SaveDict_SetState(par1='defaut1',par2='savedArg2')
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.init_kwargs
+obj=objects.init_kwargs.C_InitKwargs_GetState_RestoreState(par1='defaut1',par2='savedArg2')
+obj.keySaved='ValueSaved'
+import objects.init_kwargs
+obj=objects.init_kwargs.C_InitKwargs_GetState_SetState(par1='defaut1',par2='savedArg2')
+obj.__setstate__('stateSaved')
+import objects.no_init
+obj=objects.no_init.C_New_SaveNothing.__new__(objects.no_init.C_New_SaveNothing)
+import objects.no_init
+obj=objects.no_init.C_New_SaveDict_RestoreNothing.__new__(objects.no_init.C_New_SaveDict_RestoreNothing)
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.no_init
+obj=objects.no_init.C_New_SaveDict_RestoreDict.__new__(objects.no_init.C_New_SaveDict_RestoreDict)
+obj._par1='defaut1'
+obj.par2='defaut2'
+import objects.no_init
+obj=objects.no_init.C_New_SaveDict_SetState.__new__(objects.no_init.C_New_SaveDict_SetState)
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.no_init
+obj=objects.no_init.C_New_GetState_RestoreState.__new__(objects.no_init.C_New_GetState_RestoreState)
+obj.keySaved='ValueSaved'
+import objects.no_init
+obj=objects.no_init.C_New_GetState_SetState.__new__(objects.no_init.C_New_GetState_SetState)
+obj.__setstate__('stateSaved')
+import objects.no_init_filtered_state
+obj=objects.no_init_filtered_state.C_New_SaveNothing.__new__(objects.no_init_filtered_state.C_New_SaveNothing)
+import objects.no_init_filtered_state
+obj=objects.no_init_filtered_state.C_New_SaveFilteredDict_RestoreNothing.__new__(objects.no_init_filtered_state.C_New_SaveFilteredDict_RestoreNothing)
+obj.__setstate__({'par2':'defaut2'})
+import objects.no_init_filtered_state
+obj=objects.no_init_filtered_state.C_New_SaveFilteredDict_RestoreDict()
+obj.par2='defaut2'
+import objects.no_init_filtered_state
+obj=objects.no_init_filtered_state.C_New_SaveFilteredDict_SetState.__new__(objects.no_init_filtered_state.C_New_SaveFilteredDict_SetState)
+obj.__setstate__({'par2':'defaut2'})
+import objects.no_init_slots
+obj=objects.no_init_slots.C_New_SaveNothing_slots.__new__(objects.no_init_slots.C_New_SaveNothing_slots)
+import objects.no_init_slots
+obj=objects.no_init_slots.C_New_SaveDict_RestoreNothing_slots.__new__(objects.no_init_slots.C_New_SaveDict_RestoreNothing_slots)
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.no_init_slots
+obj=objects.no_init_slots.C_New_SaveDict_RestoreDict_slots.__new__(objects.no_init_slots.C_New_SaveDict_RestoreDict_slots)
+obj._par1='defaut1'
+obj.par2='defaut2'
+import objects.no_init_slots
+obj=objects.no_init_slots.C_New_SaveDict_SetState_slots.__new__(objects.no_init_slots.C_New_SaveDict_SetState_slots)
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.no_init_slots
+obj=objects.no_init_slots.C_New_GetState_SetState_slots.__new__(objects.no_init_slots.C_New_GetState_SetState_slots)
+obj.__setstate__('stateSaved')
+import objects.no_init_slots_and_dict
+obj=objects.no_init_slots_and_dict.C_New_SaveNothing_slots_and_dict.__new__(objects.no_init_slots_and_dict.C_New_SaveNothing_slots_and_dict)
+import objects.no_init_slots_and_dict
+obj=objects.no_init_slots_and_dict.C_New_SaveDict_RestoreNothing_slots_and_dict.__new__(objects.no_init_slots_and_dict.C_New_SaveDict_RestoreNothing_slots_and_dict)
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.no_init_slots_and_dict
+obj=objects.no_init_slots_and_dict.C_New_SaveDict_RestoreDict_slots_and_dict.__new__(objects.no_init_slots_and_dict.C_New_SaveDict_RestoreDict_slots_and_dict)
+obj._par1='defaut1'
+obj.par2='defaut2'
+import objects.no_init_slots_and_dict
+obj=objects.no_init_slots_and_dict.C_New_SaveDict_SetState_slots_and_dict.__new__(objects.no_init_slots_and_dict.C_New_SaveDict_SetState_slots_and_dict)
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2'})
+import objects.no_init_slots_and_dict
+obj=objects.no_init_slots_and_dict.C_New_GetState_SetState_slots_and_dict.__new__(objects.no_init_slots_and_dict.C_New_GetState_SetState_slots_and_dict)
+obj.__setstate__('stateSaved')
+import objects.no_init_slots_subclass
+obj=objects.no_init_slots_subclass.C_New_SaveNothing_subclass.__new__(objects.no_init_slots_subclass.C_New_SaveNothing_subclass)
+import objects.no_init_slots_subclass
+obj=objects.no_init_slots_subclass.C_New_SaveDict_RestoreNothing_subclass.__new__(objects.no_init_slots_subclass.C_New_SaveDict_RestoreNothing_subclass)
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2','par3':'default3'})
+import objects.no_init_slots_subclass
+obj=objects.no_init_slots_subclass.C_New_SaveDict_RestoreDict_subclass.__new__(objects.no_init_slots_subclass.C_New_SaveDict_RestoreDict_subclass)
+obj._par1='defaut1'
+obj.par2='defaut2'
+obj.par3='default3'
+import objects.no_init_slots_subclass
+obj=objects.no_init_slots_subclass.C_New_SaveDict_SetState_subclass.__new__(objects.no_init_slots_subclass.C_New_SaveDict_SetState_subclass)
+obj.__setstate__({'_par1':'defaut1','par2':'defaut2','par3':'default3'})
+import objects.no_init_slots_subclass
+obj=objects.no_init_slots_subclass.C_New_GetState_SetState_subclass.__new__(objects.no_init_slots_subclass.C_New_GetState_SetState_subclass)
+obj.__setstate__('stateSaved')
+import objects.no_init_setters
+obj=objects.no_init_setters.C_New_SaveDict_RestoreDict_setters.__new__(objects.no_init_setters.C_New_SaveDict_RestoreDict_setters)
+obj.a='a'
+obj.b='b'
+obj.set_c('c')
+obj.setD('d')
+obj.e='e'
+obj.f='f'
+import objects.no_init_setters
+obj=objects.no_init_setters.C_New_SaveDict_SetState_setters.__new__(objects.no_init_setters.C_New_SaveDict_SetState_setters)
+obj.__setstate__({'a':'a','b':'b','c':'c','d':'d','e':'e','f':'f'})

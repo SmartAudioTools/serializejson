@@ -85,9 +85,24 @@ Infinity
 [-2.0,-3.0]
 [1.0,NaN]
 [-Infinity,Infinity]
-[false,true,0,1]
-[false,true,0.0,1.0]
-[0,1,0.0,1.0]
+[
+	false,
+	true,
+	0,
+	1
+]
+[
+	false,
+	true,
+	0.0,
+	1.0
+]
+[
+	0,
+	1,
+	0.0,
+	1.0
+]
 [
 	[
 		1,
@@ -146,11 +161,17 @@ Infinity
 }
 {
 	"__class__": "datetime.date",
-	"__init__": {"__class__":"base64.b64decode","__init__":"B+QDCg=="}
+	"__init__": {
+		"__class__": "base64.b64decode",
+		"__init__": "B+QDCg=="
+	}
 }
 {
 	"__class__": "datetime.time",
-	"__init__": {"__class__":"base64.b64decode","__init__":"ER4AAAAA"}
+	"__init__": {
+		"__class__": "base64.b64decode",
+		"__init__": "ER4AAAAA"
+	}
 }
 {
 	"__class__": "datetime.timedelta",
@@ -282,9 +303,24 @@ Infinity
 [-2.0,-3.0]
 [1.0,NaN]
 [-Infinity,Infinity]
-[false,true,0,1]
-[false,true,0.0,1.0]
-[0,1,0.0,1.0]
+[
+	false,
+	true,
+	0,
+	1
+]
+[
+	false,
+	true,
+	0.0,
+	1.0
+]
+[
+	0,
+	1,
+	0.0,
+	1.0
+]
 {
 	"__class__": "set",
 	"__init__": []
@@ -440,7 +476,10 @@ Infinity
 }
 {
 	"__class__": "qtpy.QtCore.QByteArray",
-	"__init__": {"__class__":"bytes","__init__":["","ascii"]}
+	"__init__": {
+		"__class__": "bytes",
+		"__init__": ["","ascii"]
+	}
 }
 {
 	"__class__": "qtpy.QtGui.QColor",
@@ -468,7 +507,10 @@ Infinity
 }
 {
 	"__class__": "qtpy.QtGui.QPen",
-	"__init__": {"__class__":"qtpy.QtGui.QColor","__init__":[0,0,0,255]}
+	"__init__": {
+		"__class__": "qtpy.QtGui.QColor",
+		"__init__": [0,0,0,255]
+	}
 }
 {
 	"__class__": "qtpy.QtGui.QBrush",
@@ -527,16 +569,16 @@ Infinity
 	"__init__": ["QA==","bool",2]
 }
 {
-	"__class__": "numpy.array",
-	"__init__": [[0,1],"int32"]
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["AAAAAAEAAAA=","int32"]
 }
 {
-	"__class__": "numpy.array",
-	"__init__": [[2,3],"int32"]
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["AgAAAAMAAAA=","int32"]
 }
 {
-	"__class__": "numpy.array",
-	"__init__": [[-2,-3],"int32"]
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["/v////3///8=","int32"]
 }
 {
 	"__class__": "serializejson.numpyB64",
@@ -563,8 +605,8 @@ Infinity
 	"__init__": ["AAAAAAAA8P8AAAAAAADwfw==","float64"]
 }
 {
-	"__class__": "numpy.array",
-	"__init__": [[0,1,0,1],"int32"]
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["AAAAAAEAAAAAAAAAAQAAAA==","int32"]
 }
 {
 	"__class__": "serializejson.numpyB64",
@@ -574,10 +616,17 @@ Infinity
 	"__class__": "serializejson.numpyB64",
 	"__init__": ["AAAAAAAAAAAAAAAAAADwPwAAAAAAAAAAAAAAAAAA8D8=","float64"]
 }
-[9,{"__class__":"numpy.array","__init__":[[2],"int32"]},1]
+[
+	9,
+	{
+		"__class__": "serializejson.numpyB64",
+		"__init__": ["AgAAAA==","int32"]
+	},
+	1
+]
 {
-	"__class__": "numpy.array",
-	"__init__": [[[1,2],[3,4]],"int32"]
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["AQAAAAIAAAADAAAABAAAAA==","int32",[2,2]]
 }
 {
 	"__class__": "serializejson.numpyB64",
@@ -588,12 +637,12 @@ Infinity
 	"__init__": ["CgALAAwADQAOAA8AEAARABIAEwA=","int16"]
 }
 {
-	"__class__": "numpy.array",
-	"__init__": [[9990,9991,9992,9993,9994,9995,9996,9997,9998,9999],"int32"]
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["BicAAAcnAAAIJwAACScAAAonAAALJwAADCcAAA0nAAAOJwAADycAAA==","int32"]
 }
 {
-	"__class__": "numpy.array",
-	"__init__": [[10000,10001,10002,10003,10004,10005,10006,10007,10008,10009],"int32"]
+	"__class__": "serializejson.numpyB64",
+	"__init__": ["ECcAABEnAAASJwAAEycAABQnAAAVJwAAFicAABcnAAAYJwAAGScAAA==","int32"]
 }
 {
 	"__class__": "type",
@@ -998,136 +1047,208 @@ Infinity
 }
 {
 	"__class__": "objects.init_kwarg.C_SaveArgInit",
-	"__init__": {"par2":"savedArg2"}
+	"__init__": {
+		"par2": "savedArg2"
+	}
 }
 {
 	"__class__": "objects.init_kwarg.C_SaveDict_SaveArgInit_RestoreNothing",
-	"__init__": {"par2":"savedArg2"},
+	"__init__": {
+		"par2": "savedArg2"
+	},
 	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "objects.init_kwarg.C_SaveDict_SaveArgInit_RestoreDict",
-	"__init__": {"par2":"savedArg2"},
+	"__init__": {
+		"par2": "savedArg2"
+	},
 	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "objects.init_kwarg.C_SaveDict_SaveArgInit_SetState",
-	"__init__": {"par2":"savedArg2"},
+	"__init__": {
+		"par2": "savedArg2"
+	},
 	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "objects.init_kwarg.C_GetState_SaveArgInit_RestoreState",
-	"__init__": {"par2":"savedArg2"},
+	"__init__": {
+		"par2": "savedArg2"
+	},
 	"keySaved": "ValueSaved"
 }
 {
 	"__class__": "objects.init_kwarg.C_GetState_SaveArgInit_SetState",
-	"__init__": {"par2":"savedArg2"},
+	"__init__": {
+		"par2": "savedArg2"
+	},
 	"__state__": "stateSaved"
 }
 {
 	"__class__": "objects.init_kwargs_explicite_getstate.C_SaveArgInit",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"}
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	}
 }
 {
 	"__class__": "objects.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_RestoreNothing",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "objects.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "objects.init_kwargs_explicite_getstate.C_SaveDict_SaveArgInit_SetState",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "objects.init_kwargs_explicite_getstate.C_GetState_SaveArgInit_RestoreState",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"keySaved": "ValueSaved"
 }
 {
 	"__class__": "objects.init_kwargs_explicite_getstate.C_GetState_SaveArgInit_SetState",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"__state__": "stateSaved"
 }
 {
 	"__class__": "objects.init_kwargs_filtered_state_explicite_getstate.C_SaveArgInit_filter",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"}
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	}
 }
 {
 	"__class__": "objects.init_kwargs_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_filter_RestoreNothing",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"par2": "defaut2"
 }
 {
 	"__class__": "objects.init_kwargs_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_RestoreDict_filter",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"par2": "defaut2"
 }
 {
 	"__class__": "objects.init_kwargs_filtered_state_explicite_getstate.C_SaveDict_SaveArgInit_SetState_filter",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"par2": "defaut2"
 }
 {
 	"__class__": "objects.init_kwargs_filtered_state.C_InitKwargs_filter",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"}
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	}
 }
 {
 	"__class__": "objects.init_kwargs_filtered_state.C_InitKwargs_SaveFilteredDict_RestoreNothing",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"par2": "defaut2"
 }
 {
 	"__class__": "objects.init_kwargs_filtered_state.C_InitKwargs_SaveFilteredDict_RestoreDict",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"par2": "defaut2"
 }
 {
 	"__class__": "objects.init_kwargs_filtered_state.C__InitKwargs_SaveFilteredDict_SetState",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"par2": "defaut2"
 }
 {
 	"__class__": "objects.init_kwargs.C_InitKwargs",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"}
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	}
 }
 {
 	"__class__": "objects.init_kwargs.C_InitKwargs_SaveDict_RestoreNothing",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "objects.init_kwargs.C_InitKwargs_SaveDict_RestoreDict",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "objects.init_kwargs.C_InitKwargs_SaveDict_SetState",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"_par1": "defaut1",
 	"par2": "defaut2"
 }
 {
 	"__class__": "objects.init_kwargs.C_InitKwargs_GetState_RestoreState",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"keySaved": "ValueSaved"
 }
 {
 	"__class__": "objects.init_kwargs.C_InitKwargs_GetState_SetState",
-	"__init__": {"par1":"defaut1","par2":"savedArg2"},
+	"__init__": {
+		"par1": "defaut1",
+		"par2": "savedArg2"
+	},
 	"__state__": "stateSaved"
 }
 {

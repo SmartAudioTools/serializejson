@@ -4,8 +4,7 @@ from SmartFramework.tools.dictionnaires import filtered
 from SmartFramework.tools.objects import isInstance,isCallable
 from inspect import isclass
 import types
-import pybase64
-from pybase64 import b64encode
+from pybase64 import b64encode,b64decode
 from apply import apply
 import copyreg
 from collections.abc import Iterable 
@@ -234,20 +233,23 @@ def from_name(path, accept_dict_as_object=False, **variables):
     return current
 
 
-class encodedB64(bytes):
+class encodedB64(): # J'ai abandonné l'idée de sub classer bytes, car il faisait une copie 
     """class used as flag to know that a bytes as already been encoded in base64, we don't need to do it again"""
-
-    def __new__(cls, val):
-        return super().__new__(cls, b64encode(val))
+    #@profile
+    def __init__(self,val):
+        #pass
+        self.encoded_bytes = b64encode(val)
+    #def __new__(cls, val):
+    #    return super().__new__(cls, memoryview(b64encode(val))) # on dirait que y'a une copie .;
 
 
 classFromClassStr_dict = {
-        'base64.b64decode' : lambda b64 : pybase64.b64decode(b64,validate = True) # allow to accelerete base 64 decode
+        'base64.b64decode' : lambda b64 : b64decode(b64,validate = True) # allow to accelerete base 64 decode
         }
 def classFromClassStr(string):
-    listeModuleClasse = string.rsplit(".", 1)
-    if len(listeModuleClasse) == 2:
-        moduleStr, class_str = listeModuleClasse
+    listeModuleClass = string.rsplit(".", 1)
+    if len(listeModuleClass) == 2:
+        moduleStr, class_str = listeModuleClass
         module = __import__(moduleStr, fromlist=[class_str])
         return getattr(module, class_str)
     else:
@@ -256,40 +258,39 @@ def classFromClassStr(string):
 
 classStrFromClassDict = {}
 # @profile
-def classStrFromClass(classe):
-    if classe in classStrFromClassDict:
-        return classStrFromClassDict[classe]
-    module = classe.__module__
-    # ce n'est pas une bonne idée de tenter de suprimer ou modifier "__main__" car il ne retrouvera pas le bon module , alors que le module pointé par __main__ contiendra toujour les definition de classe , si c'est toujours lui qu'on execute .
+def classStrFromClass(class_):
+    if class_ in classStrFromClassDict:
+        return classStrFromClassDict[class_]
+    module = class_.__module__
+    # ce n'est pas une bonne idée de tenter de suprimer ou modifier "__main__" car il ne retrouvera pas le bon module , alors que le module pointé par __main__ contiendra toujour les definition de class_ , si c'est toujours lui qu'on execute .
     # if module == "__main__":
     #    import __main__
     #    if hasattr(__main__,"__file__"):
     #        module = name(__main__.__file__) # peut planter (notament dans console ou designer )
     if module == "builtins":
-        if classe is types.ModuleType:
+        if class_ is types.ModuleType:
             s = "types.ModuleType"
         else:
-            s = classe.__name__
+            s = class_.__qualname__
     else:
-        s = module + "." + classe.__name__
-    classStrFromClassDict[classe] = s
+        s = module + "." + class_.__qualname__
+    classStrFromClassDict[class_] = s
     return s
 
 
 # CONVERSIONS NON RECURSIVES -------------------------------------------
 
-# @profile
 
 def tupleFromInstance(inst):
-    # recuperation de Classe ,  initArgs et state
+    # recuperation de Class ,  initArgs et state
     # un peu comme le __reduce__ des newstyle object , mais contrairment à ce dernier peut retourner None
     # pour en deuxième position signifier qu'il n'y a pas d'appel à __init__() à faire lors du unpickling
-    classe = inst.__class__
-    classStr = classStrFromClass(classe)
+    class_ = inst.__class__
+    classStr = classStrFromClass(class_)
 
     # CAS PARTICULIERS----------------
     if classStr in tuple_from_module_class_str:
-        return tuple_from_module_class_str[classStr](inst)
+        return tuple_from_module_class_str[classStr](inst) # 99.2 % du temps sur obj = bytes(numpy.arange(2**18,dtype=numpy.float64).data)
 
     # CAS GENERAL --------------------------------
     try:
@@ -302,26 +303,26 @@ def tupleFromInstance(inst):
             if hasattr(inst, "__slots__"):
                 state = dict()
                 if hasattr(inst, "__dict__"):  # on peut avoir __dict__ dans les __slots__ !
-                    for base_classe in classe.__mro__[:-1]:  # on ne prend pas le dernier qui est toujours (?) object
+                    for base_class in class_.__mro__[:-1]:  # on ne prend pas le dernier qui est toujours (?) object
                         for slot in getattr(
-                            base_classe, "__slots__", ()
-                        ):  # on utilise pas directement base_classe.__slots__  car une classe de base n'a pas forcement redefinit __slots__
+                            base_class, "__slots__", ()
+                        ):  # on utilise pas directement base_class.__slots__  car une classe de base n'a pas forcement redefinit __slots__
                             if hasattr(inst, slot):
                                 if slot != "__dict__":
                                     state[slot] = inst.__getattribute__(slot)
                     state.update(inst.__dict__)
                 else:
-                    for base_classe in classe.__mro__[:-1]:  # on ne prend pas le dernier qui est toujours (?) object
+                    for base_class in class_.__mro__[:-1]:  # on ne prend pas le dernier qui est toujours (?) object
                         for slot in getattr(
-                            base_classe, "__slots__", ()
-                        ):  # on utilise pas directement base_classe.__slots__  car une classe de base n'a pas forcement redefinit __slots__
+                            base_class, "__slots__", ()
+                        ):  # on utilise pas directement base_class.__slots__  car une classe de base n'a pas forcement redefinit __slots__
                             if hasattr(inst, slot):
                                 state[slot] = inst.__getattribute__(slot)
             elif hasattr(inst, "__dict__"):
                 state = inst.__dict__
     else:
         len_tupleReduce = len(tupleReduce)
-        if tupleReduce[0] is classe:
+        if tupleReduce[0] is class_:
             # le __reduce__ a ete reimplemente et se comporte normalement
             initArgs = tupleReduce[1]
             if len_tupleReduce > 2:
@@ -338,7 +339,7 @@ def tupleFromInstance(inst):
             else:
                 state = None
         elif tupleReduce[0] is apply:
-            classe, initArgs, initKwargs = tupleReduce[1]
+            class_, initArgs, initKwargs = tupleReduce[1]
             initArgs = initKwargs
             if len_tupleReduce == 3:
                 state = tupleReduce[2]
@@ -354,7 +355,7 @@ def tupleFromInstance(inst):
             else:
                 state = None
         else:
-            classe = tupleReduce[0]
+            class_ = tupleReduce[0]
             initArgs = tupleReduce[1]
             if len_tupleReduce > 2:
                 state = tupleReduce[2]
@@ -362,7 +363,7 @@ def tupleFromInstance(inst):
                 state = None
     if serialize_parameters.attributs_filter and type(state) is dict:
         state = filtered(state, filterChar=serialize_parameters.attributs_filter)
-    return (classe, initArgs, state)
+    return (class_, initArgs, state)
 
 
 # rehydratation d'un objet
@@ -429,45 +430,43 @@ def instance(__class__=object, __init__=None, __state__=None, __initArgs__=None,
         else:
             inst = class_(__init__)  # when braces have been removed during serialization
 
-    if __state__ or argsSup:
-        if __state__ and type(__state__) == dict:
-            __state__.update(argsSup)
-        elif argsSup:
-            __state__ = argsSup
-        if __state__:
-            if hasattr(
-                inst, "__setstate__"
-            ):  # j'ai du remplacer hasMethod(inst,"__setstate__") par hasattr(inst,"__setstate__") pour pouvoir deserialiser des sklearn.tree._tree.Tree en json "__setstate__" n'est pas reconnu comme étant une methdoe !? alors que bien là .
-                inst.__setstate__(__state__)
-            else:
-                if type(__state__) is dict:
-                    set_attributs = serialize_parameters.set_attributs
-                    if (
-                        set_attributs is True 
-                        or ((set_attributs is not False) and (class_str in set_attributs))
-                    ):  # si la variable global setAttributs = True , il tente de faire appel aux setters (NON TESTE)
-                        for key, value in __state__.items():
-                            attributSetMethode = "set_" + key
-                            if hasattr(inst, attributSetMethode):
-                                methode = eval("inst." + attributSetMethode)
-                                methode(value)
-                            else:
-                                attributSetMethode = "set" + key[0].upper() + key[1:]
-                                if hasattr(inst, attributSetMethode):
-                                    methode = eval("inst." + attributSetMethode)
-                                    methode(value)
-                                else :
-                                    inst.__setattr__(
-                                        key, value
-                                    )  # permet de gerer à la fois les cas ou key est une propriétée, un attriut dans __dict__ ou dans __slot__
-                    else:
-                        if hasattr(inst, "__slots__"):
-                            for key, value in __state__.items():
-                                inst.__setattr__(key, value) # ATTENTION va aussi restaure  propriétés alors qu'on ne le souhaite pas forcement...
+    if argsSup:
+        __state__ = argsSup
+
+    if __state__:
+        if hasattr(
+            inst, "__setstate__"
+        ):  # j'ai du remplacer hasMethod(inst,"__setstate__") par hasattr(inst,"__setstate__") pour pouvoir deserialiser des sklearn.tree._tree.Tree en json "__setstate__" n'est pas reconnu comme étant une methdoe !? alors que bien là .
+            inst.__setstate__(__state__)
+        else:
+            if type(__state__) is dict:
+                set_attributs = serialize_parameters.set_attributs
+                if (
+                    set_attributs is True 
+                    or ((set_attributs is not False) and (class_str in set_attributs))
+                ):  # si la variable global setAttributs = True , il tente de faire appel aux setters (NON TESTE)
+                    for key, value in __state__.items():
+                        attributSetMethode = "set_" + key
+                        if hasattr(inst, attributSetMethode):
+                            methode = inst.__getattribute__(attributSetMethode)
+                            methode(value)
                         else:
-                            inst.__dict__.update(__state__)  # ou copy(state) ou deep(copy) ?
+                            attributSetMethode = "set" + key[0].upper() + key[1:]
+                            if hasattr(inst, attributSetMethode):
+                                methode = inst.__getattribute__(attributSetMethode)
+                                methode(value)
+                            else :
+                                inst.__setattr__(
+                                    key, value
+                                )  # permet de gerer à la fois les cas ou key est une propriétée, un attriut dans __dict__ ou dans __slot__
                 else:
-                    raise Exception("try to restore object to a no dictionary state and without __setstate__ method")
+                    if hasattr(inst, "__slots__"):
+                        for key, value in __state__.items():
+                            inst.__setattr__(key, value) # ATTENTION va aussi restaure  propriétés alors qu'on ne le souhaite pas forcement...
+                    else:
+                        inst.__dict__.update(__state__)  # ou copy(state) ou deep(copy) ?
+            else:
+                raise Exception("try to restore object to a no dictionary state and without __setstate__ method")
     return inst
 
 

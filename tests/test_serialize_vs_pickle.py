@@ -223,7 +223,6 @@ def test_serialize_vs_pickle():
                         obj, 
                         modules=modules,
                         attributs_filter=None,
-                        set_attributs=True,
                         numpy_types_to_python_types = False
                     ),
                     "decoder": lambda obj: serializeRepr.loads(obj, modules=modules),
@@ -265,7 +264,7 @@ def test_serialize_vs_pickle():
         for categoryName, categoryDict in objects.items():
             #category_ok = False
             for key, value in categoryDict.items():
-                modules = []
+                modules = set()
                 try:
                     times = []
                     for i in range(100):
@@ -283,11 +282,11 @@ def test_serialize_vs_pickle():
                     )
                     total_dumps_time_by_serializer[serializerName] += median_time * 100000
                 except TypeError:
-                    message = "  unable to dumps ", repr(value)
+                    message = "  unable to dumps " +repr(value)
                     print(message)
                     all_ok = False
                     if serializerName != "pickle":
-                        raise Exception(message)
+                        raise #Exception(message)
                     break
                 if serializerName != "serializejson_in_file":
                     addInFile(serializerDumpsPath, dumped)

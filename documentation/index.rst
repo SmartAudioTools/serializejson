@@ -126,7 +126,7 @@ Methode 1 : Add methods to object for custom serialization
         a different behavior than serialize self.__dict__ and self.__slots__.
         __getstate__() must return the state of the class as an object that will itself be serialized.
         If __setstate__() is not available, the returned object must be a dictionary 
-        (elements will be restored as attributes), otherwise the object can be any serializable object
+        (elements will be restored as attributes) or None, otherwise the object can be any serializable object
 
         
         .. warning::

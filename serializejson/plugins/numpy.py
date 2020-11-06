@@ -22,7 +22,7 @@ def tuple_from_ndarray(inst):
         if instContdtype in serialize_parameters.numpy_array_readable_max_size : 
             max_size = serialize_parameters.numpy_array_readable_max_size[instContdtype]
             if max_size == -1 or instCont.size <= max_size:
-                return ("numpy.array", (instCont.tolist(), instContdtype), None)
+                return ("numpy.array", (instCont.tolist(), instContdtype), None) #  A REVOIR : pas génial car va tester ultérieurement si tous les elements sont du même type....
     else:
         instContdtype = dtype.descr
 
