@@ -78,7 +78,7 @@ Method 1: Adding methods to object for custom serialization
             **Never put "apply" in authorized_classes, it would allow untrusted json to execute arbitrary code.**
 
             
-        **Call `__init__()` with positional arguments, without state restore.**
+        * Call `__init__()` with positional arguments, without state restore.
             
             .. code-block:: python
             
@@ -86,7 +86,7 @@ Method 1: Adding methods to object for custom serialization
                         init_args_tuple = (1,) # tuple with 1 element need comma
                         return self.__class__,init_args_tuple 
         
-        **Call `__init__()` with named arguments, without state restore.** 
+        * Call `__init__()` with named arguments, without state restore.
         
             naming argument allows you to keep the first arguments if they have default
             values and is robust if you change later the init arguments order, but you will
@@ -99,7 +99,7 @@ Method 1: Adding methods to object for custom serialization
                         return apply,(self.__class__,None,init_kwargs_dictionary)
                          
         
-        **Call `__init__()` with positional arguments and restore state from filtered attributes**
+        * Call `__init__()` with positional arguments and restore state from filtered attributes
         
             .. code-block:: python
             
@@ -107,7 +107,7 @@ Method 1: Adding methods to object for custom serialization
                         init_args_tuple = (1,) # tuple with 1 element need comma
                         return self.__class__, init_args_tuple, serializejson.filtered(self.__dict__)
         
-        **Call `__init__()` with named arguments and restore state from filtered attributes** 
+        * Call `__init__()` with named arguments and restore state from filtered attributes 
         
             more robust if you change later the init args order, but you have to pip install apply
             
@@ -187,26 +187,25 @@ Method 1: Adding methods to object for custom serialization
        
         **If you want to make the object updatable:**
         
-        **Save all needed information outside of `__init__` args when dumping:**
-        
-        * put all needed information for an update in state (returned by `__getstate__()` or in third position by `__reduce__()`), because `__init__()` will not be called when updating, and all init arguments will be discarded. 
-        * minimize information redundancy for `__init__()` that is already in state (returned in second position by `__reduce__()`
-        * you can remove calls to `__init__()` using `__getsate__()` instead of `__reduce__()`, if you don't need to execute code in `__init__()` anymore when creating objects, because all the required initialization code is already in `__setstate__()` or setters.
+        * Save all needed information outside of `__init__` args when dumping:
+            
+            * put all needed information for an update in state (returned by `__getstate__()` or in third position by `__reduce__()`), because `__init__()` will not be called when updating, and all init arguments will be discarded. 
+            * minimize information redundancy for `__init__()` that is already in state (returned in second position by `__reduce__()`
+            * you can remove calls to `__init__()` using `__getsate__()` instead of `__reduce__()`, if you don't need to execute code in `__init__()` anymore when creating objects, because all the required initialization code is already in `__setstate__()` or setters.
 
                
-        **Allow restoration of this information:**
-       
-        * In `__setstate__()` method called with the state.
+        * Allow restoration of this information:
         
-            - If you want to call setter in a different order than alphabetic order.
-            - If you want to be robust to a attribute name change or set_attribute parameter change. 
-            - If you want to avoid transitional states during setting of attribute one by one.
+            * In `__setstate__()` method called with the state.
+            
+                - If you want to call setter in a different order than alphabetic order.
+                - If you want to be robust to a attribute name change or set_attribute parameter change. 
+                - If you want to avoid transitional states during setting of attribute one by one.
 
-        * Otherwise all the elements of the state dictionary will be restored as attributes. 
-        
-            - Passively if `set_attribute = False` (like pickle). 
-            - Actively with call of setters, if set_attribute=True or `set_attribute=[your_object]` (in alphabetic order if `sort_keys=True` or in random order if `sort_keys=False`).    
-              ⚠ You must be sure to ever call load with `set_attributes = True` (or [...,object]) or add a plugin for these objects with `set_attributes = [object]`
+            * Otherwise all the elements of the state dictionary will be restored as attributes. 
+            
+                - Passively if `set_attribute = False` (like pickle). 
+                - Actively with call of setters, if set_attribute=True or `set_attribute=[your_object]` (in alphabetic order if `sort_keys=True` or in random order if `sort_keys=False`). ⚠ You must be sure to ever call load with `set_attributes = True` (or [...,object]) or add a plugin for these objects with `set_attributes = [object]`
 
 
 
