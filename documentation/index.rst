@@ -60,7 +60,7 @@ Method 1: Adding methods to object for custom serialization
     as pickle if you use Encoder(attributes_filter = None) and Decoder(set_attributes = False).
     If you finally chose to use pickle instead of serializejson, your implemented methods will still be useful.
     
-    Depending of strategy you choose for the recreatiing or updating an object, you will need to implement 
+    Depending of strategy you choose for recreating or updating an object, you will need to implement 
     different methods:
        
     .. py:function:: object.__reduce__() 
@@ -145,7 +145,7 @@ Method 1: Adding methods to object for custom serialization
     .. py:function:: object.__setstate__(state)
     
         Code `__setstate__()` if you want to have other behavior than the default which 
-        consists juste restoring attributes from state.
+        consists in just restoring attributes from state.
         takes as parameter the object describing the state of the class and 
         puts the instance back in the state it was in before serialization.
         can possibly execute initialization code.
@@ -257,7 +257,7 @@ Method 2: Adding plugins to serializejson
                 encoder_plugins_parameters_default_values = {"module_name_option_name": False}
             
         
-        You can now use thise option for Encoding: 
+        You can now use these options for Encoding: 
         
             .. code-block:: python
     
@@ -304,7 +304,7 @@ Versions
 .. include:: ../CHANGELOG.rst
 
 
-Futur Versions (TODO)
+Future Versions (TODO)
 =====================
     * Add support for:
         - Tuple
@@ -322,7 +322,7 @@ Futur Versions (TODO)
         - object update
         - circular references and duplicates 
         
-    * Optimisation: 
+    * Optimization: 
         - bytes: need pybase64.b64encode directly to str and rapidjson.RawJSON improvements
         - numpy array: need pybase64.b64decode directly to bytearray.
         - circular references and duplicates: need rapidjson improvements (Encoder.default call for list an dictionaries)
