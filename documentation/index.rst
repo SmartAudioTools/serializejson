@@ -53,7 +53,7 @@ Custom object serialization
 
 
 Method 1: Adding methods to object for custom serialization
-----------------------------------------------------------
+-----------------------------------------------------------
 
     If you can add the required methods to you classes, this is the recommended method. 
     serializejson uses the same methods as pickle and has exactly the same behavior 
@@ -214,7 +214,7 @@ Method 1: Adding methods to object for custom serialization
 
 
 Method 2: Adding plugins to serializejson
-----------------------------------------
+-----------------------------------------
     .. _add-plugins-label:
 
     You have the possibility to add plugins to the serializejson module if you do not want or cannot add methods to 

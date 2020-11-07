@@ -76,14 +76,14 @@ def bytearrayB64(b64,compression = None):
     if compression:
         if compression in blosc_compressions:
             return blosc.decompress(b64decode(b64, validate=True),as_bytearray=True)
-        raise Exception(f"{compression} compression unknow")
+        raise Exception(f"unknow {compression} compression")
     return bytearray(b64decode(b64, validate=True))
 
 def bytesB64(b64,compression = None):
     if compression:
         if compression in blosc_compressions:
             return blosc.decompress(b64decode(b64, validate=True))
-        raise Exception(f"{compression} compression unknow")
+        raise Exception(f"unknow {compression} compression")
     return b64decode(b64, validate=True)
     
 
@@ -100,7 +100,7 @@ def numpyB64(str64, dtype=None, shape_len_compression=None,compression = None):
         if compression in blosc_compressions: 
             decodedBytes = blosc.decompress(decodedBytes,as_bytearray=True)
         else:
-            raise Exception(f"{compression} compression unknow")
+            raise Exception(f"unknow {compression} compression")
     # str64 -> bytes: decoding with copy
     if dtype in ("bool", bool):
         numpy_uint8_containing_8bits = frombuffer(
@@ -178,7 +178,7 @@ def dumps(obj, **argsDict):
 
 def dump(obj, fp, **argsDict):
     """
-    Dump object into json file. 
+    Dump an object into json file. 
     
     Args: 
         obj: object to dump.
@@ -192,7 +192,7 @@ def dump(obj, fp, **argsDict):
 
 def append(obj, fp=None, *, indent="\t", **argsDict):
     """
-    Append object into json file. 
+    Append an object into json file. 
     
     Args: 
         obj: object to dump.
@@ -208,7 +208,7 @@ def append(obj, fp=None, *, indent="\t", **argsDict):
 
 def loads(s, *, obj=None, iterator=False, **argsDict):  # on ne peut pas en meme temps updater objet
     """
-    Load object from json string. 
+    Load an object from a json string. 
     
     Args: 
         s: 
@@ -232,7 +232,7 @@ def loads(s, *, obj=None, iterator=False, **argsDict):  # on ne peut pas en meme
 
 def load(fp, *, obj=None, iterator=False, **argsDict):
     """
-    Load object from json file. 
+    Load an object from a json file. 
     
     Args: 
         fp (str or file-like): 
@@ -271,6 +271,9 @@ class Encoder(rapidjson.Encoder):
         attributes_filter:
             objects attributes starting with `attributes_filter` will not be 
             serialized. ("_" by default).
+
+        chunk_size: 
+            write the stream in chunks of this size at a time.
         
         ensure_ascii: 
             whether non-ascii str are dumped with escaped unicode or utf-8.
@@ -281,30 +284,35 @@ class Encoder(rapidjson.Encoder):
             - None: Json in one line (quicker than with indent).
             - int: new lines and `indent` spaces for indent.
             - '\\\\t': new lines and tabulations for indent (take less space than int > 1).
-       
-        
+               
         single_line_init:
-            whether __init__ must be serialize in one line.
+            whether `__init__` must be serialize in one line.
         
         single_line_list_numbers:
             whether list of numbers of same type must be serialize in one line.
         
         sort_keys:
             whether dictionary keys should be sorted alphabetically.
-            
-        chunk_size: 
-            write the stream in chunks of this size at a time.
-            
+                      
         bytes_compression(None or str):
             Compression algorithm name for bytes, bytesarray and numpy arrays:
             "blosclz", "lz4", "lz4hc", "snappy", "zlib", "zstd" or None 
             if no compression. By default the "blosclz" compression is used.
-            
-            
+                        
         bytes_compression_threshold: 
             bytes size threshold beyond compression is tried to reduce size of 
             bytes, bytesarray and numpy array if `bytes_compression` is not None.
-            
+
+        bytearray_use_bytearrayB64: 
+            save bytearray with references to serializejson.bytearrayB64
+            instead of verbose use of base64.b64decode. It save space but make 
+            the json file dependent of the serializejson module. 
+        
+        numpy_array_use_numpyB64: 
+            save numpy arrays with references to serializejson.numpyB64
+            instead of verbose use of base64.b64decode. It save space but make 
+            the json file dependent of the serializejson module. 
+
         numpy_array_readable_max_size (dict):
             for each dtype `numpy_array_readable_max_size` defines the maximum array size for serialization in readable numbers.
             If value is `None` there is no maximum and numpy array of this dtype are all serialized in readable numbers.
@@ -312,7 +320,7 @@ class Encoder(rapidjson.Encoder):
             
             .. note::
                 
-                serialization in readable decimals can take much less space in int32 if the values ar smaller or equalto 9999,
+                serialization in readable decimals can take much less space in int32 if the values ar smaller or equal to 9999,
                 but is much slower than in base 64 for big arrays. If you have lot or marge numpy int32 arrays and 
                 performance matters, then you should pass `numpy_array_readable_max_size = {}`
             
@@ -335,26 +343,14 @@ class Encoder(rapidjson.Encoder):
         numpy_types_to_python_types:
              whether numpy integers ans floats must be convert to python types.
              It save space and generally don't 
-             
-             
+                          
         **plugins_parameters:
             extra keys arguments are stocked in "serialize_parameters" 
             global module and accessible in plugins module in order to allow
-            the choice between serialization options in plugins. 
-            
+            the choice between serialization options in plugins.            
 
     """
     """
-            bytearray_use_bytearrayB64: 
-            save bytearray with references to serializejson.bytearrayB64
-            instead of verbose use of base64.b64decode. It save space but make 
-            the json file dependent of the serializejson module. 
-        
-        numpy_array_use_numpyB64: 
-            save numpy arrays with references to serializejson.numpyB64
-            instead of verbose use of base64.b64decode. It save space but make 
-            the json file dependent of the serializejson module. 
-    
         bytes_to_string:
             whether bytes must be dumped in string after utf-8 decode.
         skip_invalid_keys (bool): 
@@ -428,7 +424,7 @@ class Encoder(rapidjson.Encoder):
         self.dumped_classes = set()
         self.chunk_size = chunk_size
         if bytes_compression and bytes_compression not in blosc_compressions:
-            raise Exception(f"{bytes_compression} compression unknow. Available values for bytes_compression are {', '.join(blosc_compressions)}")
+            raise Exception(f"{bytes_compression} compression unknown. Available values for bytes_compression are {', '.join(blosc_compressions)}")
         self.bytes_compression = bytes_compression
         self.bytes_compression_threshold = bytes_compression_threshold
         self.bytes_use_bytesB64 = bytes_use_bytesB64
@@ -707,7 +703,7 @@ class Decoder(rapidjson.Decoder):
         fp (string or file-like): 
             Path or file-like object containing the json. 
             When specified, the decoder will read from this file
-            and you will not have to pass it to the load() method later. 
+            and you will not have to pass it to the `load()` method later. 
             
         authorized_classes (None, list or "all"):
             List of classes (string with qualified name or classes) that
@@ -716,8 +712,8 @@ class Decoder(rapidjson.Decoder):
             If `authorized_classes` is 
             
             * `None` then  no class are recreated.
-            * [] then only usual classes are recreated.
-            * [classe1,classe2]:usual classes and classe1,classe2 are recreated.
+            * `[]` then only usual classes are recreated.
+            * `[classe1,classe2]`: usual classes and classe1,classe2 are recreated.
             * `"all"`: all classes will be recreated with no verifications.
 
             .. warning::
@@ -728,8 +724,8 @@ class Decoder(rapidjson.Decoder):
                 parameter `authorized_classes` is "all" when loading json for 
                 example with json containing 
                 ``{"__class__":"eval","__init__":"do_anything()"}``\n
-                use "all" only briefly when you are developing and you have 
-                absolute trust int your json files and never forget to remove it.
+                use "all" only temporarily when you are developing and you have 
+                absolute trust in your json files and do not forget to remove it.
                 
 
         recognized_classes (list):
@@ -748,7 +744,7 @@ class Decoder(rapidjson.Decoder):
             if `set_attributes` is a list of classes or classes qualified names, 
             `load` will try to call the setters only for these classes 
             and for classes defined in plugins `set_attributes` lists 
-            (see documentation section: ref:`""Add plugins to serializejson"<add-plugins-label>` )  
+            (see documentation section: ref:`"Add plugins to serializejson"<add-plugins-label>`. )  
 
             .. warning::
                 **The attribute's setters are called in the json order !**
@@ -783,7 +779,7 @@ class Decoder(rapidjson.Decoder):
 
     """
     """
-        Herited from rapidjson.Decoder:
+        Inherited from rapidjson.Decoder:
 
         number_mode (int): Enable particular behaviors in handling numbers
         datetime_mode (int): How should datetime, time and date instances be handled
@@ -921,7 +917,7 @@ class Decoder(rapidjson.Decoder):
     def set_recognized_classes(self, classes):
         """
         Set the classes (string with qualified name or classes) that
-        serializejson will try to recognize from keys names. 
+        serializejson will try to recognize from key names. 
         """
         self._class_from_attributes_names = _get_recognized_classes_dict(classes)
 
@@ -929,7 +925,7 @@ class Decoder(rapidjson.Decoder):
     def set_updatables_classes(self, updatables):
         """
         Set the classes (string with qualified name or classes) that
-        serializejson will try to update if already in the provided object `obj\ when loading with load``or `loads`.
+        serializejson will try to update if already in the provided object `obj` when loading with `load` or `loads`.
         Otherwise the objects are recreated.
         """
         updatableClassStrs = set()
@@ -1429,7 +1425,7 @@ def _open_for_append(fp, indent):
             length = fp.tell()
             if length == 1:
                 fp.close()
-                raise Exception("serializeJson can append only to serialized lists")
+                raise Exception("serializejson can append only to serialized lists")
             if length >= 2:
                 fp.seek(-1, 2)  # va sur le dernier caractère
                 lastcChar = fp.read(1)
@@ -1443,12 +1439,12 @@ def _open_for_append(fp, indent):
                     fp.truncate()
                 else:
                     fp.close()
-                    raise Exception("serializeJson can append only to serialized lists")
+                    raise Exception("serializejson can append only to serialized lists")
             # fp = open(path, 'ab')
         else:
             fp = open(path, "wb")
     elif fp is None:
-        raise Exception("fichier incorrect (file, str ou unicode)")
+        raise Exception("Incorrect file (file, str ou unicode)")
     if length == 0:
         if indent is None:
             fp.write(b"[")
