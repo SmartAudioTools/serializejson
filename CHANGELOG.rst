@@ -2,6 +2,7 @@ Unreleased Github developpement version
 ---------------------------------------
     * API changed
     * add plugins support
+    * add bytes, bytearray and numpy.array compression with blosc
     * fix itertive append and decode (not fully tested).
     * fix dump of numpy types without conversion to python types(not yet numpy.float64)
 

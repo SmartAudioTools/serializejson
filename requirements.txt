@@ -4,6 +4,7 @@ pybase64==1.0.2
 PyQt5==5.15.1
 QtPy==1.9.0
 python-rapidjson==0.9.3 
+blosc
 wheel
 twine
 sphinx

@@ -42,6 +42,7 @@ if __name__ == '__main__':
             "pybase64",
             "python-rapidjson",
             "apply",
+            "blosc"
         ],  
         extras_require={
             "dev": [
