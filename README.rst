@@ -2,21 +2,21 @@ serializejson
 =============
 
     **serializejson** is a python library for serialization and deserialization
-    of complex Python objects in `JSON <http://json.org>`_ build upon `python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_ 
-    and `pybase64 <https://github.com/mayeut/pybase64>`_,  with high 
+    of complex Python objects in `JSON <http://json.org>`_ build upon 
+    `python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_ 
+    and `pybase64 <https://github.com/mayeut/pybase64>`_ and 
+    `blosc <https://github.com/Blosc/python-blosc>`_ compression,  with high 
     compatibility with pickle, like `jsonpickle <https://github.com/jsonpickle/jsonpickle>`_ 
     (`documentation <https://jsonpickle.github.io>`_), but generaly 7x faster.
    
-    
-    
     - supports Python 3.7 (maybe lower) or greater.
     - serializes arbitrary python objects into a dictionary by adding "__class__" ,and eventually "__init__" and "__state__" keys. 
     - calls the same objects methods as pickle. Therefore almost all pickable objects are serializable with serializejson without any modification.
-    - generaly two times slower than pickle for dumping and three time slower than pickle for loading  (on your menchmark) except for big arrays (optimisation will soon be done).
-    - serializes and deserializes bytes and bytearray very quickly in base64 tanks to `pybase64 <https://github.com/mayeut/pybase64>`_.
-    - serialized objects take generally less space than with pickle and just a little 30% more if big binaries data (numpy array, bytes, bytearray)
+    - generaly 2x slower than pickle for dumping and 3x slower than pickle for loading  (on your menchmark) except for big arrays (optimisation will soon be done).
+    - serializes and deserializes bytes and bytearray very quickly in base64 tanks to `pybase64 <https://github.com/mayeut/pybase64>`_ and `blosc <https://github.com/Blosc/python-blosc>`_ compression
+    - serialized objects take generally less space than with pickle (for binary datas the 30% more due to base64 encoding are largely compensed by `blosc <https://github.com/Blosc/python-blosc>` compression)
     - serialized objects are human-readable. Your datas will never be unreadable if your code evolved, you will always be able to modify your datas with a text editor, unlike with pickle.
-    - generaly 7 x faster than jsonpickle for dumping and loading (4.5x if jsonpickle use rapidjson and pybase64 backend), use less RAM , and is more readable
+    - generaly 7 x faster than jsonpickle for dumping and loading, use less RAM , and is more readable
     - can safely load untrusted / unauthenticated sources if autorized_classes list parameter is set carefully with strictly necessary objects (unlike pickle).
     - can update existing objects recursively instead of override them (serializejson can be used to save and restore in place a complete application state).
     - filters attribute starting with "_" by default (unlike pickle).

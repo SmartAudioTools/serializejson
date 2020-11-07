@@ -307,8 +307,8 @@ class Encoder(rapidjson.Encoder):
             
         numpy_array_readable_max_size (dict):
             for each dtype numpy_array_readable_max_size define the maximum array size for serialization in readable numbers.
-            if value = -1 there is no maximum and numy array of this dtype are all serialized in readable numbers.
-            By default numpy_array_readable_max_size = {"int32":-1}
+            if value is None there is no maximum and numy array of this dtype are all serialized in readable numbers.
+            if you wand numpy array int32 readeable you should pass numpy_array_readable_max_size = {"int32":None}
             
             .. note::
                 
