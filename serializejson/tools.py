@@ -12,7 +12,7 @@ import blosc
 
 
 ascii_printables_ = ascii_printables  # sert juste à éviter warning
-# from SmartFramework.serialize.objects.test_serializeJons_update import *
+# from SmartFramework.serialize.objects.test_serializeJson_update import *
 
 
 '''
@@ -34,24 +34,24 @@ def from_name(path, accept_dict_as_object=False, **variables):
     fonctionne comme eval, mais securisé en acceptant juste la qualification avec "." et l'indexation avec des []
     ATTENTION cette fonction n'a pas été testée à fond,il faudrait ecrire des tests!
 
-    exemples :
-    variable.attribut
+    examples :
+    variable.attribute
     variable["key"]
     variable['key']
     variable[variable2]
 
-    variable.attribut.attribut
-    variable.attribut["key"]
-    variable.attribut['key']
-    variable.attribut[variable2]
+    variable.attribute.attribute
+    variable.attribute["key"]
+    variable.attribute['key']
+    variable.attribute[variable2]
 
-    variable["key"].attribut
+    variable["key"].attribute
     variable["key"]["key"]
     variable["key"]['key']
     variable["key"][variable2]
 
     par contre à priori ne marche pas avec :
-    variable[variable2.attribut]
+    variable[variable2.attribute]
 
 
     """
@@ -66,7 +66,7 @@ def from_name(path, accept_dict_as_object=False, **variables):
     is_first = True
     # is_var = False
     in_var = False
-    in_attribut = False
+    in_attribute = False
     first_ch_of_square = False
     backslash_escape = False
     element_chars = []
@@ -209,8 +209,8 @@ def from_name(path, accept_dict_as_object=False, **variables):
                         current = current.__dict__[element]
                 element_chars = []
             in_var = False
-            in_attribut = True
-        elif in_attribut:
+            in_attribute = True
+        elif in_attribute:
             element_chars.append(ch)
         else:
             element_chars.append(ch)
@@ -303,7 +303,7 @@ def tupleFromInstance(inst):
         initArgs = None
         try:
             state = inst.__getstate__()  #  for QWidgets with __getstate__
-        except AttributeError:
+        except attributeError:
             if hasattr(inst, "__slots__"):
                 state = dict()
                 if hasattr(inst, "__dict__"):  # on peut avoir __dict__ dans les __slots__ !
@@ -365,8 +365,8 @@ def tupleFromInstance(inst):
                 state = tupleReduce[2]
             else:
                 state = None
-    if serialize_parameters.attributs_filter and type(state) is dict:
-        state = filtered(state, filterChar=serialize_parameters.attributs_filter)
+    if serialize_parameters.attributes_filter and type(state) is dict:
+        state = filtered(state, filterChar=serialize_parameters.attributes_filter)
     return (class_, initArgs, state)
 
 
@@ -379,10 +379,10 @@ def instance(__class__=object, __init__=None, __state__=None, __initArgs__=None,
     instance(dictionnaire)
     instance(**dictionnaire)
     instance(class_,__init__,__state__)
-    instance(class_,__init__,**attributsDict)
+    instance(class_,__init__,**attributesDict)
     instance(class_(*__init__),__state__)
-    instance(class_(*__init__),**attributsDict)
-    instance(__class__=...,__init__=...,attribut1 = ..., attribut2 = ...)
+    instance(class_(*__init__),**attributesDict)
+    instance(__class__=...,__init__=...,attribute1 = ..., attribute2 = ...)
     """
     if __initArgs__ is not None:
         __init__ = __initArgs__  # pour retro-compatibilité avec anciens json
@@ -444,21 +444,21 @@ def instance(__class__=object, __init__=None, __state__=None, __initArgs__=None,
             inst.__setstate__(__state__)
         else:
             if type(__state__) is dict:
-                set_attributs = serialize_parameters.set_attributs
+                set_attributes = serialize_parameters.set_attributes
                 if (
-                    set_attributs is True 
-                    or ((set_attributs is not False) and (class_str in set_attributs))
-                ):  # si la variable global setAttributs = True , il tente de faire appel aux setters (NON TESTE)
+                    set_attributes is True 
+                    or ((set_attributes is not False) and (class_str in set_attributes))
+                ):  # si la variable global setattributes = True , il tente de faire appel aux setters (NON TESTE)
                     for key, value in __state__.items():
-                        attributSetMethode = "set_" + key
-                        if hasattr(inst, attributSetMethode):
-                            methode = inst.__getattribute__(attributSetMethode)
-                            methode(value)
+                        attributeSetmethod = "set_" + key
+                        if hasattr(inst, attributeSetmethod):
+                            method = inst.__getattribute__(attributeSetmethod)
+                            method(value)
                         else:
-                            attributSetMethode = "set" + key[0].upper() + key[1:]
-                            if hasattr(inst, attributSetMethode):
-                                methode = inst.__getattribute__(attributSetMethode)
-                                methode(value)
+                            attributeSetmethod = "set" + key[0].upper() + key[1:]
+                            if hasattr(inst, attributeSetmethod):
+                                method = inst.__getattribute__(attributeSetmethod)
+                                method(value)
                             else :
                                 inst.__setattr__(
                                     key, value
@@ -480,7 +480,7 @@ import inspect
 from . import plugins
 # import plugins 
 tuple_from_module_class_str = {}
-default_set_attributs = set()
+default_set_attributes = set()
 encoder_plugins_parameters_default_values = {}
 decoder_plugins_parameters_default_values = {}
 
@@ -490,8 +490,8 @@ for module_name,module in   plugins.__dict__.items():
             encoder_plugins_parameters_default_values.update(module.encoder_plugins_parameters_default_values)  
         if hasattr(module, 'decoder_plugins_parameters_default_values'):
             decoder_plugins_parameters_default_values.update(module.decoder_plugins_parameters_default_values)  
-        if hasattr(module, 'set_attributs'):
-            default_set_attributs.update(module.set_attributs)        
+        if hasattr(module, 'set_attributes'):
+            default_set_attributes.update(module.set_attributes)        
         if hasattr(module, 'tuple_from_module_class_str'):
             tuple_from_module_class_str.update(module.tuple_from_module_class_str)
         else: 
@@ -504,17 +504,17 @@ for module_name,module in   plugins.__dict__.items():
 encoder_plugins_parameters_keys= set(encoder_plugins_parameters_default_values)
 decoder_plugins_parameters_keys= set(decoder_plugins_parameters_default_values)
 
-def _get_set_attributs_classes_strings(set_attributs):
-    if isinstance(set_attributs,bool)   :
-        return set_attributs
-    elif isinstance(set_attributs,Iterable):
-        set_attributs_with_defaults = default_set_attributs.copy()
-        for elt in set_attributs:
+def _get_set_attributes_classes_strings(set_attributes):
+    if isinstance(set_attributes,bool)   :
+        return set_attributes
+    elif isinstance(set_attributes,Iterable):
+        set_attributes_with_defaults = default_set_attributes.copy()
+        for elt in set_attributes:
             if not isinstance(str):
                 elt = classFromClassStr(elt)
-            set_attributs_with_defaults.add(elt)
-        return set_attributs_with_defaults 
+            set_attributes_with_defaults.add(elt)
+        return set_attributes_with_defaults 
     else : 
-        raise TypeError("Decoder set_attributs argument must be a bool, list, tuple or set, not '%s'"%type(set_attributs))
+        raise TypeError("Decoder set_attributes argument must be a bool, list, tuple or set, not '%s'"%type(set_attributes))
         
         
