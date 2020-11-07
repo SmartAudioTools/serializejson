@@ -8,6 +8,7 @@ from time import perf_counter
 from SmartFramework.files import joinPath, directory, removeExistingPathAndCreateFolder
 from SmartFramework.tools.objects import deepCompare
 
+
 try:
     import numpy
     from numpy import median
@@ -15,6 +16,7 @@ try:
 except ModuleNotFoundError:
     from statistics import median
     use_numpy = False
+
 try:    
     from qtpy import QtWidgets
     use_qtpy= True
@@ -27,8 +29,18 @@ try:
     from SmartFramework.plot.PlotUI import Curve, Pen
     from SmartFramework.plot.PlotWithCurveSelectorUI import PlotWithCurveSelectorUI
     from SmartFramework.plot.ColorEnumerator import ColorEnumerator
+    import jsonpickle
+    #jsonpickle.load_backend('rapidjson', 'dumps', 'loads', ValueError)
+    #jsonpickle.set_preferred_backend('rapidjson')    
+    #jsonpickle.set_encoder_options('rapidjson', ensure_ascii=False)
+    import jsonpickle.ext.numpy as jsonpickle_numpy
+    jsonpickle_numpy.register_handlers()
+    #jsonpickle.load_backend('rapidjson', 'dumps', 'loads', ValueError)
+    #jsonpickle.set_preferred_backend('rapidjson')
+    nb_iter  = 9 
     full_smartFramework = True
 except ImportError:
+    nb_iter  = 1
     full_smartFramework = False
     import serializejson
 
@@ -206,12 +218,29 @@ def test_serialize_vs_pickle():
     serializers = {
         "pickle": {"encoder": pickle.dumps, "decoder": pickle.loads},
         "serializejson": {
-            "encoder": serializejson.Encoder(attributs_filter=None,numpy_types_to_python_types = False),
-            "decoder": serializejson.Decoder(set_attributs=True),
+            "encoder": serializejson.Encoder(attributs_filter=None,numpy_types_to_python_types = False, indent = None),
+            "decoder": serializejson.Decoder(set_attributs=[]),
         },
         "serializejson_in_file": {
             "encoder": serializejson.Encoder(fp=bytesIO, attributs_filter=None,numpy_types_to_python_types = False),
-            "decoder": serializejson.Decoder(fp=bytesIO, set_attributs=True),
+            "decoder": serializejson.Decoder(fp=bytesIO, set_attributs=[]),
+        },
+        "serializejson_with_tab_indent": {
+            "encoder": serializejson.Encoder(attributs_filter=None,numpy_types_to_python_types = False, indent = '\t'),
+            "decoder": serializejson.Decoder(set_attributs=[]),
+        },
+        "serializejson_no_compression": {
+            "encoder": serializejson.Encoder(attributs_filter=None,numpy_types_to_python_types = False, indent = None, bytes_compression = None),
+            "decoder": serializejson.Decoder(set_attributs=[]),
+        },
+                
+        "serializejson_numpy_array_to_list": {
+            "encoder": serializejson.Encoder(attributs_filter=None,numpy_array_to_list = True,numpy_types_to_python_types = False, indent = None),
+            "decoder": serializejson.Decoder(set_attributs=[],numpy_array_from_list = True),
+        },
+        "serializejson_numpy_array_to_list_with_tab_indent": {
+            "encoder": serializejson.Encoder(attributs_filter=None,numpy_array_to_list = True,numpy_types_to_python_types = False, indent = '\t'),
+            "decoder": serializejson.Decoder(set_attributs=[],numpy_array_from_list = True),
         },
     }
 
@@ -225,21 +254,21 @@ def test_serialize_vs_pickle():
                         attributs_filter=None,
                         numpy_types_to_python_types = False
                     ),
-                    "decoder": lambda obj: serializeRepr.loads(obj, modules=modules),
+                    "decoder": lambda obj: serializeRepr.loads(obj, modules=modules,set_attributs=[]),
                 },
                 "serializePython": {
                     "encoder": lambda obj: serializePython.dumps(
                         obj,
                         attributs_filter=None,
-                        set_attributs=True,
+                        set_attributs=[],
                         numpy_types_to_python_types = False
                     ),
-                    "decoder": serializePython.loads,
-                }
-                # "jsonpickle": {
-                #    "encoder": jsonpickle.dumps,
-                #    "decoder": jsonpickle.loads
-                # },
+                    "decoder": lambda obj: serializePython.loads(obj, set_attributs=[]),
+                },
+                "jsonpickle": {
+                    "encoder": jsonpickle.encode,
+                    "decoder": jsonpickle.decode
+                },
             }
         )
 
@@ -267,7 +296,7 @@ def test_serialize_vs_pickle():
                 modules = set()
                 try:
                     times = []
-                    for i in range(100):
+                    for i in range(nb_iter):
                         bytesIO.seek(0)
                         bytesIO.truncate(0)
                         log.logs = []
@@ -276,27 +305,31 @@ def test_serialize_vs_pickle():
                         t2 = perf_counter()
                         dump_logs = log.logs
                         times.append(t2 - t1)
-                    median_time = median(times)
-                    dumps_times_by_type[serializerName][categoryName + " " + key] = round(
+                    median_time = median(times)                  
+                    categorNameKey = categoryName + " " + key
+                    dumps_times_by_type[serializerName][categorNameKey] = round(
                         median_time * 1000000, 1
                     )
-                    total_dumps_time_by_serializer[serializerName] += median_time * 100000
+                    if (serializerName == "pickle") or categorNameKey in dumps_times_by_type["pickle"]:
+                        total_dumps_time_by_serializer[serializerName] += median_time * 1000000
                 except TypeError:
-                    message = "  unable to dumps " +repr(value)
+                    message = "unable to dumps "+ repr(value)
                     print(message)
                     all_ok = False
-                    if serializerName != "pickle":
-                        raise #Exception(message)
-                    break
+                    if serializerName not in ("pickle","jsonpickle"):
+                        print(message)
+                        raise# Exception(message)
+                    continue
+                    #break
                 if serializerName != "serializejson_in_file":
                     addInFile(serializerDumpsPath, dumped)
-                if serializerName in ("serializejson", "serializejson_in_file"):
+                if serializerName.startswith("serializejson"):
                     serializer["decoder"].set_autorized_classes(
                         serializer["encoder"].get_dumped_classes()
                     )
                 try:
                     times = []
-                    for i in range(100):
+                    for i in range(nb_iter):
                         bytesIO.seek(0)
                         log.logs = []
                         t1 = perf_counter()
@@ -306,15 +339,18 @@ def test_serialize_vs_pickle():
                         # times.append(t2 - t1)
                         times.append(t2 - t1)
                     median_time = median(times)
-                    loads_times_by_type[serializerName][categoryName + " " + key] = round(
+                    categorNameKey = categoryName + " " + key
+                    loads_times_by_type[serializerName][categorNameKey] = round(
                         median_time * 1000000, 1
                     )
-                    total_loads_time_by_serializer[serializerName] += median_time * 100000
+                    if (serializerName == "pickle") or categorNameKey in loads_times_by_type["pickle"]:
+                        total_loads_time_by_serializer[serializerName] += median_time * 1000000
                 except:
-                    message = " unable to loads %s -> %s -> ERROR" % (repr(value), repr(dumped))
+                    message = "unable to loads %s -> %s -> ERROR" % (repr(value), repr(dumped))
                     print(message)
-                    all_ok = False
-                    raise 
+                    all_ok = False                    
+                    if serializerName not in ("pickle","jsonpickle"):
+                        raise   
 
                 else:
                     if categoryName.startswith("object"):
@@ -338,7 +374,7 @@ def test_serialize_vs_pickle():
                                     % (
                                         value.__class__.__name__,
                                         str(pickle_diff_loaded),
-                                        dumped,
+                                        repr(dumped),
                                         loaded.__class__.__name__,
                                         str(loaded_diff_pickle),
                                     )
@@ -371,22 +407,24 @@ def test_serialize_vs_pickle():
                             repr_value = repr(value)
                             repr_loaded = repr(loaded)
                             if repr_value != repr_loaded:
-                                message = "  %s -> %s -> %s" % (repr_value, repr(dumped), repr_loaded)
+                                message = "  %s -> %s -> %s" % (repr_value, repr(dumped[:200]), repr_loaded)
                             else:
                                 message = "  %s (%s)-> %s -> %s (%s)" % (
                                     repr_value,
                                     str(original_diff_loaded),
-                                    repr(dumped),
+                                    repr(dumped[:200]),
                                     repr_loaded,
                                     str(loaded_diff_orginal),
                                 )
                             print(message)
                             raise_exception = True
                             type_value  =type(value)
-                            if serializerName == "serializePython" :
-                                if categoryName == "QtWidgets" :
-                                    raise_exception = False
-                            elif serializerName in ("serializejson","serializejson_in_file"):
+                            #if serializerName == "serializePython" :
+                            #    if categoryName == "QtWidgets" :
+                            #        raise_exception = False
+                            if serializerName.startswith("serializejson_numpy_array_to_list") and (isinstance(value,(tuple,list)) or isinstance(value,numpy.ndarray)):
+                                raise_exception = False
+                            elif serializerName.startswith("serializejson"):
                                 # exception pour serializejson 
                                 if type_value is tuple:
                                     (
@@ -402,6 +440,8 @@ def test_serialize_vs_pickle():
                                     raise_exception = False
                                 elif use_numpy and type_value is numpy.float64 and value == loaded :
                                     raise_exception = False
+                            elif serializerName == "jsonpickle" and value is type(None):
+                                raise_exception = False
                             if raise_exception:
                                 raise Exception(message)
         if all_ok:

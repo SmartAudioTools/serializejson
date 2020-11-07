@@ -37,11 +37,6 @@ class C_New_SaveFilteredDict_RestoreDict:
         self._par1 = par1
         self.par2 = par2
 
-    def __reduce__(self):
-        reduce = self.__class__, (), self.__getstate__()
-        log("        __reduce__ : " + repr(reduce))
-        return reduce
-
     def __getstate__(self):
         state = filtered(self.__dict__)
         log("        __getstate__ : " + repr(state))

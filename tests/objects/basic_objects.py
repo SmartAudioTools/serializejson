@@ -41,12 +41,14 @@ objects = {
         "ascii_with_back_slash": b'bonjour les "amis"\\\n',
         "range128": bytes(range(128)),
         "range256": bytes(range(256)),
+        "range256x1200":bytes(range(256))*1200
     },
     "bytesarray": {
         "empty": bytearray(),
         "ascii_printable": bytearray(b"bonjour"),
         "range128": bytearray(range(128)),
         "range256": bytearray(range(256)),
+        #"range256x1200":bytearray(range(256))*1200 : plante avec jsonpickle
     },
     "list": {
         "empty": [],

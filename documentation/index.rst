@@ -151,7 +151,7 @@ Methode 1 : Add methods to object for custom serialization
         
         .. note::
         
-            If __setstate __() is not available, all elements of self.__dict__, self.__slots__ or returned by __getstate__ () (which in this case will have to return a dict) will be restored as attributes. 
+            If __setstate __() is not available, all elements of self.__dict__, self.__slots__ or returned by __getstate__ () (which in this case must return a dict) will be restored as attributes. 
             
             * Passively if set_attribut = False (like pickle) 
             * actively with call of setters if set_attribut = True or set_attribut =  [..,your_object]. In alphabetic order if sort_keys=True or in random order if sort_keys=False.    
@@ -302,3 +302,32 @@ Methode 2 : Add plugins to serializejson
 Versions
 ========
 .. include:: ../CHANGELOG.rst
+
+
+Futur Versions (TODO)
+=====================
+    * Add support for :
+        - Tuple
+        - dict with no-string keys
+        - time.struct_time
+        - collections.Counter
+        - collections.OrderedDict
+        - collections.defaultdict
+        - namedtuples
+        - dataclass
+        - panda.dataframe
+        
+    * Add test for :
+        - every Encoder and Decoder parameters
+        - object update
+        - circular referencies and duplicates 
+        
+    * Optimisation : 
+        - bytes : need pybase64.b64encode directly to str and rapidjson.RawJSON improvements
+        - numpy array : need pybase64.b64decode direclty to bytearray.
+        - circular referencies and duplicates  : need rapidjson improvements (Encoder.default call for list an dictonnaries)
+        - list of numbers : speed up _onlyOneDimNumbers fucntion with Cython ? 
+        - json iterator : 
+            - speed up  _json_object_file_iterator function with Cython ?
+            - improve rapidjson for something like raw_decode of the standard json library ? 
+        

@@ -8,7 +8,7 @@ from pybase64 import b64encode,b64decode
 from apply import apply
 import copyreg
 from collections.abc import Iterable 
-
+import blosc
 
 
 ascii_printables_ = ascii_printables  # sert juste à éviter warning
@@ -24,6 +24,10 @@ def from_id(obj_id):
 '''
 valid_char_for_var_name = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_")
 
+
+def compress(inst,compression):
+    if compression == "blosc" :
+        return blosc.compress(inst)
 
 def from_name(path, accept_dict_as_object=False, **variables):
     """fonction qui permet d'evaluer une expression pour acceder à une valeure à partir de son nom qualifié

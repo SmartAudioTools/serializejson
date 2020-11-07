@@ -56,7 +56,8 @@ except ModuleNotFoundError:
 import gc
 from _collections_abc import list_iterator
 from . import serialize_parameters
-
+import blosc 
+blosc_compressions = set(blosc.cnames)
 
 __all__ = ['dumps', 'dump', 'loads', 'load', 'append', 'Encoder', 'Decoder']
 
@@ -70,32 +71,59 @@ __all__ = ['dumps', 'dump', 'loads', 'load', 'append', 'Encoder', 'Decoder']
 
 nb_bits = sys.maxsize.bit_length() + 1
 
-def bytearrayB64(b64):
+
+def bytearrayB64(b64,compression = None):
+    if compression :
+        if compression in blosc_compressions:     
+            return blosc.decompress(b64decode(b64, validate=True),as_bytearray=True)
+        raise Exception(f"{compression} compression unknow")
     return bytearray(b64decode(b64, validate=True))
 
-def bytesB64(b64):
+def bytesB64(b64,compression = None):       
+    if compression :
+        if compression in blosc_compressions:   
+            return blosc.decompress(b64decode(b64, validate=True))
+        raise Exception(f"{compression} compression unknow")
     return b64decode(b64, validate=True)
+    
 
-
-def numpyB64(str64, dtype=None, shapeOrLen=None):
-    decodedBytes = b64decode(str64, validate=True)  # str64 -> bytes : decodage avec copie
+def numpyB64(str64, dtype=None, shape_len_compression=None,compression = None):
+    decodedBytes = b64decode(
+        str64, validate=True
+    )  
+    if isinstance(shape_len_compression,str):
+        compression = shape_len_compression
+        shape_len = None
+    else : 
+        shape_len = shape_len_compression
+    if compression :
+        if compression in blosc_compressions: 
+            decodedBytes =  blosc.decompress(decodedBytes,as_bytearray=True)
+        else :
+            raise Exception(f"{compression} compression unknow")
+    # str64 -> bytes : decodage avec copie
     if dtype in ("bool", bool):
-        numpy_uint8_containing_8bits = frombuffer(decodedBytes, uint8)  # pas de copie -> read only
+        numpy_uint8_containing_8bits = frombuffer(
+            decodedBytes, uint8
+        )  # pas de copie -> read only
         numpy_uint8_containing_8bits = unpackbits(
             numpy_uint8_containing_8bits
         )  # copie dans un numpy array de uint8 mutable
-        if shapeOrLen is None:
-            shapeOrLen = len(numpy_uint8_containing_8bits)
-        return ndarray(shapeOrLen, dtype, numpy_uint8_containing_8bits)  # pas de recopie
+        if shape_len is None:
+            shape_len = len(numpy_uint8_containing_8bits)
+        return ndarray(
+            shape_len, dtype, numpy_uint8_containing_8bits
+        )  # pas de recopie
     else:
         if isinstance(dtype, list):
             dtype = [(str(champName), champType) for champName, champType in dtype]
-        if shapeOrLen is None:
+        if shape_len is None:
             array = frombuffer(decodedBytes, dtype)  # pas de recopie
         else:
-            array = ndarray(shapeOrLen, dtype, decodedBytes)  # pas de recopie
+            array = ndarray(shape_len, dtype, decodedBytes)  # pas de recopie
         if (
-            nb_bits == 32 and serialize_parameters.numpyB64_convert_int64_to_int32_and_align_in_Python_32Bit
+            nb_bits == 32
+            and serialize_parameters.numpyB64_convert_int64_to_int32_and_align_in_Python_32Bit
         ):  # pour pouvoir deserialiser les classifiers en python 32 bit ?
             if array.dtype in (int64, "int64"):
                 return array.astype(int32)
@@ -267,15 +295,15 @@ class Encoder(rapidjson.Encoder):
         chunk_size: 
             write the stream in chunks of this size at a time.
             
-        bytearray_use_bytearrayB64 : 
-            save bytearray with referencies to serializejson.bytearrayB64
-            instead of verbose use of base64.b64decode. It save space but make 
-            the json file dependent of the serializejson module. 
-        
-        numpy_array_use_numpyB64 : 
-            save numpy arrays with referencies to serializejson.numpyB64
-            instead of verbose use of base64.b64decode. It save space but make 
-            the json file dependent of the serializejson module. 
+        bytes_compression(None or str):
+            Compression algorithm name for bytes, bytesarray and numpy arrays :  
+            "blosclz", "lz4", "lz4hc", "snappy", "zlib", "zstd" or None 
+            if no compression. By default "blosclz" compression is used.
+            
+            
+        bytes_compression_threshold : 
+            bytes size threshold beyond compression is tryed to reduce size of 
+            bytes, bytesarray and numpy array if bytes_compression is not None.
             
         numpy_array_readable_max_size (dict):
             for each dtype numpy_array_readable_max_size define the maximum array size for serialization in readable numbers.
@@ -315,6 +343,15 @@ class Encoder(rapidjson.Encoder):
 
     """
     """
+            bytearray_use_bytearrayB64 : 
+            save bytearray with referencies to serializejson.bytearrayB64
+            instead of verbose use of base64.b64decode. It save space but make 
+            the json file dependent of the serializejson module. 
+        
+        numpy_array_use_numpyB64 : 
+            save numpy arrays with referencies to serializejson.numpyB64
+            instead of verbose use of base64.b64decode. It save space but make 
+            the json file dependent of the serializejson module. 
     
         bytes_to_string:
             whether bytes must be dumped in string after utf-8 decode.
@@ -344,14 +381,17 @@ class Encoder(rapidjson.Encoder):
         fp=None,
         *,
         attributs_filter="_",
+        chunk_size=65536,
         ensure_ascii=False,
         indent="\t",
         single_line_init=True,
         single_line_list_numbers=True,
         sort_keys=True,
-        chunk_size=65536,
-        bytearray_use_bytearrayB64=True,
-        numpy_array_use_numpyB64=True,
+        bytes_compression = 'blosclz' ,# 
+        bytes_compression_threshold = 512,
+        bytes_use_bytesB64 = True, # le laisser ?
+        bytearray_use_bytearrayB64=True,  # le laisser ?
+        numpy_array_use_numpyB64=True,  # le laisser ?
         numpy_array_readable_max_size={}, #'int32':-1
         numpy_array_to_list=False,
         numpy_types_to_python_types=True,
@@ -385,6 +425,11 @@ class Encoder(rapidjson.Encoder):
         self._dump_one_line = indent is None
         self.dumped_classes = set()
         self.chunk_size = chunk_size
+        if bytes_compression and  bytes_compression not in blosc_compressions:     
+            raise Exception(f"{bytes_compression} compression unknow")
+        self.bytes_compression = bytes_compression            
+        self.bytes_compression_threshold = bytes_compression_threshold
+        self.bytes_use_bytesB64 = bytes_use_bytesB64
         self.bytearray_use_bytearrayB64 = bytearray_use_bytearrayB64
         self.numpy_array_to_list = numpy_array_to_list
         self.numpy_array_use_numpyB64 = numpy_array_use_numpyB64
@@ -599,6 +644,9 @@ class Encoder(rapidjson.Encoder):
                 #**self.kargs
             )
         serialize_parameters.attributs_filter = self.attributs_filter
+        serialize_parameters.bytes_compression = self.bytes_compression
+        serialize_parameters.bytes_compression_threshold = self.bytes_compression_threshold
+        serialize_parameters.bytes_use_bytesB64 = self.bytes_use_bytesB64
         serialize_parameters.numpy_array_use_numpyB64 = self.numpy_array_use_numpyB64
         serialize_parameters.numpy_array_readable_max_size = self.numpy_array_readable_max_size        
         serialize_parameters.bytearray_use_bytearrayB64 = self.bytearray_use_bytearrayB64

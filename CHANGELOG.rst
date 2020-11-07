@@ -1,33 +1,5 @@
-TODO
-----
-    * Add support for :
-        - Tuple
-        - dict with no-string keys
-        - time.struct_time
-        - collections.Counter
-        - collections.OrderedDict
-        - collections.defaultdict
-        - namedtuples
-        - dataclass
-        - panda.dataframe
-        
-    * Add test for :
-        - every Encoder and Decoder parameters
-        - object update
-        - circular referencies and duplicates 
-        
-    * Optimisation : 
-        - bytes : need pybase64.b64encode directly to str and rapidjson.RawJSON improvements
-        - numpy array : need pybase64.b64decode direclty to bytearray.
-        - circular referencies and duplicates  : need rapidjson improvements (Encoder.default call for list an dictonnaries)
-        - list of numbers : speed up _onlyOneDimNumbers fucntion with Cython ? 
-        - json iterator : 
-            - speed up  _json_object_file_iterator function with Cython ?
-            - improve rapidjson for something like raw_decode of the standard json library ? 
-        
-        
-Unreleased
-----------
+Unreleased Github developpement version
+---------------------------------------
     * API changed
     * add plugins support
     * fix itertive append and decode (not fully tested).

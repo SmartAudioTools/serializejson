@@ -4,70 +4,69 @@ except ModuleNotFoundError:
     pass
 try:
     from SmartFramework import  numpyB64
-    from SmartFramework.serialize.tools import encodedB64,classStrFromClass
+    from SmartFramework.serialize.tools import encodedB64
     from SmartFramework.serialize import serialize_parameters
 except :
     from serializejson import numpyB64
-    from serializejson.tools import encodedB64,classStrFromClass
+    from serializejson.tools import encodedB64
     from serializejson import serialize_parameters
 #from rapidjson import RawJSON
-    
-    
+import blosc
+blosc_compressions = set(blosc.cnames)
+
 def tuple_from_ndarray(inst):
 
-    instCont = numpy.ascontiguousarray(inst)
-    dtype = instCont.dtype
+    inst = numpy.ascontiguousarray(inst)
+    dtype = inst.dtype
+    #compression = serialize_parameters.bytes_compression
     if dtype.fields is None:
-        instContdtype = str(dtype)
-        if instContdtype in serialize_parameters.numpy_array_readable_max_size : 
-            max_size = serialize_parameters.numpy_array_readable_max_size[instContdtype]
-            if max_size == -1 or instCont.size <= max_size:
-                return ("numpy.array", (instCont.tolist(), instContdtype), None) #  A REVOIR : pas génial car va tester ultérieurement si tous les elements sont du même type....
+        dtype_str = str(dtype)
+        if dtype_str in serialize_parameters.numpy_array_readable_max_size : 
+            max_size = serialize_parameters.numpy_array_readable_max_size[dtype_str]
+            if max_size == -1 or inst.size <= max_size:
+                return ("numpy.array", (inst.tolist(), dtype_str), None) #  A REVOIR : pas génial car va tester ultérieurement si tous les elements sont du même type....
     else:
-        instContdtype = dtype.descr
+        dtype_str = dtype.descr
 
-        #return (numpy.array, (RawJSON(numpy.array2string(instCont,separator =',')), instContdtype), None)  plus lent.
-    if instCont.ndim == 1:
-        if serialize_parameters.numpy_array_use_numpyB64:
-            if dtype == bool:
-                return (
-                    numpyB64,
-                    (
-                        encodedB64(numpy.packbits(instCont.astype(numpy.uint8))),
-                        "bool",
-                        len(instCont),
-                    ),
-                    None,
-                )
-            else:
-                return (numpyB64, (encodedB64(instCont), instContdtype), None)
+        #return (numpy.array, (RawJSON(numpy.array2string(inst,separator =',')), dtype_str), None)  plus lent.
+
+
+    if serialize_parameters.numpy_array_use_numpyB64:
+        if dtype == bool:
+            data = numpy.packbits(inst.astype(numpy.uint8))
+            typesize = 1
+            if inst.ndim == 1:
+                len_or_shape = len(inst)
+            else : 
+                len_or_shape = inst.shape
         else:
-            return ("numpy.frombuffer", (bytearray(instCont), instContdtype), None)
+            data = inst
+            typesize = inst.itemsize
+            if inst.ndim == 1:
+                len_or_shape = None
+            else : 
+                len_or_shape = inst.shape
+        compression = serialize_parameters.bytes_compression
+        if compression and len(data) >= serialize_parameters.bytes_compression_threshold :
+            if compression in blosc_compressions: 
+                compressed = blosc.compress(data,typesize,cname = compression)
+            else : 
+                raise Exception(f"{compression} compression unknow")
+            if len(compressed) < data.size:
+                if len_or_shape is None : 
+                    return (numpyB64,(encodedB64(compressed), dtype_str, compression),None,)
+                else : 
+                    return (numpyB64,(encodedB64(compressed), dtype_str, len_or_shape,compression),None,)
+        if len_or_shape is None : 
+            return (numpyB64,(encodedB64(data), dtype_str),None,)
+        else : 
+            return (numpyB64,(encodedB64(data), dtype_str, len_or_shape),None,)
+                
     else:
-
-        if serialize_parameters.numpy_array_use_numpyB64:
-            if dtype == bool:
-                return (
-                    numpyB64,
-                    (
-                        encodedB64(numpy.packbits(instCont.astype(numpy.uint8))),
-                        "bool",
-                        instCont.shape,
-                    ),
-                    None,
-                )
-            else:
-                return (
-                    numpyB64,
-                    (encodedB64(instCont), instContdtype, instCont.shape),
-                    None,
-                )
-        else:
-            return (
-                numpy.ndarray,
-                (instCont.shape, instContdtype, bytearray(instCont)),
-                None,
-            )
+        if inst.ndim == 1:
+            return ("numpy.frombuffer", (bytearray(inst), dtype_str), None)
+        else : 
+            return (numpy.ndarray,(inst.shape, dtype_str, bytearray(inst)),None,)
 
 def tuple_from_dtype(inst):
     initArgs = (str(inst),)
