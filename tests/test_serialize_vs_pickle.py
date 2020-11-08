@@ -37,7 +37,7 @@ try:
     jsonpickle_numpy.register_handlers()
     #jsonpickle.load_backend('rapidjson', 'dumps', 'loads', ValueError)
     #jsonpickle.set_preferred_backend('rapidjson')
-    nb_iter  = 9 
+    nb_iter  = 19 
     full_smartFramework = True
 except ImportError:
     nb_iter  = 1

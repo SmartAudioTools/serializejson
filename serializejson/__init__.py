@@ -314,7 +314,7 @@ class Encoder(rapidjson.Encoder):
                 
                 serialization in readable decimals can take much less space in int32 if values < 9999,
                 but is much slower than in base 64 for big arrays. If you have lot or big numpy int32 arrays and 
-                performances matter you should pass numpy_array_readable_max_size = {}
+                performances matter you should stay with numpy_array_readable_max_size = {} (default)
             
         numpy_array_to_list : 
             whether numpy array should be serialized as list. 
