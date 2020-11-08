@@ -99,7 +99,7 @@ def tuple_from_QWidget(obj):
     return (get_class(obj),  tuple(), None)
     
 
-set_attributs = {
+set_attributes = {
         "qtpy.QtWidgets.QCheckBox",
         "qtpy.QtWidgets.QDoubleSpinBox",
         "qtpy.QtWidgets.QLineEdit",

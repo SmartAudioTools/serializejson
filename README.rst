@@ -1,46 +1,49 @@
 serializejson
 =============
 
-    **serializejson** is a python library for serialization and deserialization
-    of complex Python objects in `JSON <http://json.org>`_ build upon 
-    `python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_ 
-    and `pybase64 <https://github.com/mayeut/pybase64>`_ and 
-    `blosc <https://github.com/Blosc/python-blosc>`_ compression,  with high 
-    compatibility with pickle, like `jsonpickle <https://github.com/jsonpickle/jsonpickle>`_ 
-    (`documentation <https://jsonpickle.github.io>`_), but generaly 7x faster.
+    **serializejson** is a python library that allows serialization and deserialization
+    of complex Python objects in `JSON <http://json.org>`_.
+    Like `jsonpickle <https://github.com/jsonpickle/jsonpickle>`_ it has a high 
+    compatibility with pickle, but is generally 7x faster.
+    The library is build upon 
+    `python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_, 
+    `pybase64 <https://github.com/mayeut/pybase64>`_ and 
+    `blosc <https://github.com/Blosc/python-blosc>`_ compression.  
    
+	Some of the main features: 
+	
     - supports Python 3.7 (maybe lower) or greater.
-    - serializes arbitrary python objects into a dictionary by adding "__class__" ,and eventually "__init__" and "__state__" keys. 
+    - serializes arbitrary python objects into a dictionary by adding `__class__` ,and eventually `__init__` and `__state__` keys. 
     - calls the same objects methods as pickle. Therefore almost all pickable objects are serializable with serializejson without any modification.
-    - generaly 2x slower than pickle for dumping and 3x slower than pickle for loading  (on your menchmark) except for big arrays (optimisation will soon be done).
-    - serializes and deserializes bytes and bytearray very quickly in base64 tanks to `pybase64 <https://github.com/mayeut/pybase64>`_ and `blosc <https://github.com/Blosc/python-blosc>`_ compression
-    - serialized objects take generally less space than with pickle (for binary datas the 30% more due to base64 encoding are largely compensed by `blosc <https://github.com/Blosc/python-blosc>` compression)
-    - serialized objects are human-readable. Your datas will never be unreadable if your code evolved, you will always be able to modify your datas with a text editor, unlike with pickle.
-    - generaly 7 x faster than jsonpickle for dumping and loading, use less RAM , and is more readable
-    - can safely load untrusted / unauthenticated sources if autorized_classes list parameter is set carefully with strictly necessary objects (unlike pickle).
+    - generally 2x slower than pickle for dumping and 3x slower than pickle for loading  (on your benchmark) except for big arrays (optimisation will soon be done).
+    - serializes and deserializes bytes and bytearray very quickly in base64 thanks to `pybase64 <https://github.com/mayeut/pybase64>`_ and lossless `blosc <https://github.com/Blosc/python-blosc>`_ compression.
+    - serialized objects take generally less space than when serialized with pickle: for binary data, the 30% increase due to base64 encoding is in general largely compensated using the lossless `blosc <https://github.com/Blosc/python-blosc>`_ compression.
+    - serialized objects are human-readable. Unlike pickled data, your data will never become unreadable if your code evolves: you will always be able to modify your datas with a text editor.
+    - compared to json jsonpickle, it is generally 7x faster for dumping and loading, uses less RAM and produces json files that are more readable.
+    - can safely load untrusted / unauthenticated sources if authorized_classes list parameter is set carefully with strictly necessary objects (unlike pickle).
     - can update existing objects recursively instead of override them (serializejson can be used to save and restore in place a complete application state).
     - filters attribute starting with "_" by default (unlike pickle).
-    - numpy arrays can be serialized as list with automatique conversion in both ways or in a conservative way. 
-    - supports circular references and serialize only once duplicated objects (WARNING :not yet if the object is a list or dictionary).
-    - try to call attribute setters and properties setters when loading if set_attributs  = True.
+    - numpy arrays can be serialized as lists with automatic conversion in both ways or in a conservative way. 
+    - supports circular references and serializes only once duplicated objects (WARNING :not yet if the object is a list or dictionary).
+    - tries to call attribute setters and properties setters when loading if set_attributes  = True.
     - accepts json with comment (// and /\* \*/).
-    - can automatically recognize objects in json from keys names and recreate them, without the need of "__class__" key, if passed in recognized_classes. It allows loading foreign json serialized with others libraries who only save objects attributes. 
+    - can automatically recognize objects in json from keys names and recreate them, without the need of `__class__` key, if passed in recognized_classes. It allows loading foreign json serialized with others libraries who only save objects attributes. 
     - dump and load support string path. 
-    - can iteratively encode (with append) and decode (with iterator) a list in json, saving memory space during the process of serialization et deserialization.
+    - can iteratively encode (with append) and decode (with iterator) a list in json, which helps saving memory space during the process of serialization et deserialization.
         
     .. warning::
     
         Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized 
     
-    	**⚠ serializejson can execute arbitrary Python code when loading json**, if the load parameter autorized_classes is "all". 
-    	Do not load serializejsons from untrusted / unauthenticated sources without carfuly set the load autorized_classes parameter.
+    	**⚠ serializejson can execute arbitrary Python code when loading json**, if the load parameter authorized_classes is "all". 
+    	Do not load serializejson files from untrusted / unauthenticated sources without carefully setting the load authorized_classes parameter.
     	
-    	Never dump dictionnary with the "__class__" key,otherwise serializejson will attempte to reconstruct an object when load json. 
-    	Be careful to know allow an user to mannualy enter a dictionnary key somewhere without chekcking that it's no "__class__"
+    	Never dump a dictionary with the `__class__` key, otherwise serializejson will attempt to reconstruct an object when loading the json. 
+    	Be careful not to allow a user to manually enter a dictionary key somewhere without checking that it is not `__class__`
     
 
-Install
-=======
+Installation
+============
 
     **Last offical release**
     

@@ -19,8 +19,8 @@ forceRelativePath = False  # force noms de fichier en chemin relatif ,utilisé q
 forceAbsolutPath = False  # force noms de fichier en chemin absolut ,utilisé que dans serializeRepr.py dans la fonction reprFile. Ce paramètre n'est modifiable que directemen ici
 
 # serialisation des objets -----------------------------------------
-# attributs_filter   = "_"        #  dit si doit filtrer les attribut commencant par la chaine stocke dans filtre.
-# set_attributs      = True       # dit si doit tenter d'appeler setter pour la restauration des attributs.
+# attributes_filter   = "_"        #  dit si doit filtrer les attribute commencant par la chaine stocke dans filtre.
+# set_attributes      = True       # dit si doit tenter d'appeler setter pour la restauration des attributes.
 # False :  		    + conforme au comportement de pickle (si on n'utiliser pas de filtre "_")
 # True  :  		    + permet d'effectuer des traitements, de mettre en place des choses (par ex interface I/O) ,
 #             	    +  permet de rafraichir UI
@@ -28,8 +28,8 @@ forceAbsolutPath = False  # force noms de fichier en chemin absolut ,utilisé qu
 #             	    - pas meme comportement que pickle
 #
 # pickle  : 		True : INCOMPATIBLE PICKLE, pickle par defaut ne fera jamais appele au setter. Il faut coder __setstate__ pour le faire
-# serializePython: True : appel en dur de setAttribut à la serialisation 	  / False :  le fera de toute facon si c'est une propriétée...=> INCOMPATIBLE PICKLE
-# serializeJson : 	True : appel dynamique de setAttribut à la deserialisation / False : pas d'appel du setter
+# serializePython: True : appel en dur de setattribute à la serialisation 	  / False :  le fera de toute facon si c'est une propriétée...=> INCOMPATIBLE PICKLE
+# serializeJson : 	True : appel dynamique de setattribute à la deserialisation / False : pas d'appel du setter
 # serialiseRepr :	A REVOIR ET TESTER
 
 # uniquement pour serializePython et serializeRepr ----------------------------------

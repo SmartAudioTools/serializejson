@@ -127,8 +127,8 @@ def deepCompare(a, b, return_reason=False):
     return True
 
 
-def hasMethod(obj, methode):
-    return hasattr(obj, methode) and inspect.ismethod(getattr(obj, methode))
+def hasMethod(obj, method):
+    return hasattr(obj, method) and inspect.ismethod(getattr(obj, method))
 
 
 
@@ -198,12 +198,11 @@ def comp(obj1, obj2):
         return obj1 == obj2
 
 
-# AJOUTE LES INIT ARGS AUX ATTRIBUTS ----------
 
 
 def add_Args(dictLocals):
     """
-    permet d'ajouter automatiquement les arguments (du init par ex) comme attribut de l'objet
+    permet d'ajouter automatiquement les arguments (du init par ex) comme attribute de l'objet
 
     def __init__(self) :
         add_Args(locals())

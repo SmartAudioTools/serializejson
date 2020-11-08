@@ -136,7 +136,7 @@ if use_numpy:
         from objects import numpy_objects
     objects.update(numpy_objects.objects)
 
-autorized_classes = []
+authorized_classes = []
 for module in [
     init_arg,
     init_args_explicite_getstate,
@@ -166,7 +166,7 @@ for module in [
     for class_name, class_ in module.__dict__.items():
         if class_name.startswith("C_"):
             categorie_dict[class_name] = class_()
-            autorized_classes.append(class_)
+            authorized_classes.append(class_)
 
 
 """"
@@ -218,29 +218,29 @@ def test_serialize_vs_pickle():
     serializers = {
         "pickle": {"encoder": pickle.dumps, "decoder": pickle.loads},
         "serializejson": {
-            "encoder": serializejson.Encoder(attributs_filter=None,numpy_types_to_python_types = False, indent = None),
-            "decoder": serializejson.Decoder(set_attributs=[]),
+            "encoder": serializejson.Encoder(attributes_filter=None,numpy_types_to_python_types = False, indent = None),
+            "decoder": serializejson.Decoder(set_attributes=[]),
         },
         "serializejson_in_file": {
-            "encoder": serializejson.Encoder(fp=bytesIO, attributs_filter=None,numpy_types_to_python_types = False),
-            "decoder": serializejson.Decoder(fp=bytesIO, set_attributs=[]),
+            "encoder": serializejson.Encoder(fp=bytesIO, attributes_filter=None,numpy_types_to_python_types = False),
+            "decoder": serializejson.Decoder(fp=bytesIO, set_attributes=[]),
         },
         "serializejson_with_tab_indent": {
-            "encoder": serializejson.Encoder(attributs_filter=None,numpy_types_to_python_types = False, indent = '\t'),
-            "decoder": serializejson.Decoder(set_attributs=[]),
+            "encoder": serializejson.Encoder(attributes_filter=None,numpy_types_to_python_types = False, indent = '\t'),
+            "decoder": serializejson.Decoder(set_attributes=[]),
         },
         "serializejson_no_compression": {
-            "encoder": serializejson.Encoder(attributs_filter=None,numpy_types_to_python_types = False, indent = None, bytes_compression = None),
-            "decoder": serializejson.Decoder(set_attributs=[]),
+            "encoder": serializejson.Encoder(attributes_filter=None,numpy_types_to_python_types = False, indent = None, bytes_compression = None),
+            "decoder": serializejson.Decoder(set_attributes=[]),
         },
                 
         "serializejson_numpy_array_to_list": {
-            "encoder": serializejson.Encoder(attributs_filter=None,numpy_array_to_list = True,numpy_types_to_python_types = False, indent = None),
-            "decoder": serializejson.Decoder(set_attributs=[],numpy_array_from_list = True),
+            "encoder": serializejson.Encoder(attributes_filter=None,numpy_array_to_list = True,numpy_types_to_python_types = False, indent = None),
+            "decoder": serializejson.Decoder(set_attributes=[],numpy_array_from_list = True),
         },
         "serializejson_numpy_array_to_list_with_tab_indent": {
-            "encoder": serializejson.Encoder(attributs_filter=None,numpy_array_to_list = True,numpy_types_to_python_types = False, indent = '\t'),
-            "decoder": serializejson.Decoder(set_attributs=[],numpy_array_from_list = True),
+            "encoder": serializejson.Encoder(attributes_filter=None,numpy_array_to_list = True,numpy_types_to_python_types = False, indent = '\t'),
+            "decoder": serializejson.Decoder(set_attributes=[],numpy_array_from_list = True),
         },
     }
 
@@ -251,19 +251,19 @@ def test_serialize_vs_pickle():
                     "encoder": lambda obj: serializeRepr.dumps(
                         obj, 
                         modules=modules,
-                        attributs_filter=None,
+                        attributes_filter=None,
                         numpy_types_to_python_types = False
                     ),
-                    "decoder": lambda obj: serializeRepr.loads(obj, modules=modules,set_attributs=[]),
+                    "decoder": lambda obj: serializeRepr.loads(obj, modules=modules,set_attributes=[]),
                 },
                 "serializePython": {
                     "encoder": lambda obj: serializePython.dumps(
                         obj,
-                        attributs_filter=None,
-                        set_attributs=[],
+                        attributes_filter=None,
+                        set_attributes=[],
                         numpy_types_to_python_types = False
                     ),
-                    "decoder": lambda obj: serializePython.loads(obj, set_attributs=[]),
+                    "decoder": lambda obj: serializePython.loads(obj, set_attributes=[]),
                 },
                 "jsonpickle": {
                     "encoder": jsonpickle.encode,
@@ -324,7 +324,7 @@ def test_serialize_vs_pickle():
                 if serializerName != "serializejson_in_file":
                     addInFile(serializerDumpsPath, dumped)
                 if serializerName.startswith("serializejson"):
-                    serializer["decoder"].set_autorized_classes(
+                    serializer["decoder"].set_authorized_classes(
                         serializer["encoder"].get_dumped_classes()
                     )
                 try:
