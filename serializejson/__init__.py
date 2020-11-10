@@ -322,14 +322,12 @@ class Encoder(rapidjson.Encoder):
             worth it due to the header size and the additional cpu cost.
             
         numpy_array_readable_max_size (int,None or dict):
-            Defines the maximum array size for serialization in readable numbers:
+            Defines the maximum array size for serialization in readable numbers.
+            By default numpy_array_readable_max_size is set to 0, all numpy arrays are encoded in base 64.
             
-            - int: all numpy arrays smaller than this size are serialized in readable numbers
-			- None: there is no maximum size and all numpy arrays ar serialized in readable numbers.
-			- dict: for each dtype key, the value define the maximum size  of this dtype arrays for serialization in readable numbers.
-            
-            If value is `None` there is no maximum and numpy array of this dtype are all serialized in readable numbers.
-            If you want only numpy arrays int32 to be readable, then you should pass `numpy_array_readable_max_size = {"int32":None}`
+            - int : all numpy arrays smaller than this size are serialized in readable numbers. 
+            - None : there is no maximum size and all numpy arrays are serialized in readable numbers.
+            - dict : for each dtype key, the value define the maximum size  of this dtype arrays for serialization in readable numbers. If value is `None` there is no maximum and numpy array of this dtype are all serialized in readable numbers. If you want only numpy arrays int32 to be readable, then you should pass `numpy_array_readable_max_size = {"int32":None}`
             
             .. note::
                 
