@@ -9,9 +9,12 @@ Classes API
 ===========
 
     Classes API is the preferred API if you have to encode or decode several 
-    objects. 
+    objects, allowing you to reuse the same Encoder and Decoder classes instancies for this
+    objects. Function API internaly create Encoder or Decoder instances at each call. 
+    It's non-negligeable cost if lot of smal objects are serialized one by one.  
+        
     
-    This API allow to get all encoded classes with Encoder.get_dumped_classes() 
+    Moreover this API allow to get all encoded classes with Encoder.get_dumped_classes() 
     in order to pass them later to Decoder(authorized_classes = ... )
     
 Encoder
@@ -88,7 +91,7 @@ Method 1: Adding methods to object for custom serialization
         
         * Call `__init__()` with named arguments, without state restore.
         
-            naming argument allows you to keep the first arguments if they have default
+            naming argument allows you to skip the first arguments if they have default
             values and is robust if you change later the init arguments order, but you will
             have to install the python module `apply <https://pypi.org/project/apply>`_
             

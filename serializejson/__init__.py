@@ -2,7 +2,7 @@
 `JSON <http://json.org>`_ build upon `python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_ and `pybase64 <https://github.com/mayeut/pybase64>`_
 
 	⚠ **serializejson can execute arbitrary Python code if the load parameter authorized_classes is "all" when loading json. 
-	Do not load serializejson files from untrusted / unauthenticated sources without carefully set the authorized_classes parameter.**
+	Do not load json files from untrusted / unauthenticated sources without carefully set the authorized_classes parameter.**
 
 - supports Python 3.7 (maybe lower) or greater.
 - serializes arbitrary python objects into a dictionary by adding "__class__" ,and eventually "__init__" and "__state__" keys. 
@@ -162,7 +162,8 @@ from .tools import (
     from_name,
     _get_set_attributes_classes_strings,
     encoder_plugins_parameters_keys,
-    encoder_plugins_parameters_default_values
+    encoder_plugins_parameters_default_values,
+    _onlyOneDimSameTypeNumbers
 )
 
 def dumps(obj, **argsDict):
@@ -269,8 +270,19 @@ class Encoder(rapidjson.Encoder):
             and you will not have to pass it to the `dump()` method later. 
         
         attributes_filter:
-            objects attributes starting with `attributes_filter` will not be 
-            serialized. ("_" by default).
+            attributes_filter allow you to chose if you want to serialize 
+            privates attributes at the dump time, instead of hard coded in methodes. 
+            If an object instance has not __reduce__() or __gestate__() methodes 
+            given the state and if attributes_filter is set to "_" (by default), 
+            then all object attributes in __dict__ or __slots__ will
+            be serialized except ones starting with "_" corresponding to 
+            privates attributs. 
+            If you want to serialize all attributes, 
+            private include, you sould set attributes_filter to None. 
+            If you want to still have the same behavior than pickle, 
+            you sould set attributes_filter to None and 
+            eventually hard coding a __reduce__() or __gestate__() methode filtering
+            attributes starting with "_" with serializesjon.filtered() function.
 
         chunk_size: 
             write the stream in chunks of this size at a time.
@@ -303,26 +315,19 @@ class Encoder(rapidjson.Encoder):
             bytes size threshold beyond compression is tried to reduce size of 
             bytes, bytesarray and numpy array if `bytes_compression` is not None.
 
-        bytearray_use_bytearrayB64: 
-            save bytearray with references to serializejson.bytearrayB64
-            instead of verbose use of base64.b64decode. It save space but make 
-            the json file dependent of the serializejson module. 
-        
-        numpy_array_use_numpyB64: 
-            save numpy arrays with references to serializejson.numpyB64
-            instead of verbose use of base64.b64decode. It save space but make 
-            the json file dependent of the serializejson module. 
 
-        numpy_array_readable_max_size (dict):
-            for each dtype `numpy_array_readable_max_size` defines the maximum array size for serialization in readable numbers.
+        numpy_array_readable_max_size (int,None or dict):
+            - int : (0 by default) defines the maximum array size for serialization in readable numbers.
+			- None: there is no maximum and numpy array of this dtype are all serialized in readable numbers.
+			- dict : for each dtype key, the value define the maximum size  of this dtype arrays for serialization in readable numbers.
             If value is `None` there is no maximum and numpy array of this dtype are all serialized in readable numbers.
-            If you want numpy arrays int32 to be readable , then you should pass `numpy_array_readable_max_size = {"int32":None}`
+            If you want only numpy arrays int32 to be readable, then you should pass `numpy_array_readable_max_size = {"int32":None}`
             
             .. note::
                 
                 serialization in readable decimals can take much less space in int32 if the values ar smaller or equal to 9999,
-                but is much slower than in base 64 for big arrays. If you have lot or marge numpy int32 arrays and 
-                performance matters, then you should pass `numpy_array_readable_max_size = {}`
+                but is much slower than in base 64 for big arrays. If you have lot or large numpy int32 arrays and 
+                performance matters, then you should stay with default value 0.
             
         numpy_array_to_list: 
             whether numpy array should be serialized as list. 
@@ -341,8 +346,8 @@ class Encoder(rapidjson.Encoder):
                 * Empty numpy array will be converted to [] without any way to guess the dtype and will stay an empty list when loading event with `numpy_array_from_list = True`
             
         numpy_types_to_python_types:
-             whether numpy integers ans floats must be convert to python types.
-             It save space and generally don't 
+             whether numpy integers and floats outside of a array must be convert to python types.
+             It save space and generally don't affect 
                           
         **plugins_parameters:
             extra keys arguments are stocked in "serialize_parameters" 
@@ -351,6 +356,18 @@ class Encoder(rapidjson.Encoder):
 
     """
     """
+        bytearray_use_bytearrayB64: 
+            save bytearray with references to serializejson.bytearrayB64
+            instead of verbose use of base64.b64decode. It save space but make 
+            the json file dependent of the serializejson module. 
+        
+        numpy_array_use_numpyB64: 
+            save numpy arrays with references to serializejson.numpyB64
+            instead of verbose use of base64.b64decode. It save space but make 
+            the json file dependent of the serializejson module. 
+
+    
+    
         bytes_to_string:
             whether bytes must be dumped in string after utf-8 decode.
         skip_invalid_keys (bool): 
@@ -706,13 +723,13 @@ class Decoder(rapidjson.Decoder):
             and you will not have to pass it to the `load()` method later. 
             
         authorized_classes (None, list or "all"):
-            List of classes (string with qualified name or classes) that
-            serializejson is allowed to recreate from the `__class__` 
-            keyword in json. If the string `__class__` is not in this list then the object will stay a dictionary. 
-            If `authorized_classes` is 
-            
-            * `None` then  no class are recreated.
-            * `[]` then only usual classes are recreated.
+            Allow you to define the classes (string with qualified name or classes) that
+            serializejson is authorized to recreate from the `__class__` 
+            keywords in json. If a string `__class__` is not authorized then 
+            the object will stay a dictionary. 
+            If `authorized_classes` is : 
+            * `None` then  no class are recreated, leaving the dictionaries loaded from json as it. 
+            * `[]` then only usual classes are recreated (complex,bytes,bytearray,Decimal,datetime,timedelta,date,time,type,set,frozenset,range,slice,deque,numpy.array,numpy.dtype)
             * `[classe1,classe2]`: usual classes and classe1,classe2 are recreated.
             * `"all"`: all classes will be recreated with no verifications.
 
@@ -827,7 +844,7 @@ class Decoder(rapidjson.Decoder):
         
         Args: 
             fp (optional str or file-like): 
-                the object will be loaded from this file instead of being loader from the 
+                the object will be loaded from this file instead of being loaded from the 
                 file provided to the Decoder constructor.
             obj (optional):
                 If provided, the object `obj` will be updated and no new object will be created.
@@ -883,7 +900,7 @@ class Decoder(rapidjson.Decoder):
 
     def set_default_value(self, value):
         """
-        Det the value returned if the path passed to load doesn't exist. 
+        Set the value returned if the path passed to load doesn't exist. 
         It allows to have a default object at the first run of the script or 
         when the json has been deleted. 
         """

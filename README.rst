@@ -39,7 +39,8 @@ serializejson
     	Do not load serializejson files from untrusted / unauthenticated sources without carefully setting the load authorized_classes parameter.
     	
     	Never dump a dictionary with the `__class__` key, otherwise serializejson will attempt to reconstruct an object when loading the json. 
-    	Be careful not to allow a user to manually enter a dictionary key somewhere without checking that it is not `__class__`
+    	Be careful not to allow a user to manually enter a dictionary key somewhere without checking that it is not `__class__`.
+    	Due to current limitation of rapidjson we cannot we cannot at the moment efficiently detect dictionaries with the `__class__` key to raise an error.  
     
 
 Installation
@@ -87,7 +88,6 @@ Examples
 ================
 
     **Serialization with fonctions API** 
-    
         .. code-block:: python
         
         	import serializejson 
@@ -108,8 +108,7 @@ Examples
         	serializejson.dump(object2,"dumped2.json")
         	loaded2 = serializejson.load("dumped2.json")
     
-    **Serialization with classes based API.** 
-        (quicker than fonctions API if reuse of Encoder/Decoder for serveral objects).
+    **Serialization with classes based API.**     
         
         .. code-block:: python
         
