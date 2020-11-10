@@ -308,7 +308,7 @@ Versions
 
 
 Future Versions (TODO)
-=====================
+======================
     * Add support for:
         - Tuple
         - dict with no-string keys
@@ -321,9 +321,9 @@ Future Versions (TODO)
         - panda.dataframe
         
     * Add test for:
-        - every Encoder and Decoder parameters
+        - every Encoder and Decoder parameters combinaisons.
         - object update
-        - circular references and duplicates 
+        - circular references and duplicates
         
     * Optimization: 
         - bytes: need pybase64.b64encode directly to str and rapidjson.RawJSON improvements

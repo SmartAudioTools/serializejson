@@ -292,7 +292,7 @@ class Encoder(rapidjson.Encoder):
         
         indent (None, int or '\\\\t'): 
             indentation width to produce pretty printed JSON.
-
+            
             - None: Json in one line (quicker than with indent).
             - int: new lines and `indent` spaces for indent.
             - '\\\\t': new lines and tabulations for indent (take less space than int > 1).
@@ -308,9 +308,11 @@ class Encoder(rapidjson.Encoder):
                       
         bytes_compression(None or str):
             Compression for bytes, bytesarray and numpy arrays:
-            * None : no compression
-            * str : compression name ("blosclz", "lz4", "lz4hc", "zlib" or "zstd") with maximum compression level 9. 
-            * tuple : (compression name, compression level) with compression level from 0 (no compression) to 9 (maximum compression)
+           
+            - None : no compression
+            - str : compression name ("blosclz", "lz4", "lz4hc", "zlib" or "zstd") with maximum compression level 9. 
+            - tuple : (compression name, compression level) with compression level from 0 (no compression) to 9 (maximum compression)
+            
             By default the "blosclz" compression is used with compression level 9.
             
         bytes_size_compression_threshold (int): 
@@ -319,11 +321,13 @@ class Encoder(rapidjson.Encoder):
             The default value is 512, generaly beside the compression is not 
             worth it due to the header size and the additional cpu cost.
             
-
         numpy_array_readable_max_size (int,None or dict):
-            - int : (0 by default) defines the maximum array size for serialization in readable numbers.
-			- None: there is no maximum and numpy array of this dtype are all serialized in readable numbers.
-			- dict : for each dtype key, the value define the maximum size  of this dtype arrays for serialization in readable numbers.
+            Defines the maximum array size for serialization in readable numbers:
+            
+            - int: all numpy arrays smaller than this size are serialized in readable numbers
+			- None: there is no maximum size and all numpy arrays ar serialized in readable numbers.
+			- dict: for each dtype key, the value define the maximum size  of this dtype arrays for serialization in readable numbers.
+            
             If value is `None` there is no maximum and numpy array of this dtype are all serialized in readable numbers.
             If you want only numpy arrays int32 to be readable, then you should pass `numpy_array_readable_max_size = {"int32":None}`
             
@@ -344,10 +348,10 @@ class Encoder(rapidjson.Encoder):
                 
                 With `numpy_array_to_list` set to `True`:
 
-                * numpy arrays will be indistinctable from list in json. 
-                * `Decoder(numpy_array_from_list=True)` will recreate numpy array from lists of bool, int or float, if not an `__init__` args list, with the the risque of unwanted convertion of lists to numpy arrays. 
-                * dtype of the numpy array will be loosed loosed if not bool, int32 or float64 and converted to the bool, int32 or float64 when loading
-                * Empty numpy array will be converted to [] without any way to guess the dtype and will stay an empty list when loading event with `numpy_array_from_list = True`
+                - numpy arrays will be indistinctable from list in json. 
+                - `Decoder(numpy_array_from_list=True)` will recreate numpy array from lists of bool, int or float, if not an `__init__` args list, with the the risque of unwanted convertion of lists to numpy arrays. 
+                - dtype of the numpy array will be loosed loosed if not bool, int32 or float64 and converted to the bool, int32 or float64 when loading
+                - Empty numpy array will be converted to [] without any way to guess the dtype and will stay an empty list when loading event with `numpy_array_from_list = True`
             
         numpy_types_to_python_types:
              whether numpy integers and floats outside of a array must be convert to python types.
