@@ -309,9 +309,9 @@ class Encoder(rapidjson.Encoder):
         bytes_compression(None or str):
             Compression for bytes, bytesarray and numpy arrays:
            
-            - None : no compression
-            - str : compression name ("blosclz", "lz4", "lz4hc", "zlib" or "zstd") with maximum compression level 9. 
-            - tuple : (compression name, compression level) with compression level from 0 (no compression) to 9 (maximum compression)
+            - `None` : no compression
+            - `str` : compression name ("blosclz", "lz4", "lz4hc", "zlib" or "zstd") with maximum compression level 9. 
+            - `tuple` : (compression name, compression level) with compression level from 0 (no compression) to 9 (maximum compression)
             
             By default the "blosclz" compression is used with compression level 9.
             
@@ -325,9 +325,9 @@ class Encoder(rapidjson.Encoder):
             Defines the maximum array size for serialization in readable numbers.
             By default numpy_array_readable_max_size is set to 0, all numpy arrays are encoded in base 64.
             
-            - int : all numpy arrays smaller than this size are serialized in readable numbers. 
-            - None : there is no maximum size and all numpy arrays are serialized in readable numbers.
-            - dict : for each dtype key, the value define the maximum size  of this dtype arrays for serialization in readable numbers. If value is `None` there is no maximum and numpy array of this dtype are all serialized in readable numbers. If you want only numpy arrays int32 to be readable, then you should pass `numpy_array_readable_max_size = {"int32":None}`
+            - `int` : all numpy arrays smaller than this size are serialized in readable numbers. 
+            - `None` : there is no maximum size and all numpy arrays are serialized in readable numbers.
+            - `dict` : for each dtype key, the value define the maximum size  of this dtype arrays for serialization in readable numbers. If value is `None` there is no maximum and numpy array of this dtype are all serialized in readable numbers. If you want only numpy arrays int32 to be readable, then you should pass `numpy_array_readable_max_size = {"int32":None}`
             
             .. note::
                 
@@ -733,18 +733,19 @@ class Decoder(rapidjson.Decoder):
             Path or file-like object containing the json. 
             When specified, the decoder will read from this file
             and you will not have to pass it to the `load()` method later. 
-            
+  
         authorized_classes (None, list or "all"):
             Allow you to define the classes (string with qualified name or classes) that
             serializejson is authorized to recreate from the `__class__` 
             keywords in json. If a string `__class__` is not authorized then 
             the object will stay a dictionary. 
             If `authorized_classes` is : 
-            * `None` then  no class are recreated, leaving the dictionaries loaded from json as it. 
-            * `[]` then only usual classes are recreated (complex,bytes,bytearray,Decimal,datetime,timedelta,date,time,type,set,frozenset,range,slice,deque,numpy.array,numpy.dtype)
-            * `[classe1,classe2]`: usual classes and classe1,classe2 are recreated.
-            * `"all"`: all classes will be recreated with no verifications.
-
+                
+            - `None` : no class are recreated, leaving the dictionaries loaded from json as it. 
+            - `[]` : only usual classes are recreated (complex ,bytes, bytearray, Decimal, atetime, timedelta, date, time, type, set, frozenset, range, slice, deque, numpy.array, numpy.dtype)
+            - `[classe1,classe2]` : usual classes and classe1,classe2 are recreated.
+            - `"all"` : all classes will be recreated with no verifications.
+ 
             .. warning::
                 
                 Do not load serializejson files from untrusted / unauthenticated 
@@ -782,7 +783,7 @@ class Decoder(rapidjson.Decoder):
                 - Be carefull if you rename an attribute because setters calls order can still change.
                 - If `set_attribute = True` (or is a list) then serializejson will differ from pickle that don't call attribute's setters. 
                                 
-                **It is best to add the `__setate__()` method to your object:**
+                **It is best to add the __setate__() method to your object:**
                 
                 - If you want to call setter in a different order than alphabetic order.
                 - If you want to be robust to an attribute name change.
