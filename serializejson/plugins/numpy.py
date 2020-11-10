@@ -4,11 +4,11 @@ except ModuleNotFoundError:
     pass
 try:
     from SmartFramework import  numpyB64
-    from SmartFramework.serialize.tools import encodedB64
+    from SmartFramework.serialize.tools import encodedB64,lists_created_from_numpy
     from SmartFramework.serialize import serialize_parameters
 except :
     from serializejson import numpyB64
-    from serializejson.tools import encodedB64
+    from serializejson.tools import encodedB64, lists_created_from_numpy
     from serializejson import serialize_parameters
 #from rapidjson import RawJSON
 import blosc
@@ -21,10 +21,13 @@ def tuple_from_ndarray(inst):
     #compression = serialize_parameters.bytes_compression
     if dtype.fields is None:
         dtype_str = str(dtype)
-        if dtype_str in serialize_parameters.numpy_array_readable_max_size : 
-            max_size = serialize_parameters.numpy_array_readable_max_size[dtype_str]
-            if max_size is None or inst.size <= max_size:
-                return ("numpy.array", (inst.tolist(), dtype_str), None) #  A REVOIR : pas génial car va tester ultérieurement si tous les elements sont du même type....
+        max_size = serialize_parameters.numpy_array_readable_max_size
+        if isinstance(max_size, dict) and dtype_str in max_size : 
+            max_size = max_size[dtype_str]
+        if max_size is None or inst.size <= max_size:
+            list_ = inst.tolist()
+            lists_created_from_numpy.append(list_)
+            return ("numpy.array", (list_, dtype_str), None) #  A REVOIR : pas génial car va tester ultérieurement si tous les elements sont du même type....
     else:
         dtype_str = dtype.descr
 

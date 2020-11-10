@@ -1371,34 +1371,10 @@ if use_numpy:
             numpy.uint64,
         )
     )
-    _bool_int_and_float_types = set(
-        (
-            float,
-            int,
-            bool,
-            numpy.bool_,
-            numpy.int8,
-            numpy.int16,
-            numpy.int32,
-            numpy.int64,
-            numpy.uint8,
-            numpy.uint16,
-            numpy.uint32,
-            numpy.uint64,
-            numpy.float32,
-            numpy.float64,
-        )
-    )
+   
 else:
     _numpy_types = set()
 
-    _bool_int_and_float_types = set(
-        (
-            float,
-            int,
-            bool,
-        )
-    )
 NoneType = type(None)
 remove_add_braces = {"set", "frozenset", "collections.deque", "tuple"}
 
@@ -1677,11 +1653,3 @@ class _json_object_file_iterator(io.FileIO):
             #print("read(4): ",s[in_chunk_start:])
             return s[in_chunk_start:]
         return s
-
-
-def _onlyOneDimSameTypeNumbers(list_or_tuple):
-    if len(list_or_tuple):
-        type_first = type(list_or_tuple[0])
-        if type_first in _bool_int_and_float_types:
-            return all(type(i) is type_first for i in list_or_tuple)
-    return False

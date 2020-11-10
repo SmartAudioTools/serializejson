@@ -9,10 +9,37 @@ from apply import apply
 import copyreg
 from collections.abc import Iterable 
 import blosc
-
+try : 
+    import numpy
+    _bool_int_and_float_types = set(
+        (
+            float,
+            int,
+            bool,
+            numpy.bool_,
+            numpy.int8,
+            numpy.int16,
+            numpy.int32,
+            numpy.int64,
+            numpy.uint8,
+            numpy.uint16,
+            numpy.uint32,
+            numpy.uint64,
+            numpy.float32,
+            numpy.float64,
+        )
+    )
+except : 
+        _bool_int_and_float_types = set(
+        (
+            float,
+            int,
+            bool,
+        )
+    )
+    
 
 ascii_printables_ = ascii_printables  # sert juste à éviter warning
-# from SmartFramework.serialize.objects.test_serializeJson_update import *
 
 
 '''
@@ -24,6 +51,16 @@ def from_id(obj_id):
 '''
 valid_char_for_var_name = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_")
 
+lists_created_from_numpy = []
+def _onlyOneDimSameTypeNumbers(list_or_tuple):
+    if len(list_or_tuple):
+        if list_or_tuple in lists_created_from_numpy:
+            lists_created_from_numpy.remove(list_or_tuple)
+            return True 
+        type_first = type(list_or_tuple[0])
+        if type_first in _bool_int_and_float_types:
+            return all(type(i) is type_first for i in list_or_tuple)
+    return False
 
 def compress(inst,compression):
     if compression == "blosc" :
@@ -303,7 +340,7 @@ def tupleFromInstance(inst):
         initArgs = None
         try:
             state = inst.__getstate__()  #  for QWidgets with __getstate__
-        except attributeError:
+        except AttributeError:
             if hasattr(inst, "__slots__"):
                 state = dict()
                 if hasattr(inst, "__dict__"):  # on peut avoir __dict__ dans les __slots__ !
@@ -518,3 +555,4 @@ def _get_set_attributes_classes_strings(set_attributes):
         raise TypeError("Decoder set_attributes argument must be a bool, list, tuple or set, not '%s'"%type(set_attributes))
         
         
+

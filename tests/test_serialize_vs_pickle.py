@@ -234,16 +234,20 @@ def test_serialize_vs_pickle():
             "decoder": serializejson.Decoder(set_attributes=[]),
         },
                 
-        "serializejson_numpy_array_to_list": {
+
+    }
+    if use_numpy : 
+        serializers.update(
+        {
+                "serializejson_numpy_array_to_list": {
             "encoder": serializejson.Encoder(attributes_filter=None,numpy_array_to_list = True,numpy_types_to_python_types = False, indent = None),
             "decoder": serializejson.Decoder(set_attributes=[],numpy_array_from_list = True),
-        },
-        "serializejson_numpy_array_to_list_with_tab_indent": {
-            "encoder": serializejson.Encoder(attributes_filter=None,numpy_array_to_list = True,numpy_types_to_python_types = False, indent = '\t'),
-            "decoder": serializejson.Decoder(set_attributes=[],numpy_array_from_list = True),
-        },
-    }
-
+            },
+            "serializejson_numpy_array_to_list_with_tab_indent": {
+                "encoder": serializejson.Encoder(attributes_filter=None,numpy_array_to_list = True,numpy_types_to_python_types = False, indent = '\t'),
+                "decoder": serializejson.Decoder(set_attributes=[],numpy_array_from_list = True),
+            }
+        })
     if full_smartFramework:
         serializers.update(
             {

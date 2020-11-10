@@ -198,6 +198,7 @@ def comp(obj1, obj2):
         return obj1 == obj2
 
 
+# AJOUTE LES INIT ARGS AUX ATTRIBUTS ----------
 
 
 def add_Args(dictLocals):
