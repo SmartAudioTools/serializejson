@@ -307,14 +307,18 @@ class Encoder(rapidjson.Encoder):
             whether dictionary keys should be sorted alphabetically.
                       
         bytes_compression(None or str):
-            Compression algorithm name for bytes, bytesarray and numpy arrays:
-            "blosclz", "lz4", "lz4hc", "snappy", "zlib", "zstd" or None 
-            if no compression. By default the "blosclz" compression is used.
-                        
-        bytes_compression_threshold: 
+            Compression for bytes, bytesarray and numpy arrays:
+            * None : no compression
+            * str : compression name ("blosclz", "lz4", "lz4hc", "zlib" or "zstd") with maximum compression level 9. 
+            * tuple : (compression name, compression level) with compression level from 0 (no compression) to 9 (maximum compression)
+            By default the "blosclz" compression is used with compression level 9.
+            
+        bytes_size_compression_threshold (int): 
             bytes size threshold beyond compression is tried to reduce size of 
             bytes, bytesarray and numpy array if `bytes_compression` is not None.
-
+            The default value is 512, generaly beside the compression is not 
+            worth it due to the header size and the additional cpu cost.
+            
 
         numpy_array_readable_max_size (int,None or dict):
             - int : (0 by default) defines the maximum array size for serialization in readable numbers.
@@ -403,7 +407,7 @@ class Encoder(rapidjson.Encoder):
         single_line_list_numbers=True,
         sort_keys=True,
         bytes_compression = 'blosclz' ,# 
-        bytes_compression_threshold = 512,
+        bytes_size_compression_threshold = 512,
         bytes_use_bytesB64 = True, # le laisser ?
         bytearray_use_bytearrayB64=True,  # le laisser ?
         numpy_array_use_numpyB64=True,  # le laisser ?
@@ -440,10 +444,15 @@ class Encoder(rapidjson.Encoder):
         self._dump_one_line = indent is None
         self.dumped_classes = set()
         self.chunk_size = chunk_size
-        if bytes_compression and bytes_compression not in blosc_compressions:
-            raise Exception(f"{bytes_compression} compression unknown. Available values for bytes_compression are {', '.join(blosc_compressions)}")
+        bytes_compression_level = 9
+        if bytes_compression is not None : 
+            if isinstance(bytes_compression, (list,tuple)):
+                bytes_compression , bytes_compression_level = bytes_compression      
+                if bytes_compression not in blosc_compressions:
+                    raise Exception(f"{bytes_compression} compression unknown. Available values for bytes_compression are {', '.join(blosc_compressions)}")
         self.bytes_compression = bytes_compression
-        self.bytes_compression_threshold = bytes_compression_threshold
+        self.bytes_compression_level = bytes_compression_level
+        self.bytes_size_compression_threshold = bytes_size_compression_threshold
         self.bytes_use_bytesB64 = bytes_use_bytesB64
         self.bytearray_use_bytearrayB64 = bytearray_use_bytearrayB64
         self.numpy_array_to_list = numpy_array_to_list
@@ -660,7 +669,8 @@ class Encoder(rapidjson.Encoder):
             )
         serialize_parameters.attributes_filter = self.attributes_filter
         serialize_parameters.bytes_compression = self.bytes_compression
-        serialize_parameters.bytes_compression_threshold = self.bytes_compression_threshold
+        serialize_parameters.bytes_compression_level = self.bytes_compression_level
+        serialize_parameters.bytes_size_compression_threshold = self.bytes_size_compression_threshold
         serialize_parameters.bytes_use_bytesB64 = self.bytes_use_bytesB64
         serialize_parameters.numpy_array_use_numpyB64 = self.numpy_array_use_numpyB64
         serialize_parameters.numpy_array_readable_max_size = self.numpy_array_readable_max_size

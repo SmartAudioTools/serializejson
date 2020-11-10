@@ -1,4 +1,6 @@
 import numpy
+#import PIL
+#import os
 objects = {
     "numpy_array" :   {
         # recarray
@@ -43,8 +45,7 @@ objects = {
         "numpy_array_uint64": numpy.array([0,1],dtype=numpy.uint64),
         "numpy_array_float16": numpy.array([0,1],dtype=numpy.float16),
         "numpy_array_float32": numpy.array([0,1],dtype=numpy.float32),
-        "numpy_array_float64": numpy.array([0,1],dtype=numpy.float64), 
-        
+        "numpy_array_float64": numpy.array([0,1],dtype=numpy.float64),         
         "numpy_array_uint8_640x480": numpy.zeros((640,480),dtype=numpy.uint8),
         
         #"numpy_array_bool_big": numpy.ones(2**15,dtype=numpy.bool_),
@@ -102,6 +103,7 @@ objects = {
         "numpy_array_3D_float16":numpy.array([[[0,1],[2,3]],[[4,5],[6,7]]],dtype=numpy.float16),
         "numpy_array_3D_float32":numpy.array([[[0,1],[2,3]],[[4,5],[6,7]]],dtype=numpy.float32),
         "numpy_array_3D_float64":numpy.array([[[0,1],[2,3]],[[4,5],[6,7]]],dtype=numpy.float64),   
+        #"numpy_array_3D_uint8_640x480x3": numpy.asarray(PIL.Image.open(os.path.dirname(__file__)+"/test_image_640x480_color.jpg")),
         
         
         #"numpy_array_mixed_bools_ints": numpy.array([False, True, 0, 1]),

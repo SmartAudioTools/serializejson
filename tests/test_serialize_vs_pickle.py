@@ -221,6 +221,10 @@ def test_serialize_vs_pickle():
             "encoder": serializejson.Encoder(attributes_filter=None,numpy_types_to_python_types = False, indent = None),
             "decoder": serializejson.Decoder(set_attributes=[]),
         },
+        "serializejson_blosclz_level9": {
+            "encoder": serializejson.Encoder(attributes_filter=None,numpy_types_to_python_types = False, indent = None , bytes_compression = "blosclz"),
+            "decoder": serializejson.Decoder(set_attributes=[]),
+        },
         "serializejson_in_file": {
             "encoder": serializejson.Encoder(fp=bytesIO, attributes_filter=None,numpy_types_to_python_types = False),
             "decoder": serializejson.Decoder(fp=bytesIO, set_attributes=[]),
@@ -231,6 +235,10 @@ def test_serialize_vs_pickle():
         },
         "serializejson_no_compression": {
             "encoder": serializejson.Encoder(attributes_filter=None,numpy_types_to_python_types = False, indent = None, bytes_compression = None),
+            "decoder": serializejson.Decoder(set_attributes=[]),
+        },
+        "serializejson_readeable_numpy_int32": {
+            "encoder": serializejson.Encoder(attributes_filter=None,numpy_types_to_python_types = False, indent = None, numpy_array_readable_max_size = {"int32":None}),
             "decoder": serializejson.Decoder(set_attributes=[]),
         },
                 

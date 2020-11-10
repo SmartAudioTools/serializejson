@@ -51,12 +51,8 @@ def from_id(obj_id):
 '''
 valid_char_for_var_name = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_")
 
-lists_created_from_numpy = []
 def _onlyOneDimSameTypeNumbers(list_or_tuple):
     if len(list_or_tuple):
-        if list_or_tuple in lists_created_from_numpy:
-            lists_created_from_numpy.remove(list_or_tuple)
-            return True 
         type_first = type(list_or_tuple[0])
         if type_first in _bool_int_and_float_types:
             return all(type(i) is type_first for i in list_or_tuple)

@@ -4,11 +4,11 @@ except ModuleNotFoundError:
     pass
 try:
     from SmartFramework import  numpyB64
-    from SmartFramework.serialize.tools import encodedB64,lists_created_from_numpy
+    from SmartFramework.serialize.tools import encodedB64
     from SmartFramework.serialize import serialize_parameters
 except :
     from serializejson import numpyB64
-    from serializejson.tools import encodedB64, lists_created_from_numpy
+    from serializejson.tools import encodedB64
     from serializejson import serialize_parameters
 #from rapidjson import RawJSON
 import blosc
@@ -22,12 +22,13 @@ def tuple_from_ndarray(inst):
     if dtype.fields is None:
         dtype_str = str(dtype)
         max_size = serialize_parameters.numpy_array_readable_max_size
-        if isinstance(max_size, dict) and dtype_str in max_size : 
-            max_size = max_size[dtype_str]
+        if isinstance(max_size, dict): 
+            if dtype_str in max_size : 
+                max_size = max_size[dtype_str]
+            else : 
+                max_size = 0
         if max_size is None or inst.size <= max_size:
-            list_ = inst.tolist()
-            lists_created_from_numpy.append(list_)
-            return ("numpy.array", (list_, dtype_str), None) #  A REVOIR : pas génial car va tester ultérieurement si tous les elements sont du même type....
+            return ("numpy.array", (inst.tolist(), dtype_str), None) #  A REVOIR : pass genial car va tester ultérieurement si tous les elements sont du même type....
     else:
         dtype_str = dtype.descr
 
@@ -37,25 +38,23 @@ def tuple_from_ndarray(inst):
     if serialize_parameters.numpy_array_use_numpyB64:
         if dtype == bool:
             data = numpy.packbits(inst.astype(numpy.uint8))
-            typesize = 1
             if inst.ndim == 1:
                 len_or_shape = len(inst)
             else : 
                 len_or_shape = inst.shape
         else:
             data = inst
-            typesize = inst.itemsize
             if inst.ndim == 1:
                 len_or_shape = None
             else : 
                 len_or_shape = inst.shape
         compression = serialize_parameters.bytes_compression
-        if compression and len(data) >= serialize_parameters.bytes_compression_threshold :
+        if compression and data.nbytes >= serialize_parameters.bytes_size_compression_threshold :
             if compression in blosc_compressions: 
-                compressed = blosc.compress(data,typesize,cname = compression)
+                compressed = blosc.compress(data,data.itemsize,cname = compression,clevel = serialize_parameters.bytes_compression_level )
             else : 
                 raise Exception(f"{compression} compression unknow")
-            if len(compressed) < data.size:
+            if len(compressed) < data.nbytes:
                 if len_or_shape is None : 
                     return (numpyB64,(encodedB64(compressed), dtype_str, compression),None,)
                 else : 
