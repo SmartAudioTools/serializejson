@@ -279,6 +279,10 @@ class encodedB64(): # J'ai abandonné l'idée de sub classer bytes, car il faisa
     #def __new__(cls, val):
     #    return super().__new__(cls, memoryview(b64encode(val))) # on dirait que y'a une copie .;
 
+class compressedBytes():
+    """class used as flag to know that a bytes has already been compressed, we don't need to do it again"""
+    def __init__(self,compressed_bytes):
+        self.compressed_bytes = compressed_bytes
 
 classFromClassStr_dict = {
         'base64.b64decode' : lambda b64 : b64decode(b64,validate = True) # allow to accelerete base 64 decode
@@ -552,3 +556,16 @@ def _get_set_attributes_classes_strings(set_attributes):
         
         
 
+def tuple_from_compressedBytes(inst):
+    inst = inst.compressed_bytes
+    if inst.isascii():
+        try:
+            string = inst.decode("ascii_printables")
+            return (bytes, (string, "ascii"), None)
+        except:
+            pass
+    #if serialize_parameters.bytes_use_bytesB64:  
+    #    return (bytesB64, (encodedB64(inst),), None) 
+    return ("base64.b64decode", (encodedB64(inst),), None)
+
+tuple_from_module_class_str[classStrFromClass(compressedBytes)] = tuple_from_compressedBytes

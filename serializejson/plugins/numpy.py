@@ -16,7 +16,7 @@ blosc_compressions = set(blosc.cnames)
 
 def tuple_from_ndarray(inst):
 
-    inst = numpy.ascontiguousarray(inst)
+    # inst = numpy.ascontiguousarray(inst)
     dtype = inst.dtype
     #compression = serialize_parameters.bytes_compression
     if dtype.fields is None:
@@ -51,7 +51,7 @@ def tuple_from_ndarray(inst):
         compression = serialize_parameters.bytes_compression
         if compression and data.nbytes >= serialize_parameters.bytes_size_compression_threshold :
             if compression in blosc_compressions: 
-                compressed = blosc.compress(data,data.itemsize,cname = compression,clevel = serialize_parameters.bytes_compression_level )
+                compressed = blosc.compress(numpy.ascontiguousarray(data),data.itemsize,cname = compression,clevel = serialize_parameters.bytes_compression_level )
             else : 
                 raise Exception(f"{compression} compression unknow")
             if len(compressed) < data.nbytes:
@@ -60,9 +60,9 @@ def tuple_from_ndarray(inst):
                 else : 
                     return (numpyB64,(encodedB64(compressed), dtype_str, len_or_shape,compression),None,)
         if len_or_shape is None : 
-            return (numpyB64,(encodedB64(data), dtype_str),None,)
+            return (numpyB64,(encodedB64(numpy.ascontiguousarray(data)), dtype_str),None,)
         else : 
-            return (numpyB64,(encodedB64(data), dtype_str, len_or_shape),None,)
+            return (numpyB64,(encodedB64(numpy.ascontiguousarray(data)), dtype_str, len_or_shape),None,)
                 
     else:
         if inst.ndim == 1:

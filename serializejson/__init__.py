@@ -313,7 +313,8 @@ class Encoder(rapidjson.Encoder):
             - `str` : compression name ("blosclz", "lz4", "lz4hc", "zlib" or "zstd") with maximum compression level 9. 
             - `tuple` : (compression name, compression level) with compression level from 0 (no compression) to 9 (maximum compression)
             
-            By default the "blosclz" compression is used with compression level 9.
+            By default the "zstd" compression is used with compression level 1. 
+            For the highest compression (but with slower dumping) use "zstd" with compression level 9
             
         bytes_size_compression_threshold (int): 
             bytes size threshold beyond compression is tried to reduce size of 
@@ -408,7 +409,7 @@ class Encoder(rapidjson.Encoder):
         single_line_init=True,
         single_line_list_numbers=True,
         sort_keys=True,
-        bytes_compression = 'blosclz' ,# 
+        bytes_compression = ('zstd',1),# 
         bytes_size_compression_threshold = 512,
         bytes_use_bytesB64 = True, # le laisser ?
         bytearray_use_bytearrayB64=True,  # le laisser ?
@@ -466,7 +467,6 @@ class Encoder(rapidjson.Encoder):
             raise  TypeError("serializejson.Encoder got unexpected keywords arguments '"+', '.join(unexpected_keywords_arguments)+"'")     
         self.plugins_parameters = encoder_plugins_parameters_default_values.copy()
         self.plugins_parameters.update(plugins_parameters)
-            
         return self
 
     def dump(self, obj, fp=None):
@@ -530,6 +530,7 @@ class Encoder(rapidjson.Encoder):
                 return float(inst)
             if type_inst is numpy.bool_:
                 return bool(inst)
+            
         if type_inst is encodedB64:
             return bytes.decode(inst.encoded_bytes)# inst.encoded_bytes.decode("ascii")   # 52% du temps dans default pour obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
         if type_inst is tuple:
@@ -1337,7 +1338,9 @@ default_authorized_classes_strs = set(
         "range",
         "slice",
         "collections.deque",
-        "numpy.dtype"
+        "numpy.dtype",
+        "numpy.frombuffer",
+        "blosc.decompress"
     ]
 )
 if use_numpy:

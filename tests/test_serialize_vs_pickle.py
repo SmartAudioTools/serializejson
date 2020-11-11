@@ -40,6 +40,7 @@ try:
     nb_iter  = 19 
     full_smartFramework = True
 except ImportError:
+    #raise
     nb_iter  = 1
     full_smartFramework = False
     import serializejson

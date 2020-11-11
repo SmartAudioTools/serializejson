@@ -1,6 +1,6 @@
 try:
     from SmartFramework import  bytearrayB64,bytesB64
-    from SmartFramework.serialize.tools import encodedB64,classStrFromClass
+    from SmartFramework.serialize.tools import encodedB64,classStrFromClass,compressedBytes
     from SmartFramework.serialize import serialize_parameters
 except:
     from serializejson import  bytearrayB64,bytesB64
@@ -22,7 +22,7 @@ def tuple_from_bytearray(inst):
             if serialize_parameters.bytearray_use_bytearrayB64:  
                 return (bytearrayB64, (encodedB64(compressed),compression), None)
             else : 
-                return ('blosc.decompress',( compressed,True), None) # a revoir y'a une bug va compression à l'infini
+                return ('blosc.decompress',(compressedBytes(compressed),True), None) # a revoir y'a une bug va compression à l'infini
     if serialize_parameters.bytearray_use_bytearrayB64:  
         return (bytearrayB64, (encodedB64(inst),), None)
     else : 
@@ -40,7 +40,7 @@ def tuple_from_bytes(inst):
             if serialize_parameters.bytes_use_bytesB64:            
                 return (bytesB64, (encodedB64(compressed),compression), None)
             else :
-                return ('blosc.decompress', (encodedB64(compressed),), None) 
+                return ('blosc.decompress', (compressedBytes(compressed),), None) 
     if inst.isascii():
         try:
             string = inst.decode("ascii_printables")
