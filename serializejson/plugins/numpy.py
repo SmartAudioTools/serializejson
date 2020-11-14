@@ -28,7 +28,7 @@ def tuple_from_ndarray(inst):
             else : 
                 max_size = 0
         if max_size is None or inst.size <= max_size:
-            return ("numpy.array", (inst.tolist(), dtype_str), None) #  A REVOIR : pass genial car va tester ultérieurement si tous les elements sont du même type....
+            return ("numpy.array", (inst.tolist(), dtype_str), None) #  A REVOIR : pass genial car va tester ultÃ©rieurement si tous les elements sont du mÃªme type....
     else:
         dtype_str = dtype.descr
 

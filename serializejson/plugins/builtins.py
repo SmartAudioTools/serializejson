@@ -15,7 +15,7 @@ def tuple_from_bytearray(inst):
     compression = serialize_parameters.bytes_compression
     if compression and len(inst) >= serialize_parameters.bytes_size_compression_threshold :
         if compression in blosc_compressions:     
-            compressed = blosc.compress(inst,1,cname = compression,clevel = serialize_parameters.bytes_compression_level)
+            compressed = blosc.compress(inst,0,cname = compression,clevel = serialize_parameters.bytes_compression_level)
         else : 
             raise Exception(f"{compression} compression unknow")
         if len(compressed) < len(inst):
@@ -33,7 +33,7 @@ def tuple_from_bytes(inst):
     compression = serialize_parameters.bytes_compression
     if compression and len(inst) >= serialize_parameters.bytes_size_compression_threshold :
         if compression in blosc_compressions:     
-            compressed = blosc.compress(inst,1,cname = compression,clevel = serialize_parameters.bytes_compression_level )
+            compressed = blosc.compress(inst,0,cname = compression,clevel = serialize_parameters.bytes_compression_level )
         else : 
             raise Exception(f"{compression} compression unknow")
         if len(compressed) < len(inst):

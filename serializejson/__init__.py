@@ -1,9 +1,6 @@
 """**serializejson** is a python library for serialization and deserialization of complex Python objects in 
 `JSON <http://json.org>`_ build upon `python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_ and `pybase64 <https://github.com/mayeut/pybase64>`_
 
-	⚠ **serializejson can execute arbitrary Python code if the load parameter authorized_classes is "all" when loading json. 
-	Do not load json files from untrusted / unauthenticated sources without carefully set the authorized_classes parameter.**
-
 - supports Python 3.7 (maybe lower) or greater.
 - serializes arbitrary python objects into a dictionary by adding "__class__" ,and eventually "__init__" and "__state__" keys. 
 - serializes and deserializes bytes and bytearray very quickly in base64 tanks to `pybase64 <https://github.com/mayeut/pybase64>`_.
@@ -735,28 +732,25 @@ class Decoder(rapidjson.Decoder):
             When specified, the decoder will read from this file
             and you will not have to pass it to the `load()` method later. 
   
-        authorized_classes (None, list or "all"):
-            Allow you to define the classes (string with qualified name or classes) that
-            serializejson is authorized to recreate from the `__class__` 
-            keywords in json. If a string `__class__` is not authorized then 
-            the object will stay a dictionary. 
-            If `authorized_classes` is : 
-                
-            - `None` : no class are recreated, leaving the dictionaries loaded from json as it. 
-            - `[]` : only usual classes are recreated (complex ,bytes, bytearray, Decimal, atetime, timedelta, date, time, type, set, frozenset, range, slice, deque, numpy.array, numpy.dtype)
-            - `[classe1,classe2]` : usual classes and classe1,classe2 are recreated.
-            - `"all"` : all classes will be recreated with no verifications.
- 
+        authorized_classes (list):
+            Define the classes that serializejson is authorized to recreate from 
+            the `__class__` keywords in json, in addition to the usuals classes.
+            Usual classes are : complex ,bytes, bytearray, Decimal, type, set, 
+            frozenset, range, slice, deque,  datetime, timedelta, date, time
+            numpy.array, numpy.dtype.
+            authorized_classes must be a liste of classes or strings 
+            corresponding to the qualified names of classes (`module.class_name`).
+            If the loading json contain an unauthorized  `__class__`, 
+            serializejson will raise a TypeError exception. 
+            
             .. warning::
                 
                 Do not load serializejson files from untrusted / unauthenticated 
                 sources without carefully set the `authorized_classes` parameter. 
-                serializejson can execute arbitrary python code if the load 
-                parameter `authorized_classes` is "all" when loading json for 
-                example with json containing 
-                ``{"__class__":"eval","__init__":"do_anything()"}``\n
-                use "all" only temporarily when you are developing and you have 
-                absolute trust in your json files and do not forget to remove it.
+                Never authorize "eval", "exec", "apply" or other functions or 
+                classes which could allow execution of malicious code 
+                with for example :  
+                ``{"__class__":"eval","__init__":"do_bad_things()"}``
                 
 
         recognized_classes (list):
@@ -922,26 +916,24 @@ class Decoder(rapidjson.Decoder):
         
     def set_authorized_classes(self, classes):
         """
-        Set the classes (string with qualified name or classes) that
-        serializejson is allowed to recreate from the `__class__` 
-        keyword in json. Otherwise the object will stay a dictionary.
-
-        * None: no class are recreated.
-        * []: only usual classes are recreated.
-        * [classe1,classe2]:usual classes and classe1,classe2 are recreated.
-        * "all": all classes will be recreated with no verifications.\n
-
+        Define the classes that serializejson is authorized to recreate from 
+        the `__class__` keywords in json, in addition to the usuals classes.
+        Usual classes are : complex ,bytes, bytearray, Decimal, type, set, 
+        frozenset, range, slice, deque,  datetime, timedelta, date, time
+        numpy.array, numpy.dtype.
+        authorized_classes must be a liste of classes or strings 
+        corresponding to the qualified names of classes (`module.class_name`).
+        If the loading json contain an unauthorized  `__class__`, 
+        serializejson will raise a TypeError exception. 
+        
         .. warning::
-                
-                Do not load serializejson files from untrusted / unauthenticated 
-                sources without carefully set the `authorized_classes` parameter. 
-                serializejson can execute arbitrary python code if the load 
-                parameter `authorized_classes` is "all" when loading json for 
-                example with json containing 
-                ``{"__class__":"eval","__init__":"do_anything()"}``\n
-                use "all" only temporarily when you are developing and you have 
-                absolute trust in your json files and do not forget to remove it.
-
+            
+            Do not load serializejson files from untrusted / unauthenticated 
+            sources without carefully set the `authorized_classes` parameter. 
+            Never authorize "eval", "exec", "apply" or other functions or 
+            classes which could allow execution of malicious code 
+            with for example :  
+            ``{"__class__":"eval","__init__":"do_bad_things()"}``
         """
         self._authorized_classes_strs = _get_authorized_classes_strings(classes)
 
@@ -1123,7 +1115,7 @@ class Decoder(rapidjson.Decoder):
 
     def _inst_from_dict(self, inst):
         class_str = inst["__class__"]
-        if self._authorized_classes_strs == "all" or class_str in self._authorized_classes_strs:
+        if class_str in self._authorized_classes_strs:
             if class_str in remove_add_braces:
                 inst["__init__"] = (inst["__init__"],)
             if (
@@ -1498,27 +1490,16 @@ def _open_with_good_encoding(path):
 
 
 def _get_authorized_classes_strings(classes):
-
-    # if classes == "default":
-    #    global _authorized_classes_strs
-    #     return _authorized_classes_strs
-    if classes is None:
-        _authorized_classes_strs = set()
-    elif not classes or classes == "default":
-        _authorized_classes_strs = default_authorized_classes_strs
-    elif classes == "all":
-        _authorized_classes_strs = "all"
-    else:
-        if not isinstance(classes, set):
-            if isinstance(classes, (list, tuple)):
-                classes = set(classes)
-            else:
-                classes = set([classes])
-        _authorized_classes_strs = default_authorized_classes_strs.copy()
-        for elt in classes:
-            if not isinstance(elt, str):
-                elt = classStrFromClass(elt)
-            _authorized_classes_strs.add(elt)
+    if not isinstance(classes, set):
+        if isinstance(classes, (list, tuple)):
+            classes = set(classes)
+        else:
+            classes = set([classes])
+    _authorized_classes_strs = default_authorized_classes_strs.copy()
+    for elt in classes:
+        if not isinstance(elt, str):
+            elt = classStrFromClass(elt)
+        _authorized_classes_strs.add(elt)
     return _authorized_classes_strs
 
 

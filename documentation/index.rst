@@ -312,6 +312,7 @@ Future Versions (TODO)
     * Add support for:
         - Tuple
         - dict with no-string keys
+        - dict with __class__ key (detecte and raise exception or construct speciale object for reconstruction)
         - time.struct_time
         - collections.Counter
         - collections.OrderedDict
@@ -323,7 +324,8 @@ Future Versions (TODO)
     * Add test for:
         - every Encoder and Decoder parameters combinaisons.
         - object update
-        - circular references and duplicates
+        - circular references and duplicates 
+        - PySide2 
         
     * Optimization: 
         - bytes: need pybase64.b64encode directly to str and rapidjson.RawJSON improvements
@@ -333,4 +335,8 @@ Future Versions (TODO)
         - json iterator: 
             - speed up _json_object_file_iterator function with Cython ?
             - improve rapidjson for something like raw_decode of the standard json library ? 
+    
+    * Improvements :
+        - replace id check for duplicates by weakd_ref ? because id can be reused 
+        - allow alternatives compressors for images ?
         
