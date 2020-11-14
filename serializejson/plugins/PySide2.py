@@ -1,14 +1,15 @@
 try:
     import qtpy
+
     def get_class(obj):
         class_ = obj.__class__
-        return "qtpy."+class_.__module__[8:] + "." + class_.__name__
-        
+        return "qtpy." + class_.__module__[8:] + "." + class_.__name__
+
+
 except ModuleNotFoundError:
+
     def get_class(obj):
         return obj.__class__
-    
-
 
 
 def tuple_from_QPen(obj):
@@ -19,7 +20,7 @@ def tuple_from_QPen(obj):
             args.append(
                 int(obj.style())
             )  # pour l'instant ne sais pas comment serialiser une enumeration Qt.SolidLine ect...
-    return (get_class(obj), tuple(args),None)
+    return (get_class(obj), tuple(args), None)
 
 
 def tuple_from_QBrush(obj):
@@ -28,7 +29,7 @@ def tuple_from_QBrush(obj):
         args.append(
             int(obj.style())
         )  # pour l'instant ne sais pas comment serialiser une enumeration Qt.SolidLine ect...
-    return (get_class(obj), tuple(args),None)
+    return (get_class(obj), tuple(args), None)
 
 
 # --- DATA -------------------------------------------------------
@@ -53,7 +54,7 @@ def tuple_from_QPolygon(obj):
 
 
 def tuple_from_QPolygonF(obj):
-    state= []
+    state = []
     for point in obj:
         state.append(point.x())
         state.append(point.y())
@@ -78,36 +79,36 @@ def tuple_from_QCheckBox(obj):
 
 def tuple_from_QLineEdit(obj):
     state = {"text": obj.text()}
-    return (get_class(obj),  tuple(), state)
+    return (get_class(obj), tuple(), state)
 
 
 def tuple_from_QPlainTextEdit(obj):
     state = {"plainText": obj.toPlainText()}
-    return (get_class(obj),  tuple(), state)
+    return (get_class(obj), tuple(), state)
+
 
 def tuple_from_QWidget(obj):
-    return (get_class(obj),  tuple(), None)
-    
+    return (get_class(obj), tuple(), None)
+
 
 set_attributes = {
-        "qtpy.QtWidgets.QCheckBox",
-        "qtpy.QtWidgets.QDoubleSpinBox",
-        "qtpy.QtWidgets.QLineEdit",
-        "qtpy.QtWidgets.QPlainTextEdit",
-        "qtpy.QtWidgets.QPushButton",
-        "qtpy.QtWidgets.QSpinBox",
-        "PySide2.QtWidgets.QCheckBox",
-        "PySide2.QtWidgets.QDoubleSpinBox",
-        "PySide2.QtWidgets.QLineEdit",
-        "PySide2.QtWidgets.QPlainTextEdit",
-        "PySide2.QtWidgets.QPushButton",
-        "PySide2.QtWidgets.QSpinBox",
-        "PySide2.QtWidgets.QWidget"
-        }
+    "qtpy.QtWidgets.QCheckBox",
+    "qtpy.QtWidgets.QDoubleSpinBox",
+    "qtpy.QtWidgets.QLineEdit",
+    "qtpy.QtWidgets.QPlainTextEdit",
+    "qtpy.QtWidgets.QPushButton",
+    "qtpy.QtWidgets.QSpinBox",
+    "PySide2.QtWidgets.QCheckBox",
+    "PySide2.QtWidgets.QDoubleSpinBox",
+    "PySide2.QtWidgets.QLineEdit",
+    "PySide2.QtWidgets.QPlainTextEdit",
+    "PySide2.QtWidgets.QPushButton",
+    "PySide2.QtWidgets.QSpinBox",
+    "PySide2.QtWidgets.QWidget",
+}
 
 
-
-tuple_from_module_class_str =  {
+tuple_from_module_class_str = {
     "PySide2.QtCore.QByteArray": tuple_from_reducableQt,
     "PySide2.QtCore.QDate": tuple_from_reducableQt,
     "PySide2.QtCore.QDateTime": tuple_from_reducableQt,
@@ -134,5 +135,5 @@ tuple_from_module_class_str =  {
     "PySide2.QtWidgets.QPlainTextEdit": tuple_from_QPlainTextEdit,
     "PySide2.QtWidgets.QPushButton": tuple_from_QCheckBox,
     "PySide2.QtWidgets.QSpinBox": tuple_from_QSpinBox,
-    "PySide2.QtWidgets.QWidget" : tuple_from_QWidget
+    "PySide2.QtWidgets.QWidget": tuple_from_QWidget,
 }

@@ -41,18 +41,18 @@ objects = {
         "ascii_with_back_slash": b'bonjour les "amis"\\\n',
         "range128": bytes(range(128)),
         "range256": bytes(range(256)),
-        "range256x1200":bytes(range(256))*1200
+        "range256x1200": bytes(range(256)) * 1200,
     },
     "bytesarray": {
         "empty": bytearray(),
         "ascii_printable": bytearray(b"bonjour"),
         "range128": bytearray(range(128)),
         "range256": bytearray(range(256)),
-        #"range256x1200":bytearray(range(256))*1200 : plante avec jsonpickle
+        # "range256x1200":bytearray(range(256))*1200 : plante avec jsonpickle
     },
     "list": {
         "empty": [],
-        "one_int" : [1],
+        "one_int": [1],
         "bools": [False, True],
         "ints_01": [0, 1],
         "ints_pos": [2, 3],
@@ -79,11 +79,9 @@ objects = {
         },
     },
     "range": {
-            "range_0_10": range(10),
+        "range_0_10": range(10),
     },
-    "slice": {
-            "slice_1_10_2": slice(1, 10, 2)
-    },
+    "slice": {"slice_1_10_2": slice(1, 10, 2)},
     "iterators": {
         # "list_iterator": [i*10 for i in range(10)],
         # "tuple_iterator": (i+10 for i in range(10)),
@@ -108,9 +106,7 @@ objects = {
         "date": datetime.date(2020, 3, 10),
         "time": datetime.time(17, 30),
         "timedelta": datetime.timedelta(30),
-        "struct_time": time.struct_time(
-            [2020, 5, 7, 16, 8, 55, 3, 128, 1]
-        ),  # time.localtime()
+        "struct_time": time.struct_time([2020, 5, 7, 16, 8, 55, 3, 128, 1]),  # time.localtime()
     },
     "binary": {
         # "array" :array.array("i",[1,2,3])
@@ -145,7 +141,7 @@ objects = {
         "timedelta": datetime.timedelta,
         "struct_time": time.struct_time,
         # "class": Empty
-    }
+    },
 }
 objects["tuple"] = {key: tuple(value) for key, value in objects["list"].items()}
 objects["set"] = {key: set(value) for key, value in objects["list"].items()}

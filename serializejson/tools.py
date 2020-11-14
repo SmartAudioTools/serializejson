@@ -1,16 +1,18 @@
 from . import serialize_parameters
 from SmartFramework.string.encodings import ascii_printables
 from SmartFramework.tools.dictionnaires import filtered
-from SmartFramework.tools.objects import isInstance,isCallable
+from SmartFramework.tools.objects import isInstance, isCallable
 from inspect import isclass
 import types
-from pybase64 import b64encode,b64decode
+from pybase64 import b64encode, b64decode
 from apply import apply
 import copyreg
-from collections.abc import Iterable 
+from collections.abc import Iterable
 import blosc
-try : 
+
+try:
     import numpy
+
     _bool_int_and_float_types = set(
         (
             float,
@@ -29,15 +31,15 @@ try :
             numpy.float64,
         )
     )
-except : 
-        _bool_int_and_float_types = set(
+except:
+    _bool_int_and_float_types = set(
         (
             float,
             int,
             bool,
         )
     )
-    
+
 
 ascii_printables_ = ascii_printables  # sert juste à éviter warning
 
@@ -51,6 +53,7 @@ def from_id(obj_id):
 '''
 valid_char_for_var_name = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_")
 
+
 def _onlyOneDimSameTypeNumbers(list_or_tuple):
     if len(list_or_tuple):
         type_first = type(list_or_tuple[0])
@@ -58,9 +61,11 @@ def _onlyOneDimSameTypeNumbers(list_or_tuple):
             return all(type(i) is type_first for i in list_or_tuple)
     return False
 
-def compress(inst,compression):
-    if compression == "blosc" :
+
+def compress(inst, compression):
+    if compression == "blosc":
         return blosc.compress(inst)
+
 
 def from_name(path, accept_dict_as_object=False, **variables):
     """fonction qui permet d'evaluer une expression pour acceder à une valeure à partir de son nom qualifié
@@ -198,18 +203,12 @@ def from_name(path, accept_dict_as_object=False, **variables):
                     if in_var:
                         current = variables[element]
                     else:
-                        raise Exception(
-                            "firts element of path must be a name_of_variable"
-                        )
+                        raise Exception("firts element of path must be a name_of_variable")
                     is_first = False
                 else:
                     if in_var:
                         element = variables[element]
-                    if (
-                        accept_dict_as_object
-                        and type(current) is dict
-                        and "__class__" in current
-                    ):
+                    if accept_dict_as_object and type(current) is dict and "__class__" in current:
                         current = current[element]
                     else:
                         current = current.__dict__[element]
@@ -225,18 +224,12 @@ def from_name(path, accept_dict_as_object=False, **variables):
                     if in_var:
                         current = variables[element]
                     else:
-                        raise Exception(
-                            "firts element of path must be a name_of_variable"
-                        )
+                        raise Exception("firts element of path must be a name_of_variable")
                     is_first = False
                 else:
                     if in_var:
                         element = variables[element]
-                    if (
-                        accept_dict_as_object
-                        and type(current) is dict
-                        and "__class__" in current
-                    ):
+                    if accept_dict_as_object and type(current) is dict and "__class__" in current:
                         current = current[element]
                     else:
                         current = current.__dict__[element]
@@ -259,34 +252,37 @@ def from_name(path, accept_dict_as_object=False, **variables):
         else:
             if in_var:
                 element = variables[element]
-            if (
-                accept_dict_as_object
-                and type(current) is dict
-                and "__class__" in current
-            ):
+            if accept_dict_as_object and type(current) is dict and "__class__" in current:
                 current = current[element]
             else:
                 current = current.__dict__[element]
     return current
 
 
-class encodedB64(): # J'ai abandonné l'idée de sub classer bytes, car il faisait une copie 
+class encodedB64:  # J'ai abandonné l'idée de sub classer bytes, car il faisait une copie
     """class used as flag to know that a bytes as already been encoded in base64, we don't need to do it again"""
-    #@profile
-    def __init__(self,val):
-        #pass
+
+    # @profile
+    def __init__(self, val):
+        # pass
         self.encoded_bytes = b64encode(val)
-    #def __new__(cls, val):
+
+    # def __new__(cls, val):
     #    return super().__new__(cls, memoryview(b64encode(val))) # on dirait que y'a une copie .;
 
-class compressedBytes():
+
+class compressedBytes:
     """class used as flag to know that a bytes has already been compressed, we don't need to do it again"""
-    def __init__(self,compressed_bytes):
+
+    def __init__(self, compressed_bytes):
         self.compressed_bytes = compressed_bytes
 
+
 classFromClassStr_dict = {
-        'base64.b64decode' : lambda b64 : b64decode(b64,validate = True) # allow to accelerete base 64 decode
-        }
+    "base64.b64decode": lambda b64: b64decode(b64, validate=True)  # allow to accelerete base 64 decode
+}
+
+
 def classFromClassStr(string):
     listeModuleClass = string.rsplit(".", 1)
     if len(listeModuleClass) == 2:
@@ -331,7 +327,9 @@ def tupleFromInstance(inst):
 
     # CAS PARTICULIERS----------------
     if classStr in tuple_from_module_class_str:
-        return tuple_from_module_class_str[classStr](inst) # 99.2 % du temps sur obj = bytes(numpy.arange(2**18,dtype=numpy.float64).data)
+        return tuple_from_module_class_str[classStr](
+            inst
+        )  # 99.2 % du temps sur obj = bytes(numpy.arange(2**18,dtype=numpy.float64).data)
 
     # CAS GENERAL --------------------------------
     try:
@@ -411,6 +409,7 @@ def tupleFromInstance(inst):
 
 # @profile
 
+
 def instance(__class__=object, __init__=None, __state__=None, __initArgs__=None, **argsSup):
     """créer une instance d'un objet :
     instance(dictionnaire)
@@ -425,7 +424,7 @@ def instance(__class__=object, __init__=None, __state__=None, __initArgs__=None,
         __init__ = __initArgs__  # pour retro-compatibilité avec anciens json
     # class_,initArgs,state      = __class__,__init__,__state__
     inst = None
-    #class_str = None
+    # class_str = None
     if __class__ == "type":
         if __init__ == "NoneType":
             return type(None)
@@ -445,11 +444,11 @@ def instance(__class__=object, __init__=None, __state__=None, __initArgs__=None,
             __class__, dict
         ):  # permet de gere le cas ou on donne directement un dictionnaire en premier argument
             return instance(**__class__)
-        else: 
+        else:
             if isclass(__class__):
                 class_ = __class__
                 class_str = classStrFromClass(__class__)
-            elif isInstance(__class__): # arrrive avec serializeRepr 
+            elif isInstance(__class__):  # arrrive avec serializeRepr
                 inst = __class__
                 class_str = classStrFromClass(inst.__class__)
             elif isCallable(__class__):
@@ -482,9 +481,8 @@ def instance(__class__=object, __init__=None, __state__=None, __initArgs__=None,
         else:
             if type(__state__) is dict:
                 set_attributes = serialize_parameters.set_attributes
-                if (
-                    set_attributes is True 
-                    or ((set_attributes is not False) and (class_str in set_attributes))
+                if set_attributes is True or (
+                    (set_attributes is not False) and (class_str in set_attributes)
                 ):  # si la variable global setattributes = True , il tente de faire appel aux setters (NON TESTE)
                     for key, value in __state__.items():
                         attributeSetmethod = "set_" + key
@@ -496,14 +494,16 @@ def instance(__class__=object, __init__=None, __state__=None, __initArgs__=None,
                             if hasattr(inst, attributeSetmethod):
                                 method = inst.__getattribute__(attributeSetmethod)
                                 method(value)
-                            else :
+                            else:
                                 inst.__setattr__(
                                     key, value
                                 )  # permet de gerer à la fois les cas ou key est une propriétée, un attriut dans __dict__ ou dans __slot__
                 else:
                     if hasattr(inst, "__slots__"):
                         for key, value in __state__.items():
-                            inst.__setattr__(key, value) # ATTENTION va aussi restaure  propriétés alors qu'on ne le souhaite pas forcement...
+                            inst.__setattr__(
+                                key, value
+                            )  # ATTENTION va aussi restaure  propriétés alors qu'on ne le souhaite pas forcement...
                     else:
                         inst.__dict__.update(__state__)  # ou copy(state) ou deep(copy) ?
             else:
@@ -511,50 +511,52 @@ def instance(__class__=object, __init__=None, __state__=None, __initArgs__=None,
     return inst
 
 
-
 # --- Import of plugins -------------------------------------------------------
 import inspect
 from . import plugins
-# import plugins 
+
+# import plugins
 tuple_from_module_class_str = {}
 default_set_attributes = set()
 encoder_plugins_parameters_default_values = {}
 decoder_plugins_parameters_default_values = {}
 
-for module_name,module in   plugins.__dict__.items():
+for module_name, module in plugins.__dict__.items():
     if not module_name.startswith("__"):
-        if hasattr(module, 'encoder_plugins_parameters_default_values'):
-            encoder_plugins_parameters_default_values.update(module.encoder_plugins_parameters_default_values)  
-        if hasattr(module, 'decoder_plugins_parameters_default_values'):
-            decoder_plugins_parameters_default_values.update(module.decoder_plugins_parameters_default_values)  
-        if hasattr(module, 'set_attributes'):
-            default_set_attributes.update(module.set_attributes)        
-        if hasattr(module, 'tuple_from_module_class_str'):
+        if hasattr(module, "encoder_plugins_parameters_default_values"):
+            encoder_plugins_parameters_default_values.update(module.encoder_plugins_parameters_default_values)
+        if hasattr(module, "decoder_plugins_parameters_default_values"):
+            decoder_plugins_parameters_default_values.update(module.decoder_plugins_parameters_default_values)
+        if hasattr(module, "set_attributes"):
+            default_set_attributes.update(module.set_attributes)
+        if hasattr(module, "tuple_from_module_class_str"):
             tuple_from_module_class_str.update(module.tuple_from_module_class_str)
-        else: 
-            for function_name,function in module.__dict__.items():
+        else:
+            for function_name, function in module.__dict__.items():
                 if inspect.isfunction(function) and function_name.startswith("tuple_from_"):
-                    class_str = function_name[len("tuple_from_"):]
+                    class_str = function_name[len("tuple_from_") :]
                     if module_name != "builtins":
-                        class_str = module_name+'.'+class_str
+                        class_str = module_name + "." + class_str
                     tuple_from_module_class_str[class_str] = function
-encoder_plugins_parameters_keys= set(encoder_plugins_parameters_default_values)
-decoder_plugins_parameters_keys= set(decoder_plugins_parameters_default_values)
+encoder_plugins_parameters_keys = set(encoder_plugins_parameters_default_values)
+decoder_plugins_parameters_keys = set(decoder_plugins_parameters_default_values)
+
 
 def _get_set_attributes_classes_strings(set_attributes):
-    if isinstance(set_attributes,bool)   :
+    if isinstance(set_attributes, bool):
         return set_attributes
-    elif isinstance(set_attributes,Iterable):
+    elif isinstance(set_attributes, Iterable):
         set_attributes_with_defaults = default_set_attributes.copy()
         for elt in set_attributes:
             if not isinstance(str):
                 elt = classFromClassStr(elt)
             set_attributes_with_defaults.add(elt)
-        return set_attributes_with_defaults 
-    else : 
-        raise TypeError("Decoder set_attributes argument must be a bool, list, tuple or set, not '%s'"%type(set_attributes))
-        
-        
+        return set_attributes_with_defaults
+    else:
+        raise TypeError(
+            "Decoder set_attributes argument must be a bool, list, tuple or set, not '%s'" % type(set_attributes)
+        )
+
 
 def tuple_from_compressedBytes(inst):
     inst = inst.compressed_bytes
@@ -564,8 +566,9 @@ def tuple_from_compressedBytes(inst):
             return (bytes, (string, "ascii"), None)
         except:
             pass
-    #if serialize_parameters.bytes_use_bytesB64:  
-    #    return (bytesB64, (encodedB64(inst),), None) 
+    # if serialize_parameters.bytes_use_bytesB64:
+    #    return (bytesB64, (encodedB64(inst),), None)
     return ("base64.b64decode", (encodedB64(inst),), None)
+
 
 tuple_from_module_class_str[classStrFromClass(compressedBytes)] = tuple_from_compressedBytes

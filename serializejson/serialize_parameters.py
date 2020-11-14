@@ -11,7 +11,7 @@
 
 # a laisser là  on y toucher à priori pas -----------------------
 
-#base64_for_bytes = True  # dit si doit utiliser l'encodage en base64 pour l'encodage des bytes et bytes array, si pas ascii printables. Ce paramètre n'est modifiable que directement ici. Attention s'il est mis à False, si serialize en json plantera sur les bytes avec des valeures < 128 dans tuple_from_bytes => le laisser toujours True ?
+# base64_for_bytes = True  # dit si doit utiliser l'encodage en base64 pour l'encodage des bytes et bytes array, si pas ascii printables. Ce paramètre n'est modifiable que directement ici. Attention s'il est mis à False, si serialize en json plantera sur les bytes avec des valeures < 128 dans tuple_from_bytes => le laisser toujours True ?
 numpyB64_convert_int64_to_int32_and_align_in_Python_32Bit = True  # dis si numpyB64 doit deserialiser les tableau int64 en int32 quand utilise python 32 bits (pour prendre moins de place? ou pour pouvoir deserialiser les classifiers en python 32 bit ?
 
 # noms de fichiers ----------------------------

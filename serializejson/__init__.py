@@ -27,25 +27,29 @@
 
 
 from SmartFramework.tools.dictionnaires import filtered
+
 try:
     import importlib.metadata as importlib_metadata
-except: 
+except:
     import importlib_metadata
 try:
-	__version__ = importlib_metadata.version('serializejson')
-except: 
-	pass
+    __version__ = importlib_metadata.version("serializejson")
+except:
+    pass
 import os
 import io
 import sys
 from collections import deque
 import rapidjson
-#from typing import TextIO,BinaryIO
+
+# from typing import TextIO,BinaryIO
 from pybase64 import b64decode
+
 try:
     import numpy
     from numpy import frombuffer, unpackbits, uint8, ndarray, int32, int64, copy
     from numpy import dtype as numpy_dtype
+
     use_numpy = True
 except ModuleNotFoundError:
     ndarray = None
@@ -53,13 +57,14 @@ except ModuleNotFoundError:
 import gc
 from _collections_abc import list_iterator
 from . import serialize_parameters
-import blosc 
+import blosc
+
 blosc_compressions = set(blosc.cnames)
 
-__all__ = ['dumps', 'dump', 'loads', 'load', 'append', 'Encoder', 'Decoder']
+__all__ = ["dumps", "dump", "loads", "load", "append", "Encoder", "Decoder"]
 
 
-#not_duplicates_types = set([type(None), bool, int, float, str])
+# not_duplicates_types = set([type(None), bool, int, float, str])
 
 
 # --- FONCTIONS FOR SERIALIZED OBJECTS IN BASE 64------------------------------
@@ -69,48 +74,43 @@ __all__ = ['dumps', 'dump', 'loads', 'load', 'append', 'Encoder', 'Decoder']
 nb_bits = sys.maxsize.bit_length() + 1
 
 
-def bytearrayB64(b64,compression = None):
+def bytearrayB64(b64, compression=None):
     if compression:
         if compression in blosc_compressions:
-            return blosc.decompress(b64decode(b64, validate=True),as_bytearray=True)
+            return blosc.decompress(b64decode(b64, validate=True), as_bytearray=True)
         raise Exception(f"unknow {compression} compression")
     return bytearray(b64decode(b64, validate=True))
 
-def bytesB64(b64,compression = None):
+
+def bytesB64(b64, compression=None):
     if compression:
         if compression in blosc_compressions:
             return blosc.decompress(b64decode(b64, validate=True))
         raise Exception(f"unknow {compression} compression")
     return b64decode(b64, validate=True)
-    
 
-def numpyB64(str64, dtype=None, shape_len_compression=None,compression = None):
-    decodedBytes = b64decode(
-        str64, validate=True
-    )  
-    if isinstance(shape_len_compression,str):
+
+def numpyB64(str64, dtype=None, shape_len_compression=None, compression=None):
+    decodedBytes = b64decode(str64, validate=True)
+    if isinstance(shape_len_compression, str):
         compression = shape_len_compression
         shape_len = None
-    else: 
+    else:
         shape_len = shape_len_compression
     if compression:
-        if compression in blosc_compressions: 
-            decodedBytes = blosc.decompress(decodedBytes,as_bytearray=True)
+        if compression in blosc_compressions:
+            decodedBytes = blosc.decompress(decodedBytes, as_bytearray=True)
         else:
             raise Exception(f"unknow {compression} compression")
     # str64 -> bytes: decoding with copy
     if dtype in ("bool", bool):
-        numpy_uint8_containing_8bits = frombuffer(
-            decodedBytes, uint8
-        )  # pas de copie -> read only
+        numpy_uint8_containing_8bits = frombuffer(decodedBytes, uint8)  # pas de copie -> read only
         numpy_uint8_containing_8bits = unpackbits(
             numpy_uint8_containing_8bits
         )  # copie dans un numpy array de uint8 mutable
         if shape_len is None:
             shape_len = len(numpy_uint8_containing_8bits)
-        return ndarray(
-            shape_len, dtype, numpy_uint8_containing_8bits
-        )  # pas de recopie
+        return ndarray(shape_len, dtype, numpy_uint8_containing_8bits)  # pas de recopie
     else:
         if isinstance(dtype, list):
             dtype = [(str(champName), champType) for champName, champType in dtype]
@@ -119,8 +119,7 @@ def numpyB64(str64, dtype=None, shape_len_compression=None,compression = None):
         else:
             array = ndarray(shape_len, dtype, decodedBytes)  # pas de recopie
         if (
-            nb_bits == 32
-            and serialize_parameters.numpyB64_convert_int64_to_int32_and_align_in_Python_32Bit
+            nb_bits == 32 and serialize_parameters.numpyB64_convert_int64_to_int32_and_align_in_Python_32Bit
         ):  # pour pouvoir deserialiser les classifiers en python 32 bit ?
             if array.dtype in (int64, "int64"):
                 return array.astype(int32)
@@ -160,14 +159,15 @@ from .tools import (
     _get_set_attributes_classes_strings,
     encoder_plugins_parameters_keys,
     encoder_plugins_parameters_default_values,
-    _onlyOneDimSameTypeNumbers
+    _onlyOneDimSameTypeNumbers,
 )
+
 
 def dumps(obj, **argsDict):
     """
-    Dump object into json string. 
-    
-    Args: 
+    Dump object into json string.
+
+    Args:
         obj: object to dump.
         **argsDict: parameters passed to the Encoder (see documentation).
     """
@@ -176,11 +176,11 @@ def dumps(obj, **argsDict):
 
 def dump(obj, fp, **argsDict):
     """
-    Dump an object into json file. 
-    
-    Args: 
+    Dump an object into json file.
+
+    Args:
         obj: object to dump.
-        fp (str or file-like): path or file. 
+        fp (str or file-like): path or file.
         **argsDict: parameters passed to the Encoder (see documentation).
     """
     if isinstance(fp, str):
@@ -190,12 +190,12 @@ def dump(obj, fp, **argsDict):
 
 def append(obj, fp=None, *, indent="\t", **argsDict):
     """
-    Append an object into json file. 
-    
-    Args: 
+    Append an object into json file.
+
+    Args:
         obj: object to dump.
-        fp (str or file-like): 
-            path or file. The file must be empty or containing a json list. 
+        fp (str or file-like):
+            path or file. The file must be empty or containing a json list.
         indent: indent passed to Encoder.
         **argsDict: other parameters passed to the Encoder (see documentation).
     """
@@ -206,18 +206,18 @@ def append(obj, fp=None, *, indent="\t", **argsDict):
 
 def loads(s, *, obj=None, iterator=False, **argsDict):  # on ne peut pas en meme temps updater objet
     """
-    Load an object from a json string. 
-    
-    Args: 
-        s: 
+    Load an object from a json string.
+
+    Args:
+        s:
             the json string.
         obj (optional):
             If provided, the object `obj` will be updated and no new object will be created.
-        iterator: 
+        iterator:
             if `True` and the json corresponds to a list then the items will be read one by one which reduces RAM consumption.
-        **argsDict: 
+        **argsDict:
             parameters passed to the Decoder (see documentation).
-        
+
     Return:
         created object, updated object if `obj` is provided or elements iterator if `iterator` is `True`.
     """
@@ -230,18 +230,18 @@ def loads(s, *, obj=None, iterator=False, **argsDict):  # on ne peut pas en meme
 
 def load(fp, *, obj=None, iterator=False, **argsDict):
     """
-    Load an object from a json file. 
-    
-    Args: 
-        fp (str or file-like): 
+    Load an object from a json file.
+
+    Args:
+        fp (str or file-like):
             the json file.
         obj (optional):
             If provided, the object `obj` will be updated and no new object will be created.
-        iterator: 
+        iterator:
             if `True` and the json corresponds to a list then the items will be read one by one which reduces RAM consumption.
-        **argsDict: 
+        **argsDict:
             parameters passed to the Decoder (see documentation).
-        
+
     Return:
         created object, updated object if passed obj or elements iterator if iterator is True.
     """
@@ -252,113 +252,113 @@ def load(fp, *, obj=None, iterator=False, **argsDict):
         return Decoder(**argsDict).load(fp=fp, obj=obj)
 
 
-
 # --- CLASSES BASED API -------------------------------------------------------
 
 
 class Encoder(rapidjson.Encoder):
     """
     class for serialization of python objects into json.
-    
+
     Args:
-        fp (string or file-like): 
-            path or file-like object. 
+        fp (string or file-like):
+            path or file-like object.
             When specified, the encoded result will be written there
-            and you will not have to pass it to the `dump()` method later. 
-        
+            and you will not have to pass it to the `dump()` method later.
+
         attributes_filter:
-            attributes_filter allow you to chose if you want to serialize 
-            privates attributes at the dump time, instead of hard coded in methodes. 
-            If an object instance has not __reduce__() or __gestate__() methodes 
-            given the state and if attributes_filter is set to "_" (by default), 
+            attributes_filter allow you to chose if you want to serialize
+            privates attributes at the dump time, instead of hard coded in methodes.
+            If an object instance has not __reduce__() or __gestate__() methodes
+            given the state and if attributes_filter is set to "_" (by default),
             then all object attributes in __dict__ or __slots__ will
-            be serialized except ones starting with "_" corresponding to 
-            privates attributs. 
-            If you want to serialize all attributes, 
-            private include, you sould set attributes_filter to None. 
-            If you want to still have the same behavior than pickle, 
-            you sould set attributes_filter to None and 
+            be serialized except ones starting with "_" corresponding to
+            privates attributs.
+            If you want to serialize all attributes,
+            private include, you sould set attributes_filter to None.
+            If you want to still have the same behavior than pickle,
+            you sould set attributes_filter to None and
             eventually hard coding a __reduce__() or __gestate__() methode filtering
             attributes starting with "_" with serializesjon.filtered() function.
 
-        chunk_size: 
+        chunk_size:
             write the stream in chunks of this size at a time.
-        
-        ensure_ascii: 
+
+        ensure_ascii:
             whether non-ascii str are dumped with escaped unicode or utf-8.
-        
-        indent (None, int or '\\\\t'): 
+
+        indent (None, int or '\\\\t'):
             indentation width to produce pretty printed JSON.
-            
+
             - None: Json in one line (quicker than with indent).
             - int: new lines and `indent` spaces for indent.
             - '\\\\t': new lines and tabulations for indent (take less space than int > 1).
-               
+
         single_line_init:
             whether `__init__` must be serialize in one line.
-        
+
         single_line_list_numbers:
             whether list of numbers of same type must be serialize in one line.
-        
+
         sort_keys:
             whether dictionary keys should be sorted alphabetically.
-                      
+
         bytes_compression(None or str):
             Compression for bytes, bytesarray and numpy arrays:
-           
+
             - `None` : no compression
-            - `str` : compression name ("blosclz", "lz4", "lz4hc", "zlib" or "zstd") with maximum compression level 9. 
+            - `str` : compression name ("blosclz", "lz4", "lz4hc", "zlib" or "zstd") with maximum compression level 9.
             - `tuple` : (compression name, compression level) with compression level from 0 (no compression) to 9 (maximum compression)
-            
-            By default the "zstd" compression is used with compression level 1. 
+
+            By default the "zstd" compression is used with compression level 1.
             For the highest compression (but with slower dumping) use "zstd" with compression level 9
-            
-        bytes_size_compression_threshold (int): 
-            bytes size threshold beyond compression is tried to reduce size of 
+
+        bytes_size_compression_threshold (int):
+            bytes size threshold beyond compression is tried to reduce size of
             bytes, bytesarray and numpy array if `bytes_compression` is not None.
-            The default value is 512, generaly beside the compression is not 
+            The default value is 512, generaly beside the compression is not
             worth it due to the header size and the additional cpu cost.
-            
+
         numpy_array_readable_max_size (int,None or dict):
             Defines the maximum array size for serialization in readable numbers.
             By default numpy_array_readable_max_size is set to 0, all numpy arrays are encoded in base 64.
-            
-            - `int` : all numpy arrays smaller than this size are serialized in readable numbers. 
+
+            - `int` : all numpy arrays smaller than this size are serialized in readable numbers.
             - `None` : there is no maximum size and all numpy arrays are serialized in readable numbers.
             - `dict` : for each dtype key, the value define the maximum size  of this dtype arrays for serialization in readable numbers. If value is `None` there is no maximum and numpy array of this dtype are all serialized in readable numbers. If you want only numpy arrays int32 to be readable, then you should pass `numpy_array_readable_max_size = {"int32":None}`
-            
+
             .. note::
-                
+
                 serialization in readable decimals can take much less space in int32 if the values ar smaller or equal to 9999,
-                but is much slower than in base 64 for big arrays. If you have lot or large numpy int32 arrays and 
+                but is much slower than in base 64 for big arrays. If you have lot or large numpy int32 arrays and
                 performance matters, then you should stay with default value 0.
-            
-        numpy_array_to_list: 
-            whether numpy array should be serialized as list. 
-          
+
+        numpy_array_to_list:
+            whether numpy array should be serialized as list.
+
             .. warning::
 
                 This should be used only for interoperability with other json libraries.
                 If you want readable  values in your json, we recommend to use instead
                 `numpy_array_readable_max_size` which is not destructive.
-                
+
                 With `numpy_array_to_list` set to `True`:
 
-                - numpy arrays will be indistinctable from list in json. 
-                - `Decoder(numpy_array_from_list=True)` will recreate numpy array from lists of bool, int or float, if not an `__init__` args list, with the the risque of unwanted convertion of lists to numpy arrays. 
+                - numpy arrays will be indistinctable from list in json.
+                - `Decoder(numpy_array_from_list=True)` will recreate numpy array from lists of bool, int or float, if not an `__init__` args list, with the the risque of unwanted convertion of lists to numpy arrays.
                 - dtype of the numpy array will be loosed loosed if not bool, int32 or float64 and converted to the bool, int32 or float64 when loading
                 - Empty numpy array will be converted to [] without any way to guess the dtype and will stay an empty list when loading event with `numpy_array_from_list = True`
-            
+
         numpy_types_to_python_types:
              whether numpy integers and floats outside of a array must be convert to python types.
-             It save space and generally don't affect 
-                          
+             It save space and generally don't affect
+
         **plugins_parameters:
-            extra keys arguments are stocked in "serialize_parameters" 
+            extra keys arguments are stocked in "serialize_parameters"
             global module and accessible in plugins module in order to allow
-            the choice between serialization options in plugins.            
+            the choice between serialization options in plugins.
 
     """
+
     """
         bytearray_use_bytearrayB64: 
             save bytearray with references to serializejson.bytearrayB64
@@ -395,6 +395,7 @@ class Encoder(rapidjson.Encoder):
             BM_UTF8
             BM_NONE
     """
+
     def __new__(
         cls,
         fp=None,
@@ -406,21 +407,20 @@ class Encoder(rapidjson.Encoder):
         single_line_init=True,
         single_line_list_numbers=True,
         sort_keys=True,
-        bytes_compression = ('zstd',1),# 
-        bytes_size_compression_threshold = 512,
-        bytes_use_bytesB64 = True, # le laisser ?
+        bytes_compression=("zstd", 1),  #
+        bytes_size_compression_threshold=512,
+        bytes_use_bytesB64=True,  # le laisser ?
         bytearray_use_bytearrayB64=True,  # le laisser ?
         numpy_array_use_numpyB64=True,  # le laisser ?
-        numpy_array_readable_max_size=0, #'int32':-1
+        numpy_array_readable_max_size=0,  #'int32':-1
         numpy_array_to_list=False,
         numpy_types_to_python_types=True,
-        **plugins_parameters
+        **plugins_parameters,
     ):
- 
 
-        #if not bytes_to_string:
+        # if not bytes_to_string:
         #   bytes_mode = rapidjson.BM_NONE
-        #else:
+        # else:
         #    bytes_mode = rapidjson.BM_UTF8
         self = super().__new__(
             cls,
@@ -428,28 +428,30 @@ class Encoder(rapidjson.Encoder):
             indent=indent,
             sort_keys=sort_keys,
             bytes_mode=rapidjson.BM_NONE,
-            number_mode = rapidjson.NM_NAN
-            #**argsDict
+            number_mode=rapidjson.NM_NAN
+            # **argsDict
         )
         self.attributes_filter = attributes_filter
         self.fp = fp
-        #self.kargs = argsDict
+        # self.kargs = argsDict
         if indent is None:
             self.single_line_list_numbers = False
             self.single_line_init = False
         else:
             self.single_line_list_numbers = single_line_list_numbers
             self.single_line_init = single_line_init
-        self.indent = indent # rapid json enregistre self.indent_char et self.indent_count , mais ne permet pas de savoir si indent = None ...
+        self.indent = indent  # rapid json enregistre self.indent_char et self.indent_count , mais ne permet pas de savoir si indent = None ...
         self._dump_one_line = indent is None
         self.dumped_classes = set()
         self.chunk_size = chunk_size
         bytes_compression_level = 9
-        if bytes_compression is not None : 
-            if isinstance(bytes_compression, (list,tuple)):
-                bytes_compression , bytes_compression_level = bytes_compression      
+        if bytes_compression is not None:
+            if isinstance(bytes_compression, (list, tuple)):
+                bytes_compression, bytes_compression_level = bytes_compression
                 if bytes_compression not in blosc_compressions:
-                    raise Exception(f"{bytes_compression} compression unknown. Available values for bytes_compression are {', '.join(blosc_compressions)}")
+                    raise Exception(
+                        f"{bytes_compression} compression unknown. Available values for bytes_compression are {', '.join(blosc_compressions)}"
+                    )
         self.bytes_compression = bytes_compression
         self.bytes_compression_level = bytes_compression_level
         self.bytes_size_compression_threshold = bytes_size_compression_threshold
@@ -461,18 +463,22 @@ class Encoder(rapidjson.Encoder):
         self.numpy_types_to_python_types = numpy_types_to_python_types
         unexpected_keywords_arguments = set(plugins_parameters) - encoder_plugins_parameters_keys
         if unexpected_keywords_arguments:
-            raise  TypeError("serializejson.Encoder got unexpected keywords arguments '"+', '.join(unexpected_keywords_arguments)+"'")     
+            raise TypeError(
+                "serializejson.Encoder got unexpected keywords arguments '"
+                + ", ".join(unexpected_keywords_arguments)
+                + "'"
+            )
         self.plugins_parameters = encoder_plugins_parameters_default_values.copy()
         self.plugins_parameters.update(plugins_parameters)
         return self
 
     def dump(self, obj, fp=None):
         """
-        Dump object into json file. 
-        
-        Args: 
+        Dump object into json file.
+
+        Args:
             obj: object to dump.
-            fp (optional str or file-like): path or file. If provided, the object will be 
+            fp (optional str or file-like): path or file. If provided, the object will be
                 dumped into this file instead of being dumped into the file passed at the Encoder constructor.
         """
         if fp is None:
@@ -483,20 +489,20 @@ class Encoder(rapidjson.Encoder):
 
     def dumps(self, obj):
         """
-        Dump object into json string. 
+        Dump object into json string.
         """
         return self.__call__(obj)
 
     def append(self, obj, fp=None):
         """
-        Append object into json file. 
-        
-        Args: 
+        Append object into json file.
+
+        Args:
             obj: object to dump.
-            fp (optional str or file-like): path or file. If provided, the object will be 
-                dumped into this file instead of being dumped into the file passed at the Encoder 
-                constructor. The file must be empty or contain a json list. 
-         """
+            fp (optional str or file-like): path or file. If provided, the object will be
+                dumped into this file instead of being dumped into the file passed at the Encoder
+                constructor. The file must be empty or contain a json list.
+        """
         if fp is None:
             fp = self.fp
         fp = _open_for_append(fp, self.indent)
@@ -505,12 +511,12 @@ class Encoder(rapidjson.Encoder):
 
     def get_dumped_classes(self):
         """
-        Return the all dumped classes. 
+        Return the all dumped classes.
         In order to reuse them as `authorize_classes` argument when loading with a ``serializejson.Decoder``.
         """
         return self.dumped_classes
-    
-    #@profile
+
+    # @profile
     def default(self, inst):  # Equivalent au calback "default" qu'on peut passer à dump ou dumps
         id_ = id(inst)
         if id_ in self._already_serialized:
@@ -527,9 +533,11 @@ class Encoder(rapidjson.Encoder):
                 return float(inst)
             if type_inst is numpy.bool_:
                 return bool(inst)
-            
+
         if type_inst is encodedB64:
-            return bytes.decode(inst.encoded_bytes)# inst.encoded_bytes.decode("ascii")   # 52% du temps dans default pour obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
+            return bytes.decode(
+                inst.encoded_bytes
+            )  # inst.encoded_bytes.decode("ascii")   # 52% du temps dans default pour obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
         if type_inst is tuple:
             # isinstance(inst,tuple) attrape les struct_time # je l'ai mis là plutot que dans tupleFromInstance car très spécifique à json et les tuples n'ont pas de réduce contrairement à set , qui lui est pour l'instant traité dans dict_from_instance -> tupleFromInstance
             self.dumped_classes.add(tuple)
@@ -545,33 +553,44 @@ class Encoder(rapidjson.Encoder):
                             ensure_ascii=self.ensure_ascii,
                             sort_keys=self.sort_keys,
                             bytes_mode=self.bytes_mode,
-                            number_mode = self.number_mode
-                            #**self.kargs
+                            number_mode=self.number_mode
+                            # **self.kargs
                         )
                     ),
                 }
         elif use_numpy and type_inst is ndarray and self.numpy_array_to_list:
             if self._dump_one_line or not self.single_line_list_numbers:
-                return inst.tolist() # A REVOIR : pas génial... va tester si nombres tous du meme type et ne pas pas utiliser rapidjson.NM_NATIVE? 
+                return (
+                    inst.tolist()
+                )  # A REVOIR : pas génial... va tester si nombres tous du meme type et ne pas pas utiliser rapidjson.NM_NATIVE?
             if inst.dtype in _numpy_float_dtypes:
                 number_mode = self.number_mode
-            else: 
-                number_mode = rapidjson.NM_NATIVE # permet décceler pas mal 
+            else:
+                number_mode = rapidjson.NM_NATIVE  # permet décceler pas mal
             if inst.ndim == 1:
-                return rapidjson.RawJSON(rapidjson.dumps(inst.tolist(),ensure_ascii=False,number_mode = number_mode))
-            return [rapidjson.RawJSON(rapidjson.dumps(elt.tolist(),ensure_ascii=False,number_mode = number_mode)) for elt in inst]  # inst.tolist()
-        dic = self._dict_from_instance(inst) # 8.6 % (correspond au temps pour conversion en b64 avec pybase64.b64encode) du temps sur obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
+                return rapidjson.RawJSON(rapidjson.dumps(inst.tolist(), ensure_ascii=False, number_mode=number_mode))
+            return [
+                rapidjson.RawJSON(rapidjson.dumps(elt.tolist(), ensure_ascii=False, number_mode=number_mode))
+                for elt in inst
+            ]  # inst.tolist()
+        dic = self._dict_from_instance(
+            inst
+        )  # 8.6 % (correspond au temps pour conversion en b64 avec pybase64.b64encode) du temps sur obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
         initArgs = dic.get("__init__", None)
-        if isinstance(initArgs,list) and not self._dump_one_line and self.single_line_init:  # and dic["__class__"] in _oneline_init_classess :
-            dic["__init__"] = rapidjson.RawJSON( # 91.2 % du temps avec obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
+        if (
+            isinstance(initArgs, list) and not self._dump_one_line and self.single_line_init
+        ):  # and dic["__class__"] in _oneline_init_classess :
+            dic[
+                "__init__"
+            ] = rapidjson.RawJSON(  # 91.2 % du temps avec obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
                 rapidjson.dumps(
                     initArgs,
                     default=self._default_one_line,
                     ensure_ascii=self.ensure_ascii,
                     sort_keys=self.sort_keys,
                     bytes_mode=self.bytes_mode,
-                    number_mode = self.number_mode
-                    #**self.kargs
+                    number_mode=self.number_mode
+                    # **self.kargs
                 )
             )
         if not self._dump_one_line and self.single_line_list_numbers:
@@ -589,19 +608,20 @@ class Encoder(rapidjson.Encoder):
                             ensure_ascii=self.ensure_ascii,
                             default=self._default_one_line,
                             bytes_mode=self.bytes_mode,
-                            number_mode = self.number_mode
-                            #**self.kargs
+                            number_mode=self.number_mode
+                            # **self.kargs
                         )
                     )
         self._already_serialized_id_dic_to_obj_dic[id(dic)] = (
             inst,
             dic,
         )  # important de metre dic avec sinon il va être detruit et son identifiant va être réutilisé.
-        #if self.add_id:
+        # if self.add_id:
         #    dic["_id"] = id_
         return dic
         # raise TypeError('%r is not JSON serializable' % inst)
-    #@profile
+
+    # @profile
     def _default_one_line(self, inst):
         type_inst = type(inst)
         if type_inst is encodedB64:
@@ -621,9 +641,11 @@ class Encoder(rapidjson.Encoder):
         if type_inst is ndarray and self.numpy_array_to_list:
             return inst.tolist()
         return self._dict_from_instance(inst)
-    
+
     def _dict_from_instance(self, inst):
-        classe, initArgs, state = tupleFromInstance(inst) # 97.5 %du temps sur obj = bytes(numpy.arange(2**18,dtype=numpy.float64).data)
+        classe, initArgs, state = tupleFromInstance(
+            inst
+        )  # 97.5 %du temps sur obj = bytes(numpy.arange(2**18,dtype=numpy.float64).data)
         if type(classe) is not str:
             classe = classStrFromClass(classe)
         self.dumped_classes.add(classe)
@@ -654,18 +676,14 @@ class Encoder(rapidjson.Encoder):
         return dictionnaire
 
     def __call__(self, obj, stream=None, chunk_size=65536):
-        if (
-            type(obj) in (list, tuple)
-            and self.single_line_list_numbers
-            and _onlyOneDimSameTypeNumbers(obj)
-        ):
+        if type(obj) in (list, tuple) and self.single_line_list_numbers and _onlyOneDimSameTypeNumbers(obj):
             return rapidjson.dumps(
                 obj,
                 ensure_ascii=False,
                 default=self._default_one_line,
                 bytes_mode=self.bytes_mode,
-                number_mode=self.number_mode 
-                #**self.kargs
+                number_mode=self.number_mode
+                # **self.kargs
             )
         serialize_parameters.attributes_filter = self.attributes_filter
         serialize_parameters.bytes_compression = self.bytes_compression
@@ -725,64 +743,64 @@ class Encoder(rapidjson.Encoder):
 class Decoder(rapidjson.Decoder):
     """
     Decoder for loading objects serialized in json files or strings.
-    
+
     Args:
-        fp (string or file-like): 
-            Path or file-like object containing the json. 
+        fp (string or file-like):
+            Path or file-like object containing the json.
             When specified, the decoder will read from this file
-            and you will not have to pass it to the `load()` method later. 
-  
+            and you will not have to pass it to the `load()` method later.
+
         authorized_classes (list):
-            Define the classes that serializejson is authorized to recreate from 
+            Define the classes that serializejson is authorized to recreate from
             the `__class__` keywords in json, in addition to the usuals classes.
-            Usual classes are : complex ,bytes, bytearray, Decimal, type, set, 
+            Usual classes are : complex ,bytes, bytearray, Decimal, type, set,
             frozenset, range, slice, deque,  datetime, timedelta, date, time
             numpy.array, numpy.dtype.
-            authorized_classes must be a liste of classes or strings 
+            authorized_classes must be a liste of classes or strings
             corresponding to the qualified names of classes (`module.class_name`).
-            If the loading json contain an unauthorized  `__class__`, 
-            serializejson will raise a TypeError exception. 
-            
+            If the loading json contain an unauthorized  `__class__`,
+            serializejson will raise a TypeError exception.
+
             .. warning::
-                
-                Do not load serializejson files from untrusted / unauthenticated 
-                sources without carefully set the `authorized_classes` parameter. 
-                Never authorize "eval", "exec", "apply" or other functions or 
-                classes which could allow execution of malicious code 
-                with for example :  
+
+                Do not load serializejson files from untrusted / unauthenticated
+                sources without carefully set the `authorized_classes` parameter.
+                Never authorize "eval", "exec", "apply" or other functions or
+                classes which could allow execution of malicious code
+                with for example :
                 ``{"__class__":"eval","__init__":"do_bad_things()"}``
-                
+
 
         recognized_classes (list):
             List of classes (string with qualified names or classes) that
-            serializejson will try to recognize from keys names. 
-            
+            serializejson will try to recognize from keys names.
+
         updatables_classes (list):
             List of classes (string with qualified names or classes) that
             serializejson will try to update if already in the provided object `obj` when calling `load`.
             Objects will be recreated for other classes.
-            
+
         set_attributes (bool or list):
-            Controls whether `load` will try to call `set_xxx` or `setXxx` methods 
+            Controls whether `load` will try to call `set_xxx` or `setXxx` methods
             or `xxx` property setter for each attributes of the serialized objects
             when the object as no `__setstate__` method.
-            if `set_attributes` is a list of classes or classes qualified names, 
-            `load` will try to call the setters only for these classes 
-            and for classes defined in plugins `set_attributes` lists 
-            (see documentation section: ref:`"Add plugins to serializejson"<add-plugins-label>`. )  
+            if `set_attributes` is a list of classes or classes qualified names,
+            `load` will try to call the setters only for these classes
+            and for classes defined in plugins `set_attributes` lists
+            (see documentation section: ref:`"Add plugins to serializejson"<add-plugins-label>`. )
 
             .. warning::
                 **The attribute's setters are called in the json order !**
-                
+
                 - Always use `sort_keys = True` when dumping for determinist behavior.
                 - Be carefull if you rename an attribute because setters calls order can still change.
-                - If `set_attribute = True` (or is a list) then serializejson will differ from pickle that don't call attribute's setters. 
-                                
+                - If `set_attribute = True` (or is a list) then serializejson will differ from pickle that don't call attribute's setters.
+
                 **It is best to add the __setate__() method to your object:**
-                
+
                 - If you want to call setter in a different order than alphabetic order.
                 - If you want to be robust to an attribute name change.
-                - If you want to be robust to this `set_attribute` parameter change. 
+                - If you want to be robust to this `set_attribute` parameter change.
                 - If you want to avoid transitional states during setting of attribute one by one.
                 - If you want the same behavior as pickle, for being able to still use pickle.
 
@@ -792,10 +810,10 @@ class Decoder(rapidjson.Decoder):
         numpy_array_from_list (bool):
             Controls whether list of int or floats should be loaded into numpy arrays.
 
-        default_value: 
-            The value returned if the path passed to `load` doesn't exist. 
-            It allows to have a default object at the first run of the script or 
-            when the json has been deleted. 
+        default_value:
+            The value returned if the path passed to `load` doesn't exist.
+            It allows to have a default object at the first run of the script or
+            when the json has been deleted.
 
         chunk_size (int):
             Chunk size used when reading the json file.
@@ -803,6 +821,7 @@ class Decoder(rapidjson.Decoder):
 
 
     """
+
     """
         Inherited from rapidjson.Decoder:
 
@@ -811,6 +830,7 @@ class Decoder(rapidjson.Decoder):
         uuid_mode (int): How should UUID instances be handled
         parse_mode (int): Whether the parser should allow non-standard JSON extensions (nan, -inf, inf )
     """
+
     def __new__(
         cls,
         fp=None,
@@ -822,22 +842,22 @@ class Decoder(rapidjson.Decoder):
         accept_comments=False,
         numpy_array_from_list=False,
         default_value=None,
-        chunk_size=65536
+        chunk_size=65536,
     ):
-       
-        if authorized_classes is None : 
+
+        if authorized_classes is None:
             authorized_classes = []
-        if recognized_classes is None : 
+        if recognized_classes is None:
             recognized_classes = []
-        if updatables_classes is None : 
+        if updatables_classes is None:
             updatables_classes = []
         if accept_comments:
             parse_mode = rapidjson.PM_COMMENTS
         else:
             parse_mode = rapidjson.PM_NONE
-        self = super().__new__(cls, parse_mode=parse_mode)#, **argsDict)
+        self = super().__new__(cls, parse_mode=parse_mode)  # , **argsDict)
         self.fp = fp
-        self.set_attributes = _get_set_attributes_classes_strings(set_attributes) 
+        self.set_attributes = _get_set_attributes_classes_strings(set_attributes)
         self._authorized_classes_strs = _get_authorized_classes_strings(authorized_classes)
         self._class_from_attributes_names = _get_recognized_classes_dict(recognized_classes)
         # self.accept_comments = accept_comments
@@ -854,19 +874,19 @@ class Decoder(rapidjson.Decoder):
 
     def load(self, fp=None, obj=None):
         """
-        Load object from json file. 
-        
-        Args: 
-            fp (optional str or file-like): 
-                the object will be loaded from this file instead of being loaded from the 
+        Load object from json file.
+
+        Args:
+            fp (optional str or file-like):
+                the object will be loaded from this file instead of being loaded from the
                 file provided to the Decoder constructor.
             obj (optional):
                 If provided, the object `obj` will be updated and no new object will be created.
-            
+
         Return:
             created object or updated object if passed obj.
         """
-        
+
         if fp is None:
             fp = self.fp
         if isinstance(fp, str):
@@ -882,31 +902,31 @@ class Decoder(rapidjson.Decoder):
 
     def loads(self, s, obj=None):
         """
-        Load object from json string. 
-        
-        Args: 
-            s: 
+        Load object from json string.
+
+        Args:
+            s:
                 the json string.
             obj (optional):
                 If provided, the object `obj` will be updated and no new object will be created.
-                
-                
+
+
                 .. note::
-                    
-                    **Updating an object** consists in restoring its state recursively. 
-                    
-                    * Neither `__new__()` or  `__init__()` will be called. 
+
+                    **Updating an object** consists in restoring its state recursively.
+
+                    * Neither `__new__()` or  `__init__()` will be called.
                     * All childrens of `updatables_classes` will be updated, otherwise will be recreated.
                     * If the object has a `__setstate__()` method, this method will be called with the state.
-                    * Otherwise all the elements of the state dictionary will be restored as attributes. Passively if `set_attribute = False` (like pickle). Actively if `set_attribute=True` or `set_attribute=[your object's class]`, with call of setters (in alphabetic order if `sort_keys=True` or in random order if `sort_keys=False`).    
-                
+                    * Otherwise all the elements of the state dictionary will be restored as attributes. Passively if `set_attribute = False` (like pickle). Actively if `set_attribute=True` or `set_attribute=[your object's class]`, with call of setters (in alphabetic order if `sort_keys=True` or in random order if `sort_keys=False`).
+
                 .. warning::
-                    
-                    You must make sure to have all the needed information in the state and not in the `__init__` args that will be discarded when updating. 
+
+                    You must make sure to have all the needed information in the state and not in the `__init__` args that will be discarded when updating.
                     See documentation section: ref:`"If you want to make the object updatable"<updatable-note-label>`.
 
-                    
-           
+
+
         Return:
             created object or updated object if passed obj.
         """
@@ -914,31 +934,31 @@ class Decoder(rapidjson.Decoder):
 
     def set_default_value(self, value):
         """
-        Set the value returned if the path passed to load doesn't exist. 
-        It allows to have a default object at the first run of the script or 
-        when the json has been deleted. 
+        Set the value returned if the path passed to load doesn't exist.
+        It allows to have a default object at the first run of the script or
+        when the json has been deleted.
         """
         self.default_value = value
-        
+
     def set_authorized_classes(self, classes):
         """
-        Define the classes that serializejson is authorized to recreate from 
+        Define the classes that serializejson is authorized to recreate from
         the `__class__` keywords in json, in addition to the usuals classes.
-        Usual classes are : complex ,bytes, bytearray, Decimal, type, set, 
+        Usual classes are : complex ,bytes, bytearray, Decimal, type, set,
         frozenset, range, slice, deque,  datetime, timedelta, date, time
         numpy.array, numpy.dtype.
-        authorized_classes must be a liste of classes or strings 
+        authorized_classes must be a liste of classes or strings
         corresponding to the qualified names of classes (`module.class_name`).
-        If the loading json contain an unauthorized  `__class__`, 
-        serializejson will raise a TypeError exception. 
-        
+        If the loading json contain an unauthorized  `__class__`,
+        serializejson will raise a TypeError exception.
+
         .. warning::
-            
-            Do not load serializejson files from untrusted / unauthenticated 
-            sources without carefully set the `authorized_classes` parameter. 
-            Never authorize "eval", "exec", "apply" or other functions or 
-            classes which could allow execution of malicious code 
-            with for example :  
+
+            Do not load serializejson files from untrusted / unauthenticated
+            sources without carefully set the `authorized_classes` parameter.
+            Never authorize "eval", "exec", "apply" or other functions or
+            classes which could allow execution of malicious code
+            with for example :
             ``{"__class__":"eval","__init__":"do_bad_things()"}``
         """
         self._authorized_classes_strs = _get_authorized_classes_strings(classes)
@@ -946,10 +966,9 @@ class Decoder(rapidjson.Decoder):
     def set_recognized_classes(self, classes):
         """
         Set the classes (string with qualified name or classes) that
-        serializejson will try to recognize from key names. 
+        serializejson will try to recognize from key names.
         """
         self._class_from_attributes_names = _get_recognized_classes_dict(classes)
-
 
     def set_updatables_classes(self, updatables):
         """
@@ -1104,10 +1123,10 @@ class Decoder(rapidjson.Decoder):
             del self.ancestors
             del self.node_has_descendants_to_recreate
             self._updating = False
-        if obj is not None: 
+        if obj is not None:
             return obj
         return loaded
-    
+
     def __iter__(self):
         self._updating = False
         fp = self.fp
@@ -1138,13 +1157,13 @@ class Decoder(rapidjson.Decoder):
 
         # gère le cas où loaded_node est un dictionnaire ----------------------
         if isinstance(loaded_node, dict):
-            obj_keys = None # plutot que set vide un objet peut ne pas avoir d'attributes ni de slots initialisés
+            obj_keys = None  # plutot que set vide un objet peut ne pas avoir d'attributes ni de slots initialisés
             if isinstance(obj, dict) and ("dict" in self.updatableClassStrs):
                 is_dict = True
-                obj_keys= set(obj)
+                obj_keys = set(obj)
                 obj
-            else:  # s'assure que c'est une instance 
-                is_dict = False 
+            else:  # s'assure que c'est une instance
+                is_dict = False
                 class_str = loaded_node.get("__class__")
                 if (
                     (class_str is not None)
@@ -1160,39 +1179,42 @@ class Decoder(rapidjson.Decoder):
                         # j'ai du remplacer hasMethod(inst,"__setstate__") par hasattr(inst,"__setstate__") pour pouvoir deserialiser des sklearn.tree._tree.Tree en json "__setstate__" n'est pas reconnu comme étant une methdoe !? alors que bien là .
                         if "__state__" in loaded_node:
                             obj.__setstate__(loaded_node["__state__"])
-                        else: 
+                        else:
                             loaded_node.__delitem__("__class__")
-                            if "__init__" in loaded_node : 
+                            if "__init__" in loaded_node:
                                 loaded_node.__delitem__("__init__")
                             obj.__setstate__(loaded_node)
                         return obj
                     if hasattr(obj, "__dict__"):  # A REVOIR : ne marche pas avec les slots
                         obj_keys = set(obj.__dict__)
                     if hasattr(obj, "__slots__"):
-                        if obj_keys is None: 
+                        if obj_keys is None:
                             obj_keys = set()
-                        for base_class in obj.__class__.__mro__[:-1]:  # on ne prend pas le dernier qui est toujours (?) object
+                        for base_class in obj.__class__.__mro__[
+                            :-1
+                        ]:  # on ne prend pas le dernier qui est toujours (?) object
                             for slot in getattr(base_class, "__slots__", ()):
                                 # on utilise pas directement base_class.__slots__ car une classe de base n'a pas forcement redefinit __slots__
                                 if hasattr(obj, slot):
                                     obj_keys.add(slot)
             if obj_keys is not None:
                 if not is_dict:
-                    
+
                     set_attributes = serialize_parameters.set_attributes
-                    set_attributes = (set_attributes is True 
-                            or ((set_attributes is not False) and (class_str in set_attributes)))
-                
+                    set_attributes = set_attributes is True or (
+                        (set_attributes is not False) and (class_str in set_attributes)
+                    )
+
                 # update dans le cas où l'objet pré-existant est un objet (avec __dict__ pas encore __slot__) ou un dictionnaire --
                 loaded_node_has_descendants_to_recreate = id(loaded_node) in self.node_has_descendants_to_recreate
-                
-                # suprime les attributes de l'objet qui ne sont pas dans loaded.. 
+
+                # suprime les attributes de l'objet qui ne sont pas dans loaded..
                 only_in_obj = obj_keys - set(loaded_node)
                 for key in only_in_obj:
                     if not key.startswith("_"):
                         if is_dict:
-                            del(obj[key])
-                        else: 
+                            del obj[key]
+                        else:
                             obj.__delattr__(key)
                 # update ou recrer les autres attributes
                 for key, value in loaded_node.items():
@@ -1200,7 +1222,7 @@ class Decoder(rapidjson.Decoder):
                         if key in obj_keys:
                             if is_dict:
                                 old_value = obj[key]
-                            else: 
+                            else:
                                 old_value = obj.__getattribute__(key)
                             value = self._exploreToUpdate(old_value, value)
                         elif loaded_node_has_descendants_to_recreate:
@@ -1222,7 +1244,7 @@ class Decoder(rapidjson.Decoder):
                                     method(value)
                                 else:
                                     obj.__setattr__(key, value)
-                        else: 
+                        else:
                             obj.__setattr__(key, value)
                 return obj
             return self._exploreDictToReCreateObjects(loaded_node)
@@ -1232,7 +1254,7 @@ class Decoder(rapidjson.Decoder):
             if isinstance(obj, list) and ("list" in self.updatableClassStrs):
                 # update dans le cas où l'objet pré-existant est une liste
                 len_obj = len(obj)
-                del obj[len(loaded_node):]
+                del obj[len(loaded_node) :]
                 for i, value in enumerate(loaded_node):
                     if i < len_obj and isinstance(value, (list, dict)):
                         obj[i] = self._exploreToUpdate(obj[i], value)
@@ -1276,21 +1298,18 @@ class Decoder(rapidjson.Decoder):
             array = numpy.array(sequence, dtype=type(sequence[0]))
             self.converted_numpy_array_from_lists.add(id(array))
             return array
-        if len(sequence) and isinstance(sequence[0],ndarray):
+        if len(sequence) and isinstance(sequence[0], ndarray):
             first_elt = sequence[0]
-            first_elt_shape = first_elt.shape 
+            first_elt_shape = first_elt.shape
             first_elt_dtype = first_elt.dtype
-            if  all((
-                    isinstance(elt,ndarray)
-                    and elt.dtype is first_elt_dtype
-                    and elt.shape == first_elt_shape
-                    )
-                    for elt in sequence):
+            if all(
+                (isinstance(elt, ndarray) and elt.dtype is first_elt_dtype and elt.shape == first_elt_shape)
+                for elt in sequence
+            ):
                 array = numpy.array(sequence, dtype=first_elt_dtype)
                 self.converted_numpy_array_from_lists.add(id(array))
                 return array
         return sequence
-        
 
     def __next__(self):
         try:
@@ -1303,13 +1322,9 @@ class Decoder(rapidjson.Decoder):
                 raise
 
 
-
 # ----------------------------------------------------------------------------------------------------------------------------
 # --- INTERNES -----------------------------------------------------------------------------------------------------
 # ----------------------------------------------------------------------------------------------------------------------------
-
-
-
 
 
 default_authorized_classes_strs = set(
@@ -1338,18 +1353,12 @@ default_authorized_classes_strs = set(
         "collections.deque",
         "numpy.dtype",
         "numpy.frombuffer",
-        "blosc.decompress"
+        "blosc.decompress",
     ]
 )
 if use_numpy:
-    _numpy_float_dtypes = set(
-        (
-            numpy.dtype("float16"),
-            numpy.dtype("float32"),
-            numpy.dtype("float64")
-        )
-    )
-    
+    _numpy_float_dtypes = set((numpy.dtype("float16"), numpy.dtype("float32"), numpy.dtype("float64")))
+
     _numpy_types = set(
         (
             numpy.bool_,
@@ -1385,7 +1394,7 @@ if use_numpy:
             numpy.uint64,
         )
     )
-   
+
 else:
     _numpy_types = set()
 
@@ -1544,8 +1553,8 @@ class _json_object_file_iterator(io.FileIO):
         self.shedule_break = False
         self.in_chunk_start = 0
         self.s = None
-        #s = io.FileIO.read(self, 1)
-        #if s not in (b"[", "["):
+        # s = io.FileIO.read(self, 1)
+        # if s not in (b"[", "["):
         #    raise Exception('the json data must start with "["')
         if "b" in mode:
             self.interesting = set(b'\\"{}[]')
@@ -1559,7 +1568,7 @@ class _json_object_file_iterator(io.FileIO):
     def read(self, size=-1):
         if self.shedule_break:
             self.shedule_break = False
-            #print("read(1): empty")
+            # print("read(1): empty")
             return ""
         (
             backslash,
@@ -1595,7 +1604,7 @@ class _json_object_file_iterator(io.FileIO):
                     self.in_squares = in_squares
                     self.in_simple = False
                     self.in_object = False
-                    #print("read(2): ",s[in_chunk_start:i])
+                    # print("read(2): ",s[in_chunk_start:i])
                     return s[in_chunk_start:i]
             elif ch in interesting:
                 check = False
@@ -1607,7 +1616,7 @@ class _json_object_file_iterator(io.FileIO):
                         backslash_escape = True  # we are in a quote and we see a backslash; escape next char
                     elif ch == doublecote:
                         in_quotes = False
-                        check = True #signale qu'on sort d'un truc et qu'il faudra checker 
+                        check = True  # signale qu'on sort d'un truc et qu'il faudra checker
                 elif ch == doublecote:  # "
                     in_quotes = True
                     in_object = True
@@ -1626,7 +1635,7 @@ class _json_object_file_iterator(io.FileIO):
                 elif ch == square_close:  # ]
                     in_squares -= 1
                     check = True
-                    if not in_squares: # on a ateint la fin de la liste json
+                    if not in_squares:  # on a ateint la fin de la liste json
                         return ""
                 if check and not in_quotes and not in_curlys and in_squares < 2:
                     if in_chunk_start < (i + 1):
@@ -1638,8 +1647,8 @@ class _json_object_file_iterator(io.FileIO):
                     self.in_squares = in_squares
                     self.in_simple = False
                     self.in_object = False
-                    #print("read(3): ",s[in_chunk_start: i + 1])
-                    return s[in_chunk_start: i + 1]
+                    # print("read(3): ",s[in_chunk_start: i + 1])
+                    return s[in_chunk_start : i + 1]
             elif not in_object:
                 if ch in separators:
                     in_chunk_start = i + 1
@@ -1653,6 +1662,6 @@ class _json_object_file_iterator(io.FileIO):
         self.backslash_escape = backslash_escape
         self.in_chunk_start = 0
         if in_chunk_start:
-            #print("read(4): ",s[in_chunk_start:])
+            # print("read(4): ",s[in_chunk_start:])
             return s[in_chunk_start:]
         return s

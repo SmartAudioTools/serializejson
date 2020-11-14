@@ -2,17 +2,22 @@ from ..tools.dictionnaires import remove
 import inspect
 import math
 import _ctypes
+
 try:
     import numpy
     from numpy import isnan
+
     use_numpy = True
 except:
     from math import isnan
+
     use_numpy = False
-    
+
+
 def from_id(obj_id):
     """ Inverse of id() function. """
     return _ctypes.PyObj_FromPtr(obj_id)
+
 
 def deepCompare(a, b, return_reason=False):
     if type(a) != type(b):
@@ -131,8 +136,6 @@ def hasMethod(obj, method):
     return hasattr(obj, method) and inspect.ismethod(getattr(obj, method))
 
 
-
-
 # TESTS -------------------------------------------------
 
 
@@ -140,6 +143,7 @@ def isQWidget(obj):
     return hasattr(
         obj, "disconnect"
     )  # ATTENTION SI CHANGE, DOIT CHANGER EGALEMENT LE HACK (FAUSSE METHODE) DANS SmarFace/models.py  pyqtConfigure ne marche pas avec PySide2
+
 
 builtInTypes = (
     type(None),
@@ -160,12 +164,10 @@ builtInTypes = (
     tuple,
 )
 
+
 def isInstance(obj):
     return hasattr(obj, "__new__") and not (
-        isinstance(obj, builtInTypes)
-        or inspect.isclass(obj)
-        or inspect.isfunction(obj)
-        or inspect.ismodule(obj)
+        isinstance(obj, builtInTypes) or inspect.isclass(obj) or inspect.isfunction(obj) or inspect.ismodule(obj)
     )  # permet d'eliminer les types de base (int, float etc et les fonctions)
     # return hasattr(obj,'__new__') and ( str(obj.__class__)[1:6] == 'class' or  str(type(obj)) == "<type 'numpy.ndarray'>") and not inspect.isclass(obj) and not inspect.isfunction(obj) # permet d'eliminer les types de base (int, float etc et les fonctions)
 
@@ -245,5 +247,3 @@ def generateInitArgs(self):
 
 def filtreInitArgsDict(self):
     return remove(self.__dict__, "__initArgsDict__")
-
-
