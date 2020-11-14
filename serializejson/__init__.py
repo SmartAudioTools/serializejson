@@ -411,7 +411,7 @@ class Encoder(rapidjson.Encoder):
         bytes_use_bytesB64 = True, # le laisser ?
         bytearray_use_bytearrayB64=True,  # le laisser ?
         numpy_array_use_numpyB64=True,  # le laisser ?
-        numpy_array_readable_max_size={}, #'int32':-1
+        numpy_array_readable_max_size=0, #'int32':-1
         numpy_array_to_list=False,
         numpy_types_to_python_types=True,
         **plugins_parameters
@@ -815,9 +815,9 @@ class Decoder(rapidjson.Decoder):
         cls,
         fp=None,
         *,
-        authorized_classes=[],
-        recognized_classes=[],
-        updatables_classes=[],
+        authorized_classes=None,
+        recognized_classes=None,
+        updatables_classes=None,
         set_attributes=True,
         accept_comments=False,
         numpy_array_from_list=False,
@@ -825,6 +825,12 @@ class Decoder(rapidjson.Decoder):
         chunk_size=65536
     ):
        
+        if authorized_classes is None : 
+            authorized_classes = []
+        if recognized_classes is None : 
+            recognized_classes = []
+        if updatables_classes is None : 
+            updatables_classes = []
         if accept_comments:
             parse_mode = rapidjson.PM_COMMENTS
         else:
