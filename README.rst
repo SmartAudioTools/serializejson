@@ -58,17 +58,8 @@ Installation
     
     	pip install git+https://github.com/SmartAudioTools/serializejson.git
 
-License
-=======
-        
-	Copyright 2020 Baptiste de La Gorce
-
-	For non-commercial use this project is licensed under the `Prosperity License <LICENSE-PROSPERITY.rst>`. 
-
-	For commercial use this project is licensed under the `Patron License <LICENSE-PATRON.rst>`. 
-	Please `contact me <mailto:contact@smartaudiotools.com>`, or just `sponsor me on GitHub <https://github.com/sponsors/SmartAudioTools>` under the appropriate tier to `acquire a proprietary-use license <LICENSE-PATRON.rst>`! This funding model helps me make my work sustainable and compensates me for the work it took to write this crate!
-
-	Third-party contributions are licensed under `Apache-2.0 <LICENSE-APACHE.md>` and belong to their respective authors.
+		
+		
 
 		
 Examples
@@ -144,4 +135,22 @@ Examples
         	>2
         	
 
+License
+=======
+        
+	Copyright 2020 Baptiste de La Gorce
+
+	For noncommercial use or limited free-trial period commercial use, this project is licensed under the `Prosperity Public License 3.0.0`_. 
+
+	For non limited commercial use commercial use this project is licensed under the `Patron License 1.0.0`_. 
+	To acquire a license please `contact me <mailto:contact@smartaudiotools.com>`_, or just `sponsor me on GitHub <https://github.com/sponsors/SmartAudioTools>`_ under the appropriate tier ! This funding model helps me make my work sustainable and compensates me for the work it took to write this crate!
+
+	Third-party contributions are licensed under `Apache License, Version 2.0`_ and belong to their respective authors.
+	
+
+.. include:: ../LICENSE-PATRON.rst
+	
+.. include:: ../LICENSE-PROSPERITY.rst		
+
+.. include:: ../LICENSE-APACHE.rst
 
