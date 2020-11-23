@@ -60,30 +60,16 @@ Installation
 
 License
 =======
-    serializejson is licensed under the MIT license.
-    
-    The MIT License (MIT)
-    
+        
     Copyright (c) 2020 Baptiste de La Gorce
     
-    Permission is hereby granted, free of charge, to any person obtaining a copy
-    of this software and associated documentation files (the "Software"), to deal
-    in the Software without restriction, including without limitation the rights
-    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-    copies of the Software, and to permit persons to whom the Software is
-    furnished to do so, subject to the following conditions:
-    
-    The above copyright notice and this permission notice shall be included in all
-    copies or substantial portions of the Software.
-    
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-    SOFTWARE.
-    
+	serializejson is licensed under :doc:`the Parity License <LICENSE-PARITY.rst>`. Third-party contributions are licensed under `Apache-2.0 <LICENSE-APACHE.md>` and belong to their respective authors.
+
+	The Parity License is a copyleft license that, unlike the GPL family, allows you to license derivative and connected works under permissive licenses like MIT or Apache-2.0. It's free to use provided the work you do is freely available!
+
+	For proprietary use, please `contact me <mailto:contact@smartaudiotools.com?subject=serializejson%20license>`_, or just `sponsor me on GitHub <https://github.com/sponsors/SmartAudioTools>`_  under the appropriate tier to `acquire a proprietary-use license <LICENSE-PATRON.md>`! This funding model helps me make my work sustainable and compensates me for the work it took to write this crate!
+
+		
 Examples
 ================
 
