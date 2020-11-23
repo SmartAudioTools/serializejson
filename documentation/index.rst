@@ -340,3 +340,9 @@ Future Versions (TODO)
         - replace id check for duplicates by weakd_ref ? because id can be reused 
         - allow alternatives compressors for images ?
         
+		
+		
+		
+.. include:: ../LICENSE-PATRON.rst
+
+.. include:: ../LICENSE-PROSPERITY.rst
