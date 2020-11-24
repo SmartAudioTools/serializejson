@@ -685,6 +685,7 @@ class Encoder(rapidjson.Encoder):
                 number_mode=self.number_mode
                 # **self.kargs
             )
+        blosc.set_nthreads(1)  # slower but for determinist behaviour in order to be able to versining jsons
         serialize_parameters.attributes_filter = self.attributes_filter
         serialize_parameters.bytes_compression = self.bytes_compression
         serialize_parameters.bytes_compression_level = self.bytes_compression_level
@@ -1079,6 +1080,7 @@ class Decoder(rapidjson.Decoder):
             >>> decoder(io.BytesIO(b'"\xe2\x82\xac 0.50"'))
             '€ 0.50'
         """
+        blosc.set_nthreads(blosc.ncores)
         serialize_parameters.set_attributes = self.set_attributes
         self.converted_numpy_array_from_lists = set()
         self._counter = 0

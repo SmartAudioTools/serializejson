@@ -229,7 +229,10 @@ def test_serialize_vs_pickle():
         },
         "serializejson_blosclz_level9": {
             "encoder": serializejson.Encoder(
-                attributes_filter=None, numpy_types_to_python_types=False, indent=None, bytes_compression="blosclz"
+                attributes_filter=None,
+                numpy_types_to_python_types=False,
+                indent=None,
+                bytes_compression="blosclz",
             ),
             "decoder": serializejson.Decoder(set_attributes=[]),
         },
@@ -243,7 +246,10 @@ def test_serialize_vs_pickle():
         },
         "serializejson_no_compression": {
             "encoder": serializejson.Encoder(
-                attributes_filter=None, numpy_types_to_python_types=False, indent=None, bytes_compression=None
+                attributes_filter=None,
+                numpy_types_to_python_types=False,
+                indent=None,
+                bytes_compression=None,
             ),
             "decoder": serializejson.Decoder(set_attributes=[]),
         },
@@ -262,13 +268,19 @@ def test_serialize_vs_pickle():
             {
                 "serializejson_numpy_array_to_list": {
                     "encoder": serializejson.Encoder(
-                        attributes_filter=None, numpy_array_to_list=True, numpy_types_to_python_types=False, indent=None
+                        attributes_filter=None,
+                        numpy_array_to_list=True,
+                        numpy_types_to_python_types=False,
+                        indent=None,
                     ),
                     "decoder": serializejson.Decoder(set_attributes=[], numpy_array_from_list=True),
                 },
                 "serializejson_numpy_array_to_list_with_tab_indent": {
                     "encoder": serializejson.Encoder(
-                        attributes_filter=None, numpy_array_to_list=True, numpy_types_to_python_types=False, indent="\t"
+                        attributes_filter=None,
+                        numpy_array_to_list=True,
+                        numpy_types_to_python_types=False,
+                        indent="\t",
                     ),
                     "decoder": serializejson.Decoder(set_attributes=[], numpy_array_from_list=True),
                 },
@@ -279,17 +291,26 @@ def test_serialize_vs_pickle():
             {
                 "serializeRepr": {
                     "encoder": lambda obj: serializeRepr.dumps(
-                        obj, modules=modules, attributes_filter=None, numpy_types_to_python_types=False
+                        obj,
+                        modules=modules,
+                        attributes_filter=None,
+                        numpy_types_to_python_types=False,
                     ),
                     "decoder": lambda obj: serializeRepr.loads(obj, modules=modules, set_attributes=[]),
                 },
                 "serializePython": {
                     "encoder": lambda obj: serializePython.dumps(
-                        obj, attributes_filter=None, set_attributes=[], numpy_types_to_python_types=False
+                        obj,
+                        attributes_filter=None,
+                        set_attributes=[],
+                        numpy_types_to_python_types=False,
                     ),
                     "decoder": lambda obj: serializePython.loads(obj, set_attributes=[]),
                 },
-                "jsonpickle": {"encoder": jsonpickle.encode, "decoder": jsonpickle.decode},
+                "jsonpickle": {
+                    "encoder": jsonpickle.encode,
+                    "decoder": jsonpickle.decode,
+                },
             }
         )
 
