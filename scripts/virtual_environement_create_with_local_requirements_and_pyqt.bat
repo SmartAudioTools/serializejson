@@ -5,6 +5,8 @@ IF EXIST "D:/Projets/Python/SmartPython/SmartPython-3.7.1.0-64bit/python-3.7.1.a
 ) ELSE (
   python -m venv python_venv
 )
-.\python_venv\scripts\pip.exe install serializejson
-.\python_venv\scripts\pip.exe install pytest
-.\python_venv\Scripts\activate
+.\python_venv\scripts\pip.exe install -r requirements.txt
+.\python_venv\scripts\pip.exe install -e .
+.\python_venv\scripts\pip.exe install PyQt5==5.15.1
+.\python_venv\scripts\pip.exe install QtPy==1.9.0
+.\python_venv\scripts\activate

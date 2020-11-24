@@ -5,6 +5,6 @@ IF EXIST "D:/Projets/Python/SmartPython/SmartPython-3.7.1.0-64bit/python-3.7.1.a
 ) ELSE (
   python -m venv python_venv
 )
-.\python_venv\scripts\pip.exe install pytest
 .\python_venv\scripts\pip.exe install -i https://test.pypi.org/simple/ serializejson
+.\python_venv\scripts\pip.exe install pytest
 .\python_venv\Scripts\activate
