@@ -6,7 +6,7 @@ __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file
 
 README = "README.rst"
 CHANGELOG = "CHANGELOG.rst"
-LICENSE = "LICENSE.txt"
+LICENSE = "LICENSE.rst"
 
 
 def version():
