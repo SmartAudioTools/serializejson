@@ -1,6 +1,7 @@
 Version 0.0.4
 -------------
-	:Date: 2020-11-24
+    :Date: 2020-11-24
+	
     * API changed
     * add plugins support
     * add bytes, bytearray and numpy.array compression with blosc zstd
