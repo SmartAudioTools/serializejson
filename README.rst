@@ -1,142 +1,142 @@
 serializejson
 =============
 
-    **serializejson** is a python library that allows serialization and deserialization
-    of complex Python objects in `JSON <http://json.org>`_.
-    Like `jsonpickle <https://github.com/jsonpickle/jsonpickle>`_ it has a high 
-    compatibility with pickle, but is generally 7x faster.
-    The library is build upon 
-    `python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_, 
-    `pybase64 <https://github.com/mayeut/pybase64>`_ and 
-    `blosc <https://github.com/Blosc/python-blosc>`_ compression.  
+**serializejson** is a python library that allows serialization and deserialization
+of complex Python objects in `JSON <http://json.org>`_.
+Like `jsonpickle <https://github.com/jsonpickle/jsonpickle>`_ it has a high 
+compatibility with pickle, but is generally 7x faster.
+The library is build upon 
+`python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_, 
+`pybase64 <https://github.com/mayeut/pybase64>`_ and 
+`blosc <https://github.com/Blosc/python-blosc>`_ compression.  
    
-    Some of the main features: 
+Some of the main features: 
+
+- supports Python 3.7 (maybe lower) or greater.
+- serializes arbitrary python objects into a dictionary by adding `__class__` ,and eventually `__init__` and `__state__` keys. 
+- calls the same objects methods as pickle. Therefore almost all pickable objects are serializable with serializejson without any modification.
+- generally 2x slower than pickle for dumping and 3x slower than pickle for loading  (on your benchmark) except for big arrays (optimisation will soon be done).
+- serializes and deserializes bytes and bytearray very quickly in base64 thanks to `pybase64 <https://github.com/mayeut/pybase64>`_ and lossless `blosc <https://github.com/Blosc/python-blosc>`_ compression.
+- serialized objects take generally less space than when serialized with pickle: for binary data, the 30% increase due to base64 encoding is in general largely compensated using the lossless `blosc <https://github.com/Blosc/python-blosc>`_ compression.
+- serialized objects are human-readable. Unlike pickled data, your data will never become unreadable if your code evolves: you will always be able to modify your datas with a text editor.
+- compared to json jsonpickle, it is generally 7x faster for dumping and loading, uses less RAM and produces json files that are more readable.
+- can safely load untrusted / unauthenticated sources if authorized_classes list parameter is set carefully with strictly necessary objects (unlike pickle).
+- can update existing objects recursively instead of override them (serializejson can be used to save and restore in place a complete application state).
+- filters attribute starting with "_" by default (unlike pickle).
+- numpy arrays can be serialized as lists with automatic conversion in both ways or in a conservative way. 
+- supports circular references and serializes only once duplicated objects (WARNING :not yet if the object is a list or dictionary).
+- tries to call attribute setters and properties setters when loading if set_attributes  = True.
+- accepts json with comment (// and /\* \*/).
+- can automatically recognize objects in json from keys names and recreate them, without the need of `__class__` key, if passed in recognized_classes. It allows loading foreign json serialized with others libraries who only save objects attributes. 
+- dump and load support string path. 
+- can iteratively encode (with append) and decode (with iterator) a list in json, which helps saving memory space during the process of serialization et deserialization.
     
-    - supports Python 3.7 (maybe lower) or greater.
-    - serializes arbitrary python objects into a dictionary by adding `__class__` ,and eventually `__init__` and `__state__` keys. 
-    - calls the same objects methods as pickle. Therefore almost all pickable objects are serializable with serializejson without any modification.
-    - generally 2x slower than pickle for dumping and 3x slower than pickle for loading  (on your benchmark) except for big arrays (optimisation will soon be done).
-    - serializes and deserializes bytes and bytearray very quickly in base64 thanks to `pybase64 <https://github.com/mayeut/pybase64>`_ and lossless `blosc <https://github.com/Blosc/python-blosc>`_ compression.
-    - serialized objects take generally less space than when serialized with pickle: for binary data, the 30% increase due to base64 encoding is in general largely compensated using the lossless `blosc <https://github.com/Blosc/python-blosc>`_ compression.
-    - serialized objects are human-readable. Unlike pickled data, your data will never become unreadable if your code evolves: you will always be able to modify your datas with a text editor.
-    - compared to json jsonpickle, it is generally 7x faster for dumping and loading, uses less RAM and produces json files that are more readable.
-    - can safely load untrusted / unauthenticated sources if authorized_classes list parameter is set carefully with strictly necessary objects (unlike pickle).
-    - can update existing objects recursively instead of override them (serializejson can be used to save and restore in place a complete application state).
-    - filters attribute starting with "_" by default (unlike pickle).
-    - numpy arrays can be serialized as lists with automatic conversion in both ways or in a conservative way. 
-    - supports circular references and serializes only once duplicated objects (WARNING :not yet if the object is a list or dictionary).
-    - tries to call attribute setters and properties setters when loading if set_attributes  = True.
-    - accepts json with comment (// and /\* \*/).
-    - can automatically recognize objects in json from keys names and recreate them, without the need of `__class__` key, if passed in recognized_classes. It allows loading foreign json serialized with others libraries who only save objects attributes. 
-    - dump and load support string path. 
-    - can iteratively encode (with append) and decode (with iterator) a list in json, which helps saving memory space during the process of serialization et deserialization.
-        
-    .. warning::
+.. warning::
+
+    Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized 
+
+    **⚠ serializejson can execute arbitrary Python code when loading json**, if the load parameter authorized_classes is "all". 
+    Do not load serializejson files from untrusted / unauthenticated sources without carefully setting the load authorized_classes parameter.
     
-        Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized 
-    
-        **⚠ serializejson can execute arbitrary Python code when loading json**, if the load parameter authorized_classes is "all". 
-        Do not load serializejson files from untrusted / unauthenticated sources without carefully setting the load authorized_classes parameter.
-        
-        Never dump a dictionary with the `__class__` key, otherwise serializejson will attempt to reconstruct an object when loading the json. 
-        Be careful not to allow a user to manually enter a dictionary key somewhere without checking that it is not `__class__`.
-        Due to current limitation of rapidjson we cannot we cannot at the moment efficiently detect dictionaries with the `__class__` key to raise an error.  
+    Never dump a dictionary with the `__class__` key, otherwise serializejson will attempt to reconstruct an object when loading the json. 
+    Be careful not to allow a user to manually enter a dictionary key somewhere without checking that it is not `__class__`.
+    Due to current limitation of rapidjson we cannot we cannot at the moment efficiently detect dictionaries with the `__class__` key to raise an error.  
     
 
 Installation
 ============
 
-    **Last offical release**
-        .. code-block::
-    
-            pip install serializejson
+**Last offical release**
+    .. code-block::
 
-    **Developpement version unreleased**
-        .. code-block::
-    
-            pip install git+https://github.com/SmartAudioTools/serializejson.git
+        pip install serializejson
+
+**Developpement version unreleased**
+    .. code-block::
+
+        pip install git+https://github.com/SmartAudioTools/serializejson.git
 
 Examples
 ================
 
-    **Serialization with fonctions API** 
-        .. code-block:: python
-        
-            import serializejson 
-        
-            #serialize in string
-            object1 = set([1,2])
-            dumped1 = serializejson.dumps(object1)
-            loaded1 = serializejson.loads(dumped1)
-            print(dumped1)
-            >{
-            >        "__class__": "set",
-            >        "__init__": [1,2]
-            >}
-        
-        
-            #serialize in file
-            object2 = set([3,4])
-            serializejson.dump(object2,"dumped2.json")
-            loaded2 = serializejson.load("dumped2.json")
+**Serialization with fonctions API** 
+    .. code-block:: python
     
-    **Serialization with classes based API.**     
-        .. code-block:: python
-        
-            import serializejson 
-            encoder = serializejson.Encoder()
-            decoder = serializejson.Decoder()
-        
-            # serialize in string
-        
-            object1 = set([1,2])
-            dumped1 = encoder.dumps(object1)
-            loaded1 = decoder.loads(dumped1)
-            print(dumped1)
-        
-            # serialize in file
-            object2 = set([3,4])
-            encoder.dump(object2,"dumped2.json")
-            loaded2 = decoder.load("dumped2.json")
+        import serializejson 
     
-    **Update existing object** 
-        .. code-block:: python
-        
-            import serializejson 
-            object1 = set([1,2])
-            object2 = set([3,4])
-            dumped1 = serializejson.dumps(object1)
-            print(f"id {id(object2)} :  {object2}")
-            serializejson.loads(dumped1,obj = object2, updatables_classes = [set])
-            print(f"id {id(object2)} :  {object2}")
+        #serialize in string
+        object1 = set([1,2])
+        dumped1 = serializejson.dumps(object1)
+        loaded1 = serializejson.loads(dumped1)
+        print(dumped1)
+        >{
+        >        "__class__": "set",
+        >        "__init__": [1,2]
+        >}
     
-    **Iterative serialization and deserialization**
-        .. code-block:: python
-        
-            import serializejson 
-            encoder = serializejson.Encoder("my_list.json",indent = None)
-            for elt in range(3):
-                encoder.append(elt)
-            print(open("my_list.json").read())
-            for elt in serializejson.Decoder("my_list.json"):
-                print(elt)
-            >[0,1,2]
-            >0
-            >1
-            >2
+    
+        #serialize in file
+        object2 = set([3,4])
+        serializejson.dump(object2,"dumped2.json")
+        loaded2 = serializejson.load("dumped2.json")
+
+**Serialization with classes based API.**     
+    .. code-block:: python
+    
+        import serializejson 
+        encoder = serializejson.Encoder()
+        decoder = serializejson.Decoder()
+    
+        # serialize in string
+    
+        object1 = set([1,2])
+        dumped1 = encoder.dumps(object1)
+        loaded1 = decoder.loads(dumped1)
+        print(dumped1)
+    
+        # serialize in file
+        object2 = set([3,4])
+        encoder.dump(object2,"dumped2.json")
+        loaded2 = decoder.load("dumped2.json")
+
+**Update existing object** 
+    .. code-block:: python
+    
+        import serializejson 
+        object1 = set([1,2])
+        object2 = set([3,4])
+        dumped1 = serializejson.dumps(object1)
+        print(f"id {id(object2)} :  {object2}")
+        serializejson.loads(dumped1,obj = object2, updatables_classes = [set])
+        print(f"id {id(object2)} :  {object2}")
+
+**Iterative serialization and deserialization**
+    .. code-block:: python
+    
+        import serializejson 
+        encoder = serializejson.Encoder("my_list.json",indent = None)
+        for elt in range(3):
+            encoder.append(elt)
+        print(open("my_list.json").read())
+        for elt in serializejson.Decoder("my_list.json"):
+            print(elt)
+        >[0,1,2]
+        >0
+        >1
+        >2
             
 
 License
 =======
         
-    Copyright 2020 Baptiste de La Gorce
+Copyright 2020 Baptiste de La Gorce
 
-    For noncommercial use or limited free-trial period commercial use, this project is licensed under the `Prosperity Public License 3.0.0`_. 
+For noncommercial use or limited free-trial period commercial use, this project is licensed under the `Prosperity Public License 3.0.0`_. 
 
-    For non limited commercial use this project is licensed under the `Patron License 1.0.0`_. 
-    To acquire a license please `contact me <mailto:contact@smartaudiotools.com>`_, or just `sponsor me on GitHub <https://github.com/sponsors/SmartAudioTools>`_ under the appropriate tier ! This funding model helps me make my work sustainable and compensates me for the work it took to write this crate!
+For non limited commercial use this project is licensed under the `Patron License 1.0.0`_. 
+To acquire a license please `contact me <mailto:contact@smartaudiotools.com>`_, or just `sponsor me on GitHub <https://github.com/sponsors/SmartAudioTools>`_ under the appropriate tier ! This funding model helps me make my work sustainable and compensates me for the work it took to write this crate!
 
-    Third-party contributions are licensed under `Apache License, Version 2.0`_ and belong to their respective authors.
+Third-party contributions are licensed under `Apache License, Version 2.0`_ and belong to their respective authors.
     
 .. include:: ../LICENSE-PATRON.rst
 .. include:: ../LICENSE-PROSPERITY.rst
