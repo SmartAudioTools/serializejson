@@ -142,7 +142,7 @@ License
 
 	For noncommercial use or limited free-trial period commercial use, this project is licensed under the `Prosperity Public License 3.0.0`_. 
 
-	For non limited commercial use commercial use this project is licensed under the `Patron License 1.0.0`_. 
+	For non limited commercial use this project is licensed under the `Patron License 1.0.0`_. 
 	To acquire a license please `contact me <mailto:contact@smartaudiotools.com>`_, or just `sponsor me on GitHub <https://github.com/sponsors/SmartAudioTools>`_ under the appropriate tier ! This funding model helps me make my work sustainable and compensates me for the work it took to write this crate!
 
 	Third-party contributions are licensed under `Apache License, Version 2.0`_ and belong to their respective authors.
