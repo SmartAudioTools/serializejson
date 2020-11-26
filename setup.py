@@ -31,7 +31,7 @@ if __name__ == "__main__":
         version=version(),
         description="A python library for fast serialization and deserialization of complex Python objects into JSON.",
         long_description=long_description(),
-        long_description_content_type="text/markdown",
+        long_description_content_type="text/x-rst",
         author="Baptiste de La Gorce",
         author_email="baptiste.delagorce@smartaudiotools.com",
         url="https://github.com/SmartAudioTools/serializejson",
