@@ -134,6 +134,7 @@ Examples
         >1
         >2
             
+More examples and complete documentation `here <https://smartaudiotools.github.io/serializejson/>`_
 
 License
 =======
