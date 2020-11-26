@@ -1,8 +1,8 @@
 serializejson
 =============
 
-**serializejson** is a python library that allows fast serialization and deserialization
-of complex Python objects in `JSON <http://json.org>`_. with a high compatibility with pickle.
+**serializejson** is a python library for fast serialization and deserialization
+of complex Python objects in `JSON <http://json.org>`_ highly compatible with `pickle <https://docs.python.org/3/library/pickle.html>`_
 The library is build upon 
 `python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_, 
 `pybase64 <https://github.com/mayeut/pybase64>`_ and 
@@ -12,7 +12,8 @@ Some of the main features:
 
 - supports Python 3.7 (maybe lower) or greater.
 - serializes arbitrary python objects into a dictionary by adding `__class__` ,and eventually `__init__` and `__state__` keys. 
-- calls the same objects methods as pickle. Therefore almost all pickable objects are serializable with serializejson without any modification.
+- calls the same objects methods as pickle. Therefore almost all pickable objects are serializable with serializejson without any modification. 
+- for not already pickable object, you will allways be able to serialize it adding methodes to the object or creating plugins for serializejson. 
 - generally 2x slower than pickle for dumping and 3x slower than pickle for loading (on your benchmark) except for big arrays (optimisation will soon be done).
 - serializes and deserializes bytes and bytearray very quickly in base64 thanks to `pybase64 <https://github.com/mayeut/pybase64>`_ and lossless `blosc <https://github.com/Blosc/python-blosc>`_ compression.
 - serialized objects take generally less space than when serialized with pickle: for binary data, the 30% increase due to base64 encoding is in general largely compensated using the lossless `blosc <https://github.com/Blosc/python-blosc>`_ compression.
@@ -25,10 +26,11 @@ Some of the main features:
 - supports circular references and serializes only once duplicated objects (WARNING :not yet if the object is a list or dictionary).
 - tries to call attribute setters and properties setters when loading if set_attributes  = True.
 - accepts json with comment (// and /\* \*/).
-- can automatically recognize objects in json from keys names and recreate them, without the need of `__class__` key, if passed in recognized_classes. It allows loading foreign json serialized with others libraries who only save objects attributes. 
+- can automatically recognize objects in json from keys names and recreate them, without the need of `__class__` key, if passed in recognized_classes. 
+- serializejson is easly interoperable outside of the Python ecosystem with this recognition of objects from keys names or with __class__ translation between python and other language classes.
 - dump and load support string path. 
 - can iteratively encode (with append) and decode (with iterator) a list in json, which helps saving memory space during the process of serialization et deserialization.
-    
+
 .. warning::
 
     Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized 
