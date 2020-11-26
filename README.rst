@@ -139,7 +139,7 @@ More examples and complete documentation `here <https://smartaudiotools.github.i
 License
 =======
         
-Copyright 2020 Baptiste de La Gorce
+Copyright 2020 Baptiste de La Gorce.
 
 For noncommercial use or limited free-trial period commercial use, this project is licensed under the `Prosperity Public License 3.0.0 <https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PROSPERITY.rst>`_. 
 
