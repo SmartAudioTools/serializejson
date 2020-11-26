@@ -1,3 +1,6 @@
+`COMPLET DOCUMENTATION HERE <https://smartaudiotools.github.io/serializejson/>`_
+
+
 serializejson
 =============
 
@@ -31,17 +34,17 @@ Some of the main features:
 - dump and load support string path. 
 - can iteratively encode (with append) and decode (with iterator) a list in json, which helps saving memory space during the process of serialization et deserialization.
 
-.. warning::
+	.. warning::
 
-    Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized 
+		Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized 
 
-    **⚠ serializejson can execute arbitrary Python code when loading json**, if the load parameter authorized_classes is "all". 
-    Do not load serializejson files from untrusted / unauthenticated sources without carefully setting the load authorized_classes parameter.
-    
-    Never dump a dictionary with the `__class__` key, otherwise serializejson will attempt to reconstruct an object when loading the json. 
-    Be careful not to allow a user to manually enter a dictionary key somewhere without checking that it is not `__class__`.
-    Due to current limitation of rapidjson we cannot we cannot at the moment efficiently detect dictionaries with the `__class__` key to raise an error.  
-    
+		**⚠ serializejson can execute arbitrary Python code when loading json**, if the load parameter authorized_classes is "all". 
+		Do not load serializejson files from untrusted / unauthenticated sources without carefully setting the load authorized_classes parameter.
+		
+		Never dump a dictionary with the `__class__` key, otherwise serializejson will attempt to reconstruct an object when loading the json. 
+		Be careful not to allow a user to manually enter a dictionary key somewhere without checking that it is not `__class__`.
+		Due to current limitation of rapidjson we cannot we cannot at the moment efficiently detect dictionaries with the `__class__` key to raise an error.  
+		
 
 Installation
 ============
@@ -137,13 +140,9 @@ License
         
 Copyright 2020 Baptiste de La Gorce
 
-For noncommercial use or limited free-trial period commercial use, this project is licensed under the `Prosperity Public License 3.0.0`_. 
+For noncommercial use or limited free-trial period commercial use, this project is licensed under the `Prosperity Public License 3.0.0 <https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PROSPERITY.rst>`_. 
 
-For non limited commercial use this project is licensed under the `Patron License 1.0.0`_. 
-To acquire a license please `contact me <mailto:contact@smartaudiotools.com>`_, or just `sponsor me on GitHub <https://github.com/sponsors/SmartAudioTools>`_ under the appropriate tier ! This funding model helps me make my work sustainable and compensates me for the work it took to write this crate!
+For non limited commercial use, this project is licensed under the `Patron License 1.0.0 <https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PATRON.rst>`_. 
+To acquire a license please `contact me <mailto:contact@smartaudiotools.com>`_, or just `sponsor me on GitHub <https://github.com/sponsors/SmartAudioTools>`_ under the appropriate tier ! This funding model helps me making my work sustainable and compensates me for the work it took to write this crate!
 
-Third-party contributions are licensed under `Apache License, Version 2.0`_ and belong to their respective authors.
-    
-.. include:: ../LICENSE-PATRON.rst
-.. include:: ../LICENSE-PROSPERITY.rst
-.. include:: ../LICENSE-APACHE.rst
+Third-party contributions are licensed under `Apache License, Version 2.0 <http://www.apache.org/licenses/LICENSE-2.0>`_ and belong to their respective authors.
