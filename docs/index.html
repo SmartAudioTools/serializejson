@@ -85,12 +85,7 @@
 <li><a class="reference internal" href="#">serializejson</a></li>
 <li><a class="reference internal" href="#installation">Installation</a></li>
 <li><a class="reference internal" href="#examples">Examples</a></li>
-<li><a class="reference internal" href="#license">License</a><ul>
-<li><a class="reference internal" href="#patron-license-1-0-0">Patron License 1.0.0</a></li>
-<li><a class="reference internal" href="#prosperity-public-license-3-0-0">Prosperity Public License 3.0.0</a></li>
-<li><a class="reference internal" href="#apache-license-version-2-0">Apache License, Version 2.0</a></li>
-</ul>
-</li>
+<li><a class="reference internal" href="#license">License</a></li>
 <li><a class="reference internal" href="#classes-api">Classes API</a><ul>
 <li><a class="reference internal" href="#encoder">Encoder</a></li>
 <li><a class="reference internal" href="#decoder">Decoder</a></li>
@@ -182,6 +177,7 @@
             
   <div class="toctree-wrapper compound">
 </div>
+<p><a class="reference external" href="https://smartaudiotools.github.io/serializejson/">COMPLETE DOCUMENTATION HERE</a></p>
 <div class="section" id="serializejson">
 <h1>serializejson<a class="headerlink" href="#serializejson" title="Permalink to this headline">¶</a></h1>
 <p><strong>serializejson</strong> is a python library for fast serialization and deserialization
@@ -215,10 +211,10 @@ The library is build upon
 </ul>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p>Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized</p>
-<p><strong>⚠ serializejson can execute arbitrary Python code when loading json</strong>, if the load parameter authorized_classes is “all”.
+<p>⚠ Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized</p>
+<p>⚠ serializejson can execute arbitrary Python code when loading json, if the load parameter authorized_classes is “all”.
 Do not load serializejson files from untrusted / unauthenticated sources without carefully setting the load authorized_classes parameter.</p>
-<p>Never dump a dictionary with the <cite>__class__</cite> key, otherwise serializejson will attempt to reconstruct an object when loading the json.
+<p>⚠ Never dump a dictionary with the <cite>__class__</cite> key, otherwise serializejson will attempt to reconstruct an object when loading the json.
 Be careful not to allow a user to manually enter a dictionary key somewhere without checking that it is not <cite>__class__</cite>.
 Due to current limitation of rapidjson we cannot we cannot at the moment efficiently detect dictionaries with the <cite>__class__</cite> key to raise an error.</p>
 </div>
@@ -310,101 +306,15 @@ Due to current limitation of rapidjson we cannot we cannot at the moment efficie
 </pre></div>
 </div>
 </div></blockquote>
+<p>More examples and complete documentation <a class="reference external" href="https://smartaudiotools.github.io/serializejson/">here</a></p>
 </div>
 <div class="section" id="license">
 <h1>License<a class="headerlink" href="#license" title="Permalink to this headline">¶</a></h1>
 <p>Copyright 2020 Baptiste de La Gorce</p>
-<p>For noncommercial use or limited free-trial period commercial use, this project is licensed under the <a class="reference internal" href="#prosperity-public-license-3-0-0">Prosperity Public License 3.0.0</a>.</p>
-<p>For non limited commercial use this project is licensed under the <a class="reference internal" href="#patron-license-1-0-0">Patron License 1.0.0</a>.
-To acquire a license please <a class="reference external" href="mailto:contact&#37;&#52;&#48;smartaudiotools&#46;com">contact me</a>, or just <a class="reference external" href="https://github.com/sponsors/SmartAudioTools">sponsor me on GitHub</a> under the appropriate tier ! This funding model helps me make my work sustainable and compensates me for the work it took to write this crate!</p>
-<p>Third-party contributions are licensed under <a class="reference internal" href="#apache-license-version-2-0">Apache License, Version 2.0</a> and belong to their respective authors.</p>
-<div class="section" id="patron-license-1-0-0">
-<h2>Patron License 1.0.0<a class="headerlink" href="#patron-license-1-0-0" title="Permalink to this headline">¶</a></h2>
-<blockquote>
-<div><p>Contributor : <a class="reference external" href="mailto:contact&#37;&#52;&#48;smartaudiotools&#46;com">Baptiste de La Gorce</a></p>
-<p>Payment Platforms: <a class="reference external" href="https://github.com/sponsors/smartaudiotools">https://github.com/sponsors/smartaudiotools</a></p>
-<p>Source Code: <a class="reference external" href="https://github.com/SmartAudioTools/serializejson">https://github.com/SmartAudioTools/serializejson</a></p>
-<p><strong>Purpose</strong></p>
-<p>This license gives everyone patronizing contributors to this software permission to ignore any noncommercial or copyleft rules of its free public license, while continuing to protect contributors from liability.</p>
-<p><strong>Acceptance</strong></p>
-<p>In order to agree to these terms and receive a license, you must qualify under [Patrons](#patrons).  The rules of these terms are both obligations under your agreement and conditions to your license.  That agreement and your license continue only while you qualify as a patron.  You must not do anything with this software that triggers a rule that you cannot or will not follow.</p>
-<p><strong>Patrons</strong></p>
-<p>To accept these terms, you must be enrolled to make regular payments through any of the payment platforms pages listed above, in amounts qualifying you for a tier that includes a “patron license” or otherwise identifies a license under these terms as a reward.</p>
-<p><strong>Scope</strong></p>
-<p>Except under [Seat](#seat) and [Applications](#applications), you may not sublicense or transfer any agreement or license under these terms to anyone else.</p>
-<p><strong>Seat</strong></p>
-<p>If a legal entity, rather than an individual, accepts these terms, the entity may sublicense one individual employee or independent contractor at any given time.  If the employee or contractor breaks any rule of these terms, the entity will stand directly responsible.</p>
-<p><strong>Applications</strong></p>
-<p>If you combine this software with other software in a larger application, you may sublicense this software as part of your larger application, and allow further sublicensing in turn, under these rules:</p>
-<ol class="arabic simple">
-<li><p>Your larger application must have significant additional content or functionality beyond that of this software, and end users must license your larger application primarily for that added content or functionality.</p></li>
-<li><p>You may not sublicense anyone to break any rule of the public license for this software for any changes of their own or any software besides your larger application.</p></li>
-<li><p>You may build, and sublicense for, as many larger applications as you like.</p></li>
-</ol>
-<p><strong>Copyright</strong></p>
-<p>Each contributor licenses you to do everything with this software that would otherwise infringe that contributor’s copyright in it.</p>
-<p><strong>Notices</strong></p>
-<p>You must ensure that everyone who gets a copy of any part of this software from you, with or without changes, also gets the texts of both this license and the free public license for this software.</p>
-<p><strong>Excuse</strong></p>
-<p>If anyone notifies you in writing that you have not complied with [Notices](#notices), you can keep your agreement and your license by taking all practical steps to comply within 30 days after the notice.  If you do not do so, your agreement under these terms ends immediately, and your license ends with it.</p>
-<p><strong>Patent</strong></p>
-<p>Each contributor licenses you to do everything with this software that would otherwise infringe any patent claims they can license or become able to license.</p>
-<p><strong>Reliability</strong></p>
-<p>No contributor can revoke this license, but your license may end if you break any rule of these terms.</p>
-<p><strong>No Liability</strong></p>
-<p><strong>As far as the law allows, this software comes as is, without any warranty or condition, and no contributor will be liable to anyone for any damages related to this software or this license, under any kind of legal claim.</strong></p>
-</div></blockquote>
-</div>
-<div class="section" id="prosperity-public-license-3-0-0">
-<h2>Prosperity Public License 3.0.0<a class="headerlink" href="#prosperity-public-license-3-0-0" title="Permalink to this headline">¶</a></h2>
-<blockquote>
-<div><p>Contributor: <a class="reference external" href="mailto:contact&#37;&#52;&#48;smartaudiotools&#46;com">Baptiste de La Gorce</a></p>
-<p>Source Code: <a class="reference external" href="https://github.com/SmartAudioTools/serializejson">https://github.com/SmartAudioTools/serializejson</a></p>
-<p><strong>Purpose</strong></p>
-<p>This license allows you to use and share this software for noncommercial purposes for free and to try this software for commercial purposes for thirty days.</p>
-<p><strong>Agreement</strong></p>
-<p>In order to receive this license, you have to agree to its rules.  Those rules are both obligations under that agreement and conditions to your license.  Don’t do anything with this software that triggers a rule you can’t or won’t follow.</p>
-<p><strong>Notices</strong></p>
-<p>Make sure everyone who gets a copy of any part of this software from you, with or without changes, also gets the text of this license and the contributor and source code lines above.</p>
-<p><strong>Commercial Trial</strong></p>
-<p>Limit your use of this software for commercial purposes to a thirty-day trial period.  If you use this software for work, your company gets one trial period for all personnel, not one trial per person.</p>
-<p><strong>Contributions Back</strong></p>
-<p>Developing feedback, changes, or additions that you contribute back to the contributor on the terms of a standardized public software license such as [the Blue Oak Model License 1.0.0](<a class="reference external" href="https://blueoakcouncil.org/license/1.0.0">https://blueoakcouncil.org/license/1.0.0</a>), [the Apache License 2.0](<a class="reference external" href="https://www.apache.org/licenses/LICENSE-2.0.html">https://www.apache.org/licenses/LICENSE-2.0.html</a>), [the MIT license](<a class="reference external" href="https://spdx.org/licenses/MIT.html">https://spdx.org/licenses/MIT.html</a>), or [the two-clause BSD license](<a class="reference external" href="https://spdx.org/licenses/BSD-2-Clause.html">https://spdx.org/licenses/BSD-2-Clause.html</a>) doesn’t count as use for a commercial purpose.</p>
-<p><strong>Personal Uses</strong></p>
-<p>Personal use for research, experiment, and testing for the benefit of public knowledge, personal study, private entertainment, hobby projects, amateur pursuits, or religious observance, without any anticipated commercial application, doesn’t count as use for a commercial purpose.</p>
-<p><strong>Noncommercial Organizations</strong></p>
-<p>Use by any charitable organization, educational institution, public research organization, public safety or health organization, environmental protection organization, or government institution doesn’t count as use for a commercial purpose regardless of the source of funding or obligations resulting from the funding.</p>
-<p><strong>Defense</strong></p>
-<p>Don’t make any legal claim against anyone accusing this software, with or without changes, alone or with other technology, of infringing any patent.</p>
-<p><strong>Copyright</strong></p>
-<p>The contributor licenses you to do everything with this software that would otherwise infringe their copyright in it.</p>
-<p><strong>Patent</strong></p>
-<p>The contributor licenses you to do everything with this software that would otherwise infringe any patents they can license or become able to license.</p>
-<p><strong>Reliability</strong></p>
-<p>The contributor can’t revoke this license.</p>
-<p><strong>Excuse</strong></p>
-<p>You’re excused for unknowingly breaking [Notices](#notices) if you take all practical steps to comply within thirty days of learning you broke the rule.</p>
-<p><strong>No Liability</strong></p>
-<p><strong>As far as the law allows, this software comes as is, without any warranty or condition, and the contributor won’t be liable to anyone for any damages related to this software or this license, under any kind of legal claim.</strong></p>
-</div></blockquote>
-</div>
-<div class="section" id="apache-license-version-2-0">
-<h2>Apache License, Version 2.0<a class="headerlink" href="#apache-license-version-2-0" title="Permalink to this headline">¶</a></h2>
-<blockquote>
-<div><p>Copyright 2020 serializejson Contributors</p>
-<p>Licensed under the Apache License, Version 2.0 (the “License”);
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at</p>
-<blockquote>
-<div><p><a class="reference external" href="http://www.apache.org/licenses/LICENSE-2.0">http://www.apache.org/licenses/LICENSE-2.0</a></p>
-</div></blockquote>
-<p>Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an “AS IS” BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.</p>
-</div></blockquote>
-</div>
+<p>For noncommercial use or limited free-trial period commercial use, this project is licensed under the <a class="reference external" href="https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PROSPERITY.rst">Prosperity Public License 3.0.0</a>.</p>
+<p>For non limited commercial use, this project is licensed under the <a class="reference external" href="https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PATRON.rst">Patron License 1.0.0</a>.
+To acquire a license please <a class="reference external" href="mailto:contact&#37;&#52;&#48;smartaudiotools&#46;com">contact me</a>, or just <a class="reference external" href="https://github.com/sponsors/SmartAudioTools">sponsor me on GitHub</a> under the appropriate tier ! This funding model helps me making my work sustainable and compensates me for the work it took to write this crate!</p>
+<p>Third-party contributions are licensed under <a class="reference external" href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a> and belong to their respective authors.</p>
 </div>
 <div class="section" id="classes-api">
 <h1>Classes API<a class="headerlink" href="#classes-api" title="Permalink to this headline">¶</a></h1>
