@@ -102,11 +102,8 @@
 </ul>
 </li>
 <li><a class="reference internal" href="#versions">Versions</a><ul>
-<li><a class="reference internal" href="#version-0-0-5">Version 0.0.5</a></li>
+<li><a class="reference internal" href="#version-0-0-6">Version 0.0.6</a></li>
 <li><a class="reference internal" href="#version-0-0-4">Version 0.0.4</a></li>
-<li><a class="reference internal" href="#version-0-0-3">Version 0.0.3</a></li>
-<li><a class="reference internal" href="#version-0-0-2">Version 0.0.2</a></li>
-<li><a class="reference internal" href="#version-0-0-1">Version 0.0.1</a></li>
 </ul>
 </li>
 <li><a class="reference internal" href="#future-versions-todo">Future Versions (TODO)</a></li>
@@ -211,10 +208,10 @@ The library is build upon
 </ul>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p>⚠ Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized</p>
-<p>⚠ serializejson can execute arbitrary Python code when loading json, if the load parameter authorized_classes is “all”.
+<p><strong>⚠</strong> Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized</p>
+<p><strong>⚠</strong> serializejson can execute arbitrary Python code when loading json, if the load parameter authorized_classes is “all”.
 Do not load serializejson files from untrusted / unauthenticated sources without carefully setting the load authorized_classes parameter.</p>
-<p>⚠ Never dump a dictionary with the <cite>__class__</cite> key, otherwise serializejson will attempt to reconstruct an object when loading the json.
+<p><strong>⚠</strong> Never dump a dictionary with the <cite>__class__</cite> key, otherwise serializejson will attempt to reconstruct an object when loading the json.
 Be careful not to allow a user to manually enter a dictionary key somewhere without checking that it is not <cite>__class__</cite>.
 Due to current limitation of rapidjson we cannot we cannot at the moment efficiently detect dictionaries with the <cite>__class__</cite> key to raise an error.</p>
 </div>
@@ -222,23 +219,18 @@ Due to current limitation of rapidjson we cannot we cannot at the moment efficie
 <div class="section" id="installation">
 <h1>Installation<a class="headerlink" href="#installation" title="Permalink to this headline">¶</a></h1>
 <p><strong>Last offical release</strong></p>
-<blockquote>
-<div><div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">serializejson</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">serializejson</span>
 </pre></div>
 </div>
-</div></blockquote>
 <p><strong>Developpement version unreleased</strong></p>
-<blockquote>
-<div><div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">git</span><span class="o">+</span><span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">github</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">SmartAudioTools</span><span class="o">/</span><span class="n">serializejson</span><span class="o">.</span><span class="n">git</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">git</span><span class="o">+</span><span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">github</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">SmartAudioTools</span><span class="o">/</span><span class="n">serializejson</span><span class="o">.</span><span class="n">git</span>
 </pre></div>
 </div>
-</div></blockquote>
 </div>
 <div class="section" id="examples">
 <h1>Examples<a class="headerlink" href="#examples" title="Permalink to this headline">¶</a></h1>
 <p><strong>Serialization with fonctions API</strong></p>
-<blockquote>
-<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">serializejson</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">serializejson</span>
 
 <span class="c1">#serialize in string</span>
 <span class="n">object1</span> <span class="o">=</span> <span class="nb">set</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">])</span>
@@ -257,10 +249,8 @@ Due to current limitation of rapidjson we cannot we cannot at the moment efficie
 <span class="n">loaded2</span> <span class="o">=</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;dumped2.json&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-</div></blockquote>
 <p><strong>Serialization with classes based API.</strong></p>
-<blockquote>
-<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">serializejson</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">serializejson</span>
 <span class="n">encoder</span> <span class="o">=</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">Encoder</span><span class="p">()</span>
 <span class="n">decoder</span> <span class="o">=</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">Decoder</span><span class="p">()</span>
 
@@ -277,10 +267,8 @@ Due to current limitation of rapidjson we cannot we cannot at the moment efficie
 <span class="n">loaded2</span> <span class="o">=</span> <span class="n">decoder</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;dumped2.json&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-</div></blockquote>
 <p><strong>Update existing object</strong></p>
-<blockquote>
-<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">serializejson</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">serializejson</span>
 <span class="n">object1</span> <span class="o">=</span> <span class="nb">set</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">])</span>
 <span class="n">object2</span> <span class="o">=</span> <span class="nb">set</span><span class="p">([</span><span class="mi">3</span><span class="p">,</span><span class="mi">4</span><span class="p">])</span>
 <span class="n">dumped1</span> <span class="o">=</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">object1</span><span class="p">)</span>
@@ -289,10 +277,8 @@ Due to current limitation of rapidjson we cannot we cannot at the moment efficie
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;id </span><span class="si">{</span><span class="nb">id</span><span class="p">(</span><span class="n">object2</span><span class="p">)</span><span class="si">}</span><span class="s2"> :  </span><span class="si">{</span><span class="n">object2</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-</div></blockquote>
 <p><strong>Iterative serialization and deserialization</strong></p>
-<blockquote>
-<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">serializejson</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">serializejson</span>
 <span class="n">encoder</span> <span class="o">=</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">Encoder</span><span class="p">(</span><span class="s2">&quot;my_list.json&quot;</span><span class="p">,</span><span class="n">indent</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span>
 <span class="k">for</span> <span class="n">elt</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
     <span class="n">encoder</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">elt</span><span class="p">)</span>
@@ -305,7 +291,6 @@ Due to current limitation of rapidjson we cannot we cannot at the moment efficie
 <span class="o">&gt;</span><span class="mi">2</span>
 </pre></div>
 </div>
-</div></blockquote>
 <p>More examples and complete documentation <a class="reference external" href="https://smartaudiotools.github.io/serializejson/">here</a></p>
 </div>
 <div class="section" id="license">
@@ -1014,23 +999,20 @@ when loading plugins, considering that all object are in the root module.</p>
 </div>
 <div class="section" id="versions">
 <h1>Versions<a class="headerlink" href="#versions" title="Permalink to this headline">¶</a></h1>
-<div class="section" id="version-0-0-5">
-<h2>Version 0.0.5<a class="headerlink" href="#version-0-0-5" title="Permalink to this headline">¶</a></h2>
-<blockquote>
-<div><dl class="field-list simple">
+<div class="section" id="version-0-0-6">
+<h2>Version 0.0.6<a class="headerlink" href="#version-0-0-6" title="Permalink to this headline">¶</a></h2>
+<dl class="field-list simple">
 <dt class="field-odd">Date</dt>
-<dd class="field-odd"><p>2020-11-24</p>
-<ul class="simple">
-<li><p>remove indent in README.rst for pipy</p></li>
-</ul>
+<dd class="field-odd"><p>2020-11-26</p>
 </dd>
 </dl>
-</div></blockquote>
+<ul class="simple">
+<li><p>change description for pipy</p></li>
+</ul>
 </div>
 <div class="section" id="version-0-0-4">
 <h2>Version 0.0.4<a class="headerlink" href="#version-0-0-4" title="Permalink to this headline">¶</a></h2>
-<blockquote>
-<div><dl class="field-list simple">
+<dl class="field-list simple">
 <dt class="field-odd">Date</dt>
 <dd class="field-odd"><p>2020-11-24</p>
 </dd>
@@ -1042,37 +1024,6 @@ when loading plugins, considering that all object are in the root module.</p>
 <li><p>fix itertive append and decode (not fully tested).</p></li>
 <li><p>fix dump of numpy types without conversion to python types(not yet numpy.float64)</p></li>
 </ul>
-</div></blockquote>
-</div>
-<div class="section" id="version-0-0-3">
-<h2>Version 0.0.3<a class="headerlink" href="#version-0-0-3" title="Permalink to this headline">¶</a></h2>
-<blockquote>
-<div><dl class="field-list simple">
-<dt class="field-odd">Date</dt>
-<dd class="field-odd"><p>2020-10-23</p>
-</dd>
-</dl>
-</div></blockquote>
-</div>
-<div class="section" id="version-0-0-2">
-<h2>Version 0.0.2<a class="headerlink" href="#version-0-0-2" title="Permalink to this headline">¶</a></h2>
-<blockquote>
-<div><dl class="field-list simple">
-<dt class="field-odd">Date</dt>
-<dd class="field-odd"><p>2020-10-22</p>
-</dd>
-</dl>
-</div></blockquote>
-</div>
-<div class="section" id="version-0-0-1">
-<h2>Version 0.0.1<a class="headerlink" href="#version-0-0-1" title="Permalink to this headline">¶</a></h2>
-<blockquote>
-<div><dl class="field-list simple">
-<dt class="field-odd">Date</dt>
-<dd class="field-odd"><p>2020-10-22</p>
-</dd>
-</dl>
-</div></blockquote>
 </div>
 </div>
 <div class="section" id="future-versions-todo">
