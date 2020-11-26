@@ -1,8 +1,8 @@
 Version 0.0.5
 -------------
     :Date: 2020-11-24
-	
-	* remove indent in README.rst for pipy
+    
+    * remove indent in README.rst for pipy
 
 Version 0.0.4
 -------------
