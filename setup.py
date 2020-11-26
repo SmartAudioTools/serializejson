@@ -63,6 +63,7 @@ if __name__ == "__main__":
         include_package_data=True,
         project_urls={
             "Documentation": "https://smartaudiotools.github.io/serializejson",
+            "Funding": "https://github.com/sponsors/SmartAudioTools",
             "Source": "https://github.com/SmartAudioTools/serializejson",
             "Tracker": "https://github.com/SmartAudioTools/serializejson/issues",
         },
