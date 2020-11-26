@@ -37,7 +37,7 @@ Some of the main features:
 .. warning::
 
     
-    **⚠** Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized 
+    **⚠** Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized.
     
     **⚠** serializejson can execute arbitrary Python code when loading json, if the load parameter authorized_classes is "all". 
     Do not load serializejson files from untrusted / unauthenticated sources without carefully setting the load authorized_classes parameter.
