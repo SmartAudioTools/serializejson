@@ -1,4 +1,4 @@
-`COMPLET DOCUMENTATION HERE <https://smartaudiotools.github.io/serializejson/>`_
+`COMPLETE DOCUMENTATION HERE <https://smartaudiotools.github.io/serializejson/>`_
 
 
 serializejson
@@ -38,10 +38,10 @@ Some of the main features:
 
     ⚠ Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized 
 
-    **⚠ serializejson can execute arbitrary Python code when loading json**, if the load parameter authorized_classes is "all". 
+    ⚠ serializejson can execute arbitrary Python code when loading json, if the load parameter authorized_classes is "all". 
     Do not load serializejson files from untrusted / unauthenticated sources without carefully setting the load authorized_classes parameter.
     
-    Never dump a dictionary with the `__class__` key, otherwise serializejson will attempt to reconstruct an object when loading the json. 
+    ⚠ Never dump a dictionary with the `__class__` key, otherwise serializejson will attempt to reconstruct an object when loading the json. 
     Be careful not to allow a user to manually enter a dictionary key somewhere without checking that it is not `__class__`.
     Due to current limitation of rapidjson we cannot we cannot at the moment efficiently detect dictionaries with the `__class__` key to raise an error.  
     
