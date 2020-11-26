@@ -1,15 +1,15 @@
 Version 0.0.6
 -------------
-    :Date: 2020-11-26
-    
-    * change README.rst for pipy
+:Date: 2020-11-26
+
+* change description for pipy
 
 Version 0.0.4
 -------------
-    :Date: 2020-11-24
+:Date: 2020-11-24
 	
-    * API changed
-    * add plugins support
-    * add bytes, bytearray and numpy.array compression with blosc zstd
-    * fix itertive append and decode (not fully tested).
-    * fix dump of numpy types without conversion to python types(not yet numpy.float64)
+* API changed
+* add plugins support
+* add bytes, bytearray and numpy.array compression with blosc zstd
+* fix itertive append and decode (not fully tested).
+* fix dump of numpy types without conversion to python types(not yet numpy.float64)

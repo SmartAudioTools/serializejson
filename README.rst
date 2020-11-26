@@ -34,112 +34,112 @@ Some of the main features:
 - dump and load support string path. 
 - can iteratively encode (with append) and decode (with iterator) a list in json, which helps saving memory space during the process of serialization et deserialization.
 
-.. warning::
-
-    ⚠ Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized 
-
-    ⚠ serializejson can execute arbitrary Python code when loading json, if the load parameter authorized_classes is "all". 
-    Do not load serializejson files from untrusted / unauthenticated sources without carefully setting the load authorized_classes parameter.
+    .. warning::
     
-    ⚠ Never dump a dictionary with the `__class__` key, otherwise serializejson will attempt to reconstruct an object when loading the json. 
-    Be careful not to allow a user to manually enter a dictionary key somewhere without checking that it is not `__class__`.
-    Due to current limitation of rapidjson we cannot we cannot at the moment efficiently detect dictionaries with the `__class__` key to raise an error.  
+        **⚠** Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized 
     
+        **⚠** serializejson can execute arbitrary Python code when loading json, if the load parameter authorized_classes is "all". 
+        Do not load serializejson files from untrusted / unauthenticated sources without carefully setting the load authorized_classes parameter.
+        
+        **⚠** Never dump a dictionary with the `__class__` key, otherwise serializejson will attempt to reconstruct an object when loading the json. 
+        Be careful not to allow a user to manually enter a dictionary key somewhere without checking that it is not `__class__`.
+        Due to current limitation of rapidjson we cannot we cannot at the moment efficiently detect dictionaries with the `__class__` key to raise an error.  
+        
 
 Installation
 ============
 
 **Last offical release**
 
-    .. code-block::
+.. code-block::
 
-        pip install serializejson
+    pip install serializejson
 
 **Developpement version unreleased**
 
-    .. code-block::
+.. code-block::
 
-        pip install git+https://github.com/SmartAudioTools/serializejson.git
+    pip install git+https://github.com/SmartAudioTools/serializejson.git
 
 Examples
 ================
 
 **Serialization with fonctions API** 
 
-    .. code-block:: python
-    
-        import serializejson 
-    
-        #serialize in string
-        object1 = set([1,2])
-        dumped1 = serializejson.dumps(object1)
-        loaded1 = serializejson.loads(dumped1)
-        print(dumped1)
-        >{
-        >        "__class__": "set",
-        >        "__init__": [1,2]
-        >}
-    
-    
-        #serialize in file
-        object2 = set([3,4])
-        serializejson.dump(object2,"dumped2.json")
-        loaded2 = serializejson.load("dumped2.json")
+.. code-block:: python
+
+    import serializejson 
+
+    #serialize in string
+    object1 = set([1,2])
+    dumped1 = serializejson.dumps(object1)
+    loaded1 = serializejson.loads(dumped1)
+    print(dumped1)
+    >{
+    >        "__class__": "set",
+    >        "__init__": [1,2]
+    >}
+
+
+    #serialize in file
+    object2 = set([3,4])
+    serializejson.dump(object2,"dumped2.json")
+    loaded2 = serializejson.load("dumped2.json")
 
 **Serialization with classes based API.**     
 
-    .. code-block:: python
-    
-        import serializejson 
-        encoder = serializejson.Encoder()
-        decoder = serializejson.Decoder()
-    
-        # serialize in string
-    
-        object1 = set([1,2])
-        dumped1 = encoder.dumps(object1)
-        loaded1 = decoder.loads(dumped1)
-        print(dumped1)
-    
-        # serialize in file
-        object2 = set([3,4])
-        encoder.dump(object2,"dumped2.json")
-        loaded2 = decoder.load("dumped2.json")
+.. code-block:: python
+
+    import serializejson 
+    encoder = serializejson.Encoder()
+    decoder = serializejson.Decoder()
+
+    # serialize in string
+
+    object1 = set([1,2])
+    dumped1 = encoder.dumps(object1)
+    loaded1 = decoder.loads(dumped1)
+    print(dumped1)
+
+    # serialize in file
+    object2 = set([3,4])
+    encoder.dump(object2,"dumped2.json")
+    loaded2 = decoder.load("dumped2.json")
 
 **Update existing object** 
 
-    .. code-block:: python
-    
-        import serializejson 
-        object1 = set([1,2])
-        object2 = set([3,4])
-        dumped1 = serializejson.dumps(object1)
-        print(f"id {id(object2)} :  {object2}")
-        serializejson.loads(dumped1,obj = object2, updatables_classes = [set])
-        print(f"id {id(object2)} :  {object2}")
+.. code-block:: python
+
+    import serializejson 
+    object1 = set([1,2])
+    object2 = set([3,4])
+    dumped1 = serializejson.dumps(object1)
+    print(f"id {id(object2)} :  {object2}")
+    serializejson.loads(dumped1,obj = object2, updatables_classes = [set])
+    print(f"id {id(object2)} :  {object2}")
 
 **Iterative serialization and deserialization**
 
-    .. code-block:: python
-    
-        import serializejson 
-        encoder = serializejson.Encoder("my_list.json",indent = None)
-        for elt in range(3):
-            encoder.append(elt)
-        print(open("my_list.json").read())
-        for elt in serializejson.Decoder("my_list.json"):
-            print(elt)
-        >[0,1,2]
-        >0
-        >1
-        >2
-            
+.. code-block:: python
+
+    import serializejson 
+    encoder = serializejson.Encoder("my_list.json",indent = None)
+    for elt in range(3):
+        encoder.append(elt)
+    print(open("my_list.json").read())
+    for elt in serializejson.Decoder("my_list.json"):
+        print(elt)
+    >[0,1,2]
+    >0
+    >1
+    >2
+        
 More examples and complete documentation `here <https://smartaudiotools.github.io/serializejson/>`_
 
 License
 =======
         
-Copyright 2020 Baptiste de La Gorce.
+Copyright 2020 Baptiste de La Gorce
 
 For noncommercial use or limited free-trial period commercial use, this project is licensed under the `Prosperity Public License 3.0.0 <https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PROSPERITY.rst>`_. 
 
