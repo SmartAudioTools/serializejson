@@ -1,0 +1,1275 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>serializejson &mdash; serializejson 0.0.4 documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+
+  
+  
+  
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script src="_static/jquery.js"></script>
+        <script src="_static/underscore.js"></script>
+        <script src="_static/doctools.js"></script>
+        <script src="_static/language_data.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="#" class="icon icon-home" alt="Documentation Home"> serializejson
+          
+
+          
+          </a>
+
+          
+            
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <!-- Local TOC -->
+              <div class="local-toc"><ul>
+<li><a class="reference internal" href="#">serializejson</a></li>
+<li><a class="reference internal" href="#installation">Installation</a></li>
+<li><a class="reference internal" href="#examples">Examples</a></li>
+<li><a class="reference internal" href="#license">License</a><ul>
+<li><a class="reference internal" href="#patron-license-1-0-0">Patron License 1.0.0</a></li>
+<li><a class="reference internal" href="#prosperity-public-license-3-0-0">Prosperity Public License 3.0.0</a></li>
+<li><a class="reference internal" href="#apache-license-version-2-0">Apache License, Version 2.0</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#classes-api">Classes API</a><ul>
+<li><a class="reference internal" href="#encoder">Encoder</a></li>
+<li><a class="reference internal" href="#decoder">Decoder</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#functions-api">Functions API</a><ul>
+<li><a class="reference internal" href="#encode">Encode</a></li>
+<li><a class="reference internal" href="#decode">Decode</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#custom-object-serialization">Custom object serialization</a><ul>
+<li><a class="reference internal" href="#method-1-adding-methods-to-object-for-custom-serialization">Method 1: Adding methods to object for custom serialization</a></li>
+<li><a class="reference internal" href="#method-2-adding-plugins-to-serializejson">Method 2: Adding plugins to serializejson</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#versions">Versions</a><ul>
+<li><a class="reference internal" href="#version-0-0-5">Version 0.0.5</a></li>
+<li><a class="reference internal" href="#version-0-0-4">Version 0.0.4</a></li>
+<li><a class="reference internal" href="#version-0-0-3">Version 0.0.3</a></li>
+<li><a class="reference internal" href="#version-0-0-2">Version 0.0.2</a></li>
+<li><a class="reference internal" href="#version-0-0-1">Version 0.0.1</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#future-versions-todo">Future Versions (TODO)</a></li>
+</ul>
+</div>
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="#">serializejson</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="#" class="icon icon-home"></a> &raquo;</li>
+        
+      <li>serializejson</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="_sources/index.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="toctree-wrapper compound">
+</div>
+<div class="section" id="serializejson">
+<h1>serializejson<a class="headerlink" href="#serializejson" title="Permalink to this headline">¶</a></h1>
+<p><strong>serializejson</strong> is a python library that allows serialization and deserialization
+of complex Python objects in <a class="reference external" href="http://json.org">JSON</a>.
+Like <a class="reference external" href="https://github.com/jsonpickle/jsonpickle">jsonpickle</a> it has a high
+compatibility with pickle, but is generally 7x faster.
+The library is build upon
+<a class="reference external" href="https://github.com/python-rapidjson/python-rapidjson">python-rapidjson</a>,
+<a class="reference external" href="https://github.com/mayeut/pybase64">pybase64</a> and
+<a class="reference external" href="https://github.com/Blosc/python-blosc">blosc</a> compression.</p>
+<p>Some of the main features:</p>
+<ul class="simple">
+<li><p>supports Python 3.7 (maybe lower) or greater.</p></li>
+<li><p>serializes arbitrary python objects into a dictionary by adding <cite>__class__</cite> ,and eventually <cite>__init__</cite> and <cite>__state__</cite> keys.</p></li>
+<li><p>calls the same objects methods as pickle. Therefore almost all pickable objects are serializable with serializejson without any modification.</p></li>
+<li><p>generally 2x slower than pickle for dumping and 3x slower than pickle for loading  (on your benchmark) except for big arrays (optimisation will soon be done).</p></li>
+<li><p>serializes and deserializes bytes and bytearray very quickly in base64 thanks to <a class="reference external" href="https://github.com/mayeut/pybase64">pybase64</a> and lossless <a class="reference external" href="https://github.com/Blosc/python-blosc">blosc</a> compression.</p></li>
+<li><p>serialized objects take generally less space than when serialized with pickle: for binary data, the 30% increase due to base64 encoding is in general largely compensated using the lossless <a class="reference external" href="https://github.com/Blosc/python-blosc">blosc</a> compression.</p></li>
+<li><p>serialized objects are human-readable. Unlike pickled data, your data will never become unreadable if your code evolves: you will always be able to modify your datas with a text editor.</p></li>
+<li><p>compared to json jsonpickle, it is generally 7x faster for dumping and loading, uses less RAM and produces json files that are more readable.</p></li>
+<li><p>can safely load untrusted / unauthenticated sources if authorized_classes list parameter is set carefully with strictly necessary objects (unlike pickle).</p></li>
+<li><p>can update existing objects recursively instead of override them (serializejson can be used to save and restore in place a complete application state).</p></li>
+<li><p>filters attribute starting with “_” by default (unlike pickle).</p></li>
+<li><p>numpy arrays can be serialized as lists with automatic conversion in both ways or in a conservative way.</p></li>
+<li><p>supports circular references and serializes only once duplicated objects (WARNING :not yet if the object is a list or dictionary).</p></li>
+<li><p>tries to call attribute setters and properties setters when loading if set_attributes  = True.</p></li>
+<li><p>accepts json with comment (// and /* */).</p></li>
+<li><p>can automatically recognize objects in json from keys names and recreate them, without the need of <cite>__class__</cite> key, if passed in recognized_classes. It allows loading foreign json serialized with others libraries who only save objects attributes.</p></li>
+<li><p>dump and load support string path.</p></li>
+<li><p>can iteratively encode (with append) and decode (with iterator) a list in json, which helps saving memory space during the process of serialization et deserialization.</p></li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized</p>
+<p><strong>⚠ serializejson can execute arbitrary Python code when loading json</strong>, if the load parameter authorized_classes is “all”.
+Do not load serializejson files from untrusted / unauthenticated sources without carefully setting the load authorized_classes parameter.</p>
+<p>Never dump a dictionary with the <cite>__class__</cite> key, otherwise serializejson will attempt to reconstruct an object when loading the json.
+Be careful not to allow a user to manually enter a dictionary key somewhere without checking that it is not <cite>__class__</cite>.
+Due to current limitation of rapidjson we cannot we cannot at the moment efficiently detect dictionaries with the <cite>__class__</cite> key to raise an error.</p>
+</div>
+</div>
+<div class="section" id="installation">
+<h1>Installation<a class="headerlink" href="#installation" title="Permalink to this headline">¶</a></h1>
+<p><strong>Last offical release</strong></p>
+<blockquote>
+<div><div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">serializejson</span>
+</pre></div>
+</div>
+</div></blockquote>
+<p><strong>Developpement version unreleased</strong></p>
+<blockquote>
+<div><div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">git</span><span class="o">+</span><span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">github</span><span class="o">.</span><span class="n">com</span><span class="o">/</span><span class="n">SmartAudioTools</span><span class="o">/</span><span class="n">serializejson</span><span class="o">.</span><span class="n">git</span>
+</pre></div>
+</div>
+</div></blockquote>
+</div>
+<div class="section" id="examples">
+<h1>Examples<a class="headerlink" href="#examples" title="Permalink to this headline">¶</a></h1>
+<p><strong>Serialization with fonctions API</strong></p>
+<blockquote>
+<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">serializejson</span>
+
+<span class="c1">#serialize in string</span>
+<span class="n">object1</span> <span class="o">=</span> <span class="nb">set</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">])</span>
+<span class="n">dumped1</span> <span class="o">=</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">object1</span><span class="p">)</span>
+<span class="n">loaded1</span> <span class="o">=</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">dumped1</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">dumped1</span><span class="p">)</span>
+<span class="o">&gt;</span><span class="p">{</span>
+<span class="o">&gt;</span>        <span class="s2">&quot;__class__&quot;</span><span class="p">:</span> <span class="s2">&quot;set&quot;</span><span class="p">,</span>
+<span class="o">&gt;</span>        <span class="s2">&quot;__init__&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">]</span>
+<span class="o">&gt;</span><span class="p">}</span>
+
+
+<span class="c1">#serialize in file</span>
+<span class="n">object2</span> <span class="o">=</span> <span class="nb">set</span><span class="p">([</span><span class="mi">3</span><span class="p">,</span><span class="mi">4</span><span class="p">])</span>
+<span class="n">serializejson</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">object2</span><span class="p">,</span><span class="s2">&quot;dumped2.json&quot;</span><span class="p">)</span>
+<span class="n">loaded2</span> <span class="o">=</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;dumped2.json&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</div></blockquote>
+<p><strong>Serialization with classes based API.</strong></p>
+<blockquote>
+<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">serializejson</span>
+<span class="n">encoder</span> <span class="o">=</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">Encoder</span><span class="p">()</span>
+<span class="n">decoder</span> <span class="o">=</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">Decoder</span><span class="p">()</span>
+
+<span class="c1"># serialize in string</span>
+
+<span class="n">object1</span> <span class="o">=</span> <span class="nb">set</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">])</span>
+<span class="n">dumped1</span> <span class="o">=</span> <span class="n">encoder</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">object1</span><span class="p">)</span>
+<span class="n">loaded1</span> <span class="o">=</span> <span class="n">decoder</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">dumped1</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">dumped1</span><span class="p">)</span>
+
+<span class="c1"># serialize in file</span>
+<span class="n">object2</span> <span class="o">=</span> <span class="nb">set</span><span class="p">([</span><span class="mi">3</span><span class="p">,</span><span class="mi">4</span><span class="p">])</span>
+<span class="n">encoder</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">object2</span><span class="p">,</span><span class="s2">&quot;dumped2.json&quot;</span><span class="p">)</span>
+<span class="n">loaded2</span> <span class="o">=</span> <span class="n">decoder</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;dumped2.json&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</div></blockquote>
+<p><strong>Update existing object</strong></p>
+<blockquote>
+<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">serializejson</span>
+<span class="n">object1</span> <span class="o">=</span> <span class="nb">set</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">])</span>
+<span class="n">object2</span> <span class="o">=</span> <span class="nb">set</span><span class="p">([</span><span class="mi">3</span><span class="p">,</span><span class="mi">4</span><span class="p">])</span>
+<span class="n">dumped1</span> <span class="o">=</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">object1</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;id </span><span class="si">{</span><span class="nb">id</span><span class="p">(</span><span class="n">object2</span><span class="p">)</span><span class="si">}</span><span class="s2"> :  </span><span class="si">{</span><span class="n">object2</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="n">serializejson</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">dumped1</span><span class="p">,</span><span class="n">obj</span> <span class="o">=</span> <span class="n">object2</span><span class="p">,</span> <span class="n">updatables_classes</span> <span class="o">=</span> <span class="p">[</span><span class="nb">set</span><span class="p">])</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;id </span><span class="si">{</span><span class="nb">id</span><span class="p">(</span><span class="n">object2</span><span class="p">)</span><span class="si">}</span><span class="s2"> :  </span><span class="si">{</span><span class="n">object2</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</div></blockquote>
+<p><strong>Iterative serialization and deserialization</strong></p>
+<blockquote>
+<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">serializejson</span>
+<span class="n">encoder</span> <span class="o">=</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">Encoder</span><span class="p">(</span><span class="s2">&quot;my_list.json&quot;</span><span class="p">,</span><span class="n">indent</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">elt</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
+    <span class="n">encoder</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">elt</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="nb">open</span><span class="p">(</span><span class="s2">&quot;my_list.json&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">())</span>
+<span class="k">for</span> <span class="n">elt</span> <span class="ow">in</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">Decoder</span><span class="p">(</span><span class="s2">&quot;my_list.json&quot;</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">elt</span><span class="p">)</span>
+<span class="o">&gt;</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">]</span>
+<span class="o">&gt;</span><span class="mi">0</span>
+<span class="o">&gt;</span><span class="mi">1</span>
+<span class="o">&gt;</span><span class="mi">2</span>
+</pre></div>
+</div>
+</div></blockquote>
+</div>
+<div class="section" id="license">
+<h1>License<a class="headerlink" href="#license" title="Permalink to this headline">¶</a></h1>
+<p>Copyright 2020 Baptiste de La Gorce</p>
+<p>For noncommercial use or limited free-trial period commercial use, this project is licensed under the <a class="reference internal" href="#prosperity-public-license-3-0-0">Prosperity Public License 3.0.0</a>.</p>
+<p>For non limited commercial use this project is licensed under the <a class="reference internal" href="#patron-license-1-0-0">Patron License 1.0.0</a>.
+To acquire a license please <a class="reference external" href="mailto:contact&#37;&#52;&#48;smartaudiotools&#46;com">contact me</a>, or just <a class="reference external" href="https://github.com/sponsors/SmartAudioTools">sponsor me on GitHub</a> under the appropriate tier ! This funding model helps me make my work sustainable and compensates me for the work it took to write this crate!</p>
+<p>Third-party contributions are licensed under <a class="reference internal" href="#apache-license-version-2-0">Apache License, Version 2.0</a> and belong to their respective authors.</p>
+<div class="section" id="patron-license-1-0-0">
+<h2>Patron License 1.0.0<a class="headerlink" href="#patron-license-1-0-0" title="Permalink to this headline">¶</a></h2>
+<blockquote>
+<div><p>Contributor : <a class="reference external" href="mailto:contact&#37;&#52;&#48;smartaudiotools&#46;com">Baptiste de La Gorce</a></p>
+<p>Payment Platforms: <a class="reference external" href="https://github.com/sponsors/smartaudiotools">https://github.com/sponsors/smartaudiotools</a></p>
+<p>Source Code: <a class="reference external" href="https://github.com/SmartAudioTools/serializejson">https://github.com/SmartAudioTools/serializejson</a></p>
+<p><strong>Purpose</strong></p>
+<p>This license gives everyone patronizing contributors to this software permission to ignore any noncommercial or copyleft rules of its free public license, while continuing to protect contributors from liability.</p>
+<p><strong>Acceptance</strong></p>
+<p>In order to agree to these terms and receive a license, you must qualify under [Patrons](#patrons).  The rules of these terms are both obligations under your agreement and conditions to your license.  That agreement and your license continue only while you qualify as a patron.  You must not do anything with this software that triggers a rule that you cannot or will not follow.</p>
+<p><strong>Patrons</strong></p>
+<p>To accept these terms, you must be enrolled to make regular payments through any of the payment platforms pages listed above, in amounts qualifying you for a tier that includes a “patron license” or otherwise identifies a license under these terms as a reward.</p>
+<p><strong>Scope</strong></p>
+<p>Except under [Seat](#seat) and [Applications](#applications), you may not sublicense or transfer any agreement or license under these terms to anyone else.</p>
+<p><strong>Seat</strong></p>
+<p>If a legal entity, rather than an individual, accepts these terms, the entity may sublicense one individual employee or independent contractor at any given time.  If the employee or contractor breaks any rule of these terms, the entity will stand directly responsible.</p>
+<p><strong>Applications</strong></p>
+<p>If you combine this software with other software in a larger application, you may sublicense this software as part of your larger application, and allow further sublicensing in turn, under these rules:</p>
+<ol class="arabic simple">
+<li><p>Your larger application must have significant additional content or functionality beyond that of this software, and end users must license your larger application primarily for that added content or functionality.</p></li>
+<li><p>You may not sublicense anyone to break any rule of the public license for this software for any changes of their own or any software besides your larger application.</p></li>
+<li><p>You may build, and sublicense for, as many larger applications as you like.</p></li>
+</ol>
+<p><strong>Copyright</strong></p>
+<p>Each contributor licenses you to do everything with this software that would otherwise infringe that contributor’s copyright in it.</p>
+<p><strong>Notices</strong></p>
+<p>You must ensure that everyone who gets a copy of any part of this software from you, with or without changes, also gets the texts of both this license and the free public license for this software.</p>
+<p><strong>Excuse</strong></p>
+<p>If anyone notifies you in writing that you have not complied with [Notices](#notices), you can keep your agreement and your license by taking all practical steps to comply within 30 days after the notice.  If you do not do so, your agreement under these terms ends immediately, and your license ends with it.</p>
+<p><strong>Patent</strong></p>
+<p>Each contributor licenses you to do everything with this software that would otherwise infringe any patent claims they can license or become able to license.</p>
+<p><strong>Reliability</strong></p>
+<p>No contributor can revoke this license, but your license may end if you break any rule of these terms.</p>
+<p><strong>No Liability</strong></p>
+<p><strong>As far as the law allows, this software comes as is, without any warranty or condition, and no contributor will be liable to anyone for any damages related to this software or this license, under any kind of legal claim.</strong></p>
+</div></blockquote>
+</div>
+<div class="section" id="prosperity-public-license-3-0-0">
+<h2>Prosperity Public License 3.0.0<a class="headerlink" href="#prosperity-public-license-3-0-0" title="Permalink to this headline">¶</a></h2>
+<blockquote>
+<div><p>Contributor: <a class="reference external" href="mailto:contact&#37;&#52;&#48;smartaudiotools&#46;com">Baptiste de La Gorce</a></p>
+<p>Source Code: <a class="reference external" href="https://github.com/SmartAudioTools/serializejson">https://github.com/SmartAudioTools/serializejson</a></p>
+<p><strong>Purpose</strong></p>
+<p>This license allows you to use and share this software for noncommercial purposes for free and to try this software for commercial purposes for thirty days.</p>
+<p><strong>Agreement</strong></p>
+<p>In order to receive this license, you have to agree to its rules.  Those rules are both obligations under that agreement and conditions to your license.  Don’t do anything with this software that triggers a rule you can’t or won’t follow.</p>
+<p><strong>Notices</strong></p>
+<p>Make sure everyone who gets a copy of any part of this software from you, with or without changes, also gets the text of this license and the contributor and source code lines above.</p>
+<p><strong>Commercial Trial</strong></p>
+<p>Limit your use of this software for commercial purposes to a thirty-day trial period.  If you use this software for work, your company gets one trial period for all personnel, not one trial per person.</p>
+<p><strong>Contributions Back</strong></p>
+<p>Developing feedback, changes, or additions that you contribute back to the contributor on the terms of a standardized public software license such as [the Blue Oak Model License 1.0.0](<a class="reference external" href="https://blueoakcouncil.org/license/1.0.0">https://blueoakcouncil.org/license/1.0.0</a>), [the Apache License 2.0](<a class="reference external" href="https://www.apache.org/licenses/LICENSE-2.0.html">https://www.apache.org/licenses/LICENSE-2.0.html</a>), [the MIT license](<a class="reference external" href="https://spdx.org/licenses/MIT.html">https://spdx.org/licenses/MIT.html</a>), or [the two-clause BSD license](<a class="reference external" href="https://spdx.org/licenses/BSD-2-Clause.html">https://spdx.org/licenses/BSD-2-Clause.html</a>) doesn’t count as use for a commercial purpose.</p>
+<p><strong>Personal Uses</strong></p>
+<p>Personal use for research, experiment, and testing for the benefit of public knowledge, personal study, private entertainment, hobby projects, amateur pursuits, or religious observance, without any anticipated commercial application, doesn’t count as use for a commercial purpose.</p>
+<p><strong>Noncommercial Organizations</strong></p>
+<p>Use by any charitable organization, educational institution, public research organization, public safety or health organization, environmental protection organization, or government institution doesn’t count as use for a commercial purpose regardless of the source of funding or obligations resulting from the funding.</p>
+<p><strong>Defense</strong></p>
+<p>Don’t make any legal claim against anyone accusing this software, with or without changes, alone or with other technology, of infringing any patent.</p>
+<p><strong>Copyright</strong></p>
+<p>The contributor licenses you to do everything with this software that would otherwise infringe their copyright in it.</p>
+<p><strong>Patent</strong></p>
+<p>The contributor licenses you to do everything with this software that would otherwise infringe any patents they can license or become able to license.</p>
+<p><strong>Reliability</strong></p>
+<p>The contributor can’t revoke this license.</p>
+<p><strong>Excuse</strong></p>
+<p>You’re excused for unknowingly breaking [Notices](#notices) if you take all practical steps to comply within thirty days of learning you broke the rule.</p>
+<p><strong>No Liability</strong></p>
+<p><strong>As far as the law allows, this software comes as is, without any warranty or condition, and the contributor won’t be liable to anyone for any damages related to this software or this license, under any kind of legal claim.</strong></p>
+</div></blockquote>
+</div>
+<div class="section" id="apache-license-version-2-0">
+<h2>Apache License, Version 2.0<a class="headerlink" href="#apache-license-version-2-0" title="Permalink to this headline">¶</a></h2>
+<blockquote>
+<div><p>Copyright 2020 serializejson Contributors</p>
+<p>Licensed under the Apache License, Version 2.0 (the “License”);
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at</p>
+<blockquote>
+<div><p><a class="reference external" href="http://www.apache.org/licenses/LICENSE-2.0">http://www.apache.org/licenses/LICENSE-2.0</a></p>
+</div></blockquote>
+<p>Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an “AS IS” BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.</p>
+</div></blockquote>
+</div>
+</div>
+<div class="section" id="classes-api">
+<h1>Classes API<a class="headerlink" href="#classes-api" title="Permalink to this headline">¶</a></h1>
+<blockquote>
+<div><p>Classes API is the preferred API if you have to encode or decode several
+objects, allowing you to reuse the same Encoder and Decoder classes instancies for this
+objects. Function API internaly create Encoder or Decoder instances at each call.
+It’s non-negligeable cost if lot of smal objects are serialized one by one.</p>
+<p>Moreover this API allow to get all encoded classes with Encoder.get_dumped_classes()
+in order to pass them later to Decoder(authorized_classes = … )</p>
+</div></blockquote>
+<div class="section" id="encoder">
+<h2>Encoder<a class="headerlink" href="#encoder" title="Permalink to this headline">¶</a></h2>
+<dl class="py class">
+<dt id="serializejson.Encoder">
+<em class="property">class </em><code class="sig-prename descclassname">serializejson.</code><code class="sig-name descname">Encoder</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">fp</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="o">*</span></em>, <em class="sig-param"><span class="n">attributes_filter</span><span class="o">=</span><span class="default_value">'_'</span></em>, <em class="sig-param"><span class="n">chunk_size</span><span class="o">=</span><span class="default_value">65536</span></em>, <em class="sig-param"><span class="n">ensure_ascii</span><span class="o">=</span><span class="default_value">False</span></em>, <em class="sig-param"><span class="n">indent</span><span class="o">=</span><span class="default_value">'\t'</span></em>, <em class="sig-param"><span class="n">single_line_init</span><span class="o">=</span><span class="default_value">True</span></em>, <em class="sig-param"><span class="n">single_line_list_numbers</span><span class="o">=</span><span class="default_value">True</span></em>, <em class="sig-param"><span class="n">sort_keys</span><span class="o">=</span><span class="default_value">True</span></em>, <em class="sig-param"><span class="n">bytes_compression</span><span class="o">=</span><span class="default_value">('zstd', 1)</span></em>, <em class="sig-param"><span class="n">bytes_size_compression_threshold</span><span class="o">=</span><span class="default_value">512</span></em>, <em class="sig-param"><span class="n">bytes_use_bytesB64</span><span class="o">=</span><span class="default_value">True</span></em>, <em class="sig-param"><span class="n">bytearray_use_bytearrayB64</span><span class="o">=</span><span class="default_value">True</span></em>, <em class="sig-param"><span class="n">numpy_array_use_numpyB64</span><span class="o">=</span><span class="default_value">True</span></em>, <em class="sig-param"><span class="n">numpy_array_readable_max_size</span><span class="o">=</span><span class="default_value">0</span></em>, <em class="sig-param"><span class="n">numpy_array_to_list</span><span class="o">=</span><span class="default_value">False</span></em>, <em class="sig-param"><span class="n">numpy_types_to_python_types</span><span class="o">=</span><span class="default_value">True</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">plugins_parameters</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#Encoder"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.Encoder" title="Permalink to this definition">¶</a></dt>
+<dd><p>class for serialization of python objects into json.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>fp</strong> (<em>string</em><em> or </em><em>file-like</em>) – path or file-like object.
+When specified, the encoded result will be written there
+and you will not have to pass it to the <cite>dump()</cite> method later.</p></li>
+<li><p><strong>attributes_filter</strong> – attributes_filter allow you to chose if you want to serialize
+privates attributes at the dump time, instead of hard coded in methodes.
+If an object instance has not __reduce__() or __gestate__() methodes
+given the state and if attributes_filter is set to “_” (by default),
+then all object attributes in __dict__ or __slots__ will
+be serialized except ones starting with “_” corresponding to
+privates attributs.
+If you want to serialize all attributes,
+private include, you sould set attributes_filter to None.
+If you want to still have the same behavior than pickle,
+you sould set attributes_filter to None and
+eventually hard coding a __reduce__() or __gestate__() methode filtering
+attributes starting with “_” with serializesjon.filtered() function.</p></li>
+<li><p><strong>chunk_size</strong> – write the stream in chunks of this size at a time.</p></li>
+<li><p><strong>ensure_ascii</strong> – whether non-ascii str are dumped with escaped unicode or utf-8.</p></li>
+<li><p><strong>indent</strong> (<em>None</em><em>, </em><em>int</em><em> or </em><em>'\t'</em>) – <p>indentation width to produce pretty printed JSON.</p>
+<ul>
+<li><p>None: Json in one line (quicker than with indent).</p></li>
+<li><p>int: new lines and <cite>indent</cite> spaces for indent.</p></li>
+<li><p>’\t’: new lines and tabulations for indent (take less space than int &gt; 1).</p></li>
+</ul>
+</p></li>
+<li><p><strong>single_line_init</strong> – whether <cite>__init__</cite> must be serialize in one line.</p></li>
+<li><p><strong>single_line_list_numbers</strong> – whether list of numbers of same type must be serialize in one line.</p></li>
+<li><p><strong>sort_keys</strong> – whether dictionary keys should be sorted alphabetically.</p></li>
+<li><p><strong>bytes_compression</strong> (<em>None</em><em> or </em><em>str</em>) – <p>Compression for bytes, bytesarray and numpy arrays:</p>
+<ul>
+<li><p><cite>None</cite> : no compression</p></li>
+<li><p><cite>str</cite> : compression name (“blosclz”, “lz4”, “lz4hc”, “zlib” or “zstd”) with maximum compression level 9.</p></li>
+<li><p><cite>tuple</cite> : (compression name, compression level) with compression level from 0 (no compression) to 9 (maximum compression)</p></li>
+</ul>
+<p>By default the “zstd” compression is used with compression level 1.
+For the highest compression (but with slower dumping) use “zstd” with compression level 9</p>
+</p></li>
+<li><p><strong>bytes_size_compression_threshold</strong> (<em>int</em>) – bytes size threshold beyond compression is tried to reduce size of
+bytes, bytesarray and numpy array if <cite>bytes_compression</cite> is not None.
+The default value is 512, generaly beside the compression is not
+worth it due to the header size and the additional cpu cost.</p></li>
+<li><p><strong>numpy_array_readable_max_size</strong> (<em>int</em><em>,</em><em>None</em><em> or </em><em>dict</em>) – <p>Defines the maximum array size for serialization in readable numbers.
+By default numpy_array_readable_max_size is set to 0, all numpy arrays are encoded in base 64.</p>
+<ul>
+<li><p><cite>int</cite> : all numpy arrays smaller than this size are serialized in readable numbers.</p></li>
+<li><p><cite>None</cite> : there is no maximum size and all numpy arrays are serialized in readable numbers.</p></li>
+<li><p><cite>dict</cite> : for each dtype key, the value define the maximum size  of this dtype arrays for serialization in readable numbers. If value is <cite>None</cite> there is no maximum and numpy array of this dtype are all serialized in readable numbers. If you want only numpy arrays int32 to be readable, then you should pass <cite>numpy_array_readable_max_size = {“int32”:None}</cite></p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>serialization in readable decimals can take much less space in int32 if the values ar smaller or equal to 9999,
+but is much slower than in base 64 for big arrays. If you have lot or large numpy int32 arrays and
+performance matters, then you should stay with default value 0.</p>
+</div>
+</p></li>
+<li><p><strong>numpy_array_to_list</strong> – <p>whether numpy array should be serialized as list.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>This should be used only for interoperability with other json libraries.
+If you want readable  values in your json, we recommend to use instead
+<cite>numpy_array_readable_max_size</cite> which is not destructive.</p>
+<p>With <cite>numpy_array_to_list</cite> set to <cite>True</cite>:</p>
+<ul>
+<li><p>numpy arrays will be indistinctable from list in json.</p></li>
+<li><p><cite>Decoder(numpy_array_from_list=True)</cite> will recreate numpy array from lists of bool, int or float, if not an <cite>__init__</cite> args list, with the the risque of unwanted convertion of lists to numpy arrays.</p></li>
+<li><p>dtype of the numpy array will be loosed loosed if not bool, int32 or float64 and converted to the bool, int32 or float64 when loading</p></li>
+<li><p>Empty numpy array will be converted to [] without any way to guess the dtype and will stay an empty list when loading event with <cite>numpy_array_from_list = True</cite></p></li>
+</ul>
+</div>
+</p></li>
+<li><p><strong>numpy_types_to_python_types</strong> – whether numpy integers and floats outside of a array must be convert to python types.
+It save space and generally don’t affect</p></li>
+<li><p><strong>**plugins_parameters</strong> – extra keys arguments are stocked in “serialize_parameters”
+global module and accessible in plugins module in order to allow
+the choice between serialization options in plugins.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt id="serializejson.Encoder.dump">
+<code class="sig-name descname">dump</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">obj</span></em>, <em class="sig-param"><span class="n">fp</span><span class="o">=</span><span class="default_value">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#Encoder.dump"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.Encoder.dump" title="Permalink to this definition">¶</a></dt>
+<dd><p>Dump object into json file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>obj</strong> – object to dump.</p></li>
+<li><p><strong>fp</strong> (<em>optional str</em><em> or </em><em>file-like</em>) – path or file. If provided, the object will be
+dumped into this file instead of being dumped into the file passed at the Encoder constructor.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="serializejson.Encoder.dumps">
+<code class="sig-name descname">dumps</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">obj</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#Encoder.dumps"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.Encoder.dumps" title="Permalink to this definition">¶</a></dt>
+<dd><p>Dump object into json string.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="serializejson.Encoder.append">
+<code class="sig-name descname">append</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">obj</span></em>, <em class="sig-param"><span class="n">fp</span><span class="o">=</span><span class="default_value">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#Encoder.append"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.Encoder.append" title="Permalink to this definition">¶</a></dt>
+<dd><p>Append object into json file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>obj</strong> – object to dump.</p></li>
+<li><p><strong>fp</strong> (<em>optional str</em><em> or </em><em>file-like</em>) – path or file. If provided, the object will be
+dumped into this file instead of being dumped into the file passed at the Encoder
+constructor. The file must be empty or contain a json list.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="serializejson.Encoder.get_dumped_classes">
+<code class="sig-name descname">get_dumped_classes</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#Encoder.get_dumped_classes"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.Encoder.get_dumped_classes" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the all dumped classes.
+In order to reuse them as <cite>authorize_classes</cite> argument when loading with a <code class="docutils literal notranslate"><span class="pre">serializejson.Decoder</span></code>.</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="decoder">
+<h2>Decoder<a class="headerlink" href="#decoder" title="Permalink to this headline">¶</a></h2>
+<dl class="py class">
+<dt id="serializejson.Decoder">
+<em class="property">class </em><code class="sig-prename descclassname">serializejson.</code><code class="sig-name descname">Decoder</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">fp</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="o">*</span></em>, <em class="sig-param"><span class="n">authorized_classes</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">recognized_classes</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">updatables_classes</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">set_attributes</span><span class="o">=</span><span class="default_value">True</span></em>, <em class="sig-param"><span class="n">accept_comments</span><span class="o">=</span><span class="default_value">False</span></em>, <em class="sig-param"><span class="n">numpy_array_from_list</span><span class="o">=</span><span class="default_value">False</span></em>, <em class="sig-param"><span class="n">default_value</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">chunk_size</span><span class="o">=</span><span class="default_value">65536</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#Decoder"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.Decoder" title="Permalink to this definition">¶</a></dt>
+<dd><p>Decoder for loading objects serialized in json files or strings.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>fp</strong> (<em>string</em><em> or </em><em>file-like</em>) – Path or file-like object containing the json.
+When specified, the decoder will read from this file
+and you will not have to pass it to the <cite>load()</cite> method later.</p></li>
+<li><p><strong>authorized_classes</strong> (<em>list</em>) – <p>Define the classes that serializejson is authorized to recreate from
+the <cite>__class__</cite> keywords in json, in addition to the usuals classes.
+Usual classes are : complex ,bytes, bytearray, Decimal, type, set,
+frozenset, range, slice, deque,  datetime, timedelta, date, time
+numpy.array, numpy.dtype.
+authorized_classes must be a liste of classes or strings
+corresponding to the qualified names of classes (<cite>module.class_name</cite>).
+If the loading json contain an unauthorized  <cite>__class__</cite>,
+serializejson will raise a TypeError exception.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Do not load serializejson files from untrusted / unauthenticated
+sources without carefully set the <cite>authorized_classes</cite> parameter.
+Never authorize “eval”, “exec”, “apply” or other functions or
+classes which could allow execution of malicious code
+with for example :
+<code class="docutils literal notranslate"><span class="pre">{&quot;__class__&quot;:&quot;eval&quot;,&quot;__init__&quot;:&quot;do_bad_things()&quot;}</span></code></p>
+</div>
+</p></li>
+<li><p><strong>recognized_classes</strong> (<em>list</em>) – List of classes (string with qualified names or classes) that
+serializejson will try to recognize from keys names.</p></li>
+<li><p><strong>updatables_classes</strong> (<em>list</em>) – List of classes (string with qualified names or classes) that
+serializejson will try to update if already in the provided object <cite>obj</cite> when calling <cite>load</cite>.
+Objects will be recreated for other classes.</p></li>
+<li><p><strong>set_attributes</strong> (<em>bool</em><em> or </em><em>list</em>) – <p>Controls whether <cite>load</cite> will try to call <cite>set_xxx</cite> or <cite>setXxx</cite> methods
+or <cite>xxx</cite> property setter for each attributes of the serialized objects
+when the object as no <cite>__setstate__</cite> method.
+if <cite>set_attributes</cite> is a list of classes or classes qualified names,
+<cite>load</cite> will try to call the setters only for these classes
+and for classes defined in plugins <cite>set_attributes</cite> lists
+(see documentation section: ref:<cite>”Add plugins to serializejson”&lt;add-plugins-label&gt;</cite>. )</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><strong>The attribute’s setters are called in the json order !</strong></p>
+<ul>
+<li><p>Always use <cite>sort_keys = True</cite> when dumping for determinist behavior.</p></li>
+<li><p>Be carefull if you rename an attribute because setters calls order can still change.</p></li>
+<li><p>If <cite>set_attribute = True</cite> (or is a list) then serializejson will differ from pickle that don’t call attribute’s setters.</p></li>
+</ul>
+<p><strong>It is best to add the __setate__() method to your object:</strong></p>
+<ul>
+<li><p>If you want to call setter in a different order than alphabetic order.</p></li>
+<li><p>If you want to be robust to an attribute name change.</p></li>
+<li><p>If you want to be robust to this <cite>set_attribute</cite> parameter change.</p></li>
+<li><p>If you want to avoid transitional states during setting of attribute one by one.</p></li>
+<li><p>If you want the same behavior as pickle, for being able to still use pickle.</p></li>
+</ul>
+</div>
+</p></li>
+<li><p><strong>accept_comments</strong> (<em>bool</em>) – Controls whether serializejson accepts to parse json with comments.</p></li>
+<li><p><strong>numpy_array_from_list</strong> (<em>bool</em>) – Controls whether list of int or floats should be loaded into numpy arrays.</p></li>
+<li><p><strong>default_value</strong> – The value returned if the path passed to <cite>load</cite> doesn’t exist.
+It allows to have a default object at the first run of the script or
+when the json has been deleted.</p></li>
+<li><p><strong>chunk_size</strong> (<em>int</em>) – Chunk size used when reading the json file.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt id="serializejson.Decoder.load">
+<code class="sig-name descname">load</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">fp</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">obj</span><span class="o">=</span><span class="default_value">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#Decoder.load"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.Decoder.load" title="Permalink to this definition">¶</a></dt>
+<dd><p>Load object from json file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>fp</strong> (<em>optional str</em><em> or </em><em>file-like</em>) – the object will be loaded from this file instead of being loaded from the
+file provided to the Decoder constructor.</p></li>
+<li><p><strong>obj</strong> (<em>optional</em>) – If provided, the object <cite>obj</cite> will be updated and no new object will be created.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>created object or updated object if passed obj.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="serializejson.Decoder.loads">
+<code class="sig-name descname">loads</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">s</span></em>, <em class="sig-param"><span class="n">obj</span><span class="o">=</span><span class="default_value">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#Decoder.loads"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.Decoder.loads" title="Permalink to this definition">¶</a></dt>
+<dd><p>Load object from json string.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>s</strong> – the json string.</p></li>
+<li><p><strong>obj</strong> (<em>optional</em>) – <p>If provided, the object <cite>obj</cite> will be updated and no new object will be created.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Updating an object</strong> consists in restoring its state recursively.</p>
+<ul>
+<li><p>Neither <cite>__new__()</cite> or  <cite>__init__()</cite> will be called.</p></li>
+<li><p>All childrens of <cite>updatables_classes</cite> will be updated, otherwise will be recreated.</p></li>
+<li><p>If the object has a <cite>__setstate__()</cite> method, this method will be called with the state.</p></li>
+<li><p>Otherwise all the elements of the state dictionary will be restored as attributes. Passively if <cite>set_attribute = False</cite> (like pickle). Actively if <cite>set_attribute=True</cite> or <cite>set_attribute=[your object’s class]</cite>, with call of setters (in alphabetic order if <cite>sort_keys=True</cite> or in random order if <cite>sort_keys=False</cite>).</p></li>
+</ul>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>You must make sure to have all the needed information in the state and not in the <cite>__init__</cite> args that will be discarded when updating.
+See documentation section: ref:<cite>”If you want to make the object updatable”&lt;updatable-note-label&gt;</cite>.</p>
+</div>
+</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>created object or updated object if passed obj.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="serializejson.Decoder.set_default_value">
+<code class="sig-name descname">set_default_value</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">value</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#Decoder.set_default_value"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.Decoder.set_default_value" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the value returned if the path passed to load doesn’t exist.
+It allows to have a default object at the first run of the script or
+when the json has been deleted.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="serializejson.Decoder.set_authorized_classes">
+<code class="sig-name descname">set_authorized_classes</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">classes</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#Decoder.set_authorized_classes"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.Decoder.set_authorized_classes" title="Permalink to this definition">¶</a></dt>
+<dd><p>Define the classes that serializejson is authorized to recreate from
+the <cite>__class__</cite> keywords in json, in addition to the usuals classes.
+Usual classes are : complex ,bytes, bytearray, Decimal, type, set,
+frozenset, range, slice, deque,  datetime, timedelta, date, time
+numpy.array, numpy.dtype.
+authorized_classes must be a liste of classes or strings
+corresponding to the qualified names of classes (<cite>module.class_name</cite>).
+If the loading json contain an unauthorized  <cite>__class__</cite>,
+serializejson will raise a TypeError exception.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Do not load serializejson files from untrusted / unauthenticated
+sources without carefully set the <cite>authorized_classes</cite> parameter.
+Never authorize “eval”, “exec”, “apply” or other functions or
+classes which could allow execution of malicious code
+with for example :
+<code class="docutils literal notranslate"><span class="pre">{&quot;__class__&quot;:&quot;eval&quot;,&quot;__init__&quot;:&quot;do_bad_things()&quot;}</span></code></p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt id="serializejson.Decoder.set_recognized_classes">
+<code class="sig-name descname">set_recognized_classes</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">classes</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#Decoder.set_recognized_classes"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.Decoder.set_recognized_classes" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the classes (string with qualified name or classes) that
+serializejson will try to recognize from key names.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="serializejson.Decoder.set_updatables_classes">
+<code class="sig-name descname">set_updatables_classes</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">updatables</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#Decoder.set_updatables_classes"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.Decoder.set_updatables_classes" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the classes (string with qualified name or classes) that
+serializejson will try to update if already in the provided object <cite>obj</cite> when loading with <cite>load</cite> or <cite>loads</cite>.
+Otherwise the objects are recreated.</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+</div>
+<div class="section" id="functions-api">
+<h1>Functions API<a class="headerlink" href="#functions-api" title="Permalink to this headline">¶</a></h1>
+<blockquote>
+<div><p>Functions API are just convenient way to create Encoder or Decoder and call methods in a single instruction.
+If you have to encode or decode several objects reuse instances of Encoder and Decoder instead of functions to avoid creation of Encoder or Decoder at each function call.
+The functions arguments are the same as for Encoder and Decoder constructor. See documentation of Encoder and Decoder for more precisions.</p>
+</div></blockquote>
+<div class="section" id="encode">
+<h2>Encode<a class="headerlink" href="#encode" title="Permalink to this headline">¶</a></h2>
+<blockquote>
+<div><dl class="py function">
+<dt id="serializejson.dump">
+<code class="sig-prename descclassname">serializejson.</code><code class="sig-name descname">dump</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">obj</span></em>, <em class="sig-param"><span class="n">fp</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">argsDict</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#dump"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.dump" title="Permalink to this definition">¶</a></dt>
+<dd><p>Dump an object into json file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>obj</strong> – object to dump.</p></li>
+<li><p><strong>fp</strong> (<em>str</em><em> or </em><em>file-like</em>) – path or file.</p></li>
+<li><p><strong>**argsDict</strong> – parameters passed to the Encoder (see documentation).</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="serializejson.dumps">
+<code class="sig-prename descclassname">serializejson.</code><code class="sig-name descname">dumps</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">obj</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">argsDict</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#dumps"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.dumps" title="Permalink to this definition">¶</a></dt>
+<dd><p>Dump object into json string.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>obj</strong> – object to dump.</p></li>
+<li><p><strong>**argsDict</strong> – parameters passed to the Encoder (see documentation).</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="serializejson.append">
+<code class="sig-prename descclassname">serializejson.</code><code class="sig-name descname">append</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">obj</span></em>, <em class="sig-param"><span class="n">fp</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="o">*</span></em>, <em class="sig-param"><span class="n">indent</span><span class="o">=</span><span class="default_value">'\t'</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">argsDict</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#append"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.append" title="Permalink to this definition">¶</a></dt>
+<dd><p>Append an object into json file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>obj</strong> – object to dump.</p></li>
+<li><p><strong>fp</strong> (<em>str</em><em> or </em><em>file-like</em>) – path or file. The file must be empty or containing a json list.</p></li>
+<li><p><strong>indent</strong> – indent passed to Encoder.</p></li>
+<li><p><strong>**argsDict</strong> – other parameters passed to the Encoder (see documentation).</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</div></blockquote>
+</div>
+<div class="section" id="decode">
+<h2>Decode<a class="headerlink" href="#decode" title="Permalink to this headline">¶</a></h2>
+<blockquote>
+<div><dl class="py function">
+<dt id="serializejson.load">
+<code class="sig-prename descclassname">serializejson.</code><code class="sig-name descname">load</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">fp</span></em>, <em class="sig-param"><span class="o">*</span></em>, <em class="sig-param"><span class="n">obj</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">iterator</span><span class="o">=</span><span class="default_value">False</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">argsDict</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#load"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.load" title="Permalink to this definition">¶</a></dt>
+<dd><p>Load an object from a json file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>fp</strong> (<em>str</em><em> or </em><em>file-like</em>) – the json file.</p></li>
+<li><p><strong>obj</strong> (<em>optional</em>) – If provided, the object <cite>obj</cite> will be updated and no new object will be created.</p></li>
+<li><p><strong>iterator</strong> – if <cite>True</cite> and the json corresponds to a list then the items will be read one by one which reduces RAM consumption.</p></li>
+<li><p><strong>**argsDict</strong> – parameters passed to the Decoder (see documentation).</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>created object, updated object if passed obj or elements iterator if iterator is True.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="serializejson.loads">
+<code class="sig-prename descclassname">serializejson.</code><code class="sig-name descname">loads</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">s</span></em>, <em class="sig-param"><span class="o">*</span></em>, <em class="sig-param"><span class="n">obj</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">iterator</span><span class="o">=</span><span class="default_value">False</span></em>, <em class="sig-param"><span class="o">**</span><span class="n">argsDict</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson.html#loads"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.loads" title="Permalink to this definition">¶</a></dt>
+<dd><p>Load an object from a json string.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>s</strong> – the json string.</p></li>
+<li><p><strong>obj</strong> (<em>optional</em>) – If provided, the object <cite>obj</cite> will be updated and no new object will be created.</p></li>
+<li><p><strong>iterator</strong> – if <cite>True</cite> and the json corresponds to a list then the items will be read one by one which reduces RAM consumption.</p></li>
+<li><p><strong>**argsDict</strong> – parameters passed to the Decoder (see documentation).</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>created object, updated object if <cite>obj</cite> is provided or elements iterator if <cite>iterator</cite> is <cite>True</cite>.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</div></blockquote>
+</div>
+</div>
+<div class="section" id="custom-object-serialization">
+<h1>Custom object serialization<a class="headerlink" href="#custom-object-serialization" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="method-1-adding-methods-to-object-for-custom-serialization">
+<h2>Method 1: Adding methods to object for custom serialization<a class="headerlink" href="#method-1-adding-methods-to-object-for-custom-serialization" title="Permalink to this headline">¶</a></h2>
+<blockquote>
+<div><p>If you can add the required methods to you classes, this is the recommended method.
+serializejson uses the same methods as pickle and has exactly the same behavior
+as pickle if you use Encoder(attributes_filter = None) and Decoder(set_attributes = False).
+If you finally chose to use pickle instead of serializejson, your implemented methods will still be useful.</p>
+<p>Depending of strategy you choose for recreating or updating an object, you will need to implement
+different methods:</p>
+<dl class="py function">
+<dt id="object.__reduce__">
+<code class="sig-prename descclassname">object.</code><code class="sig-name descname">__reduce__</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#object.__reduce__" title="Permalink to this definition">¶</a></dt>
+<dd><p>Code the <cite>__reduce__()</cite> method if you want to recreate your objects with <cite>__init__()</cite>.
+You have to return a tuple with: class, init_args_tuple and optionally state depending
+on how you want to call <cite>__init__()</cite>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Alternatively you can return a tuple with a callable returning instance of the desired class, a callable arguments tuple, and optionally a state.
+<strong>In this case the callable will be considered as the class by authorized_classes, updatable_classes and set_attributes parameters.</strong>
+Except for “apply”, in which case the first element of the tuple in second position is considered as the class.</p>
+<p><strong>Never put “apply” in authorized_classes, it would allow untrusted json to execute arbitrary code.</strong></p>
+</div>
+<ul>
+<li><p>Call <cite>__init__()</cite> with positional arguments, without state restore.</p>
+<blockquote>
+<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">__reduce__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">init_args_tuple</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,)</span> <span class="c1"># tuple with 1 element need comma</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">,</span><span class="n">init_args_tuple</span>
+</pre></div>
+</div>
+</div></blockquote>
+</li>
+<li><p>Call <cite>__init__()</cite> with named arguments, without state restore.</p>
+<blockquote>
+<div><p>naming argument allows you to skip the first arguments if they have default
+values and is robust if you change later the init arguments order, but you will
+have to install the python module <a class="reference external" href="https://pypi.org/project/apply">apply</a></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">__reduce__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">init_kwargs_dictionary</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;arg3&quot;</span><span class="p">:</span><span class="mi">3</span><span class="p">}</span>
+        <span class="k">return</span> <span class="n">apply</span><span class="p">,(</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">,</span><span class="kc">None</span><span class="p">,</span><span class="n">init_kwargs_dictionary</span><span class="p">)</span>
+</pre></div>
+</div>
+</div></blockquote>
+</li>
+<li><p>Call <cite>__init__()</cite> with positional arguments and restore state from filtered attributes</p>
+<blockquote>
+<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">__reduce__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">init_args_tuple</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,)</span> <span class="c1"># tuple with 1 element need comma</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">,</span> <span class="n">init_args_tuple</span><span class="p">,</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">filtered</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="vm">__dict__</span><span class="p">)</span>
+</pre></div>
+</div>
+</div></blockquote>
+</li>
+<li><p>Call <cite>__init__()</cite> with named arguments and restore state from filtered attributes</p>
+<blockquote>
+<div><p>more robust if you change later the init args order, but you have to pip install apply</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">__reduce__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">init_kwargs_dictionary</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;arg3&quot;</span><span class="p">:</span><span class="mi">3</span><span class="p">}</span>
+        <span class="k">return</span>  <span class="n">apply</span><span class="p">,</span>
+                <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">,</span><span class="kc">None</span><span class="p">,</span><span class="n">init_kwargs_dictionary</span><span class="p">),</span>
+                <span class="n">serializejson</span><span class="o">.</span><span class="n">filtered</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="vm">__dict__</span><span class="p">)</span>
+</pre></div>
+</div>
+</div></blockquote>
+</li>
+</ul>
+</dd></dl>
+
+<dl class="py function">
+<dt id="object.__getstate__">
+<code class="sig-prename descclassname">object.</code><code class="sig-name descname">__getstate__</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#object.__getstate__" title="Permalink to this definition">¶</a></dt>
+<dd><p>Code the <cite>__getstate__()</cite> method <strong>without</strong> <cite>__reduce__()</cite>
+if you do not want to call <cite>__init__()</cite> but only <cite>__new__()</cite> and you want to have
+a different behavior then serialize <cite>self.__dict__</cite> and <cite>self.__slots__</cite>.
+The <cite>__getstate__()</cite> method must return the state of the class as an object that will itself be serialized.
+If <cite>__setstate__()</cite> is not available, the returned object must be a dictionary
+(elements will be restored as attributes) or <cite>None</cite>, otherwise the object can be any serializable object</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>if <cite>__reduce __ ()</cite> is implemented, <cite>__getstate __()</cite> will not be called</p>
+</div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">__getstate__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="n">state</span> <span class="o">=</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">filtered</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="vm">__dict__</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt id="object.__setstate__">
+<code class="sig-prename descclassname">object.</code><code class="sig-name descname">__setstate__</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">state</span></em><span class="sig-paren">)</span><a class="headerlink" href="#object.__setstate__" title="Permalink to this definition">¶</a></dt>
+<dd><p>Code <cite>__setstate__()</cite> if you want to have other behavior than the default which
+consists in just restoring attributes from state.
+takes as parameter the object describing the state of the class and
+puts the instance back in the state it was in before serialization.
+can possibly execute initialization code.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If <cite>__setstate __()</cite> is not available, all elements of <cite>self.__dict__</cite>, <cite>self.__slots__</cite> or returned by <cite>__getstate__()</cite> (which in this case must return a dict) will be restored as attributes.</p>
+<ul class="simple">
+<li><p>Passively if <cite>set_attribute = False</cite> (like pickle)</p></li>
+<li><p>actively with call of setters if <cite>set_attribute = True</cite> or <cite>t_attribute = [..,your_object]</cite>. In alphabetic order if <cite>sort_keys=True</cite> or in arbitrary order if <cite>sort_keys=False</cite>.</p></li>
+</ul>
+<p>We recommend to add the <cite>__setstate__()</cite> method to your object:</p>
+<ul class="simple">
+<li><p>If you want to call setter in a different order than alphabetic order.</p></li>
+<li><p>If you want to be robust to a attribute name change.</p></li>
+<li><p>If you want to be robust to this set_attribute parameter change.</p></li>
+<li><p>If you want to avoid transitional states during setting of attribute one by one.</p></li>
+<li><p>If you want the same behavior than pickle, for being able to comme back to pickle.</p></li>
+</ul>
+</div>
+<ul class="simple">
+<li><p>If there is restoring code depending of several elements of state, you should code <cite>__setstate__()</cite> to avoid transitional states during the restoration of attributes one by one.</p></li>
+<li><p>If there is restoring code and you want a 100 % compatibility with pickle, you should put this code in <cite>__setstate__()</cite> for not depending of <cite>set_attributes = True</cite>.</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">__setstate__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">):</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">set_x</span><span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">])</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">set_y</span><span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">])</span>
+    <span class="c1"># other initialization code</span>
+    <span class="o">....</span>
+    <span class="o">....</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<div class="admonition note" id="example">
+<span id="updatable-note-label"></span><p class="admonition-title">Note</p>
+<p><strong>If you want to make the object updatable:</strong></p>
+<ul>
+<li><p>Save all needed information outside of <cite>__init__</cite> args when dumping:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>put all needed information for an update in state (returned by <cite>__getstate__()</cite> or in third position by <cite>__reduce__()</cite>), because <cite>__init__()</cite> will not be called when updating, and all init arguments will be discarded.</p></li>
+<li><p>minimize information redundancy for <cite>__init__()</cite> that is already in state (returned in second position by <cite>__reduce__()</cite></p></li>
+<li><p>you can remove calls to <cite>__init__()</cite> using <cite>__getsate__()</cite> instead of <cite>__reduce__()</cite>, if you don’t need to execute code in <cite>__init__()</cite> anymore when creating objects, because all the required initialization code is already in <cite>__setstate__()</cite> or setters.</p></li>
+</ul>
+</div></blockquote>
+</li>
+<li><p>Allow restoration of this information:</p>
+<blockquote>
+<div><ul>
+<li><p>In <cite>__setstate__()</cite> method called with the state.</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>If you want to call setter in a different order than alphabetic order.</p></li>
+<li><p>If you want to be robust to a attribute name change or set_attribute parameter change.</p></li>
+<li><p>If you want to avoid transitional states during setting of attribute one by one.</p></li>
+</ul>
+</div></blockquote>
+</li>
+<li><p>Otherwise all the elements of the state dictionary will be restored as attributes.</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Passively if <cite>set_attribute = False</cite> (like pickle).</p></li>
+<li><p>Actively with call of setters, if set_attribute=True or <cite>set_attribute=[your_object]</cite> (in alphabetic order if <cite>sort_keys=True</cite> or in random order if <cite>sort_keys=False</cite>). ⚠ You must be sure to ever call load with <cite>set_attributes = True</cite> (or […,object]) or add a plugin for these objects with <cite>set_attributes = [object]</cite></p></li>
+</ul>
+</div></blockquote>
+</li>
+</ul>
+</div></blockquote>
+</li>
+</ul>
+</div>
+</div></blockquote>
+</div>
+<div class="section" id="method-2-adding-plugins-to-serializejson">
+<h2>Method 2: Adding plugins to serializejson<a class="headerlink" href="#method-2-adding-plugins-to-serializejson" title="Permalink to this headline">¶</a></h2>
+<blockquote>
+<div><p id="add-plugins-label">You have the possibility to add plugins to the serializejson module if you do not want or cannot add methods to
+the classes corresponding to the objects you want to serialize.</p>
+<dl>
+<dt><strong>1. Create serializejson/plugins/module_name.py</strong></dt><dd><p>with the same name as the module containing your object.</p>
+</dd>
+<dt><strong>2. Import this module in serializejson/plugins/__init__.py</strong></dt><dd><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">module_name</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+<p><strong>3. make imports in a try in your module_name.py</strong></p>
+<blockquote>
+<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">module_name</span>
+<span class="k">except</span> <span class="ne">ModuleNotFoundError</span><span class="p">:</span>
+    <span class="k">pass</span>
+</pre></div>
+</div>
+</div></blockquote>
+<dl>
+<dt><strong>4. Create functions named “tuple_from_XXX”</strong></dt><dd><p>in module_name.py for each objects of your module, with XXX the name of the class.</p>
+<dl class="py function">
+<dt id="serializejson.plugins.module_name.tuple_from_XXX">
+<code class="sig-prename descclassname">serializejson.plugins.module_name.</code><code class="sig-name descname">tuple_from_XXX</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">obj</span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/serializejson/plugins/module_name.html#tuple_from_XXX"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#serializejson.plugins.module_name.tuple_from_XXX" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>obj</strong> – the object to serialize.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><p>(class, init_args, state)</p>
+<dl class="simple">
+<dt>class(class or str):</dt><dd><p>the class or function called for object creation you should use <cite>obj.__class__</cite> or string <cite>“module.submodule.name”</cite></p>
+</dd>
+<dt>init_args (tuple,dict or None):</dt><dd><ul class="simple">
+<li><p>tuple: positional arguments you want pass to <cite>__init__()</cite> or to the callable</p></li>
+<li><p>dict : keysword arguments if you want pass to <cite>__init__()</cite> or to the callable (take little more space)</p></li>
+<li><p>None : if you don’t want to call the <cite>__init__()</cite> but only <cite>__new__()</cite> when loading.</p></li>
+</ul>
+</dd>
+<dt>state (None, dict or object):</dt><dd><p>can be None, if the state is already restored calling <cite>__init__()</cite></p>
+</dd>
+</dl>
+</p>
+</dd>
+</dl>
+<p class="rubric">Example</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">tuple_from_XXX</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+    <span class="n">init_args</span> <span class="o">=</span> <span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">attribute_1</span><span class="p">,</span><span class="n">obj</span><span class="o">.</span><span class="n">attribute_3</span><span class="p">)</span>
+    <span class="n">state</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;attribute_3&quot;</span><span class="p">:</span><span class="n">obj</span><span class="o">.</span><span class="n">attribute_3</span><span class="p">}</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="vm">__class__</span><span class="p">,</span> <span class="n">init_args</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</dd>
+</dl>
+<p><strong>5. Automatically add parameters to Encoder, dump and dumps for control your plugins options</strong></p>
+<blockquote>
+<div><blockquote>
+<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">serializejson</span> <span class="kn">import</span> <span class="n">serialize_parameters</span>
+<span class="k">def</span> <span class="nf">tuple_from_XXX</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">serialize_parameters</span><span class="o">.</span><span class="n">module_name_option_name</span><span class="p">:</span>
+        <span class="n">init_args</span> <span class="o">=</span> <span class="o">...</span>
+        <span class="n">state</span> <span class="o">=</span> <span class="o">...</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">init_args</span> <span class="o">=</span> <span class="o">...</span>
+        <span class="n">state</span> <span class="o">=</span> <span class="o">...</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="vm">__class__</span><span class="p">,</span><span class="n">init_args</span><span class="p">,</span><span class="n">state</span><span class="p">)</span>
+<span class="n">encoder_plugins_parameters_default_values</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;module_name_option_name&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">}</span>
+</pre></div>
+</div>
+</div></blockquote>
+<p>You can now use these options for Encoding:</p>
+<blockquote>
+<div><div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">serializejson</span>
+<span class="kn">import</span> <span class="nn">module_name</span>
+<span class="n">obj</span> <span class="o">=</span> <span class="n">module_name</span><span class="o">.</span><span class="n">XXX</span><span class="p">()</span>
+<span class="c1"># Function API</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">serializejson</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span><span class="n">module_name_option_name</span> <span class="o">=</span> <span class="kc">True</span><span class="p">))</span>
+<span class="c1"># Class API</span>
+<span class="n">encoder</span> <span class="o">=</span> <span class="n">serializejson</span><span class="o">.</span><span class="n">Encoder</span><span class="p">(</span><span class="n">module_name_option_name</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">encoder</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">obj</span><span class="p">))</span>
+</pre></div>
+</div>
+</div></blockquote>
+</div></blockquote>
+<dl>
+<dt><strong>5. Add “tuple_from_module_class_str” dictionary in your module_name.py</strong></dt><dd><p>if some of your classes are in submodules.
+Otherwise this dictionary will be automatically constructed by serializejson
+when loading plugins, considering that all object are in the root module.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">tuple_from_module_class_str</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;module_name.submodule.XXX&quot;</span><span class="p">:</span> <span class="n">tuple_from_XXX</span><span class="p">,</span>
+    <span class="s2">&quot;module_name.submodule.YYY&quot;</span><span class="p">:</span> <span class="n">tuple_from_YYY</span><span class="p">,</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</dd>
+<dt><strong>6. Add a “set_attributes” list if you want to call objects attributes setters</strong></dt><dd><p>like <cite>set_attribute1</cite>, <cite>setattribute1</cite> or <cite>attribute1</cite> property setter, when loading json add a with qualified names of concerned objects.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">set_attributes</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;module_name.XXX&quot;</span><span class="p">,</span><span class="s2">&quot;module_name.YYY&quot;</span><span class="p">]</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+<p><strong>7. Share your plugin with serializejson developer</strong></p>
+<blockquote>
+<div><p>if your plugin is for a wild user library, for include in serializejson next release.</p>
+</div></blockquote>
+</div></blockquote>
+</div>
+</div>
+<div class="section" id="versions">
+<h1>Versions<a class="headerlink" href="#versions" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-0-0-5">
+<h2>Version 0.0.5<a class="headerlink" href="#version-0-0-5" title="Permalink to this headline">¶</a></h2>
+<blockquote>
+<div><dl class="field-list simple">
+<dt class="field-odd">Date</dt>
+<dd class="field-odd"><p>2020-11-24</p>
+<ul class="simple">
+<li><p>remove indent in README.rst for pipy</p></li>
+</ul>
+</dd>
+</dl>
+</div></blockquote>
+</div>
+<div class="section" id="version-0-0-4">
+<h2>Version 0.0.4<a class="headerlink" href="#version-0-0-4" title="Permalink to this headline">¶</a></h2>
+<blockquote>
+<div><dl class="field-list simple">
+<dt class="field-odd">Date</dt>
+<dd class="field-odd"><p>2020-11-24</p>
+</dd>
+</dl>
+<ul class="simple">
+<li><p>API changed</p></li>
+<li><p>add plugins support</p></li>
+<li><p>add bytes, bytearray and numpy.array compression with blosc zstd</p></li>
+<li><p>fix itertive append and decode (not fully tested).</p></li>
+<li><p>fix dump of numpy types without conversion to python types(not yet numpy.float64)</p></li>
+</ul>
+</div></blockquote>
+</div>
+<div class="section" id="version-0-0-3">
+<h2>Version 0.0.3<a class="headerlink" href="#version-0-0-3" title="Permalink to this headline">¶</a></h2>
+<blockquote>
+<div><dl class="field-list simple">
+<dt class="field-odd">Date</dt>
+<dd class="field-odd"><p>2020-10-23</p>
+</dd>
+</dl>
+</div></blockquote>
+</div>
+<div class="section" id="version-0-0-2">
+<h2>Version 0.0.2<a class="headerlink" href="#version-0-0-2" title="Permalink to this headline">¶</a></h2>
+<blockquote>
+<div><dl class="field-list simple">
+<dt class="field-odd">Date</dt>
+<dd class="field-odd"><p>2020-10-22</p>
+</dd>
+</dl>
+</div></blockquote>
+</div>
+<div class="section" id="version-0-0-1">
+<h2>Version 0.0.1<a class="headerlink" href="#version-0-0-1" title="Permalink to this headline">¶</a></h2>
+<blockquote>
+<div><dl class="field-list simple">
+<dt class="field-odd">Date</dt>
+<dd class="field-odd"><p>2020-10-22</p>
+</dd>
+</dl>
+</div></blockquote>
+</div>
+</div>
+<div class="section" id="future-versions-todo">
+<h1>Future Versions (TODO)<a class="headerlink" href="#future-versions-todo" title="Permalink to this headline">¶</a></h1>
+<blockquote>
+<div><ul class="simple">
+<li><dl class="simple">
+<dt>Add support for:</dt><dd><ul>
+<li><p>Tuple</p></li>
+<li><p>dict with no-string keys</p></li>
+<li><p>dict with __class__ key (detecte and raise exception or construct speciale object for reconstruction)</p></li>
+<li><p>time.struct_time</p></li>
+<li><p>collections.Counter</p></li>
+<li><p>collections.OrderedDict</p></li>
+<li><p>collections.defaultdict</p></li>
+<li><p>namedtuples</p></li>
+<li><p>dataclass</p></li>
+<li><p>panda.dataframe</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>Add test for:</dt><dd><ul>
+<li><p>every Encoder and Decoder parameters combinaisons.</p></li>
+<li><p>object update</p></li>
+<li><p>circular references and duplicates</p></li>
+<li><p>PySide2</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>Optimization:</dt><dd><ul>
+<li><p>bytes: need pybase64.b64encode directly to str and rapidjson.RawJSON improvements</p></li>
+<li><p>numpy array: need pybase64.b64decode directly to bytearray.</p></li>
+<li><p>circular references and duplicates: need rapidjson improvements (Encoder.default call for list an dictionaries)</p></li>
+<li><p>list of numbers: speed up _onlyOneDimNumbers function with Cython ?</p></li>
+<li><dl class="simple">
+<dt>json iterator:</dt><dd><ul>
+<li><p>speed up _json_object_file_iterator function with Cython ?</p></li>
+<li><p>improve rapidjson for something like raw_decode of the standard json library ?</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>Improvements :</dt><dd><ul>
+<li><p>replace id check for duplicates by weakd_ref ? because id can be reused</p></li>
+<li><p>allow alternatives compressors for images ?</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+</div></blockquote>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        
+        &copy; Copyright 2020, Baptiste de La Gorce
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>
