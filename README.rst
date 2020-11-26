@@ -47,11 +47,13 @@ Installation
 ============
 
 **Last offical release**
+
     .. code-block::
 
         pip install serializejson
 
 **Developpement version unreleased**
+
     .. code-block::
 
         pip install git+https://github.com/SmartAudioTools/serializejson.git
@@ -60,6 +62,7 @@ Examples
 ================
 
 **Serialization with fonctions API** 
+
     .. code-block:: python
     
         import serializejson 
@@ -81,6 +84,7 @@ Examples
         loaded2 = serializejson.load("dumped2.json")
 
 **Serialization with classes based API.**     
+
     .. code-block:: python
     
         import serializejson 
@@ -100,6 +104,7 @@ Examples
         loaded2 = decoder.load("dumped2.json")
 
 **Update existing object** 
+
     .. code-block:: python
     
         import serializejson 
@@ -111,6 +116,7 @@ Examples
         print(f"id {id(object2)} :  {object2}")
 
 **Iterative serialization and deserialization**
+
     .. code-block:: python
     
         import serializejson 
