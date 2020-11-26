@@ -184,8 +184,8 @@
 </div>
 <div class="section" id="serializejson">
 <h1>serializejson<a class="headerlink" href="#serializejson" title="Permalink to this headline">¶</a></h1>
-<p><strong>serializejson</strong> is a python library that allows fast serialization and deserialization
-of complex Python objects in <a class="reference external" href="http://json.org">JSON</a>. with a high compatibility with pickle.
+<p><strong>serializejson</strong> is a python library for fast serialization and deserialization
+of complex Python objects in <a class="reference external" href="http://json.org">JSON</a> highly compatible with <a class="reference external" href="https://docs.python.org/3/library/pickle.html">pickle</a>
 The library is build upon
 <a class="reference external" href="https://github.com/python-rapidjson/python-rapidjson">python-rapidjson</a>,
 <a class="reference external" href="https://github.com/mayeut/pybase64">pybase64</a> and
@@ -195,6 +195,7 @@ The library is build upon
 <li><p>supports Python 3.7 (maybe lower) or greater.</p></li>
 <li><p>serializes arbitrary python objects into a dictionary by adding <cite>__class__</cite> ,and eventually <cite>__init__</cite> and <cite>__state__</cite> keys.</p></li>
 <li><p>calls the same objects methods as pickle. Therefore almost all pickable objects are serializable with serializejson without any modification.</p></li>
+<li><p>for not already pickable object, you will allways be able to serialize it adding methodes to the object or creating plugins for serializejson.</p></li>
 <li><p>generally 2x slower than pickle for dumping and 3x slower than pickle for loading (on your benchmark) except for big arrays (optimisation will soon be done).</p></li>
 <li><p>serializes and deserializes bytes and bytearray very quickly in base64 thanks to <a class="reference external" href="https://github.com/mayeut/pybase64">pybase64</a> and lossless <a class="reference external" href="https://github.com/Blosc/python-blosc">blosc</a> compression.</p></li>
 <li><p>serialized objects take generally less space than when serialized with pickle: for binary data, the 30% increase due to base64 encoding is in general largely compensated using the lossless <a class="reference external" href="https://github.com/Blosc/python-blosc">blosc</a> compression.</p></li>
@@ -207,7 +208,8 @@ The library is build upon
 <li><p>supports circular references and serializes only once duplicated objects (WARNING :not yet if the object is a list or dictionary).</p></li>
 <li><p>tries to call attribute setters and properties setters when loading if set_attributes  = True.</p></li>
 <li><p>accepts json with comment (// and /* */).</p></li>
-<li><p>can automatically recognize objects in json from keys names and recreate them, without the need of <cite>__class__</cite> key, if passed in recognized_classes. It allows loading foreign json serialized with others libraries who only save objects attributes.</p></li>
+<li><p>can automatically recognize objects in json from keys names and recreate them, without the need of <cite>__class__</cite> key, if passed in recognized_classes.</p></li>
+<li><p>serializejson is easly interoperable outside of the Python ecosystem with this recognition of objects from keys names or with __class__ translation between python and other language classes.</p></li>
 <li><p>dump and load support string path.</p></li>
 <li><p>can iteratively encode (with append) and decode (with iterator) a list in json, which helps saving memory space during the process of serialization et deserialization.</p></li>
 </ul>
