@@ -22,7 +22,7 @@ def long_description():
         readme_str = readme_file.read()
     with open(os.path.join(__location__, CHANGELOG)) as changelog_file:
         changelog_str = changelog_file.read()
-    return readme_str + "\n# History\n" + changelog_str
+    return readme_str + "\nHistory\n=======\n\n" + changelog_str
 
 
 if __name__ == "__main__":
@@ -31,7 +31,7 @@ if __name__ == "__main__":
         version=version(),
         description="A python library for fast serialization and deserialization of complex Python objects into JSON.",
         long_description=long_description(),
-        long_description_content_type="text/x-rst",
+        #long_description_content_type="text/markdown ",  uniquemnet si la long_description est au format markdown et pas restructuredText
         author="Baptiste de La Gorce",
         author_email="baptiste.delagorce@smartaudiotools.com",
         url="https://github.com/SmartAudioTools/serializejson",
