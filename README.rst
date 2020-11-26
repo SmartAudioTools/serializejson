@@ -1,4 +1,4 @@
-`COMPLETE DOCUMENTATION HERE <https://smartaudiotools.github.io/serializejson/>`_
+`**COMPLETE DOCUMENTATION HERE** <https://smartaudiotools.github.io/serializejson/>`_
 
 
 serializejson
