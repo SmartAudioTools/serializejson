@@ -15,7 +15,7 @@ serializejson
 | **Noncommercial license** | `Prosperity Public License 3.0.0 <https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PROSPERITY.rst>`_ |  
 +---------------------------+--------------------------------------------------------------------------------------------------------------------------+
 | **Commercial license**    | `Patron License 1.0.0 <https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PATRON.rst>`_                |  
-|                           | ⇒ `Sponsor me ! <https://github.com/sponsors/SmartAudioTools>`_                                                          |  
+|                           | ⇒ `Sponsor me ! <https://github.com/sponsors/SmartAudioTools>`_ or `contact me ! <contact@smartaudiotools.com>`_         |  
 +---------------------------+--------------------------------------------------------------------------------------------------------------------------+
 
 
