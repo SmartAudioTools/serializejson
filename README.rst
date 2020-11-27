@@ -32,7 +32,7 @@ Some of the main features:
 - supports Python 3.7 (maybe lower) or greater.
 - serializes arbitrary python objects into a dictionary by adding `__class__` ,and eventually `__init__` and `__state__` keys. 
 - calls the same objects methods as pickle. Therefore almost all pickable objects are serializable with serializejson without any modification. 
-- for not already pickable object, you will allways be able to serialize it adding methodes to the object or creating plugins for serializejson. 
+- for not already pickable object, you will allways be able to serialize it by adding methodes to the object or creating plugins for serializejson. 
 - generally 2x slower than pickle for dumping and 3x slower than pickle for loading (on your benchmark) except for big arrays (optimisation will soon be done).
 - serializes and deserializes bytes and bytearray very quickly in base64 thanks to `pybase64 <https://github.com/mayeut/pybase64>`_ and lossless `blosc <https://github.com/Blosc/python-blosc>`_ compression.
 - serialized objects take generally less space than when serialized with pickle: for binary data, the 30% increase due to base64 encoding is in general largely compensated using the lossless `blosc <https://github.com/Blosc/python-blosc>`_ compression.
