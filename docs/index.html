@@ -102,7 +102,7 @@
 </ul>
 </li>
 <li><a class="reference internal" href="#versions">Versions</a><ul>
-<li><a class="reference internal" href="#version-0-0-6">Version 0.0.6</a></li>
+<li><a class="reference internal" href="#version-0-0-8">Version 0.0.8</a></li>
 <li><a class="reference internal" href="#version-0-0-4">Version 0.0.4</a></li>
 </ul>
 </li>
@@ -174,11 +174,41 @@
             
   <div class="toctree-wrapper compound">
 </div>
-<p><a class="reference external" href="https://smartaudiotools.github.io/serializejson/">COMPLETE DOCUMENTATION HERE</a></p>
 <div class="section" id="serializejson">
 <h1>serializejson<a class="headerlink" href="#serializejson" title="Permalink to this headline">¶</a></h1>
-<p><strong>serializejson</strong> is a python library for fast serialization and deserialization
-of complex Python objects in <a class="reference external" href="http://json.org">JSON</a> highly compatible with <a class="reference external" href="https://docs.python.org/3/library/pickle.html">pickle</a>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 18%" />
+<col style="width: 82%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p><strong>Authors</strong></p></td>
+<td><p><a class="reference external" href="mailto:contact&#37;&#52;&#48;smartaudiotools&#46;com">Baptiste de La Gorce</a></p></td>
+</tr>
+<tr class="row-even"><td><p><strong>PyPI</strong></p></td>
+<td><p><a class="reference external" href="https://pypi.org/project/serializejson">https://pypi.org/project/serializejson</a></p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Documentation</strong></p></td>
+<td><p><a class="reference external" href="https://smartaudiotools.github.io/serializejson">https://smartaudiotools.github.io/serializejson</a></p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Sources</strong></p></td>
+<td><p><a class="reference external" href="https://github.com/SmartAudioTools/serializejson">https://github.com/SmartAudioTools/serializejson</a></p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Issues</strong></p></td>
+<td><p><a class="reference external" href="https://github.com/SmartAudioTools/serializejson/issues">https://github.com/SmartAudioTools/serializejson/issues</a></p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Noncommercial license</strong></p></td>
+<td><p><a class="reference external" href="https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PROSPERITY.rst">Prosperity Public License 3.0.0</a></p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Commercial license</strong></p></td>
+<td><p><a class="reference external" href="https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PATRON.rst">Patron License 1.0.0</a>
+⇒ <a class="reference external" href="https://github.com/sponsors/SmartAudioTools">Sponsor me !</a></p></td>
+</tr>
+</tbody>
+</table>
+<p><strong>serializejson</strong>  is a python library for fast serialization and deserialization
+of python objects in <a class="reference external" href="http://json.org">JSON</a>  designed as a safe,interoperable and human-readable drop-in replacement for the Python <a class="reference external" href="https://docs.python.org/3/library/pickle.html">pickle</a> package.
+Complex python object hierarchies are serializable, deserializable or updatable, allowing to save or restore complete application state in few lines of code.
 The library is build upon
 <a class="reference external" href="https://github.com/python-rapidjson/python-rapidjson">python-rapidjson</a>,
 <a class="reference external" href="https://github.com/mayeut/pybase64">pybase64</a> and
@@ -204,11 +234,11 @@ The library is build upon
 <li><p>can automatically recognize objects in json from keys names and recreate them, without the need of <cite>__class__</cite> key, if passed in recognized_classes.</p></li>
 <li><p>serializejson is easly interoperable outside of the Python ecosystem with this recognition of objects from keys names or with __class__ translation between python and other language classes.</p></li>
 <li><p>dump and load support string path.</p></li>
-<li><p>can iteratively encode (with append) and decode (with iterator) a list in json, which helps saving memory space during the process of serialization et deserialization.</p></li>
+<li><p>can iteratively encode (with append) and decode (with iterator) a list in json, which helps saving memory space during the process of serialization and deserialization.</p></li>
 </ul>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p><strong>⚠</strong> Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized</p>
+<p><strong>⚠</strong> Tuple, dict with no-string keys, time.struct_time, collections.Counter, collections.OrderedDict, collections.defaultdict, namedtuples and dataclass are not yet correctly serialized.</p>
 <p><strong>⚠</strong> serializejson can execute arbitrary Python code when loading json, if the load parameter authorized_classes is “all”.
 Do not load serializejson files from untrusted / unauthenticated sources without carefully setting the load authorized_classes parameter.</p>
 <p><strong>⚠</strong> Never dump a dictionary with the <cite>__class__</cite> key, otherwise serializejson will attempt to reconstruct an object when loading the json.
@@ -999,8 +1029,8 @@ when loading plugins, considering that all object are in the root module.</p>
 </div>
 <div class="section" id="versions">
 <h1>Versions<a class="headerlink" href="#versions" title="Permalink to this headline">¶</a></h1>
-<div class="section" id="version-0-0-6">
-<h2>Version 0.0.6<a class="headerlink" href="#version-0-0-6" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="version-0-0-8">
+<h2>Version 0.0.8<a class="headerlink" href="#version-0-0-8" title="Permalink to this headline">¶</a></h2>
 <dl class="field-list simple">
 <dt class="field-odd">Date</dt>
 <dd class="field-odd"><p>2020-11-26</p>
