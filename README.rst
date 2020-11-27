@@ -1,10 +1,19 @@
-`COMPLETE DOCUMENTATION HERE <https://smartaudiotools.github.io/serializejson/>`_
+Links
+=====
 
+`PyPI <https://smartaudiotools.github.io/serializejson/>`_
+`Documentation <https://smartaudiotools.github.io/serializejson/>`_
+`Github sources <https://smartaudiotools.github.io/serializejson/>`_
+`Issues <https://github.com/SmartAudioTools/serializejson/issues>`_
+`Sponsor me for commercial license! <https://smartaudiotools.github.io/serializejson/>`_
 
 serializejson
 =============
 
-**serializejson** is a python library for fast serialization and deserialization
+:Authors: Baptiste de La Gorce <contact@smartaudiotools.com>
+:License: noncommercial `Prosperity Public License 3.0.0 <https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PROSPERITY.rst>`_, commercial `Patron License 1.0.0 <https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PATRON.rst>`_
+
+**serializejson**  is a python library for fast serialization and deserialization
 of python objects in `JSON <http://json.org>`_  designed as a safe,interoperable and human-readable drop-in replacement for the Python `pickle <https://docs.python.org/3/library/pickle.html>`_ package.
 Complex python object hierarchies are serializable, deserializable and updatable allowing to save or restore complete application state in few lines of code. 
 The library is build upon 
