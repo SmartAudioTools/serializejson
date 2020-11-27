@@ -1,3 +1,7 @@
+=============
+serializejson
+=============
+
 +---------------------------+--------------------------------------------------------------------------------------------------------------------------+
 | **Authors**               | `Baptiste de La Gorce <contact@smartaudiotools.com>`_                                                                    |
 +---------------------------+--------------------------------------------------------------------------------------------------------------------------+
@@ -14,10 +18,6 @@
 | **Commercial license**    | `Patron License 1.0.0 <https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PATRON.rst>`_                |  
 |                           | ⇒ `Sponsor me ! <https://github.com/sponsors/SmartAudioTools>`_                                                          |  
 +---------------------------+--------------------------------------------------------------------------------------------------------------------------+
-
-serializejson
-=============
-
 
 
 **serializejson**  is a python library for fast serialization and deserialization
