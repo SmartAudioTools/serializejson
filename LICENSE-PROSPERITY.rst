@@ -23,7 +23,7 @@ Limit your use of this software for commercial purposes to a thirty-day trial pe
 
 **Contributions Back**
 
-Developing feedback, changes, or additions that you contribute back to the contributor on the terms of a standardized public software license such as `the Blue Oak Model License 1.0.0 <https://blueoakcouncil.org/license/1.0.0>`_, `the Apache License 2.0 <https://www.apache.org/licenses/LICENSE-2.0.html>`_, [the MIT license](https://spdx.org/licenses/MIT.html), or `the two-clause BSD license <https://spdx.org/licenses/BSD-2-Clause.html>`_ doesn't count as use for a commercial purpose.
+Developing feedback, changes, or additions that you contribute back to the contributor on the terms of a standardized public software license such as the `Blue Oak Model License 1.0.0 <https://blueoakcouncil.org/license/1.0.0>`_, the `Apache License 2.0 <https://www.apache.org/licenses/LICENSE-2.0.html>`_, the `MIT license <https://spdx.org/licenses/MIT.html>`_, or the `two-clause BSD license <https://spdx.org/licenses/BSD-2-Clause.html>`_ doesn't count as use for a commercial purpose.
 
 **Personal Uses**
 
