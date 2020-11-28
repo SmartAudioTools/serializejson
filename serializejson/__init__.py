@@ -1356,6 +1356,11 @@ default_authorized_classes_strs = set(
         "numpy.dtype",
         "numpy.frombuffer",
         "blosc.decompress",
+        "tuple",
+        "time.struct_time",
+        "collections.Counter",
+        "collections.OrderedDict",
+        "collections.defaultdict"
     ]
 )
 if use_numpy:
@@ -1401,7 +1406,7 @@ else:
     _numpy_types = set()
 
 NoneType = type(None)
-remove_add_braces = {"set", "frozenset", "collections.deque", "tuple"}
+remove_add_braces = {"set", "frozenset", "collections.deque", "tuple","time.struct_time"}
 
 
 def _close_for_append(fp, indent):

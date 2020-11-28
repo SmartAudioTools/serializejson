@@ -1,9 +1,10 @@
-Version 0.0.9
+Version 0.0.10
 -------------
 :Date: 2020-11-28
 
 * change description for pipy
 * add license for pipy
+* enable load of tuple, time.struct_time, Counter, OrderedDict and defaultdict
 
 Version 0.0.4
 -------------
