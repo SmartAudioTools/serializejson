@@ -1,8 +1,9 @@
-Version 0.0.8
+Version 0.0.9
 -------------
-:Date: 2020-11-26
+:Date: 2020-11-28
 
 * change description for pipy
+* add license for pipy
 
 Version 0.0.4
 -------------

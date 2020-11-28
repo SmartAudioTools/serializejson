@@ -36,7 +36,7 @@ if __name__ == "__main__":
         author_email="baptiste.delagorce@smartaudiotools.com",
         url="https://github.com/SmartAudioTools/serializejson",
         download_url="https://github.com/SmartAudioTools/serializejson/tarball/master",
-        license="MIT",
+        license=["Prosperity Public License 3.0.0","Patron License 1.0.0"],
         keywords="pickle json serialize dump dumps rapidjson base64",
         packages=setuptools.find_packages(exclude=("tests",)),
         python_requires=">=3",
