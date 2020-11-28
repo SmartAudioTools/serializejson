@@ -21,7 +21,7 @@ serializejson
 
 **serializejson**  is a python library for fast serialization and deserialization
 of python objects in `JSON <http://json.org>`_  designed as a safe, interoperable and human-readable drop-in replacement for the Python `pickle <https://docs.python.org/3/library/pickle.html>`_ package.
-Complex python object hierarchies are serializable, deserializable or updatable in once, allowing to save or restore a complete application state in few lines of code. 
+Complex python object hierarchies are serializable, deserializable or updatable in once, allowing for example to save or restore a complete application state in few lines of code. 
 The library is build upon 
 `python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_, 
 `pybase64 <https://github.com/mayeut/pybase64>`_ and 
