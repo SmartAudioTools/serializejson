@@ -6,8 +6,8 @@ from .log import log
 class C_SaveNothing_DefaultInit_getinitargs:
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __getinitargs__(self):
         log("        __getinitargs__ SHOULD'NT BE CALLED with python new style objects")
@@ -21,8 +21,8 @@ class C_SaveNothing_DefaultInit_getinitargs:
 class C_SaveDict_DefaultInit_RestoreNothing_getinitargs:  # ne sert pas à grand chose , sauf si on veut se garder la posibilitée de restaurer l'state plus tard
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __getinitargs__(self):
         log("        __getinitargs__ SHOULD'NT BE CALLED with python new style objects")
@@ -36,8 +36,8 @@ class C_SaveDict_DefaultInit_RestoreNothing_getinitargs:  # ne sert pas à grand
 class C_SaveDict_DefaultInit_RestoreDict_getinitargs:
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __getinitargs__(self):
         log("        __getinitargs__ SHOULD'NT BE CALLED with python new style objects")
@@ -47,8 +47,8 @@ class C_SaveDict_DefaultInit_RestoreDict_getinitargs:
 class C_SaveDict_DefaultInit_SetState_getinitargs:  # sert a pouvoir executer code spécifique a la restauration
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __getinitargs__(self):
         log("        __getinitargs__ SHOULD'NT BE CALLED with python new style objects")
@@ -62,8 +62,8 @@ class C_SaveDict_DefaultInit_SetState_getinitargs:  # sert a pouvoir executer co
 class C_GetState_DefaultInit_RestoreState_getinitargs:
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __getinitargs__(self):
         log("        __getinitargs__ SHOULD'NT BE CALLED with python new style objects")
@@ -78,8 +78,8 @@ class C_GetState_DefaultInit_RestoreState_getinitargs:
 class C_GetState_DefaultInit_SetState_getinitargs:
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __getinitargs__(self):
         log("        __getinitargs__ SHOULD'NT BE CALLED with python new style objects")

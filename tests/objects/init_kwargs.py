@@ -1,5 +1,9 @@
 from apply import apply
 from .log import log
+try:
+    from SmartFramework.serialize.serializejson import __getstate__
+except :
+    from serializejson import __getstate__
 
 # with INIT -----------------
 
@@ -7,8 +11,8 @@ from .log import log
 class C_InitKwargs:
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __reduce__(self):
         initKwargs = {"par1": self._par1, "par2": "savedArg2"}
@@ -20,12 +24,12 @@ class C_InitKwargs:
 class C_InitKwargs_SaveDict_RestoreNothing:  # ne sert pas à grand chose , sauf si on veut se garder la posibilitée de restaurer l'state plus tard
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __reduce__(self):
         initKwargs = {"par1": self._par1, "par2": "savedArg2"}
-        reduce = apply, (self.__class__, None, initKwargs), self.__dict__
+        reduce = apply, (self.__class__, None, initKwargs), __getstate__(self, filter_=None)
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
@@ -37,12 +41,12 @@ class C_InitKwargs_SaveDict_RestoreNothing:  # ne sert pas à grand chose , sauf
 class C_InitKwargs_SaveDict_RestoreDict:
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __reduce__(self):
         initKwargs = {"par1": self._par1, "par2": "savedArg2"}
-        reduce = apply, (self.__class__, None, initKwargs), self.__dict__
+        reduce = apply, (self.__class__, None, initKwargs), __getstate__(self, filter_=None)
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
@@ -50,12 +54,12 @@ class C_InitKwargs_SaveDict_RestoreDict:
 class C_InitKwargs_SaveDict_SetState:  # sert a pouvoir executer code specifique en plus du init a la restauration et choisir quoi restaurer
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __reduce__(self):
         initKwargs = {"par1": self._par1, "par2": "savedArg2"}
-        reduce = apply, (self.__class__, None, initKwargs), self.__dict__
+        reduce = apply, (self.__class__, None, initKwargs), __getstate__(self, filter_=None)
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
@@ -67,8 +71,8 @@ class C_InitKwargs_SaveDict_SetState:  # sert a pouvoir executer code specifique
 class C_InitKwargs_GetState_RestoreState:
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __reduce__(self):
         initKwargs = {"par1": self._par1, "par2": "savedArg2"}
@@ -80,8 +84,8 @@ class C_InitKwargs_GetState_RestoreState:
 class C_InitKwargs_GetState_SetState:  # plus obligé de auvegarder l'state sous forme de dictionnaire !!!!
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __reduce__(self):
         initKwargs = {"par1": self._par1, "par2": "savedArg2"}

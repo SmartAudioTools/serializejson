@@ -1,4 +1,7 @@
-from SmartFramework.tools.dictionaries import filtered
+try:
+    from SmartFramework.serialize.serializejson import __getstate__
+except :
+    from serializejson import __getstate__
 
 
 from .log import log
@@ -9,8 +12,8 @@ from .log import log
 class C_SaveNothing_DefaultInit:
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __reduce__(self):
         reduce = self.__class__, (), self.__getstate__()
@@ -25,11 +28,11 @@ class C_SaveNothing_DefaultInit:
 class C_SaveDict_DefaultInit_RestoreNothing:  # ne sert pas à grand chose , sauf si on veut se garder la posibilitée de restaurer l'state plus tard
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __reduce__(self):
-        reduce = self.__class__, (), self.__dict__
+        reduce = self.__class__, (), __getstate__(self, filter_=None)
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
@@ -41,11 +44,11 @@ class C_SaveDict_DefaultInit_RestoreNothing:  # ne sert pas à grand chose , sau
 class C_SaveDict_DefaultInit_RestoreDict:
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __reduce__(self):
-        reduce = self.__class__, (), self.__dict__
+        reduce = self.__class__, (), __getstate__(self, filter_=None)
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
@@ -53,11 +56,11 @@ class C_SaveDict_DefaultInit_RestoreDict:
 class C_SaveDict_DefaultInit_SetState:  # sert a pouvoir executer code spécifique a la restauration
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __reduce__(self):
-        reduce = self.__class__, (), self.__dict__
+        reduce = self.__class__, (), __getstate__(self, filter_=None)
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
@@ -69,8 +72,8 @@ class C_SaveDict_DefaultInit_SetState:  # sert a pouvoir executer code spécifiq
 class C_GetState_DefaultInit_RestoreState:
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __reduce__(self):
         reduce = self.__class__, (), self.__getstate__()
@@ -86,8 +89,8 @@ class C_GetState_DefaultInit_RestoreState:
 class C_GetState_DefaultInit_SetState:
     def __init__(self, par1="defaut1", par2="defaut2"):
         log("        __init__(" + par1 + "," + par2 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __reduce__(self):
         reduce = self.__class__, (), self.__getstate__()

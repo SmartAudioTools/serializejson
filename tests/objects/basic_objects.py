@@ -3,7 +3,39 @@ import decimal
 import math
 import collections
 import time
+import array
 
+
+dict_no_str_keys = {
+    # math.nan : "value",
+    "": "value",
+    "string_key": "value",
+    "string'key": "value",
+    'string"key': "value",
+    b"bytes_key": "value",
+    b"bytes'key": "value",
+    b'bytes"key': "value",
+    bytes(range(0, 32)): "value",
+    True: "value",
+    2: "value",
+    3.4: "value",
+    (5, 6): "value",
+    (5, (6, 8)): "value",
+    frozenset([7, 8]): "value",
+    "string_key": "value",
+    "string'key": "value",
+    'string"key': "value",
+    "b'bytes_key'": "value",
+    "b64'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8='": "value",
+    "true": "value",
+    "2": "value",
+    "3.4": "value",
+    "[5,6]": "value",
+    '{"__class__":"frozenset","__init__":[8,7]}': "value",
+    "'false'": "value",
+    "'7'": "value",
+    "'8.9'": "value",
+}
 objects = {
     "None": {"None": None},
     "bool": {"true": True, "false": False},
@@ -16,7 +48,7 @@ objects = {
         "-0.5": -0.5,
         "nan": float("nan"),
         "inf": float("inf"),
-        "-inf": -float("-inf"),
+        "-inf": float("-inf"),
     },
     "complex": {"complex": (1 + 4j)},
     "str": {
@@ -41,14 +73,16 @@ objects = {
         "ascii_with_back_slash": b'bonjour les "amis"\\\n',
         "range128": bytes(range(128)),
         "range256": bytes(range(256)),
-        "range256x1200": bytes(range(256)) * 1200,
+        "range256*2": bytes(range(256)) * 2,
+        # "range256x1200": bytes(range(256)) * 1200,
     },
     "bytesarray": {
         "empty": bytearray(),
         "ascii_printable": bytearray(b"bonjour"),
         "range128": bytearray(range(128)),
         "range256": bytearray(range(256)),
-        # "range256x1200":bytearray(range(256))*1200 : plante avec jsonpickle
+        "range256x2": bytearray(range(256)) * 2,
+        # "range256x1200":bytearray(range(256))* 2#*1200 #: plante avec jsonpickle
     },
     "list": {
         "empty": [],
@@ -77,6 +111,7 @@ objects = {
             "va_int": 10,
             "_underscore": "_underscore",
         },
+        "dict-non_string_keys": dict_no_str_keys,
     },
     "range": {
         "range_0_10": range(10),
@@ -88,11 +123,13 @@ objects = {
         # "dic_iterator": {key : value*10 for key , value in {"key1": 1, "key2":2}.items()}
     },
     "collections": {
-        # "namedtuple" : collections.namedtuple(),
         "deque": collections.deque([1, 2]),
         "Counter": collections.Counter("bonjour les amis"),
         "OrderedDict": collections.OrderedDict([("b", 1), ("a", 3)]),
-        "defaultdict": collections.defaultdict(list),
+        "defaultdict": collections.defaultdict(list, {"a": 1, "b": 2}),
+        "Counter_no_string_keys": collections.Counter(dict_no_str_keys),
+        "OrderedDict_no_string_keys": collections.OrderedDict(dict_no_str_keys),
+        "defaultdict_no_string_keys": collections.defaultdict(list, dict_no_str_keys),
     },
     "queue": {
         # 'Queue' : queue.Queue(),
@@ -109,12 +146,25 @@ objects = {
         "struct_time": time.struct_time([2020, 5, 7, 16, 8, 55, 3, 128, 1]),  # time.localtime()
     },
     "binary": {
-        # "array" :array.array("i",[1,2,3])
+        "array_signed_char": array.array("b", [1, 2, 3]),
+        "array_unsigned_char": array.array("B", [1, 2, 3]),
+        "array_unicode": array.array("u", "coucou"),
+        "array_signed_short": array.array("h", [1, 2, 3]),
+        "array_unsigned_short": array.array("H", [1, 2, 3]),
+        "array_signed_int": array.array("i", [1, 2, 3]),
+        "array_unsigned_int": array.array("I", [1, 2, 3]),
+        "array_signed_long": array.array("l", [1, 2, 3]),
+        "array_unsigned_long": array.array("L", [1, 2, 3]),
+        "array_signed_long_long": array.array("q", [1, 2, 3]),
+        "array_unsigned_long_long": array.array("Q", [1, 2, 3]),
+        "array_float": array.array("f", [1.0, 2.0, 3.0]),
+        "array_double": array.array("d", [1.0, 2.0, 3.0]),
         # "buffer":buffer,
         # "struct" : struct,
         # "memoryview":memoryview
     },
     "types": {
+        "type": type,
         "NoneType": type(None),
         "bool": bool,
         "int": int,

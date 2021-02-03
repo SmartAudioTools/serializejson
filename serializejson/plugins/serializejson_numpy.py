@@ -14,8 +14,8 @@ else:
         from SmartFramework.serialize.tools import serializejson_, constructors, blosc_compressions, authorized_classes
         from SmartFramework.serialize import serialize_parameters
     except:
-        from serializejson import serialize_parameters, authorized_classes
-        from serializejson.tools import serializejson_, constructors, blosc_compressions
+        from serializejson import serialize_parameters
+        from serializejson.tools import serializejson_, constructors, blosc_compressions,authorized_classes
 
     nb_bits = sys.maxsize.bit_length() + 1
 

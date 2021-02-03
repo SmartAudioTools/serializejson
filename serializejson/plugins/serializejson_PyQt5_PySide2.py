@@ -30,11 +30,22 @@ if API:
             const,
             consts,
         )
+        from parse import parse
     except:
-        from serializejson import authorized_classes, setters, property_types
+        from serializejson.tools import (
+            setters,
+            property_types,
+            __getstate__,
+            __setstate__,
+            authorized_classes,
+            Reference,
+            constructors,
+            const,
+            consts,
+        )
     from SmartFramework.image.image_conversion import QImage_to_bytes_width_height_format
     import ctypes
-    from parse import parse
+    
     import sys
 
     property_types.add(QtCore.Property)
@@ -728,7 +739,7 @@ if API:
             )
         return value
 
-    QtCore.pyqtBoundSignal.connect = new_connect
+    #QtCore.pyqtBoundSignal.connect = new_connect
 
     class Connection:
         def __init__(self, signal_object, signal, slot_object, slot, signature=None):

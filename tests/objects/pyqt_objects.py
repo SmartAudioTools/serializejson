@@ -1,5 +1,7 @@
 from qtpy import QtCore, QtGui, QtWidgets
+from PyQt5 import sip
 
+authorized_classes = [sip._unpickle_type]
 objects = {
     "QtWidgets": {
         "QWidget": QtWidgets.QWidget(),

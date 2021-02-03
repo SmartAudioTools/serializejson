@@ -1,7 +1,7 @@
 try:
     from SmartFramework.serialize.tools import authorized_classes
 except:
-    from serializejson import authorized_classes
+    from serializejson.tools import authorized_classes
 from ..tools import serializejson_
 import datetime
 

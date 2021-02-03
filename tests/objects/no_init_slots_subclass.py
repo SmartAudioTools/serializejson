@@ -1,7 +1,7 @@
 from .log import log
 
 
-def sort_dict(d):
+def sorted_dict(d):
     return {key: d[key] for key in sorted(d)}
 
 
@@ -20,8 +20,8 @@ class C_New_SaveNothing_subclass(BaseClass):
 
     def __init__(self, par1="defaut1", par2="defaut2", par3="default3"):
         log("        __init__(" + par1 + "," + par2 + "," + par3 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
         self.par3 = par3
 
     def __getstate__(self):
@@ -36,8 +36,8 @@ class C_New_SaveDict_RestoreNothing_subclass(
 
     def __init__(self, par1="defaut1", par2="defaut2", par3="default3"):
         log("        __init__(" + par1 + "," + par2 + "," + par3 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
         self.par3 = par3
 
     def __setstate__(self, state):
@@ -50,8 +50,8 @@ class C_New_SaveDict_RestoreDict_subclass(BaseClass):
 
     def __init__(self, par1="defaut1", par2="defaut2", par3="default3"):
         log("        __init__(" + par1 + "," + par2 + "," + par3 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
         self.par3 = par3
 
 
@@ -60,8 +60,8 @@ class C_New_SaveDict_SetState_subclass(BaseClass):  # sert a pouvoir executer co
 
     def __init__(self, par1="defaut1", par2="defaut2", par3="default3"):
         log("        __init__(" + par1 + "," + par2 + "," + par3 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
         self.par3 = par3
 
     def __setstate__(self, state):
@@ -69,7 +69,7 @@ class C_New_SaveDict_SetState_subclass(BaseClass):  # sert a pouvoir executer co
             state, tuple
         ):  # pour compatibilité pickle, qui passe un tuple avec (etat du __dict__ , etat des slots)
             state = state[1]
-            log("        __setstate__(" + repr(sort_dict(state)) + ")")
+            log("        __setstate__(" + repr(sorted_dict(state)) + ")")
         else:
 
             log("        __setstate__(" + repr(state) + ")")
@@ -81,8 +81,8 @@ class C_New_SaveDict_SetState_subclass(BaseClass):  # sert a pouvoir executer co
     __slots__ = ('_par1', 'par2')
     def __init__(self, par1='defaut1', par2='defaut2'):
         log('        __init__(' + par1 + ',' + par2 + ')')
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
 
     def __getstate__(self):
         state = {'par2': 'ValueSaved'}
@@ -97,8 +97,8 @@ class C_New_GetState_SetState_subclass(BaseClass):
 
     def __init__(self, par1="defaut1", par2="defaut2", par3="default3"):
         log("        __init__(" + par1 + "," + par2 + "," + par3 + ")")
-        self._par1 = par1
         self.par2 = par2
+        self._par1 = par1
         self.par3 = par3
 
     def __getstate__(self):
