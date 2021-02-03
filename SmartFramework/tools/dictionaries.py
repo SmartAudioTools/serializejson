@@ -1,6 +1,67 @@
-# -*- coding: utf-8 -*-
-def sort_dict(d):
-    return {key: d[key] for key in sorted(d)}
+def sorted_dict(dictionary):
+    # make a first pass to know if new dictionary creation is needed
+    last_key = None
+    for key in dictionary:
+        if last_key is None:
+            last_key = key
+        if last_key > key:
+            break
+        last_key = key
+    else:
+        return dictionary
+    # le dictionnaire n'est pas dans l'ordre -> il faut le recopier en le triant
+    return {key: dictionary[key] for key in sorted(dictionary)}
+
+
+def sorted_keys(dictonary):
+    try:
+        return sorted(dictonary)
+    except:
+        return sorted(dictonary, key=lambda elt: (str(elt.__class__), elt))  # allow sort on heteregoneous types
+
+
+def sorted_filtered(dictionary, filter_str="_"):
+    # dectecte un attribut a cacher => recopie le dictionary sans prendre les attributs commencant pas '_'
+    if filter_str is True:
+        filter_str = "_"
+    elif not filter_str:
+        last_key = None
+        for key in dictionary:
+            if last_key is None:
+                last_key = key
+            if last_key > key:
+                break
+            last_key = key
+        else:
+            return dictionary
+        # le dictionnaire n'est pas dans l'ordre -> il faut le recopier en le triant
+        return {key: dictionary[key] for key in sorted(dictionary)}
+    last_key = None
+    for key in dictionary:
+        if key.startswith(filter_str):
+            break
+        if last_key is None:
+            last_key = key
+        if last_key > key:
+            break
+        last_key = key
+    else:
+        return dictionary
+    return {key: dictionary[key] for key in sorted(dictionary) if not key.startswith(filter_str)}
+
+
+def filtered(dictionary, filter_str="_"):
+    # dectecte un attribut a cacher => recopie le dictionary sans prendre les attributs commencant pas '_'
+    if filter_str is True:
+        filter_str = "_"
+    elif not filter_str:
+        return dictionary
+    for key in dictionary:
+        if key.startswith(filter_str):
+            break
+    else:
+        return dictionary
+    return {key: value for key, value in dictionary.items() if not key.startswith(filter_str)}
 
 
 def updateWithoutOverwrite(d1, d2):
@@ -22,18 +83,6 @@ def remove(dictionnaire, toRemove=None):
             dict2 = dict()
             for key, value in dictionnaire.items():
                 if key != toRemove:
-                    dict2[key] = value
-            return dict2
-    return dictionnaire
-
-
-def filtered(dictionnaire, filterChar="_"):
-    for key in dictionnaire:
-        if key[0] == filterChar:
-            # dectecte un attribut a cacher => recopie le dictionnaire sans prendre les attributs commencant pas '_'
-            dict2 = dict()
-            for key, value in dictionnaire.items():
-                if key[0] != filterChar:
                     dict2[key] = value
             return dict2
     return dictionnaire

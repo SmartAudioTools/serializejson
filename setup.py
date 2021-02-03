@@ -42,15 +42,14 @@ if __name__ == "__main__":
         python_requires=">=3",
         install_requires=[
             'importlib_metadata; python_version < "3.8"',
-            "pybase64",
-            "python-rapidjson",
+            "pybase64>=1.1.1",
+            "python-rapidjson>=1.0",
             "apply",
-            "blosc",
+            "blosc>=1.9.2",
         ],
         extras_require={
             "dev": [
                 "pytest",
-                "numpy",
                 "numpy",
                 "qtpy",
                 "PyQt5",

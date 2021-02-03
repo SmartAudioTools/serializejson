@@ -1,6 +1,6 @@
 apply==1.5
-pybase64==1.0.2
-python-rapidjson==0.9.3
+pybase64==1.1.1
+python-rapidjson==1.0
 blosc==1.9.2
 Sphinx==3.3.1
 sphinx-rtd-theme==0.5.0

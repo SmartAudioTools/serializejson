@@ -12,6 +12,8 @@
 # a laisser là  on y toucher à priori pas -----------------------
 
 # base64_for_bytes = True  # dit si doit utiliser l'encodage en base64 pour l'encodage des bytes et bytes array, si pas ascii printables. Ce paramètre n'est modifiable que directement ici. Attention s'il est mis à False, si serialize en json plantera sur les bytes avec des valeures < 128 dans tuple_from_bytes => le laisser toujours True ?
+strict_pickle = False
+do_checks = True
 numpyB64_convert_int64_to_int32_and_align_in_Python_32Bit = True  # dis si numpyB64 doit deserialiser les tableau int64 en int32 quand utilise python 32 bits (pour prendre moins de place? ou pour pouvoir deserialiser les classifiers en python 32 bit ?
 
 # noms de fichiers ----------------------------
@@ -20,7 +22,7 @@ forceAbsolutPath = False  # force noms de fichier en chemin absolut ,utilisé qu
 
 # serialisation des objets -----------------------------------------
 # attributes_filter   = "_"        #  dit si doit filtrer les attribute commencant par la chaine stocke dans filtre.
-# set_attributes      = True       # dit si doit tenter d'appeler setter pour la restauration des attributes.
+# call_setters      = True       # dit si doit tenter d'appeler setter pour la restauration des attributes.
 # False :  		    + conforme au comportement de pickle (si on n'utiliser pas de filtre "_")
 # True  :  		    + permet d'effectuer des traitements, de mettre en place des choses (par ex interface I/O) ,
 #             	    +  permet de rafraichir UI
@@ -29,7 +31,7 @@ forceAbsolutPath = False  # force noms de fichier en chemin absolut ,utilisé qu
 #
 # pickle  : 		True : INCOMPATIBLE PICKLE, pickle par defaut ne fera jamais appele au setter. Il faut coder __setstate__ pour le faire
 # serializePython: True : appel en dur de setattribute à la serialisation 	  / False :  le fera de toute facon si c'est une propriétée...=> INCOMPATIBLE PICKLE
-# serializeJson : 	True : appel dynamique de setattribute à la deserialisation / False : pas d'appel du setter
+# serializejson : 	True : appel dynamique de setattribute à la deserialisation / False : pas d'appel du setter
 # serialiseRepr :	A REVOIR ET TESTER
 
 # uniquement pour serializePython et serializeRepr ----------------------------------

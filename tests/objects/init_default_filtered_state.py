@@ -1,4 +1,4 @@
-from SmartFramework.tools.dictionnaires import filtered
+from SmartFramework.tools.dictionaries import filtered
 
 
 from .log import log

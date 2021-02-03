@@ -1,7 +1,9 @@
-from ..tools.dictionnaires import remove
+from ..tools.dictionaries import remove
 import inspect
 import math
 import _ctypes
+import types
+from collections import OrderedDict
 
 try:
     import numpy
@@ -20,6 +22,7 @@ def from_id(obj_id):
 
 
 def deepCompare(a, b, return_reason=False):
+    checked = False
     if type(a) != type(b):
         if return_reason:
             return False, type(a), type(b)
@@ -49,7 +52,8 @@ def deepCompare(a, b, return_reason=False):
         if return_reason:
             return True, None, None
         return True
-    if isinstance(b, (set, frozenset)):
+    if isinstance(a, (set, frozenset)):
+        a = {e if e == e else math.nan for e in a}  # remplace les nan par des math.nan pour permetre comparaison
         b = {e if e == e else math.nan for e in b}  # remplace les nan par des math.nan pour permetre comparaison
     if isinstance(a, (list, tuple)):
         for a_elt, b_elt in zip(a, b):
@@ -57,10 +61,15 @@ def deepCompare(a, b, return_reason=False):
                 if return_reason:
                     return False, a_elt, b_elt
                 return False
-        else:
+        if isinstance(a, tuple):
             if return_reason:
                 return True, None, None
             return True
+        checked = True
+        # else:
+        #    if return_reason:
+        #        return True, None, None
+        #    return True
     if isinstance(a, float) and isnan(a) and isnan(b):
         if return_reason:
             return True, None, None
@@ -84,31 +93,32 @@ def deepCompare(a, b, return_reason=False):
                     if return_reason:
                         return False, None, getattr(b, slot)
                     return False
-
         if hasattr(a, "__dict__"):
-            if a.__dict__ == b.__dict__:
-                if return_reason:
-                    return True, None, None
-                return True
-            else:
+            if a.__dict__ != b.__dict__:
                 if return_reason:
                     return False, a.__dict__, b.__dict__
                 return False
-        else:
-            if return_reason:
-                return True, None, None
-            return True
-    if hasattr(a, "__dict__"):
-        if a.__dict__ == b.__dict__:
-            if return_reason:
-                return True, None, None
-            return True
-        else:
+            # else:
+            #    if return_reason:
+            #        return True, None, None
+            #    return True
+        # else:
+        #    if return_reason:
+        #        return True, None, None
+        #    return True
+        checked = True
+    elif hasattr(a, "__dict__"):
+        if a.__dict__ != b.__dict__:
             if return_reason:
                 return False, a.__dict__, b.__dict__
             return False
+        # else:
+        #    if return_reason:
+        #        return True, None, None
+        #    return True
+        checked = True
     if isinstance(a, dict):
-        if a.keys() != b.keys():
+        if list(a.keys()) != list(b.keys()):
             if return_reason:
                 return False, a.keys(), b.keys()
             return False
@@ -120,13 +130,16 @@ def deepCompare(a, b, return_reason=False):
             else:
                 if not deepCompare(value, b[key]):
                     return False
-        if return_reason:
-            return True, None, None
-        return True
-    if a != b:
+        # if return_reason:
+        #    return True, None, None
+        # return True
+        checked = True
+
+    if not checked and a != b:
         if return_reason:
             return False, None, None
         return False
+
     if return_reason:
         return True, None, None
     return True
@@ -136,7 +149,14 @@ def hasMethod(obj, method):
     return hasattr(obj, method) and inspect.ismethod(getattr(obj, method))
 
 
-# TESTS -------------------------------------------------
+def class_has_method(class_, method):
+    method = getattr(class_, method, None)
+    if method is not None:
+        return callable(method)
+    return False
+
+
+# ---- TESTS -------------------------------------------------
 
 
 def isQWidget(obj):
@@ -189,7 +209,42 @@ def isCallable(obj):
     return hasattr(obj, "__call__")  # retournera true aussi pour classe.. à revoir ?
 
 
-# COMPARAISONS -------------------
+def ismethod_or_methoddescriptor(object):
+    # if isclass(object) or isfunction(object):
+    if isinstance(object, (type, types.FunctionType)):
+        return False
+    if isinstance(object, types.MethodType):
+        return True
+    tp = type(object)
+    return hasattr(tp, "__get__") and not hasattr(tp, "__set__")
+
+
+def ismethod_methoddescriptor_or_function(object):
+    # if isclass(object) or isfunction(object):
+    if isinstance(object, type):
+        return False
+    if isinstance(object, (types.MethodType, types.FunctionType, types.BuiltinFunctionType)):
+        return True
+    tp = type(object)
+    return hasattr(tp, "__get__") and not hasattr(tp, "__set__")
+
+
+def isdatadescriptor(object):
+    """Return true if the object is a data descriptor.
+
+    Data descriptors have both a __get__ and a __set__ attribute.  Examples are
+    properties (defined in Python) and getsets and members (defined in C).
+    Typically, data descriptors will also have __name__ and __doc__ attributes
+    (properties, getsets, and members have both of these attributes), but this
+    is not guaranteed."""
+    # if isclass(object) or ismethod(object) or isfunction(object):
+    if isinstance(object, (type, types.MethodType, types.BuiltinMethodType)):
+        return False
+    tp = type(object)
+    return hasattr(tp, "__get__") and hasattr(tp, "__set__")
+
+
+# --- COMPARAISONS -------------------
 
 
 def comp(obj1, obj2):
@@ -200,7 +255,7 @@ def comp(obj1, obj2):
         return obj1 == obj2
 
 
-# AJOUTE LES INIT ARGS AUX ATTRIBUTS ----------
+# --- AJOUTE LES INIT ARGS AUX ATTRIBUTS ----------
 
 
 def add_Args(dictLocals):
