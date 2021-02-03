@@ -427,9 +427,9 @@ Infinity
 {"__class__":"objects.dict_subclasses.C_MyDict","__new__":[{"c":1}],"__items__":{"__class__":"dict_non_str_keys","1":1}}
 {"__class__":"objects.dict_subclasses.C_MyDict","__new__":[{"c":1}],"__items__":{"__class__":"dict_non_str_keys","1":1},"new_att":8}
 {"__class__":"objects.tuple_subclasses.Point","__new__":[11,22]}
-{"__class__":"objects.properties.C_Property_decorator","_x":null}
-{"__class__":"objects.properties.C_Property","_x":null}
-{"__class__":"objects.properties.C_slots_properties_getters_setters","a":"a","b":"b","c":"c","d":"d","e":"e","f":"f","g":"g"}
+{"__class__":"objects.properties.C_Property_decorator","x":null}
+{"__class__":"objects.properties.C_Property","x":null}
+{"__class__":"objects.properties.C_slots_properties_getters_setters","a":"a","b":"b","c":"c","d":"d","e":"E","f":"F","g":"G"}
 {"__class__":"objects.init_and_new.C_Init_New","_par1":"defaut1","new_par1":"new_par1","par2":"defaut2"}
 {"__class__":"objects.init_and_new.C_Init_New_Reduce","__init__":["defaut1","savedArg2"]}
 {"__class__":"objects.init_and_new.C_Init_New_Newargs","__new__":"coucou","_par1":"defaut1","new_par1":"new_par1","par2":"defaut2"}

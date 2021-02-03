@@ -102,6 +102,7 @@ if API:
             "PyQt5.QtWidgets.QPushButton",
             "PyQt5.QtWidgets.QSpinBox",
             "PyQt5.QtWidgets.QWidget",
+            "PyQt5.sip._unpickle_type",
             "PySide2.QtCore.QByteArray",
             "PySide2.QtCore.QDate",
             "PySide2.QtCore.QDateTime",

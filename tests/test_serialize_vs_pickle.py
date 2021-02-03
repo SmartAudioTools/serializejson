@@ -144,25 +144,8 @@ else:
         init_kwargs_filtered_state_explicite_getstate,
         init_and_new,
     )
-objects = basic_objects.objects
-# objects.update(heriting_basic_object.objects)
-if use_qtpy:
-    app = QtWidgets.QApplication(sys.argv)
-    if __package__:
-        from .objects import pyqt_objects
-    else:
-        from objects import pyqt_objects
-    objects.update(pyqt_objects.objects)
-if use_numpy:
-    if __package__:
-        from .objects import numpy_objects
-    else:
-        from objects import numpy_objects
-    objects.update(numpy_objects.objects)
-
-authorized_classes = []
-for module in [
-    #pyqt_objects,
+    
+modules =   [
     new_getnewargs,
     init_arg,
     init_args_explicite_getstate,
@@ -194,7 +177,26 @@ for module in [
     tuple_subclasses,
     properties,
     init_and_new,
-]:
+]
+objects = basic_objects.objects
+# objects.update(heriting_basic_object.objects)
+if use_qtpy:
+    app = QtWidgets.QApplication(sys.argv)
+    if __package__:
+        from .objects import pyqt_objects
+    else:
+        from objects import pyqt_objects
+    modules.append(pyqt_objects)
+    objects.update(pyqt_objects.objects)
+if use_numpy:
+    if __package__:
+        from .objects import numpy_objects
+    else:
+        from objects import numpy_objects
+    objects.update(numpy_objects.objects)
+
+authorized_classes = []
+for module in modules:
     if hasattr(module, "authorized_classes"):
         authorized_classes.extend(module.__dict__["authorized_classes"])
     if hasattr(module, "objects"):
