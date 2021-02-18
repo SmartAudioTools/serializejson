@@ -24,7 +24,7 @@ class C_New_SaveNothing_subclass(BaseClass):
         self._par1 = par1
         self.par3 = par3
 
-    def getstate(self):
+    def __getstate__(self):
         log("        __getstate__ : {}")
         return None  # {}
 
@@ -84,7 +84,7 @@ class C_New_SaveDict_SetState_subclass(BaseClass):  # sert a pouvoir executer co
         self.par2 = par2
         self._par1 = par1
 
-    def getstate(self):
+    def __getstate__(self):
         state = {'par2': 'ValueSaved'}
         log('        __getstate__ : ' + repr(state))
         #return state
@@ -101,7 +101,7 @@ class C_New_GetState_SetState_subclass(BaseClass):
         self._par1 = par1
         self.par3 = par3
 
-    def getstate(self):
+    def __getstate__(self):
         state = "stateSaved"
         log("        __getstate__ : " + repr(state))
         return state

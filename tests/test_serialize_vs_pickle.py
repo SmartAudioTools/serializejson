@@ -143,6 +143,7 @@ else:
         init_kwargs_explicite_getstate,
         init_kwargs_filtered_state_explicite_getstate,
         init_and_new,
+        single_line,
     )
     
 modules =   [
@@ -177,6 +178,7 @@ modules =   [
     tuple_subclasses,
     properties,
     init_and_new,
+    single_line,
 ]
 objects = basic_objects.objects
 # objects.update(heriting_basic_object.objects)

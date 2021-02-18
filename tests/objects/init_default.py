@@ -1,7 +1,7 @@
 try:
-    from SmartFramework.serialize.serializejson import __getstate__
+    from SmartFramework.serialize.serializejson import getstate
 except :
-    from serializejson import __getstate__
+    from serializejson import getstate
 
 
 from .log import log

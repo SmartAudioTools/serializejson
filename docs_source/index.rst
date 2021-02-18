@@ -119,7 +119,7 @@ Method 1: Adding pickle methods to object for custom serialization
             
                 def __reduce__(self):
                     init_args_tuple = (1,) # tuple with 1 element need comma
-                    state = serializejson.__getstate__(self)
+                    state = serializejson.getstate(self)
                     return self.__class__, init_args_tuple, state
         
         * Call `__init__()` with named arguments and restore state from attributes filtered and sorted alphabetically.
@@ -130,7 +130,7 @@ Method 1: Adding pickle methods to object for custom serialization
             
                 def __reduce__(self):
                     init_kwargs_dictionary = {"arg3":3}
-                    state = serializejson.__getstate__(self)
+                    state = serializejson.getstate(self)
                     return  apply,
                             (self.__class__,None,init_kwargs_dictionary),
                             state
@@ -154,15 +154,15 @@ Method 1: Adding pickle methods to object for custom serialization
                 return {"attribut_1" : "value_1","attribut_2" : "value_2",....}
 
                   
-        You can use the helping function `serializejson.__getstate__(self)` in your `__getstate__` methode in order to select attribut to keep, add or remove, automaticaly sort_keys, filter attribut with "_", retrieve slots, properties, getters , and remove attribut with same value as default value. 
+        You can use the helping function `serializejson.getstate(self)` in your `__getstate__` methode in order to select attribut to keep, add or remove, automaticaly sort_keys, filter attribut with "_", retrieve slots, properties, getters , and remove attribut with same value as default value. 
        
         .. code-block:: python
         
             def __getstate__(self):
-                return serializejson.__getstate__(self)
+                return serializejson.getstate(self)
         
         
-        .. autofunction:: serializejson.__getstate__
+        .. autofunction:: serializejson.getstate
         
         .. warning::   
      
@@ -186,14 +186,14 @@ Method 1: Adding pickle methods to object for custom serialization
                 ....
                 ....
          
-        You can use the helping function serializejson.__setstate__(self) in order to automaticaly call propertie's setters and setters.
+        You can use the helping function serializejson.setstate(self) in order to automaticaly call propertie's setters and setters.
             
         .. code-block:: python
         
             def __setstate__(self, state):
-                serializejson.__setstate__(self,state,properties = True, setters = True)
+                serializejson.setstate(self,state,properties = True, setters = True)
                 
-        .. autofunction:: serializejson.__setstate__
+        .. autofunction:: serializejson.setstate
         
         .. note::
         

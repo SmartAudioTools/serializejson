@@ -1,8 +1,8 @@
 from .log import log
 try:
-    from SmartFramework.serialize.serializejson import __getstate__
+    from SmartFramework.serialize.serializejson import getstate
 except :
-    from serializejson import __getstate__
+    from serializejson import getstate
 
 #  without INIT -----------------
 
@@ -15,7 +15,7 @@ class C_New_SaveNothing_slots:
         self.par2 = par2
         self._par1 = par1
 
-    def getstate(self):
+    def __getstate__(self):
         log("        __getstate__ : {}")
         return None  # {}
 
@@ -68,7 +68,7 @@ class C_New_GetState_RestoreState_slots:
         self.par2 = par2
         self._par1 = par1
 
-    def getstate(self):
+    def __getstate__(self):
         state = {"par2": "ValueSaved"}
         log("        __getstate__ : " + repr(state))
         # return state
@@ -83,7 +83,7 @@ class C_New_GetState_RestoreState_slots_auto_getstate:
         self.par2 = par2
         self._par1 = par1
 
-    def getstate(self):
+    def __getstate__(self):
         return getstate(self, filter_=None)
         # state = {'par2': 'ValueSaved'}
         # log('        __getstate__ : ' + repr(state))
@@ -99,7 +99,7 @@ class C_New_GetState_RestoreState_slots:
         self.par2 = par2
         self._par1 = par1
 
-    def getstate(self):
+    def __getstate__(self):
         state = {"par2": "ValueSaved"}
         log("        __getstate__ : " + repr(state))
         # return state
@@ -114,7 +114,7 @@ class C_New_GetState_SetState_slots:
         self.par2 = par2
         self._par1 = par1
 
-    def getstate(self):
+    def __getstate__(self):
         state = "stateSaved"
         log("        __getstate__ : " + repr(state))
         return state

@@ -108,10 +108,13 @@ def deepCompare(a, b, return_reason=False):
         #    return True
         checked = True
     elif hasattr(a, "__dict__"):
-        if a.__dict__ != b.__dict__:
-            if return_reason:
-                return False, a.__dict__, b.__dict__
-            return False
+        if return_reason:
+            return deepCompare(a.__dict__, b.__dict__, return_reason=True)
+        return deepCompare(a.__dict__, b.__dict__)
+        #if a.__dict__ != b.__dict__:
+        #    if return_reason:
+        #        return False, a.__dict__, b.__dict__
+        #    return False
         # else:
         #    if return_reason:
         #        return True, None, None

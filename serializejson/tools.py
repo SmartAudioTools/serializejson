@@ -55,7 +55,7 @@ decoder_parameters = {}  # decoder extra parameters for plugins with their defau
 consts = {}  # dictionnary associating const string to const values
 
 # @profile
-def __getstate__(
+def getstate(
     self,
     *,
     split_dict_slots=True,
@@ -258,11 +258,11 @@ def __getstate__(
     return state_dict
 
 
-# def __getstate__factory(split_dict_slots = True, keep=None, add= None, remove=None, filter_="_", properties=False, getters=False, sort_keys = True, remove_default_values = False):
-#    return lambda self :__getstate__(self ,split_dict_slots = split_dict_slots, keep=keep, add= add, remove=remove, filter_=filter_, properties=properties, getters=getters, sort_keys = sort_keys, remove_default_values = remove_default_values)
+# def getstate_factory(split_dict_slots = True, keep=None, add= None, remove=None, filter_="_", properties=False, getters=False, sort_keys = True, remove_default_values = False):
+#    return lambda self :getstate(self ,split_dict_slots = split_dict_slots, keep=keep, add= add, remove=remove, filter_=filter_, properties=properties, getters=getters, sort_keys = sort_keys, remove_default_values = remove_default_values)
 
 
-def __setstate__(
+def setstate(
     self,
     state,
     properties=False,
@@ -495,7 +495,7 @@ def class_str_from_class(class_):
 @cached_one_arg_func
 def default_state_from_class(class_):
     obj = class_()
-    return __getstate__(
+    return getstate(
         obj, split_dict_slots=False, properties=True, getters=True, sort_keys=False, remove_default_values=False
     )
 
@@ -802,7 +802,7 @@ def generic__reduce_ex__(self, protocol=4):
     if hasattr(self, "__getstate__"):
         state = self.__getstate__()
     else:
-        # state = __getstate__(self,filter_ = None,sort_keys = False)
+        # state = getstate(self,filter_ = None,sort_keys = False)
         if hasattr(self, "__slots__"):
             slots = dict()
             for slot in slots_from_class(type(self)):
@@ -831,7 +831,12 @@ def _onlyOneDimSameTypeNumbers(list_or_tuple):
     if len(list_or_tuple):
         type_first = type(list_or_tuple[0])
         if type_first in _bool_int_and_float_types:
-            return all(type(i) is type_first for i in list_or_tuple)
+            return all(type(elt) is type_first for elt in list_or_tuple)
+    return False
+
+def _onlyOneDimNumbers(list_or_tuple):
+    if len(list_or_tuple):
+        return all(type(elt) in _bool_int_and_float_types for elt in list_or_tuple)
     return False
 
 
@@ -972,7 +977,7 @@ def instance(
                 _properties = properties.get(class_, True)
             elif type(_properties) is dict:
                 _properties = _properties.get(class_, False)
-            __setstate__(inst, __state__, setters=_setters, properties=_properties)
+            setstate(inst, __state__, setters=_setters, properties=_properties)
     return inst
 
 

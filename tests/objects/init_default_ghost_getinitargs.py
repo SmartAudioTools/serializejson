@@ -13,7 +13,7 @@ class C_SaveNothing_DefaultInit_getinitargs:
         log("        __getinitargs__ SHOULD'NT BE CALLED with python new style objects")
         return ("__getinitargs__ SHOULD'NT BE CALLED with python new style objects",)
 
-    def getstate(self):
+    def __getstate__(self):
         log("        __getstate__ : {}")
         return {}
 
@@ -69,7 +69,7 @@ class C_GetState_DefaultInit_RestoreState_getinitargs:
         log("        __getinitargs__ SHOULD'NT BE CALLED with python new style objects")
         return ("__getinitargs__ SHOULD'NT BE CALLED with python new style objects",)
 
-    def getstate(self):
+    def __getstate__(self):
         state = {"keySaved": "ValueSaved"}
         log("        __getstate__ : " + repr(state))
         return state
@@ -85,7 +85,7 @@ class C_GetState_DefaultInit_SetState_getinitargs:
         log("        __getinitargs__ SHOULD'NT BE CALLED with python new style objects")
         return ("__getinitargs__ SHOULD'NT BE CALLED with python new style objects",)
 
-    def getstate(self):
+    def __getstate__(self):
         log("        getstate")
         return "stateSaved"
 

@@ -22,8 +22,8 @@ if API:
         from SmartFramework.serialize.tools import (
             setters,
             property_types,
-            __getstate__,
-            __setstate__,
+            getstate,
+            setstate,
             authorized_classes,
             Reference,
             constructors,
@@ -35,8 +35,8 @@ if API:
         from serializejson.tools import (
             setters,
             property_types,
-            __getstate__,
-            __setstate__,
+            getstate,
+            setstate,
             authorized_classes,
             Reference,
             constructors,
@@ -274,7 +274,7 @@ if API:
         return (
             type_str(self),
             init,
-            __getstate__(
+            getstate(
                 self,
                 split_dict_slots=False,
                 keep=None,
@@ -294,7 +294,7 @@ if API:
         return (
             type_str(self),
             tuple(),
-            __getstate__(
+            getstate(
                 self,
                 split_dict_slots=False,
                 keep=None,
@@ -323,7 +323,7 @@ if API:
         return (
             type_str(self),
             (self.parent(),),
-            __getstate__(
+            getstate(
                 self,
                 split_dict_slots=False,
                 keep=None,
@@ -341,7 +341,7 @@ if API:
         widgets = []
         for i in range(self.count()):
             widgets.append(self.itemAt(i).widget())
-        state = __getstate__(
+        state = getstate(
             self,
             split_dict_slots=False,
             keep=None,
@@ -368,7 +368,7 @@ if API:
         for i in range(self.count()):
             item = self.itemAt(i)
             widgets.append([item.widget()] + list(self.getItemPosition(i)) + [item.alignment()])
-        state = __getstate__(
+        state = getstate(
             self,
             split_dict_slots=False,
             keep=None,
@@ -397,7 +397,7 @@ if API:
         return (
             type_str(self),
             (sys.argv,),
-            __getstate__(
+            getstate(
                 self,
                 split_dict_slots=False,
                 keep=None,
@@ -434,7 +434,7 @@ if API:
             remove = "brush"
         else:
             remove = None
-        state = __getstate__(
+        state = getstate(
             self,
             split_dict_slots=False,
             keep=None,
@@ -454,7 +454,7 @@ if API:
         return (
             type_str(self),
             tuple(),
-            __getstate__(
+            getstate(
                 self,
                 split_dict_slots=False,
                 keep=None,
@@ -471,7 +471,7 @@ if API:
     QtGui.QBrush.__serializejson__ = serializejson_QBrush
 
     # def serializejson_QIcon(self):
-    #    return type(self), tuple(), __getstate__(self,split_dict_slots = False, keep=None, add= None, remove = None, filter_= True, properties=True, getters=True, sort_keys = True, remove_default_values = False)
+    #    return type(self), tuple(), getstate(self,split_dict_slots = False, keep=None, add= None, remove = None, filter_= True, properties=True, getters=True, sort_keys = True, remove_default_values = False)
     # QtGui.QIcon.__serializejson__ = serializejson_QIcon
 
     def QIcon__eq__(self, other):
@@ -489,7 +489,7 @@ if API:
         return (
             type_str(self),
             tuple(),
-            __getstate__(
+            getstate(
                 self,
                 split_dict_slots=False,
                 keep=None,
@@ -507,7 +507,7 @@ if API:
     QtGui.QFont.__serializejson__ = serializejson_QFont
 
     def QFont_setstate(self, state):
-        __setstate__(
+        setstate(
             self,
             state,
             properties=True,
@@ -522,7 +522,7 @@ if API:
         return (
             type_str(self),
             tuple(),
-            __getstate__(
+            getstate(
                 self,
                 split_dict_slots=False,
                 keep=None,
@@ -546,7 +546,7 @@ if API:
         assert ok
         data = ba.data()  # fait une copie ?
         return type_str(self), tuple(), {"data": data}
-        # return type_str(self), None, None #__getstate__(self,split_dict_slots = False, keep=None, add= None, remove=None, filter_= True, properties=True, getters=True, sort_keys = True, remove_default_values = False)
+        # return type_str(self), None, None #getstate(self,split_dict_slots = False, keep=None, add= None, remove=None, filter_= True, properties=True, getters=True, sort_keys = True, remove_default_values = False)
 
     QtGui.QPixmap.__serializejson__ = serializejson_QPixmap
     setters[QtGui.QPixmap] = {"data": "loadFromData"}
@@ -590,7 +590,7 @@ if API:
     QtGui.QColor.__serializejson__ = serializejson_reducableQt
 
     # def serializejson_QWidget(self):
-    #    return type_str(self), {"parent": self.parent()}, __getstate__(self,split_dict_slots = False, keep=None, add= None, remove = ["parent","minimumSize"], filter_= True, properties=True, getters=True, sort_keys = True, remove_default_values = False)
+    #    return type_str(self), {"parent": self.parent()}, getstate(self,split_dict_slots = False, keep=None, add= None, remove = ["parent","minimumSize"], filter_= True, properties=True, getters=True, sort_keys = True, remove_default_values = False)
     # QtWidgets.QWidget.__serializejson__ = serializejson_QWidget
 
     def serializejson_QWidget(self):
@@ -605,7 +605,7 @@ if API:
         return (
             type_str(self),
             init,
-            __getstate__(
+            getstate(
                 self,
                 split_dict_slots=False,
                 keep=None,
@@ -634,7 +634,7 @@ if API:
         return (
             type_str(self),
             {"parent": self.parent()},
-            __getstate__(
+            getstate(
                 self,
                 split_dict_slots=False,
                 keep=None,

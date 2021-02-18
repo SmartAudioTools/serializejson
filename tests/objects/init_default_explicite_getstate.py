@@ -1,7 +1,7 @@
 try:
-    from SmartFramework.serialize.serializejson import __getstate__
+    from SmartFramework.serialize.serializejson import getstate
 except :
-    from serializejson import __getstate__
+    from serializejson import getstate
 
 
 from .log import log
@@ -20,7 +20,7 @@ class C_SaveNothing_DefaultInit:
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
-    def getstate(self):
+    def __getstate__(self):
         log("        __getstate__ : {}")
         return {}
 
@@ -80,7 +80,7 @@ class C_GetState_DefaultInit_RestoreState:
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
-    def getstate(self):
+    def __getstate__(self):
         state = {"keySaved": "ValueSaved"}
         log("        __getstate__ : " + repr(state))
         return state
@@ -97,7 +97,7 @@ class C_GetState_DefaultInit_SetState:
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
-    def getstate(self):
+    def __getstate__(self):
         state = "stateSaved"
         log("        __getstate__ : " + repr(state))
         return state

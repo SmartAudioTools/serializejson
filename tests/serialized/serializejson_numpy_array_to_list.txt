@@ -434,3 +434,4 @@ Infinity
 {"__class__":"objects.init_and_new.C_Init_New_Reduce","__init__":["defaut1","savedArg2"]}
 {"__class__":"objects.init_and_new.C_Init_New_Newargs","__new__":"coucou","_par1":"defaut1","new_par1":"new_par1","par2":"defaut2"}
 {"__class__":"objects.init_and_new.C_Init_New_Newargs_Reduce","__init__":["defaut1","savedArg2"]}
+{"__class__":"objects.single_line.C_single_line","__init__":[1,2],"attribut_1":1,"attribut_2":2,"int_list":[1,2,3],"int_tuple":{"__class__":"tuple","__new__":[4,5,6]},"float_list":[1.0,2.0,3.0],"float_tuple":{"__class__":"tuple","__new__":[4.0,5.0,6.0]}}

@@ -14,7 +14,7 @@ class C_SaveArgInit_getinitargs:
         log("        __getinitargs__ : " + repr(initArgs))
         return initArgs
 
-    def getstate(self):
+    def __getstate__(self):
         log("        __getstate__ : {}")
         return {}
 
@@ -74,7 +74,7 @@ class C_GetState_SaveArgInit_RestoreState_getinitargs:
         log("        __getinitargs__ : " + repr(initArgs))
         return initArgs
 
-    def getstate(self):
+    def __getstate__(self):
         state = {"keySaved": "ValueSaved"}
         log("        __getstate__ : " + repr(state))
         return state
@@ -91,7 +91,7 @@ class C_GetState_SaveArgInit_SetState_getinitargs:  # plus obligé de auvegarder
         log("        __getinitargs__ : " + repr(initArgs))
         return initArgs
 
-    def getstate(self):
+    def __getstate__(self):
         state = "stateSaved"
         log("        __getstate__ : " + repr(state))
         return state

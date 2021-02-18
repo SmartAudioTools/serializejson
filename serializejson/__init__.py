@@ -201,10 +201,9 @@ from . import serialize_parameters
 #            elt = class_str_from_class(elt)
 #        authorized_classes.add(elt)
 
-print("coucou")
 from .tools import (
-    __getstate__,
-    __setstate__,
+    getstate,
+    setstate,
     instance,
     tuple_from_instance,
     class_str_from_class,
@@ -215,6 +214,7 @@ from .tools import (
     _get_properties,
     encoder_parameters,
     _onlyOneDimSameTypeNumbers,
+    _onlyOneDimNumbers,
     blosc_compressions,
     setters_names_from_class,
     slots_from_class,
@@ -477,7 +477,10 @@ class Encoder(rapidjson.Encoder):
             - '\\\\t': new lines and tabulations for indent (take less space than int > 1).
 
         single_line_init:
-            whether `__init__` must be serialize in one line.
+            whether `__init__` args must be serialized in one line.
+            
+        single_line_new:
+            whether `__new__` args must be serialized in one line.
 
         single_line_list_numbers:
             whether list of numbers of same type must be serialize in one line.
@@ -621,6 +624,7 @@ class Encoder(rapidjson.Encoder):
         ensure_ascii=False,
         indent="\t",
         single_line_init=True,
+        single_line_new=True,
         single_line_list_numbers=True,
         sort_keys=False,
         bytes_compression=("blosc_zstd", 1),  #
@@ -667,9 +671,11 @@ class Encoder(rapidjson.Encoder):
         if indent is None:
             self.single_line_list_numbers = False
             self.single_line_init = False
+            self.single_line_new = False
         else:
             self.single_line_list_numbers = single_line_list_numbers
             self.single_line_init = single_line_init
+            self.single_line_new = single_line_new
         self.indent = indent  # rapid json enregistre self.indent_char et self.indent_count , mais ne permet pas de savoir si indent = None ...
         self._dump_one_line = indent is None
         self.dumped_classes = set()
@@ -808,41 +814,37 @@ class Encoder(rapidjson.Encoder):
             dic = self._dict_from_instance(
                 inst
             )  # 8.6 % (correspond au temps pour conversion en b64 avec pybase64.b64encode) du temps sur obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
-        initArgs = dic.get("__init__", None)
-        if (
-            isinstance(initArgs, list)
-            and not self._dump_one_line
-            and self.single_line_init  # isinstance(initArgs, list) and
-        ):  # and dic["__class__"] in _oneline_init_classess :
-            dic[
-                "__init__"
-            ] = rapidjson.RawJSON(  # 91.2 % du temps avec obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
-                rapidjson.dumps(
-                    initArgs,
-                    default=self._default_one_line,
-                    ensure_ascii=self.ensure_ascii,
-                    sort_keys=self.sort_keys,
-                    bytes_mode=self.bytes_mode,
-                    number_mode=self.number_mode,
-                    iterable_mode=rapidjson.IM_ONLY_LISTS,
-                    mapping_mode=rapidjson.MM_ONLY_DICTS
-                    # **self.kargs
-                )
-            )
-        if not self._dump_one_line and self.single_line_list_numbers:
-            for key, value in dic.items():
-                if (
-                    key != "__class__"
-                    and key != "__init__"
-                    and type(value) in (list, tuple)
-                    and _onlyOneDimSameTypeNumbers(value)
-                ):
-
-                    dic[key] = rapidjson.RawJSON(
+        
+        if not self._dump_one_line :
+            if self.single_line_init : 
+                args = dic.get("__init__", None)
+                if isinstance(args, list):
+                    dic[
+                        "__init__"
+                    ] = rapidjson.RawJSON(  # 91.2 % du temps avec obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
                         rapidjson.dumps(
-                            value,
+                            args,
                             ensure_ascii=self.ensure_ascii,
                             default=self._default_one_line,
+                            sort_keys=self.sort_keys,
+                            bytes_mode=self.bytes_mode,
+                            number_mode=self.number_mode,
+                            iterable_mode=rapidjson.IM_ONLY_LISTS,
+                            mapping_mode=rapidjson.MM_ONLY_DICTS
+                            # **self.kargs
+                        )
+                    )  
+            if self.single_line_new : 
+                args = dic.get("__new__", None)
+                if type(args) is list:
+                    dic[
+                        "__new__"
+                    ] = rapidjson.RawJSON(  # 91.2 % du temps avec obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
+                        rapidjson.dumps(
+                            args,
+                            ensure_ascii=self.ensure_ascii,
+                            default=self._default_one_line,
+                            sort_keys=self.sort_keys,
                             bytes_mode=self.bytes_mode,
                             number_mode=self.number_mode,
                             iterable_mode=rapidjson.IM_ONLY_LISTS,
@@ -850,6 +852,29 @@ class Encoder(rapidjson.Encoder):
                             # **self.kargs
                         )
                     )
+                        
+            if self.single_line_list_numbers:
+                for key, value in dic.items():
+                    if (
+                        key != "__class__"
+                        and (key != "__init__"  or not  self.single_line_init)
+                        and (key != "__new__"   or not  self.single_line_new)
+                        and type(value) is list
+                        and _onlyOneDimSameTypeNumbers(value)
+                    ):
+    
+                        dic[key] = rapidjson.RawJSON(
+                            rapidjson.dumps(
+                                value,
+                                ensure_ascii=self.ensure_ascii,
+                                default=self._default_one_line,
+                                bytes_mode=self.bytes_mode,
+                                number_mode=self.number_mode,
+                                iterable_mode=rapidjson.IM_ONLY_LISTS,
+                                mapping_mode=rapidjson.MM_ONLY_DICTS
+                                # **self.kargs
+                            )
+                        )
         self._already_serialized_id_dic_to_obj_dic[id(dic)] = (
             inst,
             dic,
@@ -1188,7 +1213,10 @@ class Decoder(rapidjson.Decoder):
             Controls whether serializejson accepts to parse json with comments.
 
         numpy_array_from_list (bool):
-            Controls whether list of int or floats should be loaded into numpy arrays.
+            Controls whether list of bool, int or floats with same types elements should be loaded into numpy arrays.
+            
+        numpy_array_from_heterogenous_list (bool):
+            Controls whether list of bool, int or floats with same or heterogenous types elements should be loaded into numpy arrays.
 
         default_value:
             The value returned if the path passed to `load` doesn't exist.
@@ -1220,6 +1248,7 @@ class Decoder(rapidjson.Decoder):
         default_value=no_default_value,
         accept_comments=False,
         numpy_array_from_list=False,
+        numpy_array_from_heterogenous_list=False,
         chunk_size=65536,
         strict_pickle=False,
     ):
@@ -1234,6 +1263,7 @@ class Decoder(rapidjson.Decoder):
             setters = False
             properties = False
             numpy_array_from_list = False
+            numpy_array_from_heterogenous_list = False
         self.file = file
         self.setters = _get_setters(setters)
         self.properties = _get_properties(properties)
@@ -1246,8 +1276,13 @@ class Decoder(rapidjson.Decoder):
         self.chunk_size = chunk_size
         self.file_iter = None
         self._updating = False
+        
         self.numpy_array_from_list = numpy_array_from_list
-        if numpy_array_from_list:
+        self.numpy_array_from_heterogenous_list = numpy_array_from_heterogenous_list
+        if numpy_array_from_heterogenous_list :
+            self.numpy_array_from_list = True
+            self.end_array = self._end_array_if_numpy_array_from_heterogenous_list
+        elif numpy_array_from_list:
             self.end_array = self._end_array_if_numpy_array_from_list
         return self
 
@@ -1691,6 +1726,25 @@ class Decoder(rapidjson.Decoder):
                 self.converted_numpy_array_from_lists.add(id(array))
                 return array
         return sequence
+    
+    
+    def _end_array_if_numpy_array_from_heterogenous_list(self, sequence):
+        if _onlyOneDimNumbers(sequence):
+            array = numpy.array(sequence)
+            self.converted_numpy_array_from_lists.add(id(array))
+            return array
+        if len(sequence) and isinstance(sequence[0], ndarray):
+            first_elt = sequence[0]
+            first_elt_shape = first_elt.shape
+            if all(
+                (isinstance(elt, ndarray) and elt.shape == first_elt_shape)
+                for elt in sequence
+            ):
+                array = numpy.array(sequence)
+                self.converted_numpy_array_from_lists.add(id(array))
+                return array
+        return sequence
+    
 
     def __next__(self):
         try:

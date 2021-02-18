@@ -14,7 +14,7 @@ class C_SaveNothing_DefaultInit:
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
-    def getstate(self):
+    def __getstate__(self):
         log("        __getstate__  SHOULD'NT BE CALLED when __reduce__")
         return "__getstate__  SHOULD'NT BE CALLED when __reduce__"
 
@@ -30,7 +30,7 @@ class C_GetState_DefaultInit_RestoreState:
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
-    def getstate(self):
+    def __getstate__(self):
         log("        __getstate__  SHOULD'NT BE CALLED when __reduce__")
         return "__getstate__  SHOULD'NT BE CALLED when __reduce__"
 
@@ -46,7 +46,7 @@ class C_GetState_DefaultInit_SetState:
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
-    def getstate(self):
+    def __getstate__(self):
         log("        __getstate__  SHOULD'NT BE CALLED when __reduce__")
         return "__getstate__  SHOULD'NT BE CALLED when __reduce__"
 

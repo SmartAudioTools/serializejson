@@ -347,10 +347,9 @@
 <span class="c1">#            elt = class_str_from_class(elt)</span>
 <span class="c1">#        authorized_classes.add(elt)</span>
 
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;coucou&quot;</span><span class="p">)</span>
 <span class="kn">from</span> <span class="nn">.tools</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">__getstate__</span><span class="p">,</span>
-    <span class="n">__setstate__</span><span class="p">,</span>
+    <span class="n">getstate</span><span class="p">,</span>
+    <span class="n">setstate</span><span class="p">,</span>
     <span class="n">instance</span><span class="p">,</span>
     <span class="n">tuple_from_instance</span><span class="p">,</span>
     <span class="n">class_str_from_class</span><span class="p">,</span>
@@ -361,6 +360,7 @@
     <span class="n">_get_properties</span><span class="p">,</span>
     <span class="n">encoder_parameters</span><span class="p">,</span>
     <span class="n">_onlyOneDimSameTypeNumbers</span><span class="p">,</span>
+    <span class="n">_onlyOneDimNumbers</span><span class="p">,</span>
     <span class="n">blosc_compressions</span><span class="p">,</span>
     <span class="n">setters_names_from_class</span><span class="p">,</span>
     <span class="n">slots_from_class</span><span class="p">,</span>
@@ -623,7 +623,10 @@
 <span class="sd">            - &#39;\\\\t&#39;: new lines and tabulations for indent (take less space than int &gt; 1).</span>
 
 <span class="sd">        single_line_init:</span>
-<span class="sd">            whether `__init__` must be serialize in one line.</span>
+<span class="sd">            whether `__init__` args must be serialized in one line.</span>
+<span class="sd">            </span>
+<span class="sd">        single_line_new:</span>
+<span class="sd">            whether `__new__` args must be serialized in one line.</span>
 
 <span class="sd">        single_line_list_numbers:</span>
 <span class="sd">            whether list of numbers of same type must be serialize in one line.</span>
@@ -767,6 +770,7 @@
         <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="n">indent</span><span class="o">=</span><span class="s2">&quot;</span><span class="se">\t</span><span class="s2">&quot;</span><span class="p">,</span>
         <span class="n">single_line_init</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">single_line_new</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
         <span class="n">single_line_list_numbers</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
         <span class="n">sort_keys</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="n">bytes_compression</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;blosc_zstd&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>  <span class="c1">#</span>
@@ -813,9 +817,11 @@
         <span class="k">if</span> <span class="n">indent</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">single_line_list_numbers</span> <span class="o">=</span> <span class="kc">False</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">single_line_init</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">single_line_new</span> <span class="o">=</span> <span class="kc">False</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">single_line_list_numbers</span> <span class="o">=</span> <span class="n">single_line_list_numbers</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">single_line_init</span> <span class="o">=</span> <span class="n">single_line_init</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">single_line_new</span> <span class="o">=</span> <span class="n">single_line_new</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">indent</span> <span class="o">=</span> <span class="n">indent</span>  <span class="c1"># rapid json enregistre self.indent_char et self.indent_count , mais ne permet pas de savoir si indent = None ...</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_dump_one_line</span> <span class="o">=</span> <span class="n">indent</span> <span class="ow">is</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">dumped_classes</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
@@ -954,41 +960,37 @@
             <span class="n">dic</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dict_from_instance</span><span class="p">(</span>
                 <span class="n">inst</span>
             <span class="p">)</span>  <span class="c1"># 8.6 % (correspond au temps pour conversion en b64 avec pybase64.b64encode) du temps sur obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)</span>
-        <span class="n">initArgs</span> <span class="o">=</span> <span class="n">dic</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;__init__&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
-        <span class="k">if</span> <span class="p">(</span>
-            <span class="nb">isinstance</span><span class="p">(</span><span class="n">initArgs</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span>
-            <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dump_one_line</span>
-            <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">single_line_init</span>  <span class="c1"># isinstance(initArgs, list) and</span>
-        <span class="p">):</span>  <span class="c1"># and dic[&quot;__class__&quot;] in _oneline_init_classess :</span>
-            <span class="n">dic</span><span class="p">[</span>
-                <span class="s2">&quot;__init__&quot;</span>
-            <span class="p">]</span> <span class="o">=</span> <span class="n">rapidjson</span><span class="o">.</span><span class="n">RawJSON</span><span class="p">(</span>  <span class="c1"># 91.2 % du temps avec obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)</span>
-                <span class="n">rapidjson</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span>
-                    <span class="n">initArgs</span><span class="p">,</span>
-                    <span class="n">default</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_default_one_line</span><span class="p">,</span>
-                    <span class="n">ensure_ascii</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">ensure_ascii</span><span class="p">,</span>
-                    <span class="n">sort_keys</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sort_keys</span><span class="p">,</span>
-                    <span class="n">bytes_mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">bytes_mode</span><span class="p">,</span>
-                    <span class="n">number_mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">number_mode</span><span class="p">,</span>
-                    <span class="n">iterable_mode</span><span class="o">=</span><span class="n">rapidjson</span><span class="o">.</span><span class="n">IM_ONLY_LISTS</span><span class="p">,</span>
-                    <span class="n">mapping_mode</span><span class="o">=</span><span class="n">rapidjson</span><span class="o">.</span><span class="n">MM_ONLY_DICTS</span>
-                    <span class="c1"># **self.kargs</span>
-                <span class="p">)</span>
-            <span class="p">)</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dump_one_line</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">single_line_list_numbers</span><span class="p">:</span>
-            <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">dic</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-                <span class="k">if</span> <span class="p">(</span>
-                    <span class="n">key</span> <span class="o">!=</span> <span class="s2">&quot;__class__&quot;</span>
-                    <span class="ow">and</span> <span class="n">key</span> <span class="o">!=</span> <span class="s2">&quot;__init__&quot;</span>
-                    <span class="ow">and</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span>
-                    <span class="ow">and</span> <span class="n">_onlyOneDimSameTypeNumbers</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
-                <span class="p">):</span>
-
-                    <span class="n">dic</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">rapidjson</span><span class="o">.</span><span class="n">RawJSON</span><span class="p">(</span>
+        
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dump_one_line</span> <span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">single_line_init</span> <span class="p">:</span> 
+                <span class="n">args</span> <span class="o">=</span> <span class="n">dic</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;__init__&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+                    <span class="n">dic</span><span class="p">[</span>
+                        <span class="s2">&quot;__init__&quot;</span>
+                    <span class="p">]</span> <span class="o">=</span> <span class="n">rapidjson</span><span class="o">.</span><span class="n">RawJSON</span><span class="p">(</span>  <span class="c1"># 91.2 % du temps avec obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)</span>
                         <span class="n">rapidjson</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span>
-                            <span class="n">value</span><span class="p">,</span>
+                            <span class="n">args</span><span class="p">,</span>
                             <span class="n">ensure_ascii</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">ensure_ascii</span><span class="p">,</span>
                             <span class="n">default</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_default_one_line</span><span class="p">,</span>
+                            <span class="n">sort_keys</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sort_keys</span><span class="p">,</span>
+                            <span class="n">bytes_mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">bytes_mode</span><span class="p">,</span>
+                            <span class="n">number_mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">number_mode</span><span class="p">,</span>
+                            <span class="n">iterable_mode</span><span class="o">=</span><span class="n">rapidjson</span><span class="o">.</span><span class="n">IM_ONLY_LISTS</span><span class="p">,</span>
+                            <span class="n">mapping_mode</span><span class="o">=</span><span class="n">rapidjson</span><span class="o">.</span><span class="n">MM_ONLY_DICTS</span>
+                            <span class="c1"># **self.kargs</span>
+                        <span class="p">)</span>
+                    <span class="p">)</span>  
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">single_line_new</span> <span class="p">:</span> 
+                <span class="n">args</span> <span class="o">=</span> <span class="n">dic</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;__new__&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+                <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">args</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">list</span><span class="p">:</span>
+                    <span class="n">dic</span><span class="p">[</span>
+                        <span class="s2">&quot;__new__&quot;</span>
+                    <span class="p">]</span> <span class="o">=</span> <span class="n">rapidjson</span><span class="o">.</span><span class="n">RawJSON</span><span class="p">(</span>  <span class="c1"># 91.2 % du temps avec obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)</span>
+                        <span class="n">rapidjson</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span>
+                            <span class="n">args</span><span class="p">,</span>
+                            <span class="n">ensure_ascii</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">ensure_ascii</span><span class="p">,</span>
+                            <span class="n">default</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_default_one_line</span><span class="p">,</span>
+                            <span class="n">sort_keys</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sort_keys</span><span class="p">,</span>
                             <span class="n">bytes_mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">bytes_mode</span><span class="p">,</span>
                             <span class="n">number_mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">number_mode</span><span class="p">,</span>
                             <span class="n">iterable_mode</span><span class="o">=</span><span class="n">rapidjson</span><span class="o">.</span><span class="n">IM_ONLY_LISTS</span><span class="p">,</span>
@@ -996,6 +998,29 @@
                             <span class="c1"># **self.kargs</span>
                         <span class="p">)</span>
                     <span class="p">)</span>
+                        
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">single_line_list_numbers</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">dic</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                    <span class="k">if</span> <span class="p">(</span>
+                        <span class="n">key</span> <span class="o">!=</span> <span class="s2">&quot;__class__&quot;</span>
+                        <span class="ow">and</span> <span class="p">(</span><span class="n">key</span> <span class="o">!=</span> <span class="s2">&quot;__init__&quot;</span>  <span class="ow">or</span> <span class="ow">not</span>  <span class="bp">self</span><span class="o">.</span><span class="n">single_line_init</span><span class="p">)</span>
+                        <span class="ow">and</span> <span class="p">(</span><span class="n">key</span> <span class="o">!=</span> <span class="s2">&quot;__new__&quot;</span>   <span class="ow">or</span> <span class="ow">not</span>  <span class="bp">self</span><span class="o">.</span><span class="n">single_line_new</span><span class="p">)</span>
+                        <span class="ow">and</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">list</span>
+                        <span class="ow">and</span> <span class="n">_onlyOneDimSameTypeNumbers</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+                    <span class="p">):</span>
+    
+                        <span class="n">dic</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">rapidjson</span><span class="o">.</span><span class="n">RawJSON</span><span class="p">(</span>
+                            <span class="n">rapidjson</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span>
+                                <span class="n">value</span><span class="p">,</span>
+                                <span class="n">ensure_ascii</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">ensure_ascii</span><span class="p">,</span>
+                                <span class="n">default</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_default_one_line</span><span class="p">,</span>
+                                <span class="n">bytes_mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">bytes_mode</span><span class="p">,</span>
+                                <span class="n">number_mode</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">number_mode</span><span class="p">,</span>
+                                <span class="n">iterable_mode</span><span class="o">=</span><span class="n">rapidjson</span><span class="o">.</span><span class="n">IM_ONLY_LISTS</span><span class="p">,</span>
+                                <span class="n">mapping_mode</span><span class="o">=</span><span class="n">rapidjson</span><span class="o">.</span><span class="n">MM_ONLY_DICTS</span>
+                                <span class="c1"># **self.kargs</span>
+                            <span class="p">)</span>
+                        <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_already_serialized_id_dic_to_obj_dic</span><span class="p">[</span><span class="nb">id</span><span class="p">(</span><span class="n">dic</span><span class="p">)]</span> <span class="o">=</span> <span class="p">(</span>
             <span class="n">inst</span><span class="p">,</span>
             <span class="n">dic</span><span class="p">,</span>
@@ -1334,7 +1359,10 @@
 <span class="sd">            Controls whether serializejson accepts to parse json with comments.</span>
 
 <span class="sd">        numpy_array_from_list (bool):</span>
-<span class="sd">            Controls whether list of int or floats should be loaded into numpy arrays.</span>
+<span class="sd">            Controls whether list of bool, int or floats with same types elements should be loaded into numpy arrays.</span>
+<span class="sd">            </span>
+<span class="sd">        numpy_array_from_heterogenous_list (bool):</span>
+<span class="sd">            Controls whether list of bool, int or floats with same or heterogenous types elements should be loaded into numpy arrays.</span>
 
 <span class="sd">        default_value:</span>
 <span class="sd">            The value returned if the path passed to `load` doesn&#39;t exist.</span>
@@ -1366,6 +1394,7 @@
         <span class="n">default_value</span><span class="o">=</span><span class="n">no_default_value</span><span class="p">,</span>
         <span class="n">accept_comments</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="n">numpy_array_from_list</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="n">numpy_array_from_heterogenous_list</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="n">chunk_size</span><span class="o">=</span><span class="mi">65536</span><span class="p">,</span>
         <span class="n">strict_pickle</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
     <span class="p">):</span>
@@ -1380,6 +1409,7 @@
             <span class="n">setters</span> <span class="o">=</span> <span class="kc">False</span>
             <span class="n">properties</span> <span class="o">=</span> <span class="kc">False</span>
             <span class="n">numpy_array_from_list</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="n">numpy_array_from_heterogenous_list</span> <span class="o">=</span> <span class="kc">False</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">file</span> <span class="o">=</span> <span class="n">file</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">setters</span> <span class="o">=</span> <span class="n">_get_setters</span><span class="p">(</span><span class="n">setters</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">properties</span> <span class="o">=</span> <span class="n">_get_properties</span><span class="p">(</span><span class="n">properties</span><span class="p">)</span>
@@ -1392,8 +1422,13 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">chunk_size</span> <span class="o">=</span> <span class="n">chunk_size</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">file_iter</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_updating</span> <span class="o">=</span> <span class="kc">False</span>
+        
         <span class="bp">self</span><span class="o">.</span><span class="n">numpy_array_from_list</span> <span class="o">=</span> <span class="n">numpy_array_from_list</span>
-        <span class="k">if</span> <span class="n">numpy_array_from_list</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">numpy_array_from_heterogenous_list</span> <span class="o">=</span> <span class="n">numpy_array_from_heterogenous_list</span>
+        <span class="k">if</span> <span class="n">numpy_array_from_heterogenous_list</span> <span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">numpy_array_from_list</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">end_array</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_end_array_if_numpy_array_from_heterogenous_list</span>
+        <span class="k">elif</span> <span class="n">numpy_array_from_list</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">end_array</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_end_array_if_numpy_array_from_list</span>
         <span class="k">return</span> <span class="bp">self</span>
 
@@ -1837,6 +1872,25 @@
                 <span class="bp">self</span><span class="o">.</span><span class="n">converted_numpy_array_from_lists</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="nb">id</span><span class="p">(</span><span class="n">array</span><span class="p">))</span>
                 <span class="k">return</span> <span class="n">array</span>
         <span class="k">return</span> <span class="n">sequence</span>
+    
+    
+    <span class="k">def</span> <span class="nf">_end_array_if_numpy_array_from_heterogenous_list</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sequence</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">_onlyOneDimNumbers</span><span class="p">(</span><span class="n">sequence</span><span class="p">):</span>
+            <span class="n">array</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">sequence</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">converted_numpy_array_from_lists</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="nb">id</span><span class="p">(</span><span class="n">array</span><span class="p">))</span>
+            <span class="k">return</span> <span class="n">array</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">sequence</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">sequence</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">ndarray</span><span class="p">):</span>
+            <span class="n">first_elt</span> <span class="o">=</span> <span class="n">sequence</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">first_elt_shape</span> <span class="o">=</span> <span class="n">first_elt</span><span class="o">.</span><span class="n">shape</span>
+            <span class="k">if</span> <span class="nb">all</span><span class="p">(</span>
+                <span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">elt</span><span class="p">,</span> <span class="n">ndarray</span><span class="p">)</span> <span class="ow">and</span> <span class="n">elt</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">first_elt_shape</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">elt</span> <span class="ow">in</span> <span class="n">sequence</span>
+            <span class="p">):</span>
+                <span class="n">array</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">sequence</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">converted_numpy_array_from_lists</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="nb">id</span><span class="p">(</span><span class="n">array</span><span class="p">))</span>
+                <span class="k">return</span> <span class="n">array</span>
+        <span class="k">return</span> <span class="n">sequence</span>
+    
 
     <span class="k">def</span> <span class="fm">__next__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">try</span><span class="p">:</span>
