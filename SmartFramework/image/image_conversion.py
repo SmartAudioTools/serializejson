@@ -1,6 +1,6 @@
 import numpy
 from qtpy.QtGui import QImage
-from qtpy.QtCore import QByteArray,QBuffer,QIODevice
+from qtpy.QtCore import QByteArray, QBuffer, QIODevice
 
 grayTable = [(255 << 24) + (g << 16) + (g << 8) + g for g in range(256)]
 

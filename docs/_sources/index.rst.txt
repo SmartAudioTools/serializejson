@@ -510,16 +510,10 @@ Versions
 Future Versions (TODO)
 ======================
     * Add support for:
-        - Tuple
-        - dict with no-string keys
         - dict with __class__ key (detecte and raise exception or construct speciale object for reconstruction)
-        - time.struct_time
-        - collections.Counter
-        - collections.OrderedDict
-        - collections.defaultdict
-        - namedtuples
-        - dataclass
         - panda.dataframe
+        - singletons (__reduce__ returning a string) 
+        - Metaclasses
         
     * Add test for:
         - every Encoder and Decoder parameters combinaisons.

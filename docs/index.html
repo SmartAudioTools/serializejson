@@ -104,6 +104,7 @@
 </li>
 <li><a class="reference internal" href="#object-update">Object Update</a></li>
 <li><a class="reference internal" href="#versions">Versions</a><ul>
+<li><a class="reference internal" href="#version-0-2-0">Version 0.2.0</a></li>
 <li><a class="reference internal" href="#version-0-1-0">Version 0.1.0</a></li>
 <li><a class="reference internal" href="#version-0-0-4">Version 0.0.4</a></li>
 </ul>
@@ -1443,6 +1444,19 @@ See documentation section: ref:<cite>”If you want to make the object updatable
 </div>
 <div class="section" id="versions">
 <h1>Versions<a class="headerlink" href="#versions" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="version-0-2-0">
+<h2>Version 0.2.0<a class="headerlink" href="#version-0-2-0" title="Permalink to this headline">¶</a></h2>
+<dl class="field-list simple">
+<dt class="field-odd">Date</dt>
+<dd class="field-odd"><p>2021-02-18</p>
+</dd>
+</dl>
+<ul class="simple">
+<li><p>API changed</p></li>
+<li><p>can serialize dict with no-string keys</p></li>
+<li><p>add support for cicular reférences and duplicates with {“$ref”: …}</p></li>
+</ul>
+</div>
 <div class="section" id="version-0-1-0">
 <h2>Version 0.1.0<a class="headerlink" href="#version-0-1-0" title="Permalink to this headline">¶</a></h2>
 <dl class="field-list simple">
@@ -1478,16 +1492,10 @@ See documentation section: ref:<cite>”If you want to make the object updatable
 <div><ul class="simple">
 <li><dl class="simple">
 <dt>Add support for:</dt><dd><ul>
-<li><p>Tuple</p></li>
-<li><p>dict with no-string keys</p></li>
 <li><p>dict with __class__ key (detecte and raise exception or construct speciale object for reconstruction)</p></li>
-<li><p>time.struct_time</p></li>
-<li><p>collections.Counter</p></li>
-<li><p>collections.OrderedDict</p></li>
-<li><p>collections.defaultdict</p></li>
-<li><p>namedtuples</p></li>
-<li><p>dataclass</p></li>
 <li><p>panda.dataframe</p></li>
+<li><p>singletons (__reduce__ returning a string)</p></li>
+<li><p>Metaclasses</p></li>
 </ul>
 </dd>
 </dl>
