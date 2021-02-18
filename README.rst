@@ -21,7 +21,7 @@ serializejson
 
 **serializejson**  is a python library for fast serialization and deserialization
 of python objects in `JSON <http://json.org>`_  designed as a safe, interoperable and human-readable drop-in replacement for the Python `pickle <https://docs.python.org/3/library/pickle.html>`_ package.
-Complex python object hierarchies are serializable, deserializable or updatable in once, allowing to save or restore a complete application state in few lines of code. 
+Complex python object hierarchies are serializable, deserializable or updatable in once, allowing for example to save or restore a complete application state in few lines of code. 
 The library is build upon 
 `python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_, 
 `pybase64 <https://github.com/mayeut/pybase64>`_ and 
@@ -156,7 +156,7 @@ License
         
 Copyright 2020 Baptiste de La Gorce
 
-For noncommercial use or limited free-trial period commercial use, this project is licensed under the `Prosperity Public License 3.0.0 <https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PROSPERITY.rst>`_. 
+For noncommercial use or thirty-day limited free-trial period commercial use, this project is licensed under the `Prosperity Public License 3.0.0 <https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PROSPERITY.rst>`_. 
 
 For non limited commercial use, this project is licensed under the `Patron License 1.0.0 <https://github.com/SmartAudioTools/serializejson/blob/master/LICENSE-PATRON.rst>`_. 
 To acquire a license please `contact me <mailto:contact@smartaudiotools.com>`_, or just `sponsor me on GitHub <https://github.com/sponsors/SmartAudioTools>`_ under the appropriate tier ! This funding model helps me making my work sustainable and compensates me for the work it took to write this crate!
