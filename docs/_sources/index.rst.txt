@@ -53,24 +53,33 @@ Custom object serialization
 ===========================
 
 
+.. _Method-1-label:
 
+Method 1: Adding pickle methods to object for custom serialization
+------------------------------------------------------------------
 
-Method 1: Adding methods to object for custom serialization
------------------------------------------------------------
-
-    If you can add the required methods to you classes, this is the recommended method. 
-    serializejson uses the same methods as pickle and has exactly the same behavior 
-    as pickle if you use Encoder(attributes_filter = None) and Decoder(set_attributes = False).
+    If you can add the required methods directly to you classes code, this is the recommended method.
     If you finally chose to use pickle instead of serializejson, your implemented methods will still be useful.
+    serializejson uses the same methods as pickle and has exactly the same behavior 
+    as pickle if you use Encoder(strict_pickle = True) and Decoder(strict_pickle = True).
     
     Depending of strategy you choose for recreating or updating an object, you will need to implement 
     different methods:
        
-    .. py:function:: object.__reduce__() 
+    .. py:function:: object.__reduce__()  
     
         Code the `__reduce__()` method if you want to recreate your objects with `__init__()`.
-        You have to return a tuple with: class, init_args_tuple and optionally state depending 
-        on how you want to call `__init__()`. 
+        (or object.__reduce_ex__ if __reduce_ex__ as already be reimplemented in a base class, to overwrite it, python trying to call __reduce_ex__ first)
+        You have to return a tuple with: class, init_args_tuple and optionally state.
+        If state is a dictionary and `sort_keys=False`, elements will be restored in same order than given by __reduce__()
+        given you the possibility to fine tuning the order elements are restored . 
+        For predictable behavior, be careful to always sort state as you want, manually 
+        or in alphabetic order with serializejson.sorted_filtered_attributs(self)
+        If your object contains __slots__ and not __setstate__, 
+        state myst be a tuple (__dict__to_restore,__slots__dict_to_restore) for being able to 
+        seriazlie and deserialize your object with pickle.
+        The convenient function serializejson.sorted_filtered_attributs(self), filter, sorte and split __slot__ and __dict__ if needed for you . 
+        
         
         .. warning::
             
@@ -98,81 +107,76 @@ Method 1: Adding methods to object for custom serialization
             .. code-block:: python
             
                 def __reduce__(self):
-                        init_kwargs_dictionary = {"arg3":3}
-                        return apply,(self.__class__,None,init_kwargs_dictionary)
+                    init_kwargs_dictionary = {"arg3":3}
+                    return apply,(self.__class__,None,init_kwargs_dictionary)
                          
         
-        * Call `__init__()` with positional arguments and restore state from filtered attributes
+        * Call `__init__()` with positional arguments and restore state from attributes filtered and sorted alphabetically.
+        
         
             .. code-block:: python
             
+            
                 def __reduce__(self):
-                        init_args_tuple = (1,) # tuple with 1 element need comma
-                        return self.__class__, init_args_tuple, serializejson.filtered(self.__dict__)
+                    init_args_tuple = (1,) # tuple with 1 element need comma
+                    state = serializejson.__getstate__(self)
+                    return self.__class__, init_args_tuple, state
         
-        * Call `__init__()` with named arguments and restore state from filtered attributes 
+        * Call `__init__()` with named arguments and restore state from attributes filtered and sorted alphabetically.
         
             more robust if you change later the init args order, but you have to pip install apply
             
             .. code-block:: python
             
                 def __reduce__(self):
-                        init_kwargs_dictionary = {"arg3":3}
-                        return  apply,
-                                (self.__class__,None,init_kwargs_dictionary),
-                                serializejson.filtered(self.__dict__)
+                    init_kwargs_dictionary = {"arg3":3}
+                    state = serializejson.__getstate__(self)
+                    return  apply,
+                            (self.__class__,None,init_kwargs_dictionary),
+                            state
     
     .. py:function:: object.__getstate__() 
     
-    
         Code the `__getstate__()` method **without** `__reduce__()`
         if you do not want to call `__init__()` but only `__new__()` and you want to have 
-        a different behavior then serialize `self.__dict__` and `self.__slots__`.
+        a different behavior than serialize `self.__dict__` and `self.__slots__`  filtered (if `attributes_filter` is left at its default value \"_\") and sorted alphabetically .
         The `__getstate__()` method must return the state of the class as an object that will itself be serialized.
-        If `__setstate__()` is not available, the returned object must be a dictionary 
-        (elements will be restored as attributes) or `None`, otherwise the object can be any serializable object
-
+        If `__setstate__()` is not available, the returned object must be `None` or a dictionary.
+        Otherwise the object can be any serializable object.
+        If state is a dictionary and `sort_keys=False` (by default), elements will be restored in same order than given by __getstate__()
+        given you the possibility to fine tuning the order elements are restored . 
+        For predictable behavior, be careful to always sort state as you want, manually 
+        or in alphabetic order.
         
-        .. warning::
-        
-            if `__reduce __ ()` is implemented, `__getstate __()` will not be called
-        
-                
         .. code-block:: python
         
             def __getstate__(self):
-                state = serializejson.filtered(self.__dict__)
-        
+                return {"attribut_1" : "value_1","attribut_2" : "value_2",....}
 
+                  
+        You can use the helping function `serializejson.__getstate__(self)` in your `__getstate__` methode in order to select attribut to keep, add or remove, automaticaly sort_keys, filter attribut with "_", retrieve slots, properties, getters , and remove attribut with same value as default value. 
+       
+        .. code-block:: python
+        
+            def __getstate__(self):
+                return serializejson.__getstate__(self)
+        
+        
+        .. autofunction:: serializejson.__getstate__
+        
+        .. warning::   
+     
+            if `__reduce __ ()` is implemented and don't call `__getstate __()` himself, `__getstate __()` will not be called
+        
     
     .. py:function:: object.__setstate__(state)
     
         Code `__setstate__()` if you want to have other behavior than the default which 
         consists in just restoring attributes from state.
-        takes as parameter the object describing the state of the class and 
+        Takes as parameter the object describing the state of the class and 
         puts the instance back in the state it was in before serialization.
-        can possibly execute initialization code.
+        Can possibly execute initialization code.
         
-        .. note::
-        
-            If `__setstate __()` is not available, all elements of `self.__dict__`, `self.__slots__` or returned by `__getstate__()` (which in this case must return a dict) will be restored as attributes. 
-            
-            * Passively if `set_attribute = False` (like pickle) 
-            * actively with call of setters if `set_attribute = True` or `t_attribute = [..,your_object]`. In alphabetic order if `sort_keys=True` or in arbitrary order if `sort_keys=False`.    
-
-            We recommend to add the `__setstate__()` method to your object: 
-            
-            * If you want to call setter in a different order than alphabetic order.
-            * If you want to be robust to a attribute name change.
-            * If you want to be robust to this set_attribute parameter change. 
-            * If you want to avoid transitional states during setting of attribute one by one.
-            * If you want the same behavior than pickle, for being able to comme back to pickle.
-           
-            
-        * If there is restoring code depending of several elements of state, you should code `__setstate__()` to avoid transitional states during the restoration of attributes one by one.        
-        * If there is restoring code and you want a 100 % compatibility with pickle, you should put this code in `__setstate__()` for not depending of `set_attributes = True`.
-           
-    
         .. code-block:: python
         
             def __setstate__(self, state):
@@ -181,56 +185,90 @@ Method 1: Adding methods to object for custom serialization
                 # other initialization code 
                 ....
                 ....
-
-    .. _updatable-note-label:
-    .. _example:
-           
-    .. note::
          
-       
-        **If you want to make the object updatable:**
-        
-        * Save all needed information outside of `__init__` args when dumping:
+        You can use the helping function serializejson.__setstate__(self) in order to automaticaly call propertie's setters and setters.
             
-            * put all needed information for an update in state (returned by `__getstate__()` or in third position by `__reduce__()`), because `__init__()` will not be called when updating, and all init arguments will be discarded. 
-            * minimize information redundancy for `__init__()` that is already in state (returned in second position by `__reduce__()`
-            * you can remove calls to `__init__()` using `__getsate__()` instead of `__reduce__()`, if you don't need to execute code in `__init__()` anymore when creating objects, because all the required initialization code is already in `__setstate__()` or setters.
-
-               
-        * Allow restoration of this information:
-        
-            * In `__setstate__()` method called with the state.
-            
-                - If you want to call setter in a different order than alphabetic order.
-                - If you want to be robust to a attribute name change or set_attribute parameter change. 
-                - If you want to avoid transitional states during setting of attribute one by one.
-
-            * Otherwise all the elements of the state dictionary will be restored as attributes. 
-            
-                - Passively if `set_attribute = False` (like pickle). 
-                - Actively with call of setters, if set_attribute=True or `set_attribute=[your_object]` (in alphabetic order if `sort_keys=True` or in random order if `sort_keys=False`). ⚠ You must be sure to ever call load with `set_attributes = True` (or [...,object]) or add a plugin for these objects with `set_attributes = [object]`
-
-
-
-
-
-
-Method 2: Adding plugins to serializejson
------------------------------------------
-    .. _add-plugins-label:
-
-    You have the possibility to add plugins to the serializejson module if you do not want or cannot add methods to 
-    the classes corresponding to the objects you want to serialize. 
-    
-    **1. Create serializejson/plugins/module_name.py** 
-        with the same name as the module containing your object. 
-        
-    **2. Import this module in serializejson/plugins/__init__.py**
         .. code-block:: python
         
-            from . import module_name
+            def __setstate__(self, state):
+                serializejson.__setstate__(self,state,properties = True, setters = True)
+                
+        .. autofunction:: serializejson.__setstate__
+        
+        .. note::
+        
+            If `__setstate __()` is not available, all elements of `self.__dict__`, `self.__slots__` 
+            or returned by `__getstate__()` or `__reduce__()` (which in this case must return a dict) will be restored as attributes. 
             
-    **3. make imports in a try in your module_name.py** 
+            * Passively if Encoder or load have parameters `setters = False` and `properties = False` or `strict_pickle = True`  (like pickle) 
+            * actively with call of properties setters  if `properties = True` or `properties = [..,your_object]`. 
+            * actively with call of setters if `setters = True` or `setters = [..,your_object]`. 
+            * In order given by __gestate__() or __reduce__() (if `sort_keys=False`),
+            * Otherwise in alphabetic order (event if `sort_keys=False`).    
+
+            We recommend to add the `__setstate__()` method to your object: 
+            
+            * If you want to call setter in a different order than alphabetic order and you don't want to code __state__() or _reduce__() for that purpose.
+            * If you want to be robust to a attribute name change.
+            * If you want to be robust to the dump's set_attribute parameter change. 
+            * If you want to avoid transitional states during setting of attribute one by one.
+            * If you want the same behavior than pickle, for being able to comme back to pickle.
+            * If there is restoring code depending of several elements of state, you should code `__setstate__()` to avoid transitional states during the restoration of attributes one by one.        
+            * If there is restoring code and you want a 100 % compatibility with pickle, you should put this code in `__setstate__()` for not depending of `setters = True` and `properties = True`.
+               
+        
+Method 2: Adding plugin to pickle for custom serialization
+-----------------------------------------------------------
+    If you can't or won't add __reduce__, __gestate__ or __setstate__ methodes directly into your object code,
+    you have to write a module that you will import after serializejson (or pickle if you want to use pickle), 
+    named for exemple "pickle_Module.py" if you want to patch obects of "Module".  
+    
+    In this module, you can either : 
+    
+    * add dynamicaly __reduce__, __gestate__ or __setstate__ methodes to your objet by monkey patching :
+    
+        See ref:`"Method 1"<Method-1-label>` for methods details. This will allow all inheriting object to benefit of this methods and to be directly serializable
+    
+        .. code-block:: python
+        
+            import MyModule
+            def MyObject__reduce__(self):
+                return self.__class__,("init_arg1","init_arg1"),None
+            # Method dynamicaly added to your objet by monkey patching 
+            MyModule.MyObject.__reduce__  = MyObject__reduce__ 
+    
+    * add `__reduce__` to the `copyreg.dispatch_table` dictionnary :
+    
+        This function will be called by pickle or serializejson to serialialize this specific class type, all inheriting classes **will not** benefit of this plugin. If you want to use it for inheriting classes, you have to add this `__reduce__` fonction for each of your inheriting classes in `dispatch_table`.
+         
+        .. code-block:: python
+        
+            from copyreg import dispatch_table
+            import MyModule
+            def MyObject__reduce__(self):
+                return self.__class__,("init_arg1","init_arg1"),None
+            dispatch_table[MyModule.MyObject] = MyObject__reduce__
+            
+
+Method 3: Adding plugins to serializejson for custom serialization
+------------------------------------------------------------------
+    .. _add-plugins-label:
+
+    If you don't care about making your object pickable or if your object is already pickable
+    but want a different behavior than pickle for serializejson (because serialization in json is to verbose or not easly readable)
+    you have the possibility to add plugins specifialy for serializejson's serialization.
+    
+    **1. Create a plugin module `serializejson_module_name.py`** 
+         with module_name the name of of the module containing your object. 
+         and import it after serializejson in your code. 
+        
+        .. code-block:: python
+         
+            import serializejson
+            import serializejson_module_name 
+
+            
+    **3. make imports in in your `serializejson_module_name.py`** 
     
        .. code-block:: python
        
@@ -238,29 +276,135 @@ Method 2: Adding plugins to serializejson
                 import module_name
             except ModuleNotFoundError: 
                 pass 
+            else : 
+                from serializejson import (
+                        # encoding -------------
+                        dispatch_table,      # pickle plugins 
+                                             # (used if not serializejson plugin or methode)
+                        serializejson_,      # serializejson plugins  
+                        encoder_parameters,  # encoder extra parameters for plugins, 
+                                             # with their default value
+                        getters = {}         # getters for dumped classes.  
+                                             # keys are classes
+                                             # values are True (for automatic getters detection) 
+                                             # or dictionnary of {"attribut" : "getAttribut" }
+                        # encoding and decoding -------
+                        properties = {}      # properties for dumped and loaded classes. 
+                                             # keys are classes
+                                             # values are True (for automatic properties detection) 
+                                             # or list of ["attribut1","attribut2",..]}
+                        # decoding ---------------------
+                        authorized_classes,  # qualified names of classes autorized to be loaded  
+                        setters,             # setters for loaded classes. 
+                                             # keys are classes
+                                             # values are True (for automatic setters detection) 
+                                             # or dictionnary of {"attribut" : "setAttribut" }
+                        constructors,        # custom construtors for loaded classes. 
+                                             # keys are string corresponding to the class qualified name,
+                                             # value is the constructor 
+                        decoder_parameters,  # decoder extra parameters for plugins 
+                                             # with their default value
+                        )  
+                        
+                        
+    **5. Authorize automaticaly classes to be loaded without having to precise it in the Decoder's or load's `authorized_classes` parameter.** 
         
-    **4. Create functions named "tuple_from_XXX"**
-        in module_name.py for each objects of your module, with XXX the name of the class. 
-    
-        .. autofunction:: serializejson.plugins.module_name.tuple_from_XXX
+        .. warning::
+        
+            be very carreful to automaticaly authorize only inoffensive object that can't be used alone or in combinaison of other authorized objects for malicious code! 
+      
 
-    **5. Automatically add parameters to Encoder, dump and dumps for control your plugins options**
+        .. code-block:: python
+        
+            authorized_classes.update({
+                    "MyModule.XXX",
+                    "MyModule.YYY",
+                    "MyModule.ZZZ",
+                    })
+        
+        
+    **4. Create functions named `XXX_serializejson`**
+        in serializejson_module_name.py for each objects of your module, with XXX the name of the class. 
+        This functions must return all needed info for your object's serialization in a tuple. 
+    
+        .. autofunction:: serializejson.plugins.module_name.XXX_serializejson
+
+
+       **. add dynamicaly this function as `__serializejson__` method to your class by monkey patching.** This will allow all inheriting object to benefit of this methods and to be directly serializable
+        
+            .. code-block:: python
+            
+                import MyModule
+                def XXX_serializejson(self):
+                    return self.__class__,{"init_arg1" : 1,"init_arg1" : 2},None
+                MyModule.XXX.__serializejson__  = XXX_serializejson # Method dynamicaly added to your objet by monkey patching 
+        
+            .. note:: 
+            
+                You can add this methode directly in your object's code , but 
+                it will make your object's code depending of serializejson if you use serializejson's functions like `serializejson.__gestate__`.                 
+                
+                
+        **. or add `XXX_serializejson` to the `serializejson_` dictionnary.** This function will be called by pickle or serializejson to serialialize this specific class type, all inheriting classes **will not** benefit of this plugin. If you want to use it for inheriting classes, you have to add this `XXX_serializejson` fonction for each of your inheriting classes in `serializejson_` dictionnary.
+    
+            
+            .. code-block:: python
+            
+                import MyModule
+                def XXX_serializejson(self):
+                    return self.__class__,{"init_arg1" : 1,"init_arg1" : 2},None
+                serializejson_[MyModule.XXX] = XXX_serializejson
+                
+    **5. Define class  properties and attributs getters and setters**
+
+        .. code-block:: python
+        
+        
+            properties[MyClass] = True # for automatic detection 
+            # or 
+            properties[MyClass] = {'property1','property2',...}
+        
+        
+            getters[MyClass] = True # for automatic detection 
+            # or 
+            setters[MyClass] = {'attribut_name':'getter_name',...}
+            
+            
+            setters[MyClass] = True # for automatic detection 
+            # or 
+            setters[MyClass] = {'attribut_name':'setter_name',...}
+        
+    **5. Automatically add new parameters to Encoder/dump/dumps or Decoder/load/loads for control your plugins options if needed**
        
+           
            .. code-block:: python
            
-                from serializejson import serialize_parameters
-                def tuple_from_XXX(obj):
-                    if serialize_parameters.module_name_option_name: 
+                from serializejson import serialize_parameters, encoder_parameters,
+                
+                def XXX_serializejson(self):
+                    if serialize_parameters.module_name_encoder_option_name: 
                         init_args = ...
                         state = ...
                     else: 
                         init_args = ...
                         state = ...
-                    return (obj.__class__,init_args,state)
-                encoder_plugins_parameters_default_values = {"module_name_option_name": False}
-            
+                    return (self.__class__,init_args,state)
+                MyModule.XXX.__serializejson__  = XXX_serializejson
+                encoder_parameters["module_name_encoder_option_name"] = False # record parameter and set default value 
+                
+                
+                def XXX_setstate(self,state)
+                    if serialize_parameters.module_name_decoder_option_name: 
+                        init_args = ...
+                        state = ...
+                    else: 
+                        init_args = ...
+                        state = ...
+                    return (self.__class__,init_args,state)    
+                MyModule.XXX.__setstate__  = XXX_setstate
+                encoder_parameters["module_name_decoder_option_name"] = False # record parameter and set default value 
         
-        You can now use these options for Encoding: 
+        You can now use thesse optionss for encoding en decoding: 
         
             .. code-block:: python
     
@@ -268,37 +412,93 @@ Method 2: Adding plugins to serializejson
                 import module_name 
                 obj = module_name.XXX()
                 # Function API 
-                print(serializejson.dumps(obj,module_name_option_name = True))
+                dumped = serializejson.dumps(obj,module_name_encoder_option_name = True)
+                print(dumped)
+                
                 # Class API
-                encoder = serializejson.Encoder(module_name_option_name = True)
+                encoder = serializejson.Encoder(module_name_encoder_option_name = True)
                 print(encoder.dumps(obj))
                 
+                # Function API 
+                print(serializejson.loads(dumped,module_name_decoder_option_name = True))
+                # Class API
+                decoder = serializejson.Decoder(module_name_decoder_option_name = True)
+                print(encoder.loads(dumped))
+            
+    **5. Customise the constructor, if needed** 
+  
+          By default the json "__class__" field correspond to the class .
+          but sometimes you want to use a different constructor without changing the json "__class__" field 
 
-                
-        
-    **5. Add "tuple_from_module_class_str" dictionary in your module_name.py** 
-        if some of your classes are in submodules. 
-        Otherwise this dictionary will be automatically constructed by serializejson 
-        when loading plugins, considering that all object are in the root module. 
+            .. code-block:: python
     
-        .. code-block:: python
-        
-            tuple_from_module_class_str = {
-                "module_name.submodule.XXX": tuple_from_XXX,
-                "module_name.submodule.YYY": tuple_from_YYY,
-            }    
-        
-    **6. Add a "set_attributes" list if you want to call objects attributes setters**
-        like `set_attribute1`, `setattribute1` or `attribute1` property setter, when loading json add a with qualified names of concerned objects. 
-        
-        .. code-block:: python
+              
+                constructors['my_module.XXX'] = constuctor # class or function called for object creation you should use `self.__class__` or string `"module.submodule.name"`
 
-            set_attributes = ["module_name.XXX","module_name.YYY"]
+            
+          Or sometimes want to customize both serialized __class__ name and constructor : 
+            
+            .. code-block:: python
+            
+                import MyModule
+                def XXX_serializejson(self):
+                    return "custom_name",{"init_arg1" : 1,"init_arg1" : 2},None
+                MyModule.XXX.__serializejson__  = XXX_serializejson 
+                constructors['custom_name'] = constuctor # class or function called for object creation you should use `self.__class__` or string `"module.submodule.name"`
 
-        
+                    
     **7. Share your plugin with serializejson developer**
     
         if your plugin is for a wild user library, for include in serializejson next release.
+        Avoiding you to manualy import it after `import serializejson` each time you want to use it. 
+
+
+
+Object Update
+=============
+
+
+
+    **Updating an object** consists in restoring its state recursively.
+
+    * Neither `__new__()` or  `__init__()` will be called.
+    * All childrens of `updatables_classes` will be updated, otherwise will be recreated.
+    * If the object has a `__setstate__()` method, this method will be called with the state.
+    * Otherwise all the elements of the state dictionary will be restored as attributes. Passively if `set_attribute = False` (like pickle). Actively if `set_attribute=True` or `set_attribute=[your object's class]`, with call of setters (in alphabetic order if `sort_keys=True` or in random order if `sort_keys=False`).
+
+    .. warning::
+
+        You must make sure to have all the needed information in the state and not in the `__init__` args that will be discarded when updating.
+        See documentation section: ref:`"If you want to make the object updatable"<updatable-note-label>`.
+
+
+
+    .. _updatable-note-label:
+    .. _example:
+           
+
+       
+    **If you want to make the object updatable:**
+    
+    * Save all needed information outside of `__init__` args when dumping:
+        
+        * put all needed information for an update in state (returned by `__getstate__()` or in third position by `__reduce__()`), because `__init__()` will not be called when updating, and all init arguments will be discarded. 
+        * minimize information redundancy for `__init__()` that is already in state (returned in second position by `__reduce__()`
+        * you can remove calls to `__init__()` using `__getsate__()` instead of `__reduce__()`, if you don't need to execute code in `__init__()` anymore when creating objects, because all the required initialization code is already in `__setstate__()` or setters.
+
+           
+    * Allow restoration of this information:
+    
+        * In `__setstate__()` method called with the state.
+        
+            - If you want to call setter in a different order than alphabetic order or the order given by __reduce__() or __getstate__()
+            - If you want to be robust to a attribute name change or set_attribute parameter change. 
+            - If you want to avoid transitional states during setting of attribute one by one.
+
+        * Otherwise all the elements of the state dictionary will be restored as attributes. 
+        
+            - Passively if `set_attribute = False` (like pickle). 
+            - Actively with call of setters, if set_attribute=True or `set_attribute=[your_object]` (in alphabetic order or in the order given by __reduce__() or __getstate__()). ⚠ You must be sure to ever call load with `set_attributes = True` (or [...,object]) or add a plugin for these objects with `set_attributes = [object]`
 
 
 

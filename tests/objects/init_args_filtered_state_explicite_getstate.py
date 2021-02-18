@@ -18,7 +18,7 @@ class C_SaveArgInit_filter:
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
-    def __getstate__(self):
+    def getstate(self):
         log("        __getstate__ : {}")
         return {}
 
@@ -35,7 +35,7 @@ class C_SaveDict_SaveArgInit_filter_RestoreNothing:  # ne sert pas à grand chos
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
-    def __getstate__(self):
+    def getstate(self):
         state = sorted_filtered(self.__dict__)
         log("        __getstate__ : " + repr(state))
         return state
@@ -57,7 +57,7 @@ class C_SaveDict_SaveArgInit_RestoreDict_filter:
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
-    def __getstate__(self):
+    def getstate(self):
         state = sorted_filtered(self.__dict__)
         log("        __getstate__ : " + repr(state))
         return state
@@ -75,7 +75,7 @@ class C_SaveDict_SaveArgInit_SetState_filter:  # sert a pouvoir executer code sp
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
-    def __getstate__(self):
+    def getstate(self):
         state = sorted_filtered(self.__dict__)
         log("        __getstate__ : " + repr(state))
         return state

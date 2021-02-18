@@ -20,7 +20,7 @@ class C_SaveNothing_DefaultInit:
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
-    def __getstate__(self):
+    def getstate(self):
         log("        __getstate__ : {}")
         return {}
 
@@ -32,7 +32,7 @@ class C_SaveDict_DefaultInit_RestoreNothing:  # ne sert pas à grand chose , sau
         self._par1 = par1
 
     def __reduce__(self):
-        reduce = self.__class__, (), __getstate__(self, filter_=None)
+        reduce = self.__class__, (), getstate(self, filter_=None)
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
@@ -48,7 +48,7 @@ class C_SaveDict_DefaultInit_RestoreDict:
         self._par1 = par1
 
     def __reduce__(self):
-        reduce = self.__class__, (), __getstate__(self, filter_=None)
+        reduce = self.__class__, (), getstate(self, filter_=None)
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
@@ -60,7 +60,7 @@ class C_SaveDict_DefaultInit_SetState:  # sert a pouvoir executer code spécifiq
         self._par1 = par1
 
     def __reduce__(self):
-        reduce = self.__class__, (), __getstate__(self, filter_=None)
+        reduce = self.__class__, (), getstate(self, filter_=None)
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
@@ -80,7 +80,7 @@ class C_GetState_DefaultInit_RestoreState:
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
-    def __getstate__(self):
+    def getstate(self):
         state = {"keySaved": "ValueSaved"}
         log("        __getstate__ : " + repr(state))
         return state
@@ -97,7 +97,7 @@ class C_GetState_DefaultInit_SetState:
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
-    def __getstate__(self):
+    def getstate(self):
         state = "stateSaved"
         log("        __getstate__ : " + repr(state))
         return state

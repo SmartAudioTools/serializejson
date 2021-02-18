@@ -71,15 +71,15 @@ Method 1: Adding pickle methods to object for custom serialization
         Code the `__reduce__()` method if you want to recreate your objects with `__init__()`.
         (or object.__reduce_ex__ if __reduce_ex__ as already be reimplemented in a base class, to overwrite it, python trying to call __reduce_ex__ first)
         You have to return a tuple with: class, init_args_tuple and optionally state.
-		If state is a dictionary and `sort_keys=False`, elements will be restored in same order than given by __reduce__()
-		given you the possibility to fine tuning the order elements are restored . 
-		For predictable behavior, be careful to always sort state as you want, manually 
-		or in alphabetic order with serializejson.sorted_filtered_attributs(self)
-		If your object contains __slots__ and not __setstate__, 
-		state myst be a tuple (__dict__to_restore,__slots__dict_to_restore) for being able to 
-		seriazlie and deserialize your object with pickle.
-		The convenient function serializejson.sorted_filtered_attributs(self), filter, sorte and split __slot__ and __dict__ if needed for you . 
-		
+        If state is a dictionary and `sort_keys=False`, elements will be restored in same order than given by __reduce__()
+        given you the possibility to fine tuning the order elements are restored . 
+        For predictable behavior, be careful to always sort state as you want, manually 
+        or in alphabetic order with serializejson.sorted_filtered_attributs(self)
+        If your object contains __slots__ and not __setstate__, 
+        state myst be a tuple (__dict__to_restore,__slots__dict_to_restore) for being able to 
+        seriazlie and deserialize your object with pickle.
+        The convenient function serializejson.sorted_filtered_attributs(self), filter, sorte and split __slot__ and __dict__ if needed for you . 
+        
         
         .. warning::
             
@@ -137,44 +137,45 @@ Method 1: Adding pickle methods to object for custom serialization
     
     .. py:function:: object.__getstate__() 
     
-    
         Code the `__getstate__()` method **without** `__reduce__()`
         if you do not want to call `__init__()` but only `__new__()` and you want to have 
         a different behavior than serialize `self.__dict__` and `self.__slots__`  filtered (if `attributes_filter` is left at its default value \"_\") and sorted alphabetically .
         The `__getstate__()` method must return the state of the class as an object that will itself be serialized.
         If `__setstate__()` is not available, the returned object must be `None` or a dictionary.
-		Otherwise the object can be any serializable object.
-		If state is a dictionary and `sort_keys=False` (by default), elements will be restored in same order than given by __getstate__()
-		given you the possibility to fine tuning the order elements are restored . 
-		For predictable behavior, be careful to always sort state as you want, manually 
-		or in alphabetic order.
-		
-     .. code-block:: python
+        Otherwise the object can be any serializable object.
+        If state is a dictionary and `sort_keys=False` (by default), elements will be restored in same order than given by __getstate__()
+        given you the possibility to fine tuning the order elements are restored . 
+        For predictable behavior, be careful to always sort state as you want, manually 
+        or in alphabetic order.
+        
+        .. code-block:: python
         
             def __getstate__(self):
                 return {"attribut_1" : "value_1","attribut_2" : "value_2",....}
-   
-     .. warning::   
-            if `__reduce __ ()` is implemented and don't call `__getstate __()` himself, `__getstate __()` will not be called
-        
+
                   
-        You can use the helping function serializejson.__getstate__(self) in your __getstate__ methode in order to select attribut to keep, add or remove, automaticaly sort_keys, filter attribut with "_", retrieve slots, properties, getters , and remove attribut with same value as default value. 
+        You can use the helping function `serializejson.__getstate__(self)` in your `__getstate__` methode in order to select attribut to keep, add or remove, automaticaly sort_keys, filter attribut with "_", retrieve slots, properties, getters , and remove attribut with same value as default value. 
        
         .. code-block:: python
         
             def __getstate__(self):
                 return serializejson.__getstate__(self)
         
+        
         .. autofunction:: serializejson.__getstate__
-            
+        
+        .. warning::   
+     
+            if `__reduce __ ()` is implemented and don't call `__getstate __()` himself, `__getstate __()` will not be called
+        
     
     .. py:function:: object.__setstate__(state)
     
         Code `__setstate__()` if you want to have other behavior than the default which 
         consists in just restoring attributes from state.
-        takes as parameter the object describing the state of the class and 
+        Takes as parameter the object describing the state of the class and 
         puts the instance back in the state it was in before serialization.
-        can possibly execute initialization code.
+        Can possibly execute initialization code.
         
         .. code-block:: python
         
@@ -185,22 +186,25 @@ Method 1: Adding pickle methods to object for custom serialization
                 ....
                 ....
          
-          You can use the helping function serializejson.__setstate__(self) in order to automaticaly call propertie's setters and setters.
+        You can use the helping function serializejson.__setstate__(self) in order to automaticaly call propertie's setters and setters.
             
-         .. code-block:: python
+        .. code-block:: python
+        
             def __setstate__(self, state):
                 serializejson.__setstate__(self,state,properties = True, setters = True)
-        
+                
+        .. autofunction:: serializejson.__setstate__
         
         .. note::
         
             If `__setstate __()` is not available, all elements of `self.__dict__`, `self.__slots__` 
-			or returned by `__getstate__()` or `__reduce__()` (which in this case must return a dict) will be restored as attributes. 
+            or returned by `__getstate__()` or `__reduce__()` (which in this case must return a dict) will be restored as attributes. 
             
-            * Passively if `set_attribute = False` (like pickle) 
-            * actively with call of setters if `set_attribute = True` or `t_attribute = [..,your_object]`. 
-			* In order given by __gestate__() or __reduce__() (if `sort_keys=False`),
-			* Otherwise in alphabetic order (event if `sort_keys=False`).    
+            * Passively if Encoder or load have parameters `setters = False` and `properties = False` or `strict_pickle = True`  (like pickle) 
+            * actively with call of properties setters  if `properties = True` or `properties = [..,your_object]`. 
+            * actively with call of setters if `setters = True` or `setters = [..,your_object]`. 
+            * In order given by __gestate__() or __reduce__() (if `sort_keys=False`),
+            * Otherwise in alphabetic order (event if `sort_keys=False`).    
 
             We recommend to add the `__setstate__()` method to your object: 
             
@@ -209,62 +213,33 @@ Method 1: Adding pickle methods to object for custom serialization
             * If you want to be robust to the dump's set_attribute parameter change. 
             * If you want to avoid transitional states during setting of attribute one by one.
             * If you want the same behavior than pickle, for being able to comme back to pickle.
-           
-            
-        * If there is restoring code depending of several elements of state, you should code `__setstate__()` to avoid transitional states during the restoration of attributes one by one.        
-        * If there is restoring code and you want a 100 % compatibility with pickle, you should put this code in `__setstate__()` for not depending of `set_attributes = True`.
-           
-    
-
-
-    .. _updatable-note-label:
-    .. _example:
-           
-    .. note::
-         
-       
-        **If you want to make the object updatable:**
-        
-        * Save all needed information outside of `__init__` args when dumping:
-            
-            * put all needed information for an update in state (returned by `__getstate__()` or in third position by `__reduce__()`), because `__init__()` will not be called when updating, and all init arguments will be discarded. 
-            * minimize information redundancy for `__init__()` that is already in state (returned in second position by `__reduce__()`
-            * you can remove calls to `__init__()` using `__getsate__()` instead of `__reduce__()`, if you don't need to execute code in `__init__()` anymore when creating objects, because all the required initialization code is already in `__setstate__()` or setters.
-
+            * If there is restoring code depending of several elements of state, you should code `__setstate__()` to avoid transitional states during the restoration of attributes one by one.        
+            * If there is restoring code and you want a 100 % compatibility with pickle, you should put this code in `__setstate__()` for not depending of `setters = True` and `properties = True`.
                
-        * Allow restoration of this information:
         
-            * In `__setstate__()` method called with the state.
-            
-                - If you want to call setter in a different order than alphabetic order or the order given by __reduce__() or __getstate__()
-                - If you want to be robust to a attribute name change or set_attribute parameter change. 
-                - If you want to avoid transitional states during setting of attribute one by one.
-
-            * Otherwise all the elements of the state dictionary will be restored as attributes. 
-            
-                - Passively if `set_attribute = False` (like pickle). 
-                - Actively with call of setters, if set_attribute=True or `set_attribute=[your_object]`
-				(in alphabetic order or in the order given by __reduce__() or __getstate__()). ⚠ You must be sure to ever call load with `set_attributes = True` (or [...,object]) or add a plugin for these objects with `set_attributes = [object]`
-
-
-
 Method 2: Adding plugin to pickle for custom serialization
 -----------------------------------------------------------
     If you can't or won't add __reduce__, __gestate__ or __setstate__ methodes directly into your object code,
     you have to write a module that you will import after serializejson (or pickle if you want to use pickle), 
     named for exemple "pickle_Module.py" if you want to patch obects of "Module".  
+    
     In this module, you can either : 
     
-    **. add dynamicaly __reduce__, __gestate__ or __setstate__ methodes to your objet by monkey patching.**  See ref:`"Method 1"<Method-1-label>` for methods details. This will allow all inheriting object to benefit of this methods and to be directly serializable
+    * add dynamicaly __reduce__, __gestate__ or __setstate__ methodes to your objet by monkey patching :
+    
+        See ref:`"Method 1"<Method-1-label>` for methods details. This will allow all inheriting object to benefit of this methods and to be directly serializable
     
         .. code-block:: python
         
             import MyModule
             def MyObject__reduce__(self):
                 return self.__class__,("init_arg1","init_arg1"),None
-            MyModule.MyObject.__reduce__  = MyObject__reduce__ # Method dynamicaly added to your objet by monkey patching 
+            # Method dynamicaly added to your objet by monkey patching 
+            MyModule.MyObject.__reduce__  = MyObject__reduce__ 
     
-    **. add `__reduce__` to the `copyreg.dispatch_table` dictionnary.** This function will be called by pickle or serializejson to serialialize this specific class type, all inheriting classes **will not** benefit of this plugin. If you want to use it for inheriting classes, you have to add this `__reduce__` fonction for each of your inheriting classes in `dispatch_table`.
+    * add `__reduce__` to the `copyreg.dispatch_table` dictionnary :
+    
+        This function will be called by pickle or serializejson to serialialize this specific class type, all inheriting classes **will not** benefit of this plugin. If you want to use it for inheriting classes, you have to add this `__reduce__` fonction for each of your inheriting classes in `dispatch_table`.
          
         .. code-block:: python
         
@@ -304,21 +279,35 @@ Method 3: Adding plugins to serializejson for custom serialization
             else : 
                 from serializejson import (
                         # encoding -------------
-                        dispatch_table,          # pickle plugins (used by serializejson if not serializejson plugin or methode)
-                        serializejson_,          # serializejson plugins  
-                        encoder_parameters,      # encoder extra parameters for plugins, with their default value
-                        getters = {}             # getters for dumped classes. keys are string corresponding to the qualified name, values are True (for automatic getters detection) or dictionnary of {"attribut" : "getAttribut" }
+                        dispatch_table,      # pickle plugins 
+                                             # (used if not serializejson plugin or methode)
+                        serializejson_,      # serializejson plugins  
+                        encoder_parameters,  # encoder extra parameters for plugins, 
+                                             # with their default value
+                        getters = {}         # getters for dumped classes.  
+                                             # keys are classe.
+                                             # values are True (for automatic getters detection) 
+                                             # or dictionnary of {"attribut" : "getAttribut" }
                         # encoding and decoding -------
-                        properties = {}          # properties for dumped and loaded classes. keys are classes, values are True (for automatic properties detection) or list of ["attribut1","attribut2",..]}
+                        properties = {}      # properties for dumped and loaded classes. 
+                                             # keys are classes
+                                             # values are True (for automatic properties detection) 
+                                             # or list of ["attribut1","attribut2",..]}
                         # decoding ---------------------
-                        authorized_classes,      # qualified names of classes autorized to be loaded  
-                        setters,                 # setters for loaded classes. keys are string corresponding to the qualified name, values are True (for automatic setters detection) or dictionnary of {"attribut" : "setAttribut" }
-                        constructors,            # custom construtors for loaded classes. keys are string corresponding to the class qualified name, value is the constructor 
-                        decoder_parameters,      # decoder extra parameters for plugins with their default value
+                        authorized_classes,  # qualified names of classes autorized to be loaded  
+                        setters,             # setters for loaded classes. 
+                                             # keys are classes.
+                                             # values are True (for automatic setters detection) 
+                                             # or dictionnary of {"attribut" : "setAttribut" }
+                        constructors,        # custom construtors for loaded classes. 
+                                             # keys are string corresponding to the class qualified name,
+                                             # value is the constructor 
+                        decoder_parameters,  # decoder extra parameters for plugins 
+                                             # with their default value
                         )  
                         
                         
-    **5. Authorize automaticaly classes to be loaded without having to precise it in the Decoder's or load's `authorized_classes` parameter . 
+    **5. Authorize automaticaly classes to be loaded without having to precise it in the Decoder's or load's `authorized_classes` parameter.** 
         
         .. warning::
         
@@ -338,7 +327,7 @@ Method 3: Adding plugins to serializejson for custom serialization
         in serializejson_module_name.py for each objects of your module, with XXX the name of the class. 
         This functions must return all needed info for your object's serialization in a tuple. 
     
-        .. autofunction:: plugins.module_name._name.XXX_serializejson
+        .. autofunction:: serializejson.plugins.module_name.XXX_serializejson
 
 
        **. add dynamicaly this function as `__serializejson__` method to your class by monkey patching.** This will allow all inheriting object to benefit of this methods and to be directly serializable
@@ -462,6 +451,54 @@ Method 3: Adding plugins to serializejson for custom serialization
     
         if your plugin is for a wild user library, for include in serializejson next release.
         Avoiding you to manualy import it after `import serializejson` each time you want to use it. 
+
+
+
+Object Update
+=============
+
+
+
+    **Updating an object** consists in restoring its state recursively.
+
+    * Neither `__new__()` or  `__init__()` will be called.
+    * All childrens of `updatables_classes` will be updated, otherwise will be recreated.
+    * If the object has a `__setstate__()` method, this method will be called with the state.
+    * Otherwise all the elements of the state dictionary will be restored as attributes. Passively if `set_attribute = False` (like pickle). Actively if `set_attribute=True` or `set_attribute=[your object's class]`, with call of setters (in alphabetic order if `sort_keys=True` or in random order if `sort_keys=False`).
+
+    .. warning::
+
+        You must make sure to have all the needed information in the state and not in the `__init__` args that will be discarded when updating.
+        See documentation section: ref:`"If you want to make the object updatable"<updatable-note-label>`.
+
+
+
+    .. _updatable-note-label:
+    .. _example:
+           
+
+       
+    **If you want to make the object updatable:**
+    
+    * Save all needed information outside of `__init__` args when dumping:
+        
+        * put all needed information for an update in state (returned by `__getstate__()` or in third position by `__reduce__()`), because `__init__()` will not be called when updating, and all init arguments will be discarded. 
+        * minimize information redundancy for `__init__()` that is already in state (returned in second position by `__reduce__()`
+        * you can remove calls to `__init__()` using `__getsate__()` instead of `__reduce__()`, if you don't need to execute code in `__init__()` anymore when creating objects, because all the required initialization code is already in `__setstate__()` or setters.
+
+           
+    * Allow restoration of this information:
+    
+        * In `__setstate__()` method called with the state.
+        
+            - If you want to call setter in a different order than alphabetic order or the order given by __reduce__() or __getstate__()
+            - If you want to be robust to a attribute name change or set_attribute parameter change. 
+            - If you want to avoid transitional states during setting of attribute one by one.
+
+        * Otherwise all the elements of the state dictionary will be restored as attributes. 
+        
+            - Passively if `set_attribute = False` (like pickle). 
+            - Actively with call of setters, if set_attribute=True or `set_attribute=[your_object]` (in alphabetic order or in the order given by __reduce__() or __getstate__()). ⚠ You must be sure to ever call load with `set_attributes = True` (or [...,object]) or add a plugin for these objects with `set_attributes = [object]`
 
 
 

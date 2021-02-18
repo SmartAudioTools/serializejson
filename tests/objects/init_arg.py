@@ -55,7 +55,7 @@ class C_InitArg_SaveDict_RestoreNothing:  # ne sert pas à grand chose , sauf si
 
     def __reduce__(self):
         initArgs = ("savedArg1",)
-        reduce = self.__class__, initArgs, __getstate__(self, filter_=None)
+        reduce = self.__class__, initArgs, getstate(self, filter_=None)
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
@@ -72,7 +72,7 @@ class C_InitArg_SaveDict_RestoreDict:
 
     def __reduce__(self):
         initArgs = ("savedArg1",)
-        reduce = self.__class__, initArgs, __getstate__(self, filter_=None)
+        reduce = self.__class__, initArgs, getstate(self, filter_=None)
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
@@ -85,7 +85,7 @@ class C_InitArg_SaveDict_SetState:  # sert a pouvoir executer code specifique en
 
     def __reduce__(self):
         initArgs = ("savedArg1",)
-        reduce = self.__class__, initArgs, __getstate__(self, filter_=None)
+        reduce = self.__class__, initArgs, getstate(self, filter_=None)
         log("        __reduce__ : " + repr(reduce))
         return reduce
 

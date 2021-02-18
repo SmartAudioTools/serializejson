@@ -15,7 +15,7 @@ class C_New_SaveNothing_slots:
         self.par2 = par2
         self._par1 = par1
 
-    def __getstate__(self):
+    def getstate(self):
         log("        __getstate__ : {}")
         return None  # {}
 
@@ -68,7 +68,7 @@ class C_New_GetState_RestoreState_slots:
         self.par2 = par2
         self._par1 = par1
 
-    def __getstate__(self):
+    def getstate(self):
         state = {"par2": "ValueSaved"}
         log("        __getstate__ : " + repr(state))
         # return state
@@ -83,8 +83,8 @@ class C_New_GetState_RestoreState_slots_auto_getstate:
         self.par2 = par2
         self._par1 = par1
 
-    def __getstate__(self):
-        return __getstate__(self, filter_=None)
+    def getstate(self):
+        return getstate(self, filter_=None)
         # state = {'par2': 'ValueSaved'}
         # log('        __getstate__ : ' + repr(state))
         # return state
@@ -99,7 +99,7 @@ class C_New_GetState_RestoreState_slots:
         self.par2 = par2
         self._par1 = par1
 
-    def __getstate__(self):
+    def getstate(self):
         state = {"par2": "ValueSaved"}
         log("        __getstate__ : " + repr(state))
         # return state
@@ -114,7 +114,7 @@ class C_New_GetState_SetState_slots:
         self.par2 = par2
         self._par1 = par1
 
-    def __getstate__(self):
+    def getstate(self):
         state = "stateSaved"
         log("        __getstate__ : " + repr(state))
         return state

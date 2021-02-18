@@ -1,7 +1,7 @@
 import os
 
 try:
-    import SmartFramework.serialize.serializeJson as serializejson
+    import SmartFramework.serialize.serializejson as serializejson
 except ImportError:
     import serializejson
 

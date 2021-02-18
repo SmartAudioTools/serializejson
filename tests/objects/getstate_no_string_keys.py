@@ -9,7 +9,7 @@ class C_New_GetState_SetState_no_string_keys:
         self.par2 = par2
         self._par1 = par1
 
-    def __getstate__(self):
+    def getstate(self):
         state = {"keySaved": "ValueSaved", 1: 1}
         log("        __getstate__ : " + repr(state))
         return state
@@ -25,7 +25,7 @@ class C_New_GetState_SetState_no_string_keys:
         self.par2 = par2
         self._par1 = par1
 
-    def __getstate__(self):
+    def getstate(self):
         state = {"keySaved": "ValueSaved",1:1}
         log("        __getstate__ : " + repr(state))
         return state"""

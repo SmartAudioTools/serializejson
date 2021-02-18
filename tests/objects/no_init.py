@@ -9,7 +9,7 @@ class C_New_SaveNothing:
         self.par2 = par2
         self._par1 = par1
 
-    def __getstate__(self):
+    def getstate(self):
         log("        __getstate__ : {}")
         return None  # {}
 
@@ -49,7 +49,7 @@ class C_New_GetState_RestoreState:
         self.par2 = par2
         self._par1 = par1
 
-    def __getstate__(self):
+    def getstate(self):
         state = {"keySaved": "ValueSaved"}
         log("        __getstate__ : " + repr(state))
         return state
@@ -61,7 +61,7 @@ class C_New_GetState_SetState:
         self.par2 = par2
         self._par1 = par1
 
-    def __getstate__(self):
+    def getstate(self):
         state = "stateSaved"
         log("        __getstate__ : " + repr(state))
         return state
@@ -77,7 +77,7 @@ class C_New_GetState_SetState_tuple:
         self.par2 = par2
         self._par1 = par1
 
-    def __getstate__(self):
+    def getstate(self):
         state = (self._par1, self.par2)
         log("        __getstate__ : " + repr(state))
         return state

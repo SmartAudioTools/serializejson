@@ -28,7 +28,7 @@ class C_InitDefault_SaveDict_RestoreNothing:  # ne sert pas à grand chose , sau
         self._par1 = par1
 
     def __reduce__(self):
-        reduce = self.__class__, (), __getstate__(self, filter_=None)
+        reduce = self.__class__, (), getstate(self, filter_=None)
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
@@ -44,7 +44,7 @@ class C_InitDefault_SaveDict_RestoreDict:
         self._par1 = par1
 
     def __reduce__(self):
-        reduce = self.__class__, (), __getstate__(self, filter_=None)
+        reduce = self.__class__, (), getstate(self, filter_=None)
         log("        __reduce__ : " + repr(reduce))
         return reduce
 
@@ -56,7 +56,7 @@ class C_InitDefault_SaveDict_SetState:  # sert a pouvoir executer code spécifiq
         self._par1 = par1
 
     def __reduce__(self):
-        reduce = self.__class__, (), __getstate__(self, filter_=None)
+        reduce = self.__class__, (), getstate(self, filter_=None)
         log("        __reduce__ : " + repr(reduce))
         return reduce
 

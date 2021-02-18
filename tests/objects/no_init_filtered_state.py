@@ -10,7 +10,7 @@ class C_New_SaveNothing:
         self.par2 = par2
         self._par1 = par1
 
-    def __getstate__(self):
+    def getstate(self):
         log("        __getstate__ : {}")
         return {}
 
@@ -21,7 +21,7 @@ class C_New_SaveFilteredDict_RestoreNothing:  # ne sert pas à grand chose , sau
         self.par2 = par2
         self._par1 = par1
 
-    def __getstate__(self):
+    def getstate(self):
         state = sorted_filtered(self.__dict__)
         log("        __getstate__ : " + repr(state))
         return state
@@ -37,7 +37,7 @@ class C_New_SaveFilteredDict_RestoreDict:
         self.par2 = par2
         self._par1 = par1
 
-    def __getstate__(self):
+    def getstate(self):
         state = sorted_filtered(self.__dict__)
         log("        __getstate__ : " + repr(state))
         return state
@@ -49,7 +49,7 @@ class C_New_SaveFilteredDict_SetState:  # sert a pouvoir executer code spécifiq
         self.par2 = par2
         self._par1 = par1
 
-    def __getstate__(self):
+    def getstate(self):
         state = sorted_filtered(self.__dict__)
         log("        __getstate__ : " + repr(state))
         return state

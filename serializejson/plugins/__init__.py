@@ -7,3 +7,5 @@ from . import serializejson_numpy
 from . import serializejson_PyQt5_PySide2
 from . import serializejson_datetime
 from . import serializejson_array
+
+from . import module_name

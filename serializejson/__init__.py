@@ -204,6 +204,7 @@ from . import serialize_parameters
 print("coucou")
 from .tools import (
     __getstate__,
+    __setstate__,
     instance,
     tuple_from_instance,
     class_str_from_class,
@@ -388,11 +389,11 @@ class Encoder(rapidjson.Encoder):
             - False: add properties to none classes (as pickle)
             - True : add properties for all classes
             - None : (default) add properties defined in serializejson.properties dict (added by plugins or manualy before encoder call)
-                     (see documentation section: ref:`"Add plugins to serializejson"<add-plugins-label>`. )
+            (see documentation section: ref:`"Add plugins to serializejson"<add-plugins-label>`. )
             - set/list/tuple :  add all properties for classes in this set/list/tuple, in addition to properties defined in serializejson.properties dict
-                    [class1, class2,..] (not secure if unstruted json, use it only for debuging)
+            [class1, class2,..] (not secure if unstruted json, use it only for debuging)
             - dict :  add properties defined in dict, in addition to properties defined in serializejson.properties dict
-                    {class1 : ["propertie1","propertie1"], class2: True}
+            {class1 : ["propertie1","propertie1"], class2: True}
 
             Use it temporarily.
             - In order to stay compatible with pickle,
@@ -413,15 +414,14 @@ class Encoder(rapidjson.Encoder):
             False: add getters to none classes
             True : add getters for all classes
             set/list/tuple : add getters for this classes
-
             - False: save no other getters than thus called in __getstate__ methodes, like pickle.
             - True : save getters for all objects
             - None : (default) save getters defined in serializejson.getter dict (added by plugins or manualy before encoder call)
-                     (see documentation section: ref:`"Add plugins to serializejson"<add-plugins-label>`. )
+            (see documentation section: ref:`"Add plugins to serializejson"<add-plugins-label>`. )
             - set/list/tuple : save getters for classes in set/list/tuple, in addition to getters defined in serializejson.setters dict
-                    [class1, class2,..] (not secure if unstruted json, use it only for debuging)
+            [class1, class2,..] (not secure if unstruted json, use it only for debuging)
             - dict : save getters defined in dict, in addition to getters defined in serializejson.getters dict
-                    {class1 : {"attribut_name":"getter_name",...}, class2: True}
+            {class1 : {"attribut_name":"getter_name",...}, class2: True}
 
             Use it temporarily.
             - In order to stay compatible with pickle,
@@ -559,7 +559,7 @@ class Encoder(rapidjson.Encoder):
             - disabling numpy_array_to_list
             - disabling numpy_types_to_python_types
             - keeping __dict__ and __slots__ separated in a tuple if both, instead of merge them in a dictionnary
-              (you should prepare __setstat__ methods to receive both a tuple or a dictionnary)
+            (you should prepare __setstat__ methods to receive both a tuple or a dictionnary)
             - making same checks than pickle
             - raising the sames Errors than pickle
 
@@ -1125,11 +1125,11 @@ class Decoder(rapidjson.Decoder):
             - False: call properties setters for none classes (as pickle)
             - True : (default) call properties setters for all classes
             - None : call only properties setters defined in serializejson.properties dict (added by plugins or manualy before decoder call)
-                     (see documentation section: ref:`"Add plugins to serializejson"<add-plugins-label>`. )
+            (see documentation section: ref:`"Add plugins to serializejson"<add-plugins-label>`. )
             - set/list/tuple : call all properties setters for classes in this set/list/tuple, in addition to properties defined in serializejson.properties dict
-                    [class1, class2,..] (not secure if unstruted json, use it only for debuging)
+            [class1, class2,..] (not secure if unstruted json, use it only for debuging)
             - dict : call properties setters defined in dict, in addition to properties defined in serializejson.properties dict
-                    {class1 : ["propertie1","propertie1"], class2: True}
+            {class1 : ["propertie1","propertie1"], class2: True}
 
 
             .. warning::
@@ -1156,11 +1156,11 @@ class Decoder(rapidjson.Decoder):
             - False: call no other setters than thus called in __setstate__ methodes, like pickle.
             - True : (default) explore and call all setters for all objects (not secure if unstruted json, use it only for debuging)
             - None : call only setters defined in serializejson.setters dict (added by plugins or manualy before decoder call)
-                     (see documentation section: ref:`"Add plugins to serializejson"<add-plugins-label>`. )
+            (see documentation section: ref:`"Add plugins to serializejson"<add-plugins-label>`. )
             - set/list/tuple : explore and call setters classes in set/list/tuple, in addition to setters defined in serializejson.setters dict
-                    [class1, class2,..] (not secure if unstruted json, use it only for debuging)
+            [class1, class2,..] (not secure if unstruted json, use it only for debuging)
             - dict : call setters defined in dict, in addition to setters defined in serializejson.setters dict
-                    {class1 : {"attribut_name":"setter_name",...}, class2: True}
+            {class1 : {"attribut_name":"setter_name",...}, class2: True}
 
             .. warning::
                 **The attribute's setters are called in the json order !**
@@ -1290,23 +1290,6 @@ class Decoder(rapidjson.Decoder):
                 the json string.
             obj (optional):
                 If provided, the object `obj` will be updated and no new object will be created.
-
-
-                .. note::
-
-                    **Updating an object** consists in restoring its state recursively.
-
-                    * Neither `__new__()` or  `__init__()` will be called.
-                    * All childrens of `updatables_classes` will be updated, otherwise will be recreated.
-                    * If the object has a `__setstate__()` method, this method will be called with the state.
-                    * Otherwise all the elements of the state dictionary will be restored as attributes. Passively if `set_attribute = False` (like pickle). Actively if `set_attribute=True` or `set_attribute=[your object's class]`, with call of setters (in alphabetic order if `sort_keys=True` or in random order if `sort_keys=False`).
-
-                .. warning::
-
-                    You must make sure to have all the needed information in the state and not in the `__init__` args that will be discarded when updating.
-                    See documentation section: ref:`"If you want to make the object updatable"<updatable-note-label>`.
-
-
 
         Return:
             created object or updated object if passed obj.

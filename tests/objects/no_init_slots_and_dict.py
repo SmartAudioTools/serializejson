@@ -21,7 +21,7 @@ class C_New_SaveNothing_slots_and_dict:
         self.par3 = par3
         self._par4 = par4
 
-    def __getstate__(self):
+    def getstate(self):
         log("        __getstate__ : {}")
         return None  # {}
 
@@ -104,8 +104,8 @@ class C_New_GetState_RestoreState_slots_and_dict_auto_gestate:
         self.par3 = par3
         self._par4 = par4
 
-    def __getstate__(self):
-        return __getstate__(self, filter_=None)
+    def getstate(self):
+        return getstate(self, filter_=None)
         # __dict__ = {'par2': 'ValueSaved'}
         # __slots__= {'_par1': 'ValueSaved2'}
         # log('        __getstate__ : ' + repr((__dict__,__slots__)))
@@ -123,8 +123,8 @@ class C_New_GetState_RestoreState_slots_and_dict1:
         self.par3 = par3
         self._par4 = par4
 
-    def __getstate__(self):
-        # return __getstate__(self,filter_=None)
+    def getstate(self):
+        # return getstate(self,filter_=None)
         __dict__ = {"par2": "ValueSaved"}
         __slots__ = {"_par1": "ValueSaved2"}
         log("        __getstate__ : " + repr((__dict__, __slots__)))
@@ -142,7 +142,7 @@ class C_New_GetState_RestoreState_slots_and_dict2:
         self.par3 = par3
         self._par4 = par4
 
-    def __getstate__(self):
+    def getstate(self):
         __dict__ = None
         __slots__ = {"_par1": "ValueSaved2"}
         log("        __getstate__ : " + repr((__dict__, __slots__)))
@@ -160,7 +160,7 @@ class C_New_GetState_RestoreState_slots_and_dict3:
         self.par3 = par3
         self._par4 = par4
 
-    def __getstate__(self):
+    def getstate(self):
         __dict__ = {"par2": "ValueSaved"}
         __slots__ = {}
         log("        __getstate__ : " + repr((__dict__, __slots__)))
@@ -178,7 +178,7 @@ class C_New_GetState_SetState_slots_and_dict:
         self.par3 = par3
         self._par4 = par4
 
-    def __getstate__(self):
+    def getstate(self):
         state = "stateSaved"
         log("        __getstate__ : " + repr(state))
         return state
