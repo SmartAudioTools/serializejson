@@ -1,5 +1,6 @@
 import numpy
 from qtpy.QtGui import QImage
+from qtpy.QtCore import QByteArray,QBuffer,QIODevice
 
 grayTable = [(255 << 24) + (g << 16) + (g << 8) + g for g in range(256)]
 
@@ -76,10 +77,10 @@ def QImage_to_compressed_bytes(qimage, format):
     # https://stackoverflow.com/questions/24965646/convert-pyqt4-qtgui-qimage-object-to-base64-png-data
     # https://stackoverflow.com/questions/57404778/how-to-convert-a-qpixmaps-image-into-a-bytes
 
-    qbytearray = QtCore.QByteArray()
-    qbuffer = QtCore.QBuffer(qbytearray)
-    qbuffer.open(QtCore.QIODevice.WriteOnly)
-    ok = obj.save(qbuffer, format)
+    qbytearray = QByteArray()
+    qbuffer = QBuffer(qbytearray)
+    qbuffer.open(QIODevice.WriteOnly)
+    ok = qimage.save(qbuffer, format)
     assert ok
     return qbytearray.data()  # fait une copie ?
     # return qbytearray.toBase64()
@@ -94,7 +95,7 @@ def QImage_to_numpy(qimage):
     ptr = qimage.constBits()
     ptr.setsize(width * height * int(QImage_format_bits[format_] / 8))
     array = numpy.frombuffer(ptr, numpy.uint8).reshape((height, width, 4))
-    arr.QImage = qimage  # garde une reference pour eviter de predre données si QImage est détruite ?
+    array.QImage = qimage  # garde une reference pour eviter de predre données si QImage est détruite ?
     return array
 
 

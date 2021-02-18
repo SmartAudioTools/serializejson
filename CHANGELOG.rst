@@ -1,3 +1,12 @@
+Version 0.2.0
+-------------
+:Date: 2021-02-18
+
+* API changed
+* can serialize dict with no-string keys
+* add support for cicular reférences and duplicates with {"$ref": ...}
+
+
 Version 0.1.0
 -------------
 :Date: 2020-11-28
