@@ -32,8 +32,9 @@ try:
     from SmartFramework.plot.PlotUI import Curve, Pen
     from SmartFramework.plot.PlotWithCurveSelectorUI import PlotWithCurveSelectorUI
     from SmartFramework.plot.ColorEnumerator import ColorEnumerator
-    #import serpent
-    #import jsonpickle
+
+    # import serpent
+    # import jsonpickle
 
     # jsonpickle.load_backend('rapidjson', 'dumps', 'loads', ValueError)
     # jsonpickle.set_preferred_backend('rapidjson')
@@ -46,7 +47,7 @@ try:
     nb_iter = 5
     full_smartFramework = True
 except ImportError:
-    #raise
+    # raise
     nb_iter = 1
     full_smartFramework = False
     import serializejson
@@ -145,8 +146,8 @@ else:
         init_and_new,
         single_line,
     )
-    
-modules =   [
+
+modules = [
     new_getnewargs,
     init_arg,
     init_args_explicite_getstate,

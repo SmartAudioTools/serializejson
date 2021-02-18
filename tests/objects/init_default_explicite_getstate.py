@@ -1,6 +1,6 @@
 try:
     from SmartFramework.serialize.serializejson import getstate
-except :
+except:
     from serializejson import getstate
 
 

@@ -80,7 +80,7 @@ def getstate(
         add :    names of attributes to add even if should be filtered by the filter
         remove:  names of attributes to remove even if not filtered by the filter
         filter\_: (bool or str) filter attributes starting with the given string. ("_" by default)
-    
+
         properties :
                 False: (default) no properties are saved
                 True : all properties (or only thus in keep) are saved
@@ -90,21 +90,21 @@ def getstate(
                 True : all getters (or only thus in keep) are saved. (getters are guessed with introspection)
                 dict : dictionnary of "attribut": "getter". ex: {"a":"getA","b":"getB"}
                 this option allow the finest control and is faster because getters are not guessed from instropection.
-    
+
         extra_getters
                 dictionnary of extra getters.    ex: {"c":"retrive_c"}
                 useful when getters is True and not all gettters are guessed by introspection.
-    
+
         sort_keys (True by default )
                 whether sort the state alphabeticaly.
                 Be careful, if False the restoration of the object attributes may be in an arbitrary order.
-    
+
         remove_default_values :(False, True)
                 whether attribut/properties/getter with same value as default value will be
                 removed for lighter and more readable serialized files.
                 If remove_default_values is True, add you still want to keep a attribut value even if same as his default value,
                 use add = "attribut_name" parameter
-    
+
         default_values : (None or dict)
                 dict : dict of {"attribut":"attribut_default_value",...;}
                 None :  serializejson will create an new instance of the object's
@@ -278,7 +278,7 @@ def setstate(
     Args:
         self     object instance to restore.
         state    dictionnary containing the state of the object to restore.
-    
+
         properties :
                 False: (default) no properties are saved
                 True : all properties (or only thus in keep) are saved
@@ -288,22 +288,22 @@ def setstate(
                 True : all getters are calaed (setters are guessed with introspection, parsing methodes with setXxx, set_xxx or setxxx name)
                 dict : dictionnary of "attribut": "setter". ex: {"a":"setA","b":"setB",("c","d"):"setCD"}
                 this option allow the finest control and is faster because getters are not guessed from instropection and it allow to call multi-attributs setters (ex : setCD restor "c" and "d")
-    
+
         extra_setters
                 dictionnary of extra setters.    ex: {"c":"restore_c"}
                 useful when setters is True and not all settters are guessed by introspection.
-    
+
         restore_default_values :(False, True)
                 whether attribut/properties/setter not present in state
                 will be restaured with there default value.
                 Useful when __init__() is not called (update = True or object as not __reduce__() methode)
                 and we have encoded with remove_default_values = True .
-    
+
         default_values : (None or dict)
                 dict : dict of {"attribut":"attribut_default_value",...;}
                 None :  serializejson will create an new instance of the object's
                 class, calling __init__() without any argument to know the default values.
-    
+
         order  :
                 None : attributs are restored in state dictionnary key's order
                 list or tuple : attributs are restored in this order
@@ -833,6 +833,7 @@ def _onlyOneDimSameTypeNumbers(list_or_tuple):
         if type_first in _bool_int_and_float_types:
             return all(type(elt) is type_first for elt in list_or_tuple)
     return False
+
 
 def _onlyOneDimNumbers(list_or_tuple):
     if len(list_or_tuple):

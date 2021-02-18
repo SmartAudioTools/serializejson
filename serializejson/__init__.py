@@ -478,7 +478,7 @@ class Encoder(rapidjson.Encoder):
 
         single_line_init:
             whether `__init__` args must be serialized in one line.
-            
+
         single_line_new:
             whether `__new__` args must be serialized in one line.
 
@@ -814,9 +814,9 @@ class Encoder(rapidjson.Encoder):
             dic = self._dict_from_instance(
                 inst
             )  # 8.6 % (correspond au temps pour conversion en b64 avec pybase64.b64encode) du temps sur obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
-        
-        if not self._dump_one_line :
-            if self.single_line_init : 
+
+        if not self._dump_one_line:
+            if self.single_line_init:
                 args = dic.get("__init__", None)
                 if isinstance(args, list):
                     dic[
@@ -833,8 +833,8 @@ class Encoder(rapidjson.Encoder):
                             mapping_mode=rapidjson.MM_ONLY_DICTS
                             # **self.kargs
                         )
-                    )  
-            if self.single_line_new : 
+                    )
+            if self.single_line_new:
                 args = dic.get("__new__", None)
                 if type(args) is list:
                     dic[
@@ -852,17 +852,17 @@ class Encoder(rapidjson.Encoder):
                             # **self.kargs
                         )
                     )
-                        
+
             if self.single_line_list_numbers:
                 for key, value in dic.items():
                     if (
                         key != "__class__"
-                        and (key != "__init__"  or not  self.single_line_init)
-                        and (key != "__new__"   or not  self.single_line_new)
+                        and (key != "__init__" or not self.single_line_init)
+                        and (key != "__new__" or not self.single_line_new)
                         and type(value) is list
                         and _onlyOneDimSameTypeNumbers(value)
                     ):
-    
+
                         dic[key] = rapidjson.RawJSON(
                             rapidjson.dumps(
                                 value,
@@ -1214,7 +1214,7 @@ class Decoder(rapidjson.Decoder):
 
         numpy_array_from_list (bool):
             Controls whether list of bool, int or floats with same types elements should be loaded into numpy arrays.
-            
+
         numpy_array_from_heterogenous_list (bool):
             Controls whether list of bool, int or floats with same or heterogenous types elements should be loaded into numpy arrays.
 
@@ -1276,10 +1276,10 @@ class Decoder(rapidjson.Decoder):
         self.chunk_size = chunk_size
         self.file_iter = None
         self._updating = False
-        
+
         self.numpy_array_from_list = numpy_array_from_list
         self.numpy_array_from_heterogenous_list = numpy_array_from_heterogenous_list
-        if numpy_array_from_heterogenous_list :
+        if numpy_array_from_heterogenous_list:
             self.numpy_array_from_list = True
             self.end_array = self._end_array_if_numpy_array_from_heterogenous_list
         elif numpy_array_from_list:
@@ -1726,8 +1726,7 @@ class Decoder(rapidjson.Decoder):
                 self.converted_numpy_array_from_lists.add(id(array))
                 return array
         return sequence
-    
-    
+
     def _end_array_if_numpy_array_from_heterogenous_list(self, sequence):
         if _onlyOneDimNumbers(sequence):
             array = numpy.array(sequence)
@@ -1736,15 +1735,11 @@ class Decoder(rapidjson.Decoder):
         if len(sequence) and isinstance(sequence[0], ndarray):
             first_elt = sequence[0]
             first_elt_shape = first_elt.shape
-            if all(
-                (isinstance(elt, ndarray) and elt.shape == first_elt_shape)
-                for elt in sequence
-            ):
+            if all((isinstance(elt, ndarray) and elt.shape == first_elt_shape) for elt in sequence):
                 array = numpy.array(sequence)
                 self.converted_numpy_array_from_lists.add(id(array))
                 return array
         return sequence
-    
 
     def __next__(self):
         try:

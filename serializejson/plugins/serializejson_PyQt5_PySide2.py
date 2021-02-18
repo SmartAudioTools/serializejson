@@ -45,7 +45,7 @@ if API:
         )
     from SmartFramework.image.image_conversion import QImage_to_bytes_width_height_format
     import ctypes
-    
+
     import sys
 
     property_types.add(QtCore.Property)
@@ -740,7 +740,7 @@ if API:
             )
         return value
 
-    #QtCore.pyqtBoundSignal.connect = new_connect
+    # QtCore.pyqtBoundSignal.connect = new_connect
 
     class Connection:
         def __init__(self, signal_object, signal, slot_object, slot, signature=None):
