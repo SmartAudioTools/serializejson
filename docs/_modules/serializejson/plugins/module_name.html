@@ -162,19 +162,33 @@
 <span class="sd">        obj:  the object to serialize.</span>
 
 <span class="sd">    Return:</span>
-<span class="sd">        (class, init_args, state)</span>
+<span class="sd">        (class, init_args, state,list_items ,dict_items,new_args)</span>
+<span class="sd">        Variable length tuple with one to six elements. </span>
+<span class="sd">        Only the first &#39;class&#39; element is required, other are set to None by default.       </span>
 
 <span class="sd">        class(class or str):</span>
 <span class="sd">            the class or function called for object creation you should use `obj.__class__` or string `&quot;module.submodule.name&quot;`</span>
 
 <span class="sd">        init_args (tuple,dict or None):</span>
 <span class="sd">            - tuple: positional arguments you want pass to `__init__()` or to the callable</span>
-<span class="sd">            - dict : keysword arguments if you want pass to `__init__()` or to the callable (take little more space)</span>
+<span class="sd">            - dict : keysword arguments you want pass to `__init__()` or to the callable (take little more space)</span>
 <span class="sd">            - None : if you don&#39;t want to call the `__init__()` but only `__new__()` when loading.</span>
 
 <span class="sd">        state (None, dict or object):</span>
 <span class="sd">            can be None, if the state is already restored calling `__init__()`</span>
 
+<span class="sd">        list_items (list or None):</span>
+<span class="sd">            list of items for class with list interface.</span>
+<span class="sd">        </span>
+<span class="sd">        dict_items (dict or None):</span>
+<span class="sd">            dictionnary of items for class with dictionnary interface.</span>
+<span class="sd">        </span>
+<span class="sd">        new_args (tuple,dict or None):</span>
+<span class="sd">            - tuple: positional arguments you want pass to `__new__()` methode.</span>
+<span class="sd">            - dict : keysword arguments you want pass to `__new__()` methode.</span>
+<span class="sd">            - None : if you don&#39;t want to call the `__init__()` but only `__new__()` when loading.</span>
+<span class="sd">  </span>
+<span class="sd">        </span>
 <span class="sd">    Example:</span>
 
 <span class="sd">        .. code-block:: python</span>

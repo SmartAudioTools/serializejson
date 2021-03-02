@@ -1239,17 +1239,29 @@ This functions must return all needed info for your object’s serialization in 
 <dd class="field-odd"><p><strong>obj</strong> – the object to serialize.</p>
 </dd>
 <dt class="field-even">Returns</dt>
-<dd class="field-even"><p><p>(class, init_args, state)</p>
+<dd class="field-even"><p><p>(class, init_args, state,list_items ,dict_items,new_args)
+Variable length tuple with one to six elements.
+Only the first ‘class’ element is required, other are set to None by default.</p>
 <dl class="simple">
 <dt>class(class or str):</dt><dd><p>the class or function called for object creation you should use <cite>obj.__class__</cite> or string <cite>“module.submodule.name”</cite></p>
 </dd>
 <dt>init_args (tuple,dict or None):</dt><dd><ul class="simple">
 <li><p>tuple: positional arguments you want pass to <cite>__init__()</cite> or to the callable</p></li>
-<li><p>dict : keysword arguments if you want pass to <cite>__init__()</cite> or to the callable (take little more space)</p></li>
+<li><p>dict : keysword arguments you want pass to <cite>__init__()</cite> or to the callable (take little more space)</p></li>
 <li><p>None : if you don’t want to call the <cite>__init__()</cite> but only <cite>__new__()</cite> when loading.</p></li>
 </ul>
 </dd>
 <dt>state (None, dict or object):</dt><dd><p>can be None, if the state is already restored calling <cite>__init__()</cite></p>
+</dd>
+<dt>list_items (list or None):</dt><dd><p>list of items for class with list interface.</p>
+</dd>
+<dt>dict_items (dict or None):</dt><dd><p>dictionnary of items for class with dictionnary interface.</p>
+</dd>
+<dt>new_args (tuple,dict or None):</dt><dd><ul class="simple">
+<li><p>tuple: positional arguments you want pass to <cite>__new__()</cite> methode.</p></li>
+<li><p>dict : keysword arguments you want pass to <cite>__new__()</cite> methode.</p></li>
+<li><p>None : if you don’t want to call the <cite>__init__()</cite> but only <cite>__new__()</cite> when loading.</p></li>
+</ul>
 </dd>
 </dl>
 </p>
