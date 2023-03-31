@@ -1,0 +1,5 @@
+# use glob syntax.
+syntax: glob
+.hg_new
+.hg_old
+__pycache__

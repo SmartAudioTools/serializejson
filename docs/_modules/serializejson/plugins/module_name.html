@@ -1,0 +1,251 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>serializejson.plugins.module_name &mdash; serializejson 0.0.4 documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="../../../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+
+  
+  
+  
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="../../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="../../../" src="../../../_static/documentation_options.js"></script>
+        <script src="../../../_static/jquery.js"></script>
+        <script src="../../../_static/underscore.js"></script>
+        <script src="../../../_static/doctools.js"></script>
+        <script src="../../../_static/language_data.js"></script>
+    
+    <script type="text/javascript" src="../../../_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="../../../index.html" class="icon icon-home" alt="Documentation Home"> serializejson
+          
+
+          
+          </a>
+
+          
+            
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <!-- Local TOC -->
+              <div class="local-toc"></div>
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">serializejson</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../../../index.html" class="icon icon-home"></a> &raquo;</li>
+        
+          <li><a href="../../index.html">Module code</a> &raquo;</li>
+        
+          <li><a href="../../serializejson.html">serializejson</a> &raquo;</li>
+        
+      <li>serializejson.plugins.module_name</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <h1>Source code for serializejson.plugins.module_name</h1><div class="highlight"><pre>
+<span></span><span class="s2">&quot;&quot;</span>
+
+
+<span class="s2">&quot;&quot;</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">module_name</span>
+<span class="k">except</span> <span class="ne">ModuleNotFoundError</span><span class="p">:</span>
+    <span class="k">pass</span>
+
+
+<div class="viewcode-block" id="XXX_serializejson"><a class="viewcode-back" href="../../../index.html#serializejson.plugins.module_name.XXX_serializejson">[docs]</a><span class="k">def</span> <span class="nf">XXX_serializejson</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Args:</span>
+<span class="sd">        obj:  the object to serialize.</span>
+
+<span class="sd">    Return:</span>
+<span class="sd">        (class, init_args, state,list_items ,dict_items,new_args)</span>
+<span class="sd">        </span>
+<span class="sd">        Variable length tuple with one to six elements. </span>
+<span class="sd">        Only the first &#39;class&#39; element is required, other are set to None by default.       </span>
+
+<span class="sd">        class(class or str):</span>
+<span class="sd">            the class or function called for object creation you should use `obj.__class__` or string `&quot;module.submodule.name&quot;`</span>
+
+<span class="sd">        init_args (tuple,dict or None):</span>
+<span class="sd">            - tuple: positional arguments you want pass to `__init__()` or to the callable</span>
+<span class="sd">            - dict : keysword arguments you want pass to `__init__()` or to the callable (take little more space)</span>
+<span class="sd">            - None : if you don&#39;t want to call the `__init__()` but only `__new__()` when loading.</span>
+
+<span class="sd">        state (None, dict or object):</span>
+<span class="sd">            can be None, if the state is already restored calling `__init__()`</span>
+
+<span class="sd">        list_items (list or None):</span>
+<span class="sd">            list of items for class with list interface.</span>
+<span class="sd">        </span>
+<span class="sd">        dict_items (dict or None):</span>
+<span class="sd">            dictionnary of items for class with dictionnary interface.</span>
+<span class="sd">        </span>
+<span class="sd">        new_args (tuple,dict or None):</span>
+<span class="sd">            - tuple: positional arguments you want pass to `__new__()` methode.</span>
+<span class="sd">            - dict : keysword arguments you want pass to `__new__()` methode.</span>
+<span class="sd">            - None : if you don&#39;t want to call the `__init__()` but only `__new__()` when loading.</span>
+<span class="sd">  </span>
+<span class="sd">        </span>
+<span class="sd">    Example:</span>
+
+<span class="sd">        .. code-block:: python</span>
+
+<span class="sd">            def tuple_from_XXX(obj):</span>
+<span class="sd">                init_args = (obj.attribute_1,obj.attribute_3)</span>
+<span class="sd">                state = {&quot;attribute_3&quot;:obj.attribute_3}</span>
+<span class="sd">                return (obj.__class__, init_args, state)</span>
+
+<span class="sd">    &quot;&quot;&quot;</span></div>
+</pre></div>
+
+           </div>
+           
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        
+        &copy; Copyright 2020, Baptiste de La Gorce
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

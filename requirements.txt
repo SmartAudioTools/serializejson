@@ -1,0 +1,10 @@
+apply
+pybase64
+blosc
+Sphinx
+sphinx-rtd-theme
+jinja2==3.0.3
+numpy
+twine
+wheel
+pytest
