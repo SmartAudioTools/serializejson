@@ -1,3 +1,10 @@
+Version 0.3.4
+-------------
+:Date: 2023-06-11
+
+* Restore ducumentation
+
+
 Version 0.3.3
 -------------
 :Date: 2022-10-18
