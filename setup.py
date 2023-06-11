@@ -15,7 +15,7 @@ def version():
     with open(os.path.join(__location__, CHANGELOG), encoding="utf_8") as changelog_file:
         for line in changelog_file.readlines():
             if line.startswith("Version "):
-                return line[len("Version "):]
+                return line[len("Version ") :]
     raise Exception("no valid version in " + CHANGELOG)
 
 
@@ -27,17 +27,17 @@ def long_description():
     return readme_str + "\nHistory\n=======\n\n" + changelog_str
 
 
-with open('./rapidjson/version.txt', encoding='utf-8') as f:
+with open("./rapidjson/version.txt", encoding="utf-8") as f:
     RAPIDJSON_VERSION = f.read()
 
 
-cxx = sysconfig.get_config_var('CXX')
-if cxx and 'g++' in cxx:
+cxx = sysconfig.get_config_var("CXX")
+if cxx and "g++" in cxx:
     # Avoid warning about invalid flag for C++
-    for varname in ('CFLAGS', 'OPT'):
+    for varname in ("CFLAGS", "OPT"):
         value = sysconfig.get_config_var(varname)
-        if value and '-Wstrict-prototypes' in value:
-            value = value.replace('-Wstrict-prototypes', '')
+        if value and "-Wstrict-prototypes" in value:
+            value = value.replace("-Wstrict-prototypes", "")
             sysconfig.get_config_vars()[varname] = value
 
 
@@ -90,18 +90,18 @@ if __name__ == "__main__":
             "Programming Language :: Python :: 3.7",
             "Programming Language :: Python :: 3.8",
             "Programming Language :: Python :: 3.9",
-            'Programming Language :: Python :: 3.10',
-            'Programming Language :: Python :: 3.11',
+            "Programming Language :: Python :: 3.10",
+            "Programming Language :: Python :: 3.11",
         ],
         zip_safe=False,
         data_files=[("", [LICENSE, CHANGELOG, "pyproject.toml"])],
         ext_modules=[
             setuptools.Extension(
-                'serializejson.rapidjson',
-                sources=['./rapidjson/rapidjson.cpp'],
-                include_dirs=['./rapidjson'],
-                define_macros=[('PYTHON_RAPIDJSON_VERSION', RAPIDJSON_VERSION)],
-                extra_compile_args=['-pedantic', '-std=c++11']
+                "rapidjson",
+                sources=["./rapidjson/rapidjson.cpp"],
+                include_dirs=["./rapidjson"],
+                define_macros=[("PYTHON_RAPIDJSON_VERSION", RAPIDJSON_VERSION)],
+                extra_compile_args=["-pedantic", "-std=c++11"],
             )
         ],
     )

@@ -1,9 +1,6 @@
 ﻿import os
 
-try:
-    import SmartFramework.serialize.serializejson as serializejson
-except ImportError:
-    import serializejson
+import serializejson
 
 
 def test_iterator():
