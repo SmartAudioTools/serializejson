@@ -1,0 +1,16 @@
+pybase64>=1.1.1
+apply
+blosc
+
+[:python_version < "3.8"]
+importlib_metadata
+
+[dev]
+pytest
+numpy
+qtpy
+PyQt5
+
+[test]
+pytest
+numpy

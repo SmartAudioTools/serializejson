@@ -86,13 +86,13 @@ public:
         if (size) //  behavior of malloc(0) is implementation defined.
             return RAPIDJSON_MALLOC(size);
         else
-            return NULL; // standardize to returning NULL.
+            return nullptr; // standardize to returning nullptr.
     }
     void* Realloc(void* originalPtr, size_t originalSize, size_t newSize) {
         (void)originalSize;
         if (newSize == 0) {
             RAPIDJSON_FREE(originalPtr);
-            return NULL;
+            return nullptr;
         }
         return RAPIDJSON_REALLOC(originalPtr, newSize);
     }
@@ -320,12 +320,12 @@ public:
     void* Malloc(size_t size) {
         RAPIDJSON_NOEXCEPT_ASSERT(shared_->refcount > 0);
         if (!size)
-            return NULL;
+            return nullptr;
 
         size = RAPIDJSON_ALIGN(size);
         if (RAPIDJSON_UNLIKELY(shared_->chunkHead->size + size > shared_->chunkHead->capacity))
             if (!AddChunk(chunk_capacity_ > size ? chunk_capacity_ : size))
-                return NULL;
+                return nullptr;
 
         void *buffer = GetChunkBuffer(shared_) + shared_->chunkHead->size;
         shared_->chunkHead->size += size;
@@ -339,7 +339,7 @@ public:
 
         RAPIDJSON_NOEXCEPT_ASSERT(shared_->refcount > 0);
         if (newSize == 0)
-            return NULL;
+            return nullptr;
 
         originalSize = RAPIDJSON_ALIGN(originalSize);
         newSize = RAPIDJSON_ALIGN(newSize);
@@ -364,7 +364,7 @@ public:
             return newBuffer;
         }
         else
-            return NULL;
+            return nullptr;
     }
 
     //! Frees a memory block (concept Allocator)
@@ -440,7 +440,7 @@ inline T* Realloc(A& a, T* old_p, size_t old_n, size_t new_n)
 template<typename T, typename A>
 inline T *Malloc(A& a, size_t n = 1)
 {
-    return Realloc<T, A>(a, NULL, 0, n);
+    return Realloc<T, A>(a, nullptr, 0, n);
 }
 
 template<typename T, typename A>

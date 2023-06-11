@@ -42,7 +42,7 @@ struct PyBytesBuffer { // a revoir c'est quoi la différence entre struc et clas
         bufferBegin = 0;
         bufferCursor = 0;
         bufferEnd = 0;
-        pybytes = NULL;
+        pybytes = nullptr;
     }
 
     void Put(char c) { 
@@ -135,9 +135,9 @@ struct PyBytesBuffer { // a revoir c'est quoi la différence entre struc et clas
     int Resize(size_t newCapacity) {
         int success;
         const size_t size = GetSize();  // Backup the current size
-        if (pybytes==NULL){
-            pybytes = PyBytes_FromStringAndSize(NULL,newCapacity);
-            success = (pybytes!=NULL);
+        if (pybytes==nullptr){
+            pybytes = PyBytes_FromStringAndSize(nullptr,newCapacity);
+            success = (pybytes!=nullptr);
         } else { 
             success= _PyBytes_Resize(&pybytes, newCapacity);
         }

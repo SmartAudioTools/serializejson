@@ -57,7 +57,7 @@ public:
     void PutUnsafe(Ch c) { *stack_.template PushUnsafe<Ch>() = c; }
     void Flush() {}
 	void Extend(const char* json, size_t length) {
-		std::memcpy(stack_.Push<Ch>(length), json,length);
+        std::memcpy(stack_.template Push<Ch>(length), json,length);
 	}
 
     void Clear() { stack_.Clear(); }

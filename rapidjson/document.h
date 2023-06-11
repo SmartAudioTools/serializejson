@@ -173,7 +173,7 @@ private:
     of a GenericValue, see ISO/IEC 14882:2003(E) C++ standard, 24.1 [lib.iterator.requirements].
 
     \note This iterator implementation is mainly intended to avoid implicit
-        conversions from iterator values to \c NULL,
+        conversions from iterator values to \c nullptr,
         e.g. from GenericValue::FindMember.
 
     \note Define \c RAPIDJSON_NOMEMBERITERATORCLASS to fall back to a
@@ -402,7 +402,7 @@ struct GenericStringRef {
     //! Create constant string reference from pointer and length
 #ifndef __clang__ // -Wdocumentation
     /*! \param str constant string, lifetime assumed to be longer than the use of the string in e.g. a GenericValue
-        \param len length of the string, excluding the trailing NULL terminator
+        \param len length of the string, excluding the trailing nullptr terminator
 
         \post \ref s == str && \ref length == len
         \note Constant complexity.
@@ -417,7 +417,7 @@ struct GenericStringRef {
     operator const Ch *() const { return s; }
 
     const Ch* const s; //!< plain CharType pointer
-    const SizeType length; //!< length of the string (excluding the trailing NULL terminator)
+    const SizeType length; //!< length of the string (excluding the trailing nullptr terminator)
 
 private:
     SizeType NotNullStrLen(const CharType* str) {
@@ -425,7 +425,7 @@ private:
         return internal::StrLen(str);
     }
 
-    /// Empty string - used when passing in a NULL pointer
+    /// Empty string - used when passing in a nullptr
     static const Ch emptyString[];
 
     //! Disallow construction from non-const array
@@ -1329,7 +1329,7 @@ public:
         \return Iterator to member, if it exists.
             Otherwise returns \ref MemberEnd().
 
-        \note Earlier versions of Rapidjson returned a \c NULL pointer, in case
+        \note Earlier versions of Rapidjson returned a \c nullptr, in case
             the requested member doesn't exist. For consistency with e.g.
             \c std::map, this has been changed to MemberEnd() now.
         \note Linear time complexity.
@@ -1349,7 +1349,7 @@ public:
         \return Iterator to member, if it exists.
             Otherwise returns \ref MemberEnd().
 
-        \note Earlier versions of Rapidjson returned a \c NULL pointer, in case
+        \note Earlier versions of Rapidjson returned a \c nullptr, in case
             the requested member doesn't exist. For consistency with e.g.
             \c std::map, this has been changed to MemberEnd() now.
         \note Linear time complexity.

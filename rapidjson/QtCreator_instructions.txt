@@ -1,0 +1,5 @@
+ouvrir QtCreator
+Fichier -> nouveau fichier ou projet > Library > C++ library
+
+nom : rapidjson
+créer dans : /media/DATA/Python/GITHUB/serializejson

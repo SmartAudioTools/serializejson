@@ -14,7 +14,7 @@
 
 #ifndef RAPIDJSON_PRETTYWRITER_H_
 #define RAPIDJSON_PRETTYWRITER_H_
-
+#include "serializejson.h"
 #include "writer.h"
 
 #ifdef __GNUC__
@@ -44,6 +44,9 @@ enum PrettyFormatOptions {
     \tparam TargetEncoding Encoding of output stream.
     \tparam StackAllocator Type of allocator for allocating memory of stack.
 */
+
+
+
 template<typename OutputStream, typename SourceEncoding = UTF8<>, typename TargetEncoding = UTF8<>, typename StackAllocator = CrtAllocator, unsigned writeFlags = kWriteDefaultFlags>
 class PrettyWriter : public Writer<OutputStream, SourceEncoding, TargetEncoding, StackAllocator, writeFlags> {
 public:
@@ -55,7 +58,7 @@ public:
         \param allocator User supplied allocator. If it is null, it will create a private one.
         \param levelDepth Initial capacity of stack.
     */
-    explicit PrettyWriter(OutputStream& os, StackAllocator* allocator = 0, size_t levelDepth = Base::kDefaultLevelDepth) : 
+    explicit PrettyWriter(OutputStream& os, StackAllocator* allocator = 0, size_t levelDepth = Base::kDefaultLevelDepth) :
         Base(os, allocator, levelDepth), indentChar_(' '), indentCharCount_(4), formatOptions_(kFormatDefault) {}
 
 
@@ -94,42 +97,42 @@ public:
 
     bool Null(){ 
         PrettyPrefix();   
-        os_->RawValue("null",4);
+        Base::os_->RawValue("null",4);
         return true; 
     }
     
     bool Bool(bool b){
         PrettyPrefix(); 
         if (b) {
-            os_->RawValue("true",4);
+            Base::os_->RawValue("true",4);
         }
         else {
-            os_->RawValue("false",5);
+            Base::os_->RawValue("false",5);
         }
         return true; 
         }
         
     bool Int(int i){
         PrettyPrefix(); 
-        os_->bufferCursor = internal::i32toa(i, os_->Reserve(11));
+        Base::os_->bufferCursor = internal::i32toa(i, Base::os_->Reserve(11));
         return true;
     }    
 
     bool Uint(unsigned u){
         PrettyPrefix(); 
-        os_->bufferCursor = internal::u32toa(u, os_->Reserve(10));
+        Base::os_->bufferCursor = internal::u32toa(u, Base::os_->Reserve(10));
         return true;
     }
     
     bool Int64(int64_t i64)     { 
         PrettyPrefix(); 
-        os_->bufferCursor = internal::i64toa(i64, os_->Reserve(21));
+        Base::os_->bufferCursor = internal::i64toa(i64, Base::os_->Reserve(21));
         return true;
     }
     
     bool Uint64(uint64_t u64)   { 
         PrettyPrefix(); 
-        os_->bufferCursor = internal::u64toa(u64, os_->Reserve(20));
+        Base::os_->bufferCursor = internal::u64toa(u64, Base::os_->Reserve(20));
         return true;    
     }
     
@@ -139,26 +142,26 @@ public:
             if (!(writeFlags & kWriteNanAndInfFlag))
                 return false;
             if (internal::Double(d).IsNan()) {
-                os_->RawValue("NaN",3);
+                Base::os_->RawValue("NaN",3);
                 return true;
             }
             if (internal::Double(d).Sign()) {
-                os_->RawValue("-Infinity",9);
+                Base::os_->RawValue("-Infinity",9);
             }
             else {
-                os_->RawValue("Infinity",8);
+                Base::os_->RawValue("Infinity",8);
             }
             return true;
         }
-        os_->bufferCursor = internal::dtoa(d,  os_->Reserve(25), maxDecimalPlaces_);
+        Base::os_->bufferCursor = internal::dtoa(d,  Base::os_->Reserve(25), Base::maxDecimalPlaces_);
         return true;    
     }
 
     bool String(const Ch* str, SizeType length) {
         PrettyPrefix();
-		os_->Put('"');
-        Escape(str, length);
-		os_->Put('"');
+        Base::os_->Put('"');
+        Base::Escape(str, length);
+        Base::os_->Put('"');
 		return true ;
     }
 
@@ -222,25 +225,25 @@ public:
     */
     bool RawValue(const Ch* json, size_t length) {
         PrettyPrefix();
-        os_->RawValue(json,length);
+        Base::os_->RawValue(json,length);
         return true;
     }
     
     bool RawString_(PyObject* object) {
         PrettyPrefix();
-        os_->RawString(((RawString*) object)->value);
+        Base::os_->RawString(((RawString*) object)->value);
         return true;
     }
        
     bool RawBytes_(PyObject* object) {
         PrettyPrefix();
-        os_->RawBytes(((RawBytes*) object)->value);
+        Base::os_->RawBytes(((RawBytes*) object)->value);
         return true;
     }
     
     bool RawBytesToPutInQuotes_(PyObject* object) {
         PrettyPrefix();
-        os_->RawBytesToPutInQuotes(((RawBytesToPutInQuotes*) object)-> value);
+        Base::os_->RawBytesToPutInQuotes(((RawBytesToPutInQuotes*) object)-> value);
         return true;
     }
 

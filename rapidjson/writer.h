@@ -15,6 +15,7 @@
 #ifndef RAPIDJSON_WRITER_H_
 #define RAPIDJSON_WRITER_H_
 
+#include "serializejson.h"
 #include "stream.h"
 #include "internal/clzll.h"
 #include "internal/meta.h"
@@ -22,6 +23,7 @@
 #include "internal/strfunc.h"
 #include "internal/dtoa.h"
 #include "internal/itoa.h"
+
 //#include "stringbuffer.h"
 #include <new>      // placement new
 
@@ -370,7 +372,7 @@ protected:
 				break;
 				//std::cout<<'!';
 				//bufferCursor++;	
-				/*
+                / *
 				// faudrait checker qu'on est pas dans du utf-8
 				if (c == '\t'){
 					//if ((bufferCursor - memcpy_src ) > 0 )
@@ -407,13 +409,13 @@ protected:
 					*bufferCursor++ = 'f';
 				}
 				else {
-					//*bufferCursor++ = c;
+                    // *bufferCursor++ = c;
 					//bufferCursor++;
 					//
-                    //*bufferCursor++ = '0';
-                    //*bufferCursor++ = '0';
-                    //*bufferCursor++ = hexDigits[static_cast<unsigned char>(c) >> 4];
-                    //*bufferCursor++ = hexDigits[static_cast<unsigned char>(c) & 0xF];
+                    // *bufferCursor++ = '0';
+                    // *bufferCursor++ = '0';
+                    // *bufferCursor++ = hexDigits[static_cast<unsigned char>(c) >> 4];
+                    // *bufferCursor++ = hexDigits[static_cast<unsigned char>(c) & 0xF];
                 
 			}
 		

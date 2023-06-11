@@ -1,0 +1,16 @@
+CHANGES.rst
+CMakeLists.txt
+LICENSE
+MANIFEST.in
+QtCreator_instructions.txt
+README.rst
+requirements-test.txt
+requirements.txt
+setup.cfg
+setup.py
+version.txt
+./rapidjson.cpp
+python_rapidjson.egg-info/PKG-INFO
+python_rapidjson.egg-info/SOURCES.txt
+python_rapidjson.egg-info/dependency_links.txt
+python_rapidjson.egg-info/top_level.txt

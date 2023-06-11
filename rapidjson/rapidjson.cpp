@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "serializejson.h"
 #include "reader.h"
 #include "schema.h"
 #include "stringbuffer.h"
@@ -44,12 +45,12 @@ using namespace rapidjson;
 
 #define WORTH_BUFFER_BYPASS 256 // size (to ajust) from which it is worth the cost to build a PyMemoryView and call file.write(). to tuen
 
-static PyObject* decimal_type = NULL;
-static PyObject* timezone_type = NULL;
-static PyObject* timezone_utc = NULL;
-static PyObject* uuid_type = NULL;
-static PyObject* validation_error = NULL;
-static PyObject* decode_error = NULL;
+static PyObject* decimal_type = nullptr;
+static PyObject* timezone_type = nullptr;
+static PyObject* timezone_utc = nullptr;
+static PyObject* uuid_type = nullptr;
+static PyObject* validation_error = nullptr;
+static PyObject* decode_error = nullptr;
 
 
 /* These are the names of oftenly used methods or literal values, interned in the module
@@ -59,25 +60,25 @@ static PyObject* decode_error = NULL;
    We cannot use _Py_IDENTIFIER() because that upsets the GNU C++ compiler in -pedantic
    mode. */
 
-static PyObject* astimezone_name = NULL;
-static PyObject* hex_name = NULL;
-static PyObject* timestamp_name = NULL;
-static PyObject* total_seconds_name = NULL;
-static PyObject* utcoffset_name = NULL;
-static PyObject* is_infinite_name = NULL;
-static PyObject* is_nan_name = NULL;
-static PyObject* start_object_name = NULL;
-static PyObject* end_object_name = NULL;
-static PyObject* default_name = NULL;
-static PyObject* end_array_name = NULL;
-static PyObject* string_name = NULL;
-static PyObject* read_name = NULL;
-static PyObject* write_name = NULL;
-static PyObject* encoding_name = NULL;
+static PyObject* astimezone_name = nullptr;
+static PyObject* hex_name = nullptr;
+static PyObject* timestamp_name = nullptr;
+static PyObject* total_seconds_name = nullptr;
+static PyObject* utcoffset_name = nullptr;
+static PyObject* is_infinite_name = nullptr;
+static PyObject* is_nan_name = nullptr;
+static PyObject* start_object_name = nullptr;
+static PyObject* end_object_name = nullptr;
+static PyObject* default_name = nullptr;
+static PyObject* end_array_name = nullptr;
+static PyObject* string_name = nullptr;
+static PyObject* read_name = nullptr;
+static PyObject* write_name = nullptr;
+static PyObject* encoding_name = nullptr;
 
-static PyObject* minus_inf_string_value = NULL;
-static PyObject* nan_string_value = NULL;
-static PyObject* plus_inf_string_value = NULL;
+static PyObject* minus_inf_string_value = nullptr;
+static PyObject* nan_string_value = nullptr;
+static PyObject* plus_inf_string_value = nullptr;
 
 
 struct HandlerContext {
@@ -245,8 +246,8 @@ public:
         : stream(stream) {
         Py_INCREF(stream);
         chunkSize = PyLong_FromUnsignedLong(size);
-        buffer = NULL;
-        chunk = NULL;
+        buffer = nullptr;
+        chunk = nullptr;
         chunkLen = 0;
         pos = 0;
         offset = 0;
@@ -299,9 +300,9 @@ private:
     void Read() {
         Py_CLEAR(chunk);
 
-        chunk = PyObject_CallMethodObjArgs(stream, read_name, chunkSize, NULL);
+        chunk = PyObject_CallMethodObjArgs(stream, read_name, chunkSize, nullptr);
 
-        if (chunk == NULL) {
+        if (chunk == nullptr) {
             eof = true;
         } else {
             Py_ssize_t len;
@@ -311,7 +312,7 @@ private:
                 buffer = PyBytes_AS_STRING(chunk);
             } else {
                 buffer = PyUnicode_AsUTF8AndSize(chunk, &len);
-                if (buffer == NULL) {
+                if (buffer == nullptr) {
                     len = 0;
                 }
             }
@@ -338,303 +339,6 @@ private:
 
 
 
-/////////////
-// RawString //
-/////////////
-
-
-typedef struct {
-    PyObject_HEAD
-    PyObject* value;
-} RawString;
-
-
-static void
-RawString_dealloc(RawString* self)
-{
-    Py_XDECREF(self->value);
-    Py_TYPE(self)->tp_free((PyObject*) self);
-}
-
-
-static PyObject*
-RawString_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
-{
-    PyObject* self = type->tp_alloc(type, 0);
-    static char const* kwlist[] = {
-        "value",
-        NULL
-    };
-    PyObject* value = NULL;
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "U", (char**) kwlist, &value))
-        return NULL;
-
-    ((RawString*) self)->value = value;
-
-    Py_INCREF(value);
-
-    return self;
-}
-
-static PyMemberDef RawString_members[] = {
-    {"value",
-     T_OBJECT_EX, offsetof(RawString, value), READONLY,
-     "string representing a serialized JSON object"},
-    {NULL}  /* Sentinel */
-};
-
-
-PyDoc_STRVAR(rawjson_doc,
-             "Raw (preserialized) JSON object\n"
-             "\n"
-             "When rapidjson tries to serialize instances of this class, it will"
-             " use their literal `value`. For instance:\n"
-             ">>> rapidjson.dumps(RawString('{\"already\": \"serialized\"}'))\n"
-             "'{\"already\": \"serialized\"}'");
-
-
-static PyTypeObject RawString_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    "rapidjson.RawString",            /* tp_name */
-    sizeof(RawString),                /* tp_basicsize */
-    0,                              /* tp_itemsize */
-    (destructor) RawString_dealloc,   /* tp_dealloc */
-    0,                              /* tp_print */
-    0,                              /* tp_getattr */
-    0,                              /* tp_setattr */
-    0,                              /* tp_compare */
-    0,                              /* tp_repr */
-    0,                              /* tp_as_number */
-    0,                              /* tp_as_sequence */
-    0,                              /* tp_as_mapping */
-    0,                              /* tp_hash */
-    0,                              /* tp_call */
-    0,                              /* tp_str */
-    0,                              /* tp_getattro */
-    0,                              /* tp_setattro */
-    0,                              /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT,             /* tp_flags */
-    rawjson_doc,                    /* tp_doc */
-    0,                              /* tp_traverse */
-    0,                              /* tp_clear */
-    0,                              /* tp_richcompare */
-    0,                              /* tp_weaklistoffset */
-    0,                              /* tp_iter */
-    0,                              /* tp_iternext */
-    0,                              /* tp_methods */
-    RawString_members,                /* tp_members */
-    0,                              /* tp_getset */
-    0,                              /* tp_base */
-    0,                              /* tp_dict */
-    0,                              /* tp_descr_get */
-    0,                              /* tp_descr_set */
-    0,                              /* tp_dictoffset */
-    0,                              /* tp_init */
-    0,                              /* tp_alloc */
-    RawString_new,                    /* tp_new */
-};
-
-
-
-//////////////////
-// RawBytes //
-//////////////////
-
-
-typedef struct {
-    PyObject_HEAD
-    PyObject* value;
-} RawBytes;
-
-
-static void
-RawBytes_dealloc(RawBytes* self)
-{
-    Py_XDECREF(self->value);
-    Py_TYPE(self)->tp_free((PyObject*) self);
-}
-
-
-static PyObject*
-RawBytes_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
-{
-    PyObject* self = type->tp_alloc(type, 0);
-    static char const* kwlist[] = {
-        "value",
-        NULL
-    };
-    PyObject* value = NULL;
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "S", (char**) kwlist, &value))
-        return NULL;
-
-    ((RawBytes*) self)->value = value;
-
-    Py_INCREF(value);
-
-    return self;
-}
-
-static PyMemberDef RawBytes_members[] = {
-    {"value",
-     T_OBJECT_EX, offsetof(RawBytes, value), READONLY,
-     "string representing a serialized JSON object"},
-    {NULL}  /* Sentinel */
-};
-
-
-PyDoc_STRVAR(rawjsonbytes_doc,
-             "Raw (preserialized) JSON object\n"
-             "\n"
-             "When rapidjson tries to serialize instances of this class, it will"
-             " use their literal `value`. For instance:\n"
-             ">>> rapidjson.dumps(RawBytes('{\"already\": \"serialized\"}'))\n"
-             "'{\"already\": \"serialized\"}'");
-
-
-static PyTypeObject RawBytes_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    "rapidjson.RawBytes",            /* tp_name */
-    sizeof(RawBytes),                /* tp_basicsize */
-    0,                              /* tp_itemsize */
-    (destructor) RawBytes_dealloc,   /* tp_dealloc */
-    0,                              /* tp_print */
-    0,                              /* tp_getattr */
-    0,                              /* tp_setattr */
-    0,                              /* tp_compare */
-    0,                              /* tp_repr */
-    0,                              /* tp_as_number */
-    0,                              /* tp_as_sequence */
-    0,                              /* tp_as_mapping */
-    0,                              /* tp_hash */
-    0,                              /* tp_call */
-    0,                              /* tp_str */
-    0,                              /* tp_getattro */
-    0,                              /* tp_setattro */
-    0,                              /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT,             /* tp_flags */
-    rawjsonbytes_doc,                    /* tp_doc */
-    0,                              /* tp_traverse */
-    0,                              /* tp_clear */
-    0,                              /* tp_richcompare */
-    0,                              /* tp_weaklistoffset */
-    0,                              /* tp_iter */
-    0,                              /* tp_iternext */
-    0,                              /* tp_methods */
-    RawBytes_members,                /* tp_members */
-    0,                              /* tp_getset */
-    0,                              /* tp_base */
-    0,                              /* tp_dict */
-    0,                              /* tp_descr_get */
-    0,                              /* tp_descr_set */
-    0,                              /* tp_dictoffset */
-    0,                              /* tp_init */
-    0,                              /* tp_alloc */
-    RawBytes_new,                    /* tp_new */
-};
-
-
-
-
-
-//////////////////
-// RawBytesToPutInQuotes //
-//////////////////
-
-
-typedef struct {
-    PyObject_HEAD
-    PyObject* value;
-} RawBytesToPutInQuotes;
-
-
-static void
-RawBytesToPutInQuotes_dealloc(RawBytesToPutInQuotes* self)
-{
-    Py_XDECREF(self->value);
-    Py_TYPE(self)->tp_free((PyObject*) self);
-}
-
-
-static PyObject*
-RawBytesToPutInQuotes_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
-{
-    PyObject* self = type->tp_alloc(type, 0);
-    static char const* kwlist[] = {
-        "value",
-        NULL
-    };
-    PyObject* value = NULL;
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "S", (char**) kwlist, &value))
-        return NULL;
-
-    ((RawBytesToPutInQuotes*) self)->value = value;
-
-    Py_INCREF(value);
-
-    return self;
-}
-
-static PyMemberDef RawBytesToPutInQuotes_members[] = {
-    {"value",
-     T_OBJECT_EX, offsetof(RawBytesToPutInQuotes, value), READONLY,
-     "bytes to put in quotes"},
-    {NULL}  /* Sentinel */
-};
-
-
-PyDoc_STRVAR(RawBytesToPutInQuotes_doc,
-             "Raw (preserialized) string object\n"
-             "\n"
-             "When rapidjson tries to serialize instances of this class, it will"
-             " use their literal `value` put in quotes. For instance:\n"
-             ">>> rapidjson.dumps(RawBytesToPutInQuotes('{\"already\": \"serialized\"}'))\n"
-             "'{\"already\": \"serialized\"}'");
-
-
-static PyTypeObject RawBytesToPutInQuotes_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0)
-    "rapidjson.RawBytesToPutInQuotes",            /* tp_name */
-    sizeof(RawBytesToPutInQuotes),                /* tp_basicsize */
-    0,                              /* tp_itemsize */
-    (destructor) RawBytesToPutInQuotes_dealloc,   /* tp_dealloc */
-    0,                              /* tp_print */
-    0,                              /* tp_getattr */
-    0,                              /* tp_setattr */
-    0,                              /* tp_compare */
-    0,                              /* tp_repr */
-    0,                              /* tp_as_number */
-    0,                              /* tp_as_sequence */
-    0,                              /* tp_as_mapping */
-    0,                              /* tp_hash */
-    0,                              /* tp_call */
-    0,                              /* tp_str */
-    0,                              /* tp_getattro */
-    0,                              /* tp_setattro */
-    0,                              /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT,             /* tp_flags */
-    RawBytesToPutInQuotes_doc,                    /* tp_doc */
-    0,                              /* tp_traverse */
-    0,                              /* tp_clear */
-    0,                              /* tp_richcompare */
-    0,                              /* tp_weaklistoffset */
-    0,                              /* tp_iter */
-    0,                              /* tp_iternext */
-    0,                              /* tp_methods */
-    RawBytesToPutInQuotes_members,                /* tp_members */
-    0,                              /* tp_getset */
-    0,                              /* tp_base */
-    0,                              /* tp_dict */
-    0,                              /* tp_descr_get */
-    0,                              /* tp_descr_set */
-    0,                              /* tp_dictoffset */
-    0,                              /* tp_init */
-    0,                              /* tp_alloc */
-    RawBytesToPutInQuotes_new,                    /* tp_new */
-};
-
 
 
 // ====================================================================
@@ -645,7 +349,7 @@ static bool
 accept_indent_arg(PyObject* arg, unsigned &write_mode, unsigned &indent_count,
                    char &indent_char)
 {
-    if (arg != NULL && arg != Py_None) {
+    if (arg != nullptr && arg != Py_None) {
         write_mode = WM_PRETTY;
 
         if (PyLong_Check(arg) && PyLong_AsLong(arg) >= 0) {
@@ -688,7 +392,7 @@ accept_indent_arg(PyObject* arg, unsigned &write_mode, unsigned &indent_count,
 static bool
 accept_write_mode_arg(PyObject* arg, unsigned &write_mode)
 {
-    if (arg != NULL && arg != Py_None) {
+    if (arg != nullptr && arg != Py_None) {
         if (PyLong_Check(arg)) {
             long mode = PyLong_AsLong(arg);
             if (mode < 0 || mode >= WM_MAX) {
@@ -712,7 +416,7 @@ accept_write_mode_arg(PyObject* arg, unsigned &write_mode)
 static bool
 accept_number_mode_arg(PyObject* arg, int allow_nan, unsigned &number_mode)
 {
-    if (arg != NULL) {
+    if (arg != nullptr) {
         if (arg == Py_None)
             number_mode = NM_NONE;
         else if (PyLong_Check(arg)) {
@@ -740,7 +444,7 @@ accept_number_mode_arg(PyObject* arg, int allow_nan, unsigned &number_mode)
 static bool
 accept_datetime_mode_arg(PyObject* arg, unsigned &datetime_mode)
 {
-    if (arg != NULL && arg != Py_None) {
+    if (arg != nullptr && arg != Py_None) {
         if (PyLong_Check(arg)) {
             long mode = PyLong_AsLong(arg);
             if (!valid_datetime_mode(mode)) {
@@ -760,7 +464,7 @@ accept_datetime_mode_arg(PyObject* arg, unsigned &datetime_mode)
 static bool
 accept_uuid_mode_arg(PyObject* arg, unsigned &uuid_mode)
 {
-    if (arg != NULL && arg != Py_None) {
+    if (arg != nullptr && arg != Py_None) {
         if (PyLong_Check(arg)) {
             long mode = PyLong_AsLong(arg);
             if (mode < 0 || mode >= UM_MAX) {
@@ -779,7 +483,7 @@ accept_uuid_mode_arg(PyObject* arg, unsigned &uuid_mode)
 static bool
 accept_bytes_mode_arg(PyObject* arg, unsigned &bytes_mode)
 {
-    if (arg != NULL && arg != Py_None) {
+    if (arg != nullptr && arg != Py_None) {
         if (PyLong_Check(arg)) {
             long mode = PyLong_AsLong(arg);
             if (mode < 0 || mode >= BM_MAX) {
@@ -798,7 +502,7 @@ accept_bytes_mode_arg(PyObject* arg, unsigned &bytes_mode)
 static bool
 accept_iterable_mode_arg(PyObject* arg, unsigned &iterable_mode)
 {
-    if (arg != NULL && arg != Py_None) {
+    if (arg != nullptr && arg != Py_None) {
         if (PyLong_Check(arg)) {
             long mode = PyLong_AsLong(arg);
             if (mode < 0 || mode >= IM_MAX) {
@@ -817,7 +521,7 @@ accept_iterable_mode_arg(PyObject* arg, unsigned &iterable_mode)
 static bool
 accept_mapping_mode_arg(PyObject* arg, unsigned &mapping_mode)
 {
-    if (arg != NULL && arg != Py_None) {
+    if (arg != nullptr && arg != Py_None) {
         if (PyLong_Check(arg)) {
             long mode = PyLong_AsLong(arg);
             if (mode < 0 || mode >= MM_MAX) {
@@ -836,7 +540,7 @@ accept_mapping_mode_arg(PyObject* arg, unsigned &mapping_mode)
 static bool
 accept_chunk_size_arg(PyObject* arg, size_t &chunk_size)
 {
-    if (arg != NULL && arg != Py_None) {
+    if (arg != nullptr && arg != Py_None) {
         if (PyLong_Check(arg)) {
             Py_ssize_t size = PyNumber_AsSsize_t(arg, PyExc_ValueError);
             if (PyErr_Occurred() || size < 4 || size > UINT_MAX) {
@@ -856,7 +560,7 @@ accept_chunk_size_arg(PyObject* arg, size_t &chunk_size)
 static bool
 accept_parse_mode_arg(PyObject* arg, unsigned &parse_mode)
 {
-    if (arg != NULL && arg != Py_None) {
+    if (arg != nullptr && arg != Py_None) {
         if (PyLong_Check(arg)) {
             long mode = PyLong_AsLong(arg);
             if (mode < 0 || mode >= PM_MAX) {
@@ -890,11 +594,11 @@ float_from_string(const char* s, Py_ssize_t len)
     /* We don't care about overflow or underflow.  If the platform
      * supports them, infinities and signed zeroes (on underflow) are
      * fine. */
-    x = PyOS_string_to_double(s, (char **) &end, NULL);
+    x = PyOS_string_to_double(s, (char **) &end, nullptr);
     if (end != s + len) {
-        return NULL;
+        return nullptr;
     } else if (x == -1.0 && PyErr_Occurred()) {
-        return NULL;
+        return nullptr;
     } else {
         return PyFloat_FromDouble(x);
     }
@@ -919,18 +623,18 @@ struct PyHandler {
               unsigned dm,
               unsigned um,
               unsigned nm)
-        : decoderStartObject(NULL),
-          decoderEndObject(NULL),
-          decoderEndArray(NULL),
-          decoderString(NULL),
-          root(NULL),
+        : decoderStartObject(nullptr),
+          decoderEndObject(nullptr),
+          decoderEndArray(nullptr),
+          decoderString(nullptr),
+          root(nullptr),
           objectHook(hook),
           datetimeMode(dm),
           uuidMode(um),
           numberMode(nm)
         {
             stack.reserve(128);
-            if (decoder != NULL) {
+            if (decoder != nullptr) {
                 assert(!objectHook);
                 if (PyObject_HasAttr(decoder, start_object_name)) {
                     decoderStartObject = PyObject_GetAttr(decoder, start_object_name);
@@ -953,7 +657,7 @@ struct PyHandler {
             const HandlerContext& ctx = stack.back();
             if (ctx.copiedKey)
                 PyMem_Free((void*) ctx.key);
-            if (ctx.object != NULL)
+            if (ctx.object != nullptr)
                 Py_DECREF(ctx.object);
             stack.pop_back();
         }
@@ -971,13 +675,13 @@ struct PyHandler {
             if (current.isObject) {
                 PyObject* key = PyUnicode_FromStringAndSize(current.key,
                                                             current.keyLength);
-                if (key == NULL) {
+                if (key == nullptr) {
                     Py_DECREF(value);
                     return false;
                 }
 
                 PyObject* shared_key = PyDict_SetDefault(sharedKeys, key, key);
-                if (shared_key == NULL) {
+                if (shared_key == nullptr) {
                     Py_DECREF(key);
                     Py_DECREF(value);
                     return false;
@@ -992,7 +696,7 @@ struct PyHandler {
 
                     Py_DECREF(key);
                     Py_DECREF(value);
-                    if (pair == NULL) {
+                    if (pair == nullptr) {
                         return false;
                     }
                     rc = PyList_Append(current.object, pair);
@@ -1029,12 +733,12 @@ struct PyHandler {
 
         if (current.key && current.copiedKey) {
             PyMem_Free((void*) current.key);
-            current.key = NULL;
+            current.key = nullptr;
         }
 
         if (copy) {
             char* copied_str = (char*) PyMem_Malloc(length+1);
-            if (copied_str == NULL)
+            if (copied_str == nullptr)
                 return false;
             memcpy(copied_str, str, length+1);
             str = copied_str;
@@ -1052,9 +756,9 @@ struct PyHandler {
         PyObject* mapping;
         bool key_value_pairs;
 
-        if (decoderStartObject != NULL) {
-            mapping = PyObject_CallFunctionObjArgs(decoderStartObject, NULL);
-            if (mapping == NULL)
+        if (decoderStartObject != nullptr) {
+            mapping = PyObject_CallFunctionObjArgs(decoderStartObject, nullptr);
+            if (mapping == nullptr)
                 return false;
             key_value_pairs = PyList_Check(mapping);
             if (!PyMapping_Check(mapping) && !key_value_pairs) {
@@ -1065,7 +769,7 @@ struct PyHandler {
             }
         } else {
             mapping = PyDict_New();
-            if (mapping == NULL) {
+            if (mapping == nullptr) {
                 return false;
             }
             key_value_pairs = false;
@@ -1079,7 +783,7 @@ struct PyHandler {
         ctx.isObject = true;
         ctx.keyValuePairs = key_value_pairs;
         ctx.object = mapping;
-        ctx.key = NULL;
+        ctx.key = nullptr;
         ctx.copiedKey = false;
         Py_INCREF(mapping);
 
@@ -1097,20 +801,20 @@ struct PyHandler {
         PyObject* mapping = ctx.object;
         stack.pop_back();
 
-        if (objectHook == NULL && decoderEndObject == NULL) {
+        if (objectHook == nullptr && decoderEndObject == nullptr) {
             Py_DECREF(mapping);
             return true;
         }
 
         PyObject* replacement;
-        if (decoderEndObject != NULL) {
-            replacement = PyObject_CallFunctionObjArgs(decoderEndObject, mapping, NULL);
-        } else /* if (objectHook != NULL) */ {
-            replacement = PyObject_CallFunctionObjArgs(objectHook, mapping, NULL);
+        if (decoderEndObject != nullptr) {
+            replacement = PyObject_CallFunctionObjArgs(decoderEndObject, mapping, nullptr);
+        } else /* if (objectHook != nullptr) */ {
+            replacement = PyObject_CallFunctionObjArgs(objectHook, mapping, nullptr);
         }
 
         Py_DECREF(mapping);
-        if (replacement == NULL)
+        if (replacement == nullptr)
             return false;
 
         if (!stack.empty()) {
@@ -1119,13 +823,13 @@ struct PyHandler {
             if (current.isObject) {
                 PyObject* key = PyUnicode_FromStringAndSize(current.key,
                                                             current.keyLength);
-                if (key == NULL) {
+                if (key == nullptr) {
                     Py_DECREF(replacement);
                     return false;
                 }
 
                 PyObject* shared_key = PyDict_SetDefault(sharedKeys, key, key);
-                if (shared_key == NULL) {
+                if (shared_key == nullptr) {
                     Py_DECREF(key);
                     Py_DECREF(replacement);
                     return false;
@@ -1140,7 +844,7 @@ struct PyHandler {
 
                     Py_DECREF(key);
                     Py_DECREF(replacement);
-                    if (pair == NULL) {
+                    if (pair == nullptr) {
                         return false;
                     }
 
@@ -1190,7 +894,7 @@ struct PyHandler {
 
     bool StartArray() {
         PyObject* list = PyList_New(0);
-        if (list == NULL) {
+        if (list == nullptr) {
             return false;
         }
 
@@ -1201,7 +905,7 @@ struct PyHandler {
         HandlerContext ctx;
         ctx.isObject = false;
         ctx.object = list;
-        ctx.key = NULL;
+        ctx.key = nullptr;
         ctx.copiedKey = false;
         Py_INCREF(list);
 
@@ -1219,15 +923,15 @@ struct PyHandler {
         PyObject* sequence = ctx.object;
         stack.pop_back();
 
-        if (decoderEndArray == NULL) {
+        if (decoderEndArray == nullptr) {
             Py_DECREF(sequence);
             return true;
         }
 
         PyObject* replacement = PyObject_CallFunctionObjArgs(decoderEndArray, sequence,
-                                                             NULL);
+                                                             nullptr);
         Py_DECREF(sequence);
-        if (replacement == NULL)
+        if (replacement == nullptr)
             return false;
 
         if (!stack.empty()) {
@@ -1236,7 +940,7 @@ struct PyHandler {
             if (current.isObject) {
                 PyObject* key = PyUnicode_FromStringAndSize(current.key,
                                                             current.keyLength);
-                if (key == NULL) {
+                if (key == nullptr) {
                     Py_DECREF(replacement);
                     return false;
                 }
@@ -1284,12 +988,12 @@ struct PyHandler {
 
         PyObject* value;
         if (numberMode & NM_DECIMAL) {
-            value = PyObject_CallFunctionObjArgs(decimal_type, nan_string_value, NULL);
+            value = PyObject_CallFunctionObjArgs(decimal_type, nan_string_value, nullptr);
         } else {
             value = PyFloat_FromString(nan_string_value);
         }
 
-        if (value == NULL)
+        if (value == nullptr)
             return false;
 
         return Handle(value);
@@ -1307,14 +1011,14 @@ struct PyHandler {
             value = PyObject_CallFunctionObjArgs(decimal_type,
                                                  minus
                                                  ? minus_inf_string_value
-                                                 : plus_inf_string_value, NULL);
+                                                 : plus_inf_string_value, nullptr);
         } else {
             value = PyFloat_FromString(minus
                                        ? minus_inf_string_value
                                        : plus_inf_string_value);
         }
 
-        if (value == NULL)
+        if (value == nullptr)
             return false;
 
         return Handle(value);
@@ -1376,9 +1080,9 @@ struct PyHandler {
 
             if (numberMode & NM_DECIMAL) {
                 PyObject* pystr = PyUnicode_FromStringAndSize(str, length);
-                if (pystr == NULL)
+                if (pystr == nullptr)
                     return false;
-                value = PyObject_CallFunctionObjArgs(decimal_type, pystr, NULL);
+                value = PyObject_CallFunctionObjArgs(decimal_type, pystr, nullptr);
                 Py_DECREF(pystr);
             } else {
                 std::string zstr(str, length);
@@ -1389,10 +1093,10 @@ struct PyHandler {
         } else {
             std::string zstr(str, length);
 
-            value = PyLong_FromString(zstr.c_str(), NULL, 10);
+            value = PyLong_FromString(zstr.c_str(), nullptr, 10);
         }
 
-        if (value == NULL) {
+        if (value == nullptr) {
             PyErr_SetString(PyExc_ValueError,
                             isFloat
                             ? "Invalid float value"
@@ -1549,31 +1253,31 @@ struct PyHandler {
         } else if (!hasDate && datetimeMode & DM_SHIFT_TO_UTC && tzoff) {
             PyErr_Format(PyExc_ValueError,
                          "Time literal cannot be shifted to UTC: %s", str);
-            value = NULL;
+            value = nullptr;
         } else if (!hasDate && datetimeMode & DM_SHIFT_TO_UTC) {
             value = PyDateTimeAPI->Time_FromTime(
                 hours, mins, secs, usecs, timezone_utc, PyDateTimeAPI->TimeType);
         } else {
             PyObject* offset = PyDateTimeAPI->Delta_FromDelta(0, tzoff, 0, 1,
                                                               PyDateTimeAPI->DeltaType);
-            if (offset == NULL) {
-                value = NULL;
+            if (offset == nullptr) {
+                value = nullptr;
             } else {
-                PyObject* tz = PyObject_CallFunctionObjArgs(timezone_type, offset, NULL);
+                PyObject* tz = PyObject_CallFunctionObjArgs(timezone_type, offset, nullptr);
                 Py_DECREF(offset);
-                if (tz == NULL) {
-                    value = NULL;
+                if (tz == nullptr) {
+                    value = nullptr;
                 } else {
                     if (hasDate) {
                         value = PyDateTimeAPI->DateTime_FromDateAndTime(
                             year, month, day, hours, mins, secs, usecs, tz,
                             PyDateTimeAPI->DateTimeType);
-                        if (value != NULL && datetimeMode & DM_SHIFT_TO_UTC) {
+                        if (value != nullptr && datetimeMode & DM_SHIFT_TO_UTC) {
                             PyObject* asUTC = PyObject_CallMethodObjArgs(
-                                value, astimezone_name, timezone_utc, NULL);
+                                value, astimezone_name, timezone_utc, nullptr);
                             Py_DECREF(value);
-                            if (asUTC == NULL) {
-                                value = NULL;
+                            if (asUTC == nullptr) {
+                                value = nullptr;
                             } else {
                                 value = asUTC;
                             }
@@ -1587,7 +1291,7 @@ struct PyHandler {
             }
         }
 
-        if (value == NULL)
+        if (value == nullptr)
             return false;
 
         return Handle(value);
@@ -1614,13 +1318,13 @@ struct PyHandler {
 
     bool HandleUuid(const char* str, SizeType length) {
         PyObject* pystr = PyUnicode_FromStringAndSize(str, length);
-        if (pystr == NULL)
+        if (pystr == nullptr)
             return false;
 
-        PyObject* value = PyObject_CallFunctionObjArgs(uuid_type, pystr, NULL);
+        PyObject* value = PyObject_CallFunctionObjArgs(uuid_type, pystr, nullptr);
         Py_DECREF(pystr);
 
-        if (value == NULL)
+        if (value == nullptr)
             return false;
         else
             return Handle(value);
@@ -1642,14 +1346,14 @@ struct PyHandler {
             return HandleUuid(str, length);
 
         value = PyUnicode_FromStringAndSize(str, length);
-        if (value == NULL)
+        if (value == nullptr)
             return false;
 
-        if (decoderString != NULL) {
+        if (decoderString != nullptr) {
             PyObject* replacement = PyObject_CallFunctionObjArgs(decoderString, value,
-                                                                 NULL);
+                                                                 nullptr);
             Py_DECREF(value);
-            if (replacement == NULL)
+            if (replacement == nullptr)
                 return false;
             value = replacement;
         }
@@ -1691,17 +1395,17 @@ loads(PyObject* self, PyObject* args, PyObject* kwargs)
         /* compatibility with stdlib json */
         "allow_nan",
 
-        NULL
+        nullptr
     };
     PyObject* jsonObject;
-    PyObject* objectHook = NULL;
-    PyObject* datetimeModeObj = NULL;
+    PyObject* objectHook = nullptr;
+    PyObject* datetimeModeObj = nullptr;
     unsigned datetimeMode = DM_NONE;
-    PyObject* uuidModeObj = NULL;
+    PyObject* uuidModeObj = nullptr;
     unsigned uuidMode = UM_NONE;
-    PyObject* numberModeObj = NULL;
+    PyObject* numberModeObj = nullptr;
     unsigned numberMode = NM_NAN;
-    PyObject* parseModeObj = NULL;
+    PyObject* parseModeObj = nullptr;
     unsigned parseMode = PM_NONE;
     int allowNan = -1;
 
@@ -1714,69 +1418,69 @@ loads(PyObject* self, PyObject* args, PyObject* kwargs)
                                      &uuidModeObj,
                                      &parseModeObj,
                                      &allowNan))
-        return NULL;
+        return nullptr;
 
     if (objectHook && !PyCallable_Check(objectHook)) {
         if (objectHook == Py_None) {
-            objectHook = NULL;
+            objectHook = nullptr;
         } else {
             PyErr_SetString(PyExc_TypeError, "object_hook is not callable");
-            return NULL;
+            return nullptr;
         }
     }
 
     if (!accept_number_mode_arg(numberModeObj, allowNan, numberMode))
-        return NULL;
+        return nullptr;
     if (numberMode & NM_DECIMAL && numberMode & NM_NATIVE) {
         PyErr_SetString(PyExc_ValueError,
                         "Invalid number_mode, combining NM_NATIVE with NM_DECIMAL"
                         " is not supported");
-        return NULL;
+        return nullptr;
     }
 
     if (!accept_datetime_mode_arg(datetimeModeObj, datetimeMode))
-        return NULL;
+        return nullptr;
     if (datetimeMode && datetime_mode_format(datetimeMode) != DM_ISO8601) {
         PyErr_SetString(PyExc_ValueError,
                         "Invalid datetime_mode, can deserialize only from"
                         " ISO8601");
-        return NULL;
+        return nullptr;
     }
 
     if (!accept_uuid_mode_arg(uuidModeObj, uuidMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_parse_mode_arg(parseModeObj, parseMode))
-        return NULL;
+        return nullptr;
 
     Py_ssize_t jsonStrLen;
     const char* jsonStr;
-    PyObject* asUnicode = NULL;
+    PyObject* asUnicode = nullptr;
 
     if (PyUnicode_Check(jsonObject)) {
         jsonStr = PyUnicode_AsUTF8AndSize(jsonObject, &jsonStrLen);
-        if (jsonStr == NULL) {
-            return NULL;
+        if (jsonStr == nullptr) {
+            return nullptr;
         }
     } else if (PyBytes_Check(jsonObject) || PyByteArray_Check(jsonObject)) {
-        asUnicode = PyUnicode_FromEncodedObject(jsonObject, "utf-8", NULL);
-        if (asUnicode == NULL)
-            return NULL;
+        asUnicode = PyUnicode_FromEncodedObject(jsonObject, "utf-8", nullptr);
+        if (asUnicode == nullptr)
+            return nullptr;
         jsonStr = PyUnicode_AsUTF8AndSize(asUnicode, &jsonStrLen);
-        if (jsonStr == NULL) {
+        if (jsonStr == nullptr) {
             Py_DECREF(asUnicode);
-            return NULL;
+            return nullptr;
         }
     } else {
         PyErr_SetString(PyExc_TypeError,
                         "Expected string or UTF-8 encoded bytes or bytearray");
-        return NULL;
+        return nullptr;
     }
 
-    PyObject* result = do_decode(NULL, jsonStr, jsonStrLen, NULL, 0, objectHook,
+    PyObject* result = do_decode(nullptr, jsonStr, jsonStrLen, nullptr, 0, objectHook,
                                  numberMode, datetimeMode, uuidMode, parseMode);
 
-    if (asUnicode != NULL)
+    if (asUnicode != nullptr)
         Py_DECREF(asUnicode);
 
     return result;
@@ -1807,19 +1511,19 @@ load(PyObject* self, PyObject* args, PyObject* kwargs)
         /* compatibility with stdlib json */
         "allow_nan",
 
-        NULL
+        nullptr
     };
     PyObject* jsonObject;
-    PyObject* objectHook = NULL;
-    PyObject* datetimeModeObj = NULL;
+    PyObject* objectHook = nullptr;
+    PyObject* datetimeModeObj = nullptr;
     unsigned datetimeMode = DM_NONE;
-    PyObject* uuidModeObj = NULL;
+    PyObject* uuidModeObj = nullptr;
     unsigned uuidMode = UM_NONE;
-    PyObject* numberModeObj = NULL;
+    PyObject* numberModeObj = nullptr;
     unsigned numberMode = NM_NAN;
-    PyObject* parseModeObj = NULL;
+    PyObject* parseModeObj = nullptr;
     unsigned parseMode = PM_NONE;
-    PyObject* chunkSizeObj = NULL;
+    PyObject* chunkSizeObj = nullptr;
     size_t chunkSize = 65536;
     int allowNan = -1;
 
@@ -1833,19 +1537,19 @@ load(PyObject* self, PyObject* args, PyObject* kwargs)
                                      &parseModeObj,
                                      &chunkSizeObj,
                                      &allowNan))
-        return NULL;
+        return nullptr;
 
     if (!PyObject_HasAttr(jsonObject, read_name)) {
         PyErr_SetString(PyExc_TypeError, "Expected file-like object");
-        return NULL;
+        return nullptr;
     }
 
     if (objectHook && !PyCallable_Check(objectHook)) {
         if (objectHook == Py_None) {
-            objectHook = NULL;
+            objectHook = nullptr;
         } else {
             PyErr_SetString(PyExc_TypeError, "object_hook is not callable");
-            return NULL;
+            return nullptr;
         }
     }
 
@@ -1856,13 +1560,13 @@ load(PyObject* self, PyObject* args, PyObject* kwargs)
             int mode = PyLong_AsLong(numberModeObj);
             if (mode < 0 || mode >= NM_MAX) {
                 PyErr_SetString(PyExc_ValueError, "Invalid number_mode");
-                return NULL;
+                return nullptr;
             }
             numberMode = (unsigned) mode;
             if (numberMode & NM_DECIMAL && numberMode & NM_NATIVE) {
                 PyErr_SetString(PyExc_ValueError,
                                 "Combining NM_NATIVE with NM_DECIMAL is not supported");
-                return NULL;
+                return nullptr;
             }
         }
     }
@@ -1880,19 +1584,19 @@ load(PyObject* self, PyObject* args, PyObject* kwargs)
             int mode = PyLong_AsLong(datetimeModeObj);
             if (!valid_datetime_mode(mode)) {
                 PyErr_SetString(PyExc_ValueError, "Invalid datetime_mode");
-                return NULL;
+                return nullptr;
             }
             datetimeMode = (unsigned) mode;
             if (datetimeMode && datetime_mode_format(datetimeMode) != DM_ISO8601) {
                 PyErr_SetString(PyExc_ValueError,
                                 "Invalid datetime_mode, can deserialize only from"
                                 " ISO8601");
-                return NULL;
+                return nullptr;
             }
         } else {
             PyErr_SetString(PyExc_TypeError,
                             "datetime_mode must be a non-negative integer value or None");
-            return NULL;
+            return nullptr;
         }
     }
 
@@ -1903,13 +1607,13 @@ load(PyObject* self, PyObject* args, PyObject* kwargs)
             int mode = PyLong_AsLong(uuidModeObj);
             if (mode < 0 || mode >= UM_MAX) {
                 PyErr_SetString(PyExc_ValueError, "Invalid uuid_mode");
-                return NULL;
+                return nullptr;
             }
             uuidMode = (unsigned) mode;
         } else {
             PyErr_SetString(PyExc_TypeError,
                             "uuid_mode must be an integer value or None");
-            return NULL;
+            return nullptr;
         }
     }
 
@@ -1920,13 +1624,13 @@ load(PyObject* self, PyObject* args, PyObject* kwargs)
             int mode = PyLong_AsLong(parseModeObj);
             if (mode < 0 || mode >= PM_MAX) {
                 PyErr_SetString(PyExc_ValueError, "Invalid parse_mode");
-                return NULL;
+                return nullptr;
             }
             parseMode = (unsigned) mode;
         } else {
             PyErr_SetString(PyExc_TypeError,
                             "parse_mode must be an integer value or None");
-            return NULL;
+            return nullptr;
         }
     }
 
@@ -1937,17 +1641,17 @@ load(PyObject* self, PyObject* args, PyObject* kwargs)
                 PyErr_SetString(PyExc_ValueError,
                                 "Invalid chunk_size, must be an integer between 4 and"
                                 " UINT_MAX");
-                return NULL;
+                return nullptr;
             }
             chunkSize = (size_t) size;
         } else {
             PyErr_SetString(PyExc_TypeError,
                             "chunk_size must be an unsigned integer value or None");
-            return NULL;
+            return nullptr;
         }
     }
 
-    return do_decode(NULL, NULL, 0, jsonObject, chunkSize, objectHook,
+    return do_decode(nullptr, nullptr, 0, jsonObject, chunkSize, objectHook,
                      numberMode, datetimeMode, uuidMode, parseMode);
 }
 
@@ -1972,12 +1676,12 @@ static PyMemberDef decoder_members[] = {
     {"parse_mode",
      T_UINT, offsetof(DecoderObject, parseMode), READONLY,
      "The parse mode, whether comments and trailing commas are allowed."},
-    {NULL}
+    {nullptr}
 };
 
 
 static PyTypeObject Decoder_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0)
+    PyVarObject_HEAD_INIT(nullptr, 0)
     "rapidjson.Decoder",                      /* tp_name */
     sizeof(DecoderObject),                    /* tp_basicsize */
     0,                                        /* tp_itemsize */
@@ -2130,10 +1834,10 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
     PyHandler handler(decoder, objectHook, datetimeMode, uuidMode, numberMode);
     Reader reader;
 
-    if (jsonStr != NULL) {
+    if (jsonStr != nullptr) {
         char* jsonStrCopy = (char*) PyMem_Malloc(sizeof(char) * (jsonStrLen+1));
 
-        if (jsonStrCopy == NULL)
+        if (jsonStrCopy == nullptr)
             return PyErr_NoMemory();
 
         memcpy(jsonStrCopy, jsonStr, jsonStrLen+1);
@@ -2161,7 +1865,7 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
             // Try to add the offset in the error message if the exception
             // value is a string.  Otherwise, use the original exception since
             // we can't be sure the exception type takes a single string.
-            if (evalue != NULL && PyUnicode_Check(evalue)) {
+            if (evalue != nullptr && PyUnicode_Check(evalue)) {
                 PyErr_Format(etype, "Parse error at offset %zu: %S", offset, evalue);
                 Py_DECREF(etype);
                 Py_DECREF(evalue);
@@ -2175,11 +1879,11 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
                          offset, GetParseError_En(reader.GetParseErrorCode()));
 
         Py_XDECREF(handler.root);
-        return NULL;
+        return nullptr;
     } else if (PyErr_Occurred()) {
         // Catch possible error raised in associated stream operations
         Py_XDECREF(handler.root);
-        return NULL;
+        return nullptr;
     }
 
     return handler.root;
@@ -2192,17 +1896,17 @@ decoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     static char const* kwlist[] = {
         "json",
         "chunk_size",
-        NULL
+        nullptr
     };
     PyObject* jsonObject;
-    PyObject* chunkSizeObj = NULL;
+    PyObject* chunkSizeObj = nullptr;
     size_t chunkSize = 65536;
 
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$O",
                                      (char**) kwlist,
                                      &jsonObject,
                                      &chunkSizeObj))
-        return NULL;
+        return nullptr;
 
     if (chunkSizeObj && chunkSizeObj != Py_None) {
         if (PyLong_Check(chunkSizeObj)) {
@@ -2211,49 +1915,49 @@ decoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
                 PyErr_SetString(PyExc_ValueError,
                                 "Invalid chunk_size, must be an integer between 4 and"
                                 " UINT_MAX");
-                return NULL;
+                return nullptr;
             }
             chunkSize = (size_t) size;
         } else {
             PyErr_SetString(PyExc_TypeError,
                             "chunk_size must be an unsigned integer value or None");
-            return NULL;
+            return nullptr;
         }
     }
 
     Py_ssize_t jsonStrLen;
     const char* jsonStr;
-    PyObject* asUnicode = NULL;
+    PyObject* asUnicode = nullptr;
 
     if (PyUnicode_Check(jsonObject)) {
         jsonStr = PyUnicode_AsUTF8AndSize(jsonObject, &jsonStrLen);
-        if (jsonStr == NULL)
-            return NULL;
+        if (jsonStr == nullptr)
+            return nullptr;
     } else if (PyBytes_Check(jsonObject) || PyByteArray_Check(jsonObject)) {
-        asUnicode = PyUnicode_FromEncodedObject(jsonObject, "utf-8", NULL);
-        if (asUnicode == NULL)
-            return NULL;
+        asUnicode = PyUnicode_FromEncodedObject(jsonObject, "utf-8", nullptr);
+        if (asUnicode == nullptr)
+            return nullptr;
         jsonStr = PyUnicode_AsUTF8AndSize(asUnicode, &jsonStrLen);
-        if (jsonStr == NULL) {
+        if (jsonStr == nullptr) {
             Py_DECREF(asUnicode);
-            return NULL;
+            return nullptr;
         }
     } else if (PyObject_HasAttr(jsonObject, read_name)) {
-        jsonStr = NULL;
+        jsonStr = nullptr;
         jsonStrLen = 0;
     } else {
         PyErr_SetString(PyExc_TypeError,
                         "Expected string or UTF-8 encoded bytes or bytearray");
-        return NULL;
+        return nullptr;
     }
 
     DecoderObject* d = (DecoderObject*) self;
 
-    PyObject* result = do_decode(self, jsonStr, jsonStrLen, jsonObject, chunkSize, NULL,
+    PyObject* result = do_decode(self, jsonStr, jsonStrLen, jsonObject, chunkSize, nullptr,
                                  d->numberMode, d->datetimeMode, d->uuidMode,
                                  d->parseMode);
 
-    if (asUnicode != NULL)
+    if (asUnicode != nullptr)
         Py_DECREF(asUnicode);
 
     return result;
@@ -2264,20 +1968,20 @@ static PyObject*
 decoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
 {
     DecoderObject* d;
-    PyObject* datetimeModeObj = NULL;
+    PyObject* datetimeModeObj = nullptr;
     unsigned datetimeMode = DM_NONE;
-    PyObject* uuidModeObj = NULL;
+    PyObject* uuidModeObj = nullptr;
     unsigned uuidMode = UM_NONE;
-    PyObject* numberModeObj = NULL;
+    PyObject* numberModeObj = nullptr;
     unsigned numberMode = NM_NAN;
-    PyObject* parseModeObj = NULL;
+    PyObject* parseModeObj = nullptr;
     unsigned parseMode = PM_NONE;
     static char const* kwlist[] = {
         "number_mode",
         "datetime_mode",
         "uuid_mode",
         "parse_mode",
-        NULL
+        nullptr
     };
 
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|OOOO:Decoder",
@@ -2286,7 +1990,7 @@ decoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
                                      &datetimeModeObj,
                                      &uuidModeObj,
                                      &parseModeObj))
-        return NULL;
+        return nullptr;
 
     if (numberModeObj) {
         if (numberModeObj == Py_None) {
@@ -2295,13 +1999,13 @@ decoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
             int mode = PyLong_AsLong(numberModeObj);
             if (mode < 0 || mode >= NM_MAX) {
                 PyErr_SetString(PyExc_ValueError, "Invalid number_mode");
-                return NULL;
+                return nullptr;
             }
             numberMode = (unsigned) mode;
             if (numberMode & NM_DECIMAL && numberMode & NM_NATIVE) {
                 PyErr_SetString(PyExc_ValueError,
                                 "Combining NM_NATIVE with NM_DECIMAL is not supported");
-                return NULL;
+                return nullptr;
             }
         }
     }
@@ -2313,19 +2017,19 @@ decoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
             int mode = PyLong_AsLong(datetimeModeObj);
             if (!valid_datetime_mode(mode)) {
                 PyErr_SetString(PyExc_ValueError, "Invalid datetime_mode");
-                return NULL;
+                return nullptr;
             }
             datetimeMode = (unsigned) mode;
             if (datetimeMode && datetime_mode_format(datetimeMode) != DM_ISO8601) {
                 PyErr_SetString(PyExc_ValueError,
                                 "Invalid datetime_mode, can deserialize only from"
                                 " ISO8601");
-                return NULL;
+                return nullptr;
             }
         } else {
             PyErr_SetString(PyExc_TypeError,
                             "datetime_mode must be a non-negative integer value or None");
-            return NULL;
+            return nullptr;
         }
     }
 
@@ -2336,13 +2040,13 @@ decoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
             int mode = PyLong_AsLong(uuidModeObj);
             if (mode < 0 || mode >= UM_MAX) {
                 PyErr_SetString(PyExc_ValueError, "Invalid uuid_mode");
-                return NULL;
+                return nullptr;
             }
             uuidMode = (unsigned) mode;
         } else {
             PyErr_SetString(PyExc_TypeError,
                             "uuid_mode must be an integer value or None");
-            return NULL;
+            return nullptr;
         }
     }
 
@@ -2353,19 +2057,19 @@ decoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
             int mode = PyLong_AsLong(parseModeObj);
             if (mode < 0 || mode >= PM_MAX) {
                 PyErr_SetString(PyExc_ValueError, "Invalid parse_mode");
-                return NULL;
+                return nullptr;
             }
             parseMode = (unsigned) mode;
         } else {
             PyErr_SetString(PyExc_TypeError,
                             "parse_mode must be an integer value or None");
-            return NULL;
+            return nullptr;
         }
     }
 
     d = (DecoderObject*) type->tp_alloc(type, 0);
-    if (d == NULL)
-        return NULL;
+    if (d == nullptr)
+        return nullptr;
 
     d->datetimeMode = datetimeMode;
     d->uuidMode = uuidMode;
@@ -2408,7 +2112,7 @@ all_keys_are_string(PyObject* dict) {
     Py_ssize_t pos = 0;
     PyObject* key;
 
-    while (PyDict_Next(dict, &pos, &key, NULL))
+    while (PyDict_Next(dict, &pos, &key, nullptr))
         if (!PyUnicode_Check(key))
             return false;
     return true;
@@ -2460,9 +2164,9 @@ dumps_internal(
         if (!(numberMode & NM_NAN)) {
             bool is_inf_or_nan;
             PyObject* is_inf = PyObject_CallMethodObjArgs(object, is_infinite_name,
-                                                          NULL);
+                                                          nullptr);
 
-            if (is_inf == NULL) {
+            if (is_inf == nullptr) {
                 return false;
             }
             is_inf_or_nan = is_inf == Py_True;
@@ -2470,9 +2174,9 @@ dumps_internal(
 
             if (!is_inf_or_nan) {
                 PyObject* is_nan = PyObject_CallMethodObjArgs(object, is_nan_name,
-                                                              NULL);
+                                                              nullptr);
 
-                if (is_nan == NULL) {
+                if (is_nan == nullptr) {
                     return false;
                 }
                 is_inf_or_nan = is_nan == Py_True;
@@ -2487,12 +2191,12 @@ dumps_internal(
         }
 
         PyObject* decStrObj = PyObject_Str(object);
-        if (decStrObj == NULL)
+        if (decStrObj == nullptr)
             return false;
 
         Py_ssize_t size;
         const char* decStr = PyUnicode_AsUTF8AndSize(decStrObj, &size);
-        if (decStr == NULL) {
+        if (decStr == nullptr) {
             Py_DECREF(decStrObj);
             return false;
         }
@@ -2525,12 +2229,12 @@ dumps_internal(
             // library is IntEnum
 
             PyObject* intStrObj = PyLong_Type.tp_repr(object);
-            if (intStrObj == NULL)
+            if (intStrObj == nullptr)
                 return false;
 
             Py_ssize_t size;
             const char* intStr = PyUnicode_AsUTF8AndSize(intStrObj, &size);
-            if (intStr == NULL) {
+            if (intStr == nullptr) {
                 Py_DECREF(intStrObj);
                 return false;
             }
@@ -2568,12 +2272,12 @@ dumps_internal(
 
             PyObject* dr = PyObject_Repr(object);
 
-            if (dr == NULL)
+            if (dr == nullptr)
                 return false;
 
             Py_ssize_t l;
             const char* rs = PyUnicode_AsUTF8AndSize(dr, &l);
-            if (rs == NULL) {
+            if (rs == nullptr) {
                 Py_DECREF(dr);
                 return false;
             }
@@ -2587,7 +2291,7 @@ dumps_internal(
 	else if (PyUnicode_Check(object)) {
         Py_ssize_t l;
         const char* s = PyUnicode_AsUTF8AndSize(object, &l);
-        //if (s == NULL)
+        //if (s == nullptr)
         //    return false;
         //ASSERT_VALID_SIZE(l);
         writer->String(s, (SizeType) l);
@@ -2632,7 +2336,7 @@ dumps_internal(
     } 
 	else if (!(iterableMode & IM_ONLY_LISTS) && PyIter_Check(object)) {
         PyObject* iterator = PyObject_GetIter(object);
-        if (iterator == NULL)
+        if (iterator == nullptr)
             return false;
 
         writer->StartArray();
@@ -2677,14 +2381,14 @@ dumps_internal(
         Py_ssize_t pos = 0;
         PyObject* key;
         PyObject* item;
-        PyObject* coercedKey = NULL;
+        PyObject* coercedKey = nullptr;
 
             if (!(mappingMode & MM_SORT_KEYS)) {
             while (PyDict_Next(object, &pos, &key, &item)) {
                 if (mappingMode & MM_COERCE_KEYS_TO_STRINGS) {
                     if (!PyUnicode_Check(key)) {
                         coercedKey = PyObject_Str(key);
-                        if (coercedKey == NULL)
+                        if (coercedKey == nullptr)
                             return false;
                         key = coercedKey;
                     }
@@ -2692,7 +2396,7 @@ dumps_internal(
                 if (coercedKey || PyUnicode_Check(key)) {
                     Py_ssize_t l;
                     const char* key_str = PyUnicode_AsUTF8AndSize(key, &l);
-                    if (key_str == NULL) {
+                    if (key_str == nullptr) {
                         Py_XDECREF(coercedKey);
                         return false;
                     }
@@ -2724,7 +2428,7 @@ dumps_internal(
                 if (mappingMode & MM_COERCE_KEYS_TO_STRINGS) {
                     if (!PyUnicode_Check(key)) {
                         coercedKey = PyObject_Str(key);
-                        if (coercedKey == NULL)
+                        if (coercedKey == nullptr)
                             return false;
                         key = coercedKey;
                     }
@@ -2732,7 +2436,7 @@ dumps_internal(
                 if (coercedKey || PyUnicode_Check(key)) {
                     Py_ssize_t l;
                     const char* key_str = PyUnicode_AsUTF8AndSize(key, &l);
-                    if (key_str == NULL) {
+                    if (key_str == nullptr) {
                         Py_XDECREF(coercedKey);
                         return false;
                     }
@@ -2775,8 +2479,8 @@ dumps_internal(
 	
 	// all others ojects --------------------------------------------------------
 	else if (defaultFn) {
-        PyObject* retval = PyObject_CallFunctionObjArgs(defaultFn, object, NULL);
-        if (retval == NULL)
+        PyObject* retval = PyObject_CallFunctionObjArgs(defaultFn, object, nullptr);
+        if (retval == nullptr)
             return false;
         if (Py_EnterRecursiveCall(" while JSONifying default function result")) {
             Py_DECREF(retval);
@@ -2837,21 +2541,21 @@ dumps(PyObject* self, PyObject* args, PyObject* kwargs)
 
     PyObject* value;
     int ensureAscii = true;
-    PyObject* indent = NULL;
-    PyObject* defaultFn = NULL;
-    PyObject* numberModeObj = NULL;
+    PyObject* indent = nullptr;
+    PyObject* defaultFn = nullptr;
+    PyObject* numberModeObj = nullptr;
     unsigned numberMode = NM_NAN;
-    PyObject* datetimeModeObj = NULL;
+    PyObject* datetimeModeObj = nullptr;
     unsigned datetimeMode = DM_NONE;
-    PyObject* uuidModeObj = NULL;
+    PyObject* uuidModeObj = nullptr;
     unsigned uuidMode = UM_NONE;
-    PyObject* bytesModeObj = NULL;
+    PyObject* bytesModeObj = nullptr;
     unsigned bytesMode = BM_UTF8;
-    PyObject* writeModeObj = NULL;
+    PyObject* writeModeObj = nullptr;
     unsigned writeMode = WM_COMPACT;
-    PyObject* iterableModeObj = NULL;
+    PyObject* iterableModeObj = nullptr;
     unsigned iterableMode = IM_ANY_ITERABLE;
-    PyObject* mappingModeObj = NULL;
+    PyObject* mappingModeObj = nullptr;
     unsigned mappingMode = MM_ANY_MAPPING;
     int allowNan = -1;
     int returnBytes = false;
@@ -2874,7 +2578,7 @@ dumps(PyObject* self, PyObject* args, PyObject* kwargs)
         "allow_nan",  /* compatibility with stdlib json */
         "return_bytes",
 
-        NULL
+        nullptr
     };
     int skipKeys = false;
     int sortKeys = false;
@@ -2897,40 +2601,40 @@ dumps(PyObject* self, PyObject* args, PyObject* kwargs)
                                      &allowNan,
                                      &returnBytes
                                      ))
-        return NULL;
+        return nullptr;
 
     if (defaultFn && !PyCallable_Check(defaultFn)) {
         if (defaultFn == Py_None) {
-            defaultFn = NULL;
+            defaultFn = nullptr;
         } else {
             PyErr_SetString(PyExc_TypeError, "default must be a callable");
-            return NULL;
+            return nullptr;
         }
     }
 
     if (!accept_indent_arg(indent, writeMode, indentCount, indentChar))
-        return NULL;
+        return nullptr;
 
     if (!accept_write_mode_arg(writeModeObj, writeMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_number_mode_arg(numberModeObj, allowNan, numberMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_datetime_mode_arg(datetimeModeObj, datetimeMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_uuid_mode_arg(uuidModeObj, uuidMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_bytes_mode_arg(bytesModeObj, bytesMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_iterable_mode_arg(iterableModeObj, iterableMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_mapping_mode_arg(mappingModeObj, mappingMode))
-        return NULL;
+        return nullptr;
 
     if (skipKeys)
         mappingMode |= MM_SKIP_NON_STRING_KEYS;
@@ -2962,21 +2666,21 @@ dumpb(PyObject* self, PyObject* args, PyObject* kwargs)
 
     PyObject* value;
     int ensureAscii = true;
-    PyObject* indent = NULL;
-    PyObject* defaultFn = NULL;
-    PyObject* numberModeObj = NULL;
+    PyObject* indent = nullptr;
+    PyObject* defaultFn = nullptr;
+    PyObject* numberModeObj = nullptr;
     unsigned numberMode = NM_NAN;
-    PyObject* datetimeModeObj = NULL;
+    PyObject* datetimeModeObj = nullptr;
     unsigned datetimeMode = DM_NONE;
-    PyObject* uuidModeObj = NULL;
+    PyObject* uuidModeObj = nullptr;
     unsigned uuidMode = UM_NONE;
-    PyObject* bytesModeObj = NULL;
+    PyObject* bytesModeObj = nullptr;
     unsigned bytesMode = BM_UTF8;
-    PyObject* writeModeObj = NULL;
+    PyObject* writeModeObj = nullptr;
     unsigned writeMode = WM_COMPACT;
-    PyObject* iterableModeObj = NULL;
+    PyObject* iterableModeObj = nullptr;
     unsigned iterableMode = IM_ANY_ITERABLE;
-    PyObject* mappingModeObj = NULL;
+    PyObject* mappingModeObj = nullptr;
     unsigned mappingMode = MM_ANY_MAPPING;
     int allowNan = -1;
     char indentChar = ' ';
@@ -2996,7 +2700,7 @@ dumpb(PyObject* self, PyObject* args, PyObject* kwargs)
         "iterable_mode",
         "mapping_mode",
         "allow_nan",  /* compatibility with stdlib json */
-        NULL
+        nullptr
     };
     int skipKeys = false;
     int sortKeys = false;
@@ -3018,40 +2722,40 @@ dumpb(PyObject* self, PyObject* args, PyObject* kwargs)
                                      &mappingModeObj,
                                      &allowNan
                                      ))
-        return NULL;
+        return nullptr;
 
     if (defaultFn && !PyCallable_Check(defaultFn)) {
         if (defaultFn == Py_None) {
-            defaultFn = NULL;
+            defaultFn = nullptr;
         } else {
             PyErr_SetString(PyExc_TypeError, "default must be a callable");
-            return NULL;
+            return nullptr;
         }
     }
 
     if (!accept_indent_arg(indent, writeMode, indentCount, indentChar))
-        return NULL;
+        return nullptr;
 
     if (!accept_write_mode_arg(writeModeObj, writeMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_number_mode_arg(numberModeObj, allowNan, numberMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_datetime_mode_arg(datetimeModeObj, datetimeMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_uuid_mode_arg(uuidModeObj, uuidMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_bytes_mode_arg(bytesModeObj, bytesMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_iterable_mode_arg(iterableModeObj, iterableMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_mapping_mode_arg(mappingModeObj, mappingMode))
-        return NULL;
+        return nullptr;
 
     if (skipKeys)
         mappingMode |= MM_SKIP_NON_STRING_KEYS;
@@ -3085,25 +2789,25 @@ dump(PyObject* self, PyObject* args, PyObject* kwargs)
     PyObject* value;
     PyObject* stream;
     int ensureAscii = true;
-    PyObject* indent = NULL;
-    PyObject* defaultFn = NULL;
-    PyObject* numberModeObj = NULL;
+    PyObject* indent = nullptr;
+    PyObject* defaultFn = nullptr;
+    PyObject* numberModeObj = nullptr;
     unsigned numberMode = NM_NAN;
-    PyObject* datetimeModeObj = NULL;
+    PyObject* datetimeModeObj = nullptr;
     unsigned datetimeMode = DM_NONE;
-    PyObject* uuidModeObj = NULL;
+    PyObject* uuidModeObj = nullptr;
     unsigned uuidMode = UM_NONE;
-    PyObject* bytesModeObj = NULL;
+    PyObject* bytesModeObj = nullptr;
     unsigned bytesMode = BM_UTF8;
-    PyObject* writeModeObj = NULL;
+    PyObject* writeModeObj = nullptr;
     unsigned writeMode = WM_COMPACT;
-    PyObject* iterableModeObj = NULL;
+    PyObject* iterableModeObj = nullptr;
     unsigned iterableMode = IM_ANY_ITERABLE;
-    PyObject* mappingModeObj = NULL;
+    PyObject* mappingModeObj = nullptr;
     unsigned mappingMode = MM_ANY_MAPPING;
     char indentChar = ' ';
     unsigned indentCount = 4;
-    PyObject* chunkSizeObj = NULL;
+    PyObject* chunkSizeObj = nullptr;
     size_t chunkSize = 65536;
     int allowNan = -1;
     static char const* kwlist[] = {
@@ -3123,7 +2827,7 @@ dump(PyObject* self, PyObject* args, PyObject* kwargs)
         "iterable_mode",
         "mapping_mode",
         "allow_nan",         /* compatibility with stdlib json */
-        NULL
+        nullptr
     };
     int skipKeys = false;
     int sortKeys = false;
@@ -3147,43 +2851,43 @@ dump(PyObject* self, PyObject* args, PyObject* kwargs)
                                      &mappingModeObj,
                                      &allowNan
                                      ))
-        return NULL;
+        return nullptr;
 
     if (defaultFn && !PyCallable_Check(defaultFn)) {
         if (defaultFn == Py_None) {
-            defaultFn = NULL;
+            defaultFn = nullptr;
         } else {
             PyErr_SetString(PyExc_TypeError, "default must be a callable");
-            return NULL;
+            return nullptr;
         }
     }
 
     if (!accept_indent_arg(indent, writeMode, indentCount, indentChar))
-        return NULL;
+        return nullptr;
 
     if (!accept_write_mode_arg(writeModeObj, writeMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_number_mode_arg(numberModeObj, allowNan, numberMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_datetime_mode_arg(datetimeModeObj, datetimeMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_uuid_mode_arg(uuidModeObj, uuidMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_bytes_mode_arg(bytesModeObj, bytesMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_chunk_size_arg(chunkSizeObj, chunkSize))
-        return NULL;
+        return nullptr;
 
     if (!accept_iterable_mode_arg(iterableModeObj, iterableMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_mapping_mode_arg(mappingModeObj, mappingMode))
-        return NULL;
+        return nullptr;
 
     if (skipKeys)
         mappingMode |= MM_SKIP_NON_STRING_KEYS;
@@ -3239,7 +2943,7 @@ static PyMemberDef encoder_members[] = {
     {"return_bytes",
      T_BOOL, offsetof(EncoderObject, returnBytes), READONLY,
      "Whether encoder return Bytes instead of string."},
-    {NULL}
+    {nullptr}
 };
 
 
@@ -3258,15 +2962,15 @@ encoder_get_sort_keys(EncoderObject* e, void* closure)
 // Backward compatibility, previously they were members of EncoderObject
 
 static PyGetSetDef encoder_props[] = {
-    {"skip_invalid_keys", (getter) encoder_get_skip_invalid_keys, NULL,
+    {"skip_invalid_keys", (getter) encoder_get_skip_invalid_keys, nullptr,
      "Whether invalid keys shall be skipped."},
-    {"sort_keys", (getter) encoder_get_sort_keys, NULL,
+    {"sort_keys", (getter) encoder_get_sort_keys, nullptr,
      "Whether dictionary keys shall be sorted alphabetically."},
-    {NULL}
+    {nullptr}
 };
 
 static PyTypeObject Encoder_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0)
+    PyVarObject_HEAD_INIT(nullptr, 0)
     "rapidjson.Encoder",                      /* tp_name */
     sizeof(EncoderObject),                    /* tp_basicsize */
     0,                                        /* tp_itemsize */
@@ -3322,7 +3026,7 @@ static PyTypeObject Encoder_Type = {
                     bytesMode,                          \
                     iterableMode,                       \
                     mappingMode)                        \
-     ? (returnBytes ? PyBytes_FromString(buf.GetString()) : PyUnicode_FromStringAndSize(buf.GetString(),buf.GetSize())): NULL) 
+     ? (returnBytes ? PyBytes_FromString(buf.GetString()) : PyUnicode_FromStringAndSize(buf.GetString(),buf.GetSize())): nullptr)
      
      
 
@@ -3336,14 +3040,14 @@ static PyTypeObject Encoder_Type = {
                     bytesMode,                          \
                     iterableMode,                       \
                     mappingMode)                        \
-     ? (returnBytes ? PyBytes_FromStringAndSize(buf.GetBuffer(),buf.GetSize()) : PyUnicode_FromStringAndSize(buf.GetBuffer(), buf.GetSize())): NULL) 
+     ? (returnBytes ? PyBytes_FromStringAndSize(buf.GetBuffer(),buf.GetSize()) : PyUnicode_FromStringAndSize(buf.GetBuffer(), buf.GetSize())): nullptr)
 
 
-     //? PyUnicode_FromString(buf.GetString()) : NULL) // 140 msec?
-     //? _PyUnicode_FromASCII(buf.GetString(), strlen(buf.GetString())) : NULL)  // 135 msec
-     //? PyUnicode_FromStringAndSize(buf.GetBuffer(), buf.GetSize())) : NULL) //145 msec for 120000000 length
-     //? PyBytes_FromString(buf.GetString()) : NULL) 
-     //? PyBytes_FromStringAndSize(buf.GetBuffer(),buf.GetSize()) : NULL) 
+     //? PyUnicode_FromString(buf.GetString()) : nullptr) // 140 msec?
+     //? _PyUnicode_FromASCII(buf.GetString(), strlen(buf.GetString())) : nullptr)  // 135 msec
+     //? PyUnicode_FromStringAndSize(buf.GetBuffer(), buf.GetSize())) : nullptr) //145 msec for 120000000 length
+     //? PyBytes_FromString(buf.GetString()) : nullptr)
+     //? PyBytes_FromStringAndSize(buf.GetBuffer(),buf.GetSize()) : nullptr)
      
      
 #define DUMPS_INTERNAL_CALL_WITH_PYBYTESBUFFER           \
@@ -3356,7 +3060,7 @@ static PyTypeObject Encoder_Type = {
                     bytesMode,                          \
                     iterableMode,                       \
                     mappingMode)                        \
-     ? (returnBytes ? buf.getPyBytes() : PyUnicode_FromEncodedObject(buf.getPyBytes(),"utf-8",errors)): NULL) 
+     ? (returnBytes ? buf.getPyBytes() : PyUnicode_FromEncodedObject(buf.getPyBytes(),"utf-8",errors)): nullptr)
 
 
 static PyObject*
@@ -3391,7 +3095,7 @@ do_encode(PyObject* value, PyObject* defaultFn, bool ensureAscii, unsigned write
                     bytesMode,                  \
                     iterableMode,               \
                     mappingMode)                \
-     ? Py_INCREF(Py_None), Py_None : NULL)
+     ? Py_INCREF(Py_None), Py_None : nullptr)
 
 
 static PyObject*
@@ -3424,13 +3128,13 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         "obj",
         "stream",
         "chunk_size",
-        NULL
+        nullptr
     };
     PyObject* value;
-    PyObject* stream = NULL;
-    PyObject* chunkSizeObj = NULL;
+    PyObject* stream = nullptr;
+    PyObject* chunkSizeObj = nullptr;
     size_t chunkSize = 65536;
-    PyObject* defaultFn = NULL;
+    PyObject* defaultFn = nullptr;
     PyObject* result;
 
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|O$O",
@@ -3438,18 +3142,18 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
                                      &value,
                                      &stream,
                                      &chunkSizeObj))
-        return NULL;
+        return nullptr;
 
     EncoderObject* e = (EncoderObject*) self;
 
-    if (stream != NULL && stream != Py_None) {
+    if (stream != nullptr && stream != Py_None) {
         if (!PyObject_HasAttr(stream, write_name)) {
             PyErr_SetString(PyExc_TypeError, "Expected a writable stream");
-            return NULL;
+            return nullptr;
         }
 
         if (!accept_chunk_size_arg(chunkSizeObj, chunkSize))
-            return NULL;
+            return nullptr;
 
         if (PyObject_HasAttr(self, default_name)) {
             defaultFn = PyObject_GetAttr(self, default_name);
@@ -3469,7 +3173,7 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
                            e->bytesMode, e->iterableMode, e->mappingMode, e->returnBytes);
     }
 
-    if (defaultFn != NULL)
+    if (defaultFn != nullptr)
         Py_DECREF(defaultFn);
 
     return result;
@@ -3481,20 +3185,20 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
 {
     EncoderObject* e;
     int ensureAscii = true;
-    PyObject* indent = NULL;
-    PyObject* numberModeObj = NULL;
+    PyObject* indent = nullptr;
+    PyObject* numberModeObj = nullptr;
     unsigned numberMode = NM_NAN;
-    PyObject* datetimeModeObj = NULL;
+    PyObject* datetimeModeObj = nullptr;
     unsigned datetimeMode = DM_NONE;
-    PyObject* uuidModeObj = NULL;
+    PyObject* uuidModeObj = nullptr;
     unsigned uuidMode = UM_NONE;
-    PyObject* bytesModeObj = NULL;
+    PyObject* bytesModeObj = nullptr;
     unsigned bytesMode = BM_UTF8;
-    PyObject* writeModeObj = NULL;
+    PyObject* writeModeObj = nullptr;
     unsigned writeMode = WM_COMPACT;
-    PyObject* iterableModeObj = NULL;
+    PyObject* iterableModeObj = nullptr;
     unsigned iterableMode = IM_ANY_ITERABLE;
-    PyObject* mappingModeObj = NULL;
+    PyObject* mappingModeObj = nullptr;
     unsigned mappingMode = MM_ANY_MAPPING;
     int allowNan = -1;
     int returnBytes = false;
@@ -3514,7 +3218,7 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
         "mapping_mode",
         "allow_nan",
         "return_bytes",
-        NULL
+        nullptr
     };
     int skipInvalidKeys = false;
     int sortKeys = false;
@@ -3535,31 +3239,31 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
                                      &allowNan,
                                      &returnBytes
                                      ))
-        return NULL;
+        return nullptr;
 
     if (!accept_indent_arg(indent, writeMode, indentCount, indentChar))
-        return NULL;
+        return nullptr;
 
     if (!accept_write_mode_arg(writeModeObj, writeMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_number_mode_arg(numberModeObj, allowNan, numberMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_datetime_mode_arg(datetimeModeObj, datetimeMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_uuid_mode_arg(uuidModeObj, uuidMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_bytes_mode_arg(bytesModeObj, bytesMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_iterable_mode_arg(iterableModeObj, iterableMode))
-        return NULL;
+        return nullptr;
 
     if (!accept_mapping_mode_arg(mappingModeObj, mappingMode))
-        return NULL;
+        return nullptr;
 
     if (skipInvalidKeys)
         mappingMode |= MM_SKIP_NON_STRING_KEYS;
@@ -3568,8 +3272,8 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
         mappingMode |= MM_SORT_KEYS;
 
     e = (EncoderObject*) type->tp_alloc(type, 0);
-    if (e == NULL)
-        return NULL;
+    if (e == nullptr)
+        return nullptr;
 
     e->ensureAscii = ensureAscii ? true : false;
     e->writeMode = writeMode;
@@ -3606,7 +3310,7 @@ PyDoc_STRVAR(validator_doc,
 
 
 static PyTypeObject Validator_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0)
+    PyVarObject_HEAD_INIT(nullptr, 0)
     "rapidjson.Validator",          /* tp_name */
     sizeof(ValidatorObject),        /* tp_basicsize */
     0,                              /* tp_itemsize */
@@ -3653,21 +3357,21 @@ static PyObject* validator_call(PyObject* self, PyObject* args, PyObject* kwargs
     PyObject* jsonObject;
 
     if (!PyArg_ParseTuple(args, "O", &jsonObject))
-        return NULL;
+        return nullptr;
 
     const char* jsonStr;
 
     if (PyBytes_Check(jsonObject)) {
         jsonStr = PyBytes_AsString(jsonObject);
-        if (jsonStr == NULL)
-            return NULL;
+        if (jsonStr == nullptr)
+            return nullptr;
     } else if (PyUnicode_Check(jsonObject)) {
         jsonStr = PyUnicode_AsUTF8(jsonObject);
-        if (jsonStr == NULL)
-            return NULL;
+        if (jsonStr == nullptr)
+            return nullptr;
     } else {
         PyErr_SetString(PyExc_TypeError, "Expected string or UTF-8 encoded bytes");
-        return NULL;
+        return nullptr;
     }
 
     Document d;
@@ -3679,7 +3383,7 @@ static PyObject* validator_call(PyObject* self, PyObject* args, PyObject* kwargs
 
     if (error) {
         PyErr_SetString(decode_error, "Invalid JSON");
-        return NULL;
+        return nullptr;
     }
 
     SchemaValidator validator(*((ValidatorObject*) self)->schema);
@@ -3706,7 +3410,7 @@ static PyObject* validator_call(PyObject* self, PyObject* args, PyObject* kwargs
         sptr.Clear();
         dptr.Clear();
 
-        return NULL;
+        return nullptr;
     }
 
     Py_RETURN_NONE;
@@ -3726,21 +3430,21 @@ static PyObject* validator_new(PyTypeObject* type, PyObject* args, PyObject* kwa
     PyObject* jsonObject;
 
     if (!PyArg_ParseTuple(args, "O", &jsonObject))
-        return NULL;
+        return nullptr;
 
     const char* jsonStr;
 
     if (PyBytes_Check(jsonObject)) {
         jsonStr = PyBytes_AsString(jsonObject);
-        if (jsonStr == NULL)
-            return NULL;
+        if (jsonStr == nullptr)
+            return nullptr;
     } else if (PyUnicode_Check(jsonObject)) {
         jsonStr = PyUnicode_AsUTF8(jsonObject);
-        if (jsonStr == NULL)
-            return NULL;
+        if (jsonStr == nullptr)
+            return nullptr;
     } else {
         PyErr_SetString(PyExc_TypeError, "Expected string or UTF-8 encoded bytes");
-        return NULL;
+        return nullptr;
     }
 
     Document d;
@@ -3752,12 +3456,12 @@ static PyObject* validator_new(PyTypeObject* type, PyObject* args, PyObject* kwa
 
     if (error) {
         PyErr_SetString(decode_error, "Invalid JSON");
-        return NULL;
+        return nullptr;
     }
 
     ValidatorObject* v = (ValidatorObject*) type->tp_alloc(type, 0);
-    if (v == NULL)
-        return NULL;
+    if (v == nullptr)
+        return nullptr;
 
     v->schema = new SchemaDocument(d);
 
@@ -3781,7 +3485,7 @@ static PyMethodDef functions[] = {
      dumpb_docstring},
     {"dump", (PyCFunction) dump, METH_VARARGS | METH_KEYWORDS,
      dump_docstring},
-    {NULL, NULL, 0, NULL} /* sentinel */
+    {nullptr, nullptr, 0, nullptr} /* sentinel */
 };
 
 
@@ -3815,109 +3519,109 @@ module_exec(PyObject* m)
         return -1;
 
     datetimeModule = PyImport_ImportModule("datetime");
-    if (datetimeModule == NULL)
+    if (datetimeModule == nullptr)
         return -1;
 
     decimalModule = PyImport_ImportModule("decimal");
-    if (decimalModule == NULL)
+    if (decimalModule == nullptr)
         return -1;
 
     decimal_type = PyObject_GetAttrString(decimalModule, "Decimal");
     Py_DECREF(decimalModule);
 
-    if (decimal_type == NULL)
+    if (decimal_type == nullptr)
         return -1;
 
     timezone_type = PyObject_GetAttrString(datetimeModule, "timezone");
     Py_DECREF(datetimeModule);
 
-    if (timezone_type == NULL)
+    if (timezone_type == nullptr)
         return -1;
 
     timezone_utc = PyObject_GetAttrString(timezone_type, "utc");
-    if (timezone_utc == NULL)
+    if (timezone_utc == nullptr)
         return -1;
 
     uuidModule = PyImport_ImportModule("uuid");
-    if (uuidModule == NULL)
+    if (uuidModule == nullptr)
         return -1;
 
     uuid_type = PyObject_GetAttrString(uuidModule, "UUID");
     Py_DECREF(uuidModule);
 
-    if (uuid_type == NULL)
+    if (uuid_type == nullptr)
         return -1;
 
     astimezone_name = PyUnicode_InternFromString("astimezone");
-    if (astimezone_name == NULL)
+    if (astimezone_name == nullptr)
         return -1;
 
     hex_name = PyUnicode_InternFromString("hex");
-    if (hex_name == NULL)
+    if (hex_name == nullptr)
         return -1;
 
     timestamp_name = PyUnicode_InternFromString("timestamp");
-    if (timestamp_name == NULL)
+    if (timestamp_name == nullptr)
         return -1;
 
     total_seconds_name = PyUnicode_InternFromString("total_seconds");
-    if (total_seconds_name == NULL)
+    if (total_seconds_name == nullptr)
         return -1;
 
     utcoffset_name = PyUnicode_InternFromString("utcoffset");
-    if (utcoffset_name == NULL)
+    if (utcoffset_name == nullptr)
         return -1;
 
     is_infinite_name = PyUnicode_InternFromString("is_infinite");
-    if (is_infinite_name == NULL)
+    if (is_infinite_name == nullptr)
         return -1;
 
     is_nan_name = PyUnicode_InternFromString("is_nan");
-    if (is_infinite_name == NULL)
+    if (is_infinite_name == nullptr)
         return -1;
 
     minus_inf_string_value = PyUnicode_InternFromString("-Infinity");
-    if (minus_inf_string_value == NULL)
+    if (minus_inf_string_value == nullptr)
         return -1;
 
     nan_string_value = PyUnicode_InternFromString("nan");
-    if (nan_string_value == NULL)
+    if (nan_string_value == nullptr)
         return -1;
 
     plus_inf_string_value = PyUnicode_InternFromString("+Infinity");
-    if (plus_inf_string_value == NULL)
+    if (plus_inf_string_value == nullptr)
         return -1;
 
     start_object_name = PyUnicode_InternFromString("start_object");
-    if (start_object_name == NULL)
+    if (start_object_name == nullptr)
         return -1;
 
     end_object_name = PyUnicode_InternFromString("end_object");
-    if (end_object_name == NULL)
+    if (end_object_name == nullptr)
         return -1;
 
     default_name = PyUnicode_InternFromString("default");
-    if (default_name == NULL)
+    if (default_name == nullptr)
         return -1;
 
     end_array_name = PyUnicode_InternFromString("end_array");
-    if (end_array_name == NULL)
+    if (end_array_name == nullptr)
         return -1;
 
     string_name = PyUnicode_InternFromString("string");
-    if (string_name == NULL)
+    if (string_name == nullptr)
         return -1;
 
     read_name = PyUnicode_InternFromString("read");
-    if (read_name == NULL)
+    if (read_name == nullptr)
         return -1;
 
     write_name = PyUnicode_InternFromString("write");
-    if (write_name == NULL)
+    if (write_name == nullptr)
         return -1;
 
     encoding_name = PyUnicode_InternFromString("encoding");
-    if (encoding_name == NULL)
+    if (encoding_name == nullptr)
         return -1;
 
 #define STRINGIFY(x) XSTRINGIFY(x)
@@ -4012,8 +3716,8 @@ module_exec(PyObject* m)
     }
 
     validation_error = PyErr_NewException("rapidjson.ValidationError",
-                                          PyExc_ValueError, NULL);
-    if (validation_error == NULL)
+                                          PyExc_ValueError, nullptr);
+    if (validation_error == nullptr)
         return -1;
     Py_INCREF(validation_error);
     if (PyModule_AddObject(m, "ValidationError", validation_error) < 0) {
@@ -4022,8 +3726,8 @@ module_exec(PyObject* m)
     }
 
     decode_error = PyErr_NewException("rapidjson.JSONDecodeError",
-                                      PyExc_ValueError, NULL);
-    if (decode_error == NULL)
+                                      PyExc_ValueError, nullptr);
+    if (decode_error == nullptr)
         return -1;
     Py_INCREF(decode_error);
     if (PyModule_AddObject(m, "JSONDecodeError", decode_error) < 0) {
@@ -4037,7 +3741,7 @@ module_exec(PyObject* m)
 
 static struct PyModuleDef_Slot slots[] = {
     {Py_mod_exec, (void*) module_exec},
-    {0, NULL}
+    {0, nullptr}
 };
 
 
@@ -4048,9 +3752,9 @@ static PyModuleDef module = {
     0,                          /* m_size */
     functions,                  /* m_methods */
     slots,                      /* m_slots */
-    NULL,                       /* m_traverse */
-    NULL,                       /* m_clear */
-    NULL                        /* m_free */
+    nullptr,                       /* m_traverse */
+    nullptr,                       /* m_clear */
+    nullptr                        /* m_free */
 };
 
 

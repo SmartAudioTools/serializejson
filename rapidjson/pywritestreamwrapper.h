@@ -28,7 +28,7 @@ public:
     typedef char Ch;    
 
     PyWriteStreamWrapper(PyObject* stream_, size_t chunkSize_){
-        currentBytes = NULL;
+        currentBytes = nullptr;
         stream = stream_;
         Py_INCREF(stream);
         chunkSize = chunkSize_ ;
@@ -53,19 +53,19 @@ public:
     }
     
     void Flush(){        
-        if (currentBytes != NULL){
+        if (currentBytes != nullptr){
             size_t currentSize = bufferCursor - bufferBegin;
             if (currentSize){
                 _PyBytes_Resize(&currentBytes, currentSize);
                 sendBytes(currentBytes);
                 //Py_DECREF(currentBytes);
-                currentBytes = NULL;
+                currentBytes = nullptr;
             }
         }
     }
     
     char* Reserve(size_t size) {
-        if (currentBytes == NULL){
+        if (currentBytes == nullptr){
             if(size < chunkSize)
                 size = chunkSize;
             createBytes(size);
@@ -109,7 +109,7 @@ public:
     
     ~PyWriteStreamWrapper() {
         Py_CLEAR(stream);
-        if (currentBytes != NULL)
+        if (currentBytes != nullptr)
             Py_DECREF(currentBytes);
     }
     
@@ -122,13 +122,13 @@ public:
 private:
 
     void createBytes(size_t size){
-        currentBytes = PyBytes_FromStringAndSize(NULL,size);
+        currentBytes = PyBytes_FromStringAndSize(nullptr,size);
         bufferBegin = bufferCursor = PyBytes_AS_STRING(currentBytes);
         bufferEnd = bufferBegin + size;
     }
 
     void sendBytes(PyObject* bytes){
-        PyObject_CallMethodObjArgs(stream, write_name, bytes, NULL); // copy inside ? 
+        PyObject_CallMethodObjArgs(stream, write_name, bytes, nullptr); // copy inside ? 
         //Py_DECREF(bytes);
     }
 
