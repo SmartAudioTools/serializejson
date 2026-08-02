@@ -224,8 +224,21 @@ struct PathSegment {
     size_t len;
     Py_ssize_t index;
 };
+// noeud matérialisé d'un chemin : arbre à partage structurel, un noeud par
+// position réellement demandée via json_path_id() (la clé y est COPIÉE car
+// les pointeurs empruntés des segments peuvent mourir avant la fin du dump)
+struct PathNode {
+    int parent;   // index dans nodes, -1 pour un enfant direct de root
+    PathSegment::Kind kind;
+    std::string key;
+    Py_ssize_t index;
+};
 struct PathTracker {
     std::vector<PathSegment> segments;
+    // pile parallèle à segments : index du PathNode déjà matérialisé pour ce
+    // niveau, ou -1 si pas encore demandé
+    std::vector<int> registered;
+    std::vector<PathNode> nodes;
     // vrai si le prochain dict rencontré est l'état d'un objet retourné par
     // default() : ses clés sont alors des attributs (".attr" et non "['clef']")
     bool next_dict_is_attrs = false;
@@ -2195,17 +2208,23 @@ dumps_internal(
                                   bytesMode, iterableMode, mappingMode)
 
 #define PATH_PUSH_INDEX(i)                                              \
-    if (pathTracker)                                                    \
+    if (pathTracker) {                                                  \
         pathTracker->segments.push_back(                                \
-            {PathSegment::INDEX, nullptr, 0, (Py_ssize_t) (i)})
+            {PathSegment::INDEX, nullptr, 0, (Py_ssize_t) (i)});        \
+        pathTracker->registered.push_back(-1);                          \
+    }
 #define PATH_PUSH_KEY(s, l)                                             \
-    if (pathTracker)                                                    \
+    if (pathTracker) {                                                  \
         pathTracker->segments.push_back(                                \
             {attrsDict ? PathSegment::ATTR : PathSegment::KEY,          \
-             s, (size_t) (l), 0})
+             s, (size_t) (l), 0});                                      \
+        pathTracker->registered.push_back(-1);                          \
+    }
 #define PATH_POP()                                                      \
-    if (pathTracker)                                                    \
-        pathTracker->segments.pop_back()
+    if (pathTracker) {                                                  \
+        pathTracker->segments.pop_back();                               \
+        pathTracker->registered.pop_back();                             \
+    }
 
 // Appelle le hook default_dict/default_list de l'Encoder s'il existe : s'il
 // retourne un autre objet (ex: RawString {"$ref": ...}), on sérialise ce
@@ -2680,9 +2699,91 @@ encoder_json_path(PyObject* self, PyObject* Py_UNUSED(unused))
 }
 
 
+// Identifiant O(1) du chemin courant : matérialise (une seule fois par
+// position) la chaîne des noeuds jusqu'à la racine et retourne l'index du
+// dernier (-1 = racine). La chaîne de caractères n'est construite que si
+// json_path_from_id() est appelé — c'est ce qui rend le mémo des doublons
+// bon marché quand il n'y a pas de répétition.
+static PyObject*
+encoder_json_path_id(PyObject* self, PyObject* Py_UNUSED(unused))
+{
+    EncoderObject* e = (EncoderObject*) self;
+    PathTracker* tracker = e->activePathTracker;
+    if (tracker == nullptr)
+        Py_RETURN_NONE;
+    int parent = -1;
+    for (size_t level = 0; level < tracker->segments.size(); level++) {
+        int node_index = tracker->registered[level];
+        if (node_index == -1) {
+            const PathSegment& segment = tracker->segments[level];
+            PathNode node;
+            node.parent = parent;
+            node.kind = segment.kind;
+            node.index = segment.index;
+            if (segment.str != nullptr)
+                node.key.assign(segment.str, segment.len);
+            tracker->nodes.push_back(std::move(node));
+            node_index = (int) tracker->nodes.size() - 1;
+            tracker->registered[level] = node_index;
+        }
+        parent = node_index;
+    }
+    return PyLong_FromLong(parent);
+}
+
+
+static PyObject*
+encoder_json_path_from_id(PyObject* self, PyObject* arg)
+{
+    EncoderObject* e = (EncoderObject*) self;
+    PathTracker* tracker = e->activePathTracker;
+    if (tracker == nullptr)
+        Py_RETURN_NONE;
+    long node_index = PyLong_AsLong(arg);
+    if (node_index == -1 && PyErr_Occurred())
+        return nullptr;
+    if (node_index < -1 || node_index >= (long) tracker->nodes.size()) {
+        PyErr_SetString(PyExc_ValueError, "unknown json path id");
+        return nullptr;
+    }
+    // remonte la chaîne puis écrit du haut vers le bas
+    std::vector<int> chain;
+    while (node_index != -1) {
+        chain.push_back((int) node_index);
+        node_index = tracker->nodes[(size_t) node_index].parent;
+    }
+    std::string out("root");
+    char index_buffer[32];
+    for (size_t i = chain.size(); i-- > 0;) {
+        const PathNode& node = tracker->nodes[(size_t) chain[i]];
+        switch (node.kind) {
+        case PathSegment::INDEX:
+            snprintf(index_buffer, sizeof(index_buffer), "[%zd]",
+                     (ssize_t) node.index);
+            out += index_buffer;
+            break;
+        case PathSegment::KEY:
+            out += "['";
+            out += node.key;
+            out += "']";
+            break;
+        case PathSegment::ATTR:
+            out += '.';
+            out += node.key;
+            break;
+        }
+    }
+    return PyUnicode_FromStringAndSize(out.data(), (Py_ssize_t) out.size());
+}
+
+
 static PyMethodDef encoder_methods[] = {
     {"json_path", (PyCFunction) encoder_json_path, METH_NOARGS,
      "Chemin JSON de la valeur en cours d'encodage (None hors encodage)."},
+    {"json_path_id", (PyCFunction) encoder_json_path_id, METH_NOARGS,
+     "Identifiant O(1) du chemin courant, à repasser à json_path_from_id()."},
+    {"json_path_from_id", (PyCFunction) encoder_json_path_from_id, METH_O,
+     "Chemin JSON correspondant à un identifiant retourné par json_path_id()."},
     {nullptr, nullptr, 0, nullptr}
 };
 
