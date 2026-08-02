@@ -2268,9 +2268,11 @@ dumps_internal(
             }
         } else {
             // The RJ dtoa() produces "strange" results for particular values, see #101:
-            // use Python's repr() to emit a raw value instead of writer->Double(d)
+            // use Python's float repr to emit a raw value instead of writer->Double(d).
+            // Like for int above, use PyFloat_Type.tp_repr and not PyObject_Repr:
+            // subclasses may override __repr__ (numpy 2 float64 gives "np.float64(0.0)")
 
-            PyObject* dr = PyObject_Repr(object);
+            PyObject* dr = PyFloat_Type.tp_repr(object);
 
             if (dr == nullptr)
                 return false;
