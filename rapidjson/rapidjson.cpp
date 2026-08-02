@@ -14,6 +14,7 @@
 #include <cmath>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 #include "serializejson.h"
 #include "reader.h"
@@ -239,10 +240,79 @@ struct PathTracker {
     // niveau, ou -1 si pas encore demandé
     std::vector<int> registered;
     std::vector<PathNode> nodes;
+    // mémo C++ des dicts/listes déjà écrits (encoder memo_refs=True) :
+    // conteneur -> index de PathNode ; garde une référence forte sur chaque
+    // clé (relâchée par le destructeur, à la fin de l'encodage) pour qu'un id
+    // de conteneur temporaire réutilisé ne passe pas pour un doublon
+    std::unordered_map<PyObject*, long> memo;
+    bool memoContainers = false;
     // vrai si le prochain dict rencontré est l'état d'un objet retourné par
     // default() : ses clés sont alors des attributs (".attr" et non "['clef']")
     bool next_dict_is_attrs = false;
+
+    ~PathTracker() {
+        for (auto& entry : memo)
+            Py_DECREF(entry.first);
+    }
 };
+
+// matérialise (une seule fois par position) la chaîne des noeuds du chemin
+// courant et retourne l'index du dernier (-1 = racine)
+static long
+path_tracker_materialize(PathTracker* tracker)
+{
+    int parent = -1;
+    for (size_t level = 0; level < tracker->segments.size(); level++) {
+        int node_index = tracker->registered[level];
+        if (node_index == -1) {
+            const PathSegment& segment = tracker->segments[level];
+            PathNode node;
+            node.parent = parent;
+            node.kind = segment.kind;
+            node.index = segment.index;
+            if (segment.str != nullptr)
+                node.key.assign(segment.str, segment.len);
+            tracker->nodes.push_back(std::move(node));
+            node_index = (int) tracker->nodes.size() - 1;
+            tracker->registered[level] = node_index;
+        }
+        parent = node_index;
+    }
+    return parent;
+}
+
+// chaîne "root[0].attr['clef']" du noeud node_index (-1 = "root")
+static std::string
+path_tracker_string(PathTracker* tracker, long node_index)
+{
+    std::vector<int> chain;
+    while (node_index != -1) {
+        chain.push_back((int) node_index);
+        node_index = tracker->nodes[(size_t) node_index].parent;
+    }
+    std::string out("root");
+    char index_buffer[32];
+    for (size_t i = chain.size(); i-- > 0;) {
+        const PathNode& node = tracker->nodes[(size_t) chain[i]];
+        switch (node.kind) {
+        case PathSegment::INDEX:
+            snprintf(index_buffer, sizeof(index_buffer), "[%zd]",
+                     (ssize_t) node.index);
+            out += index_buffer;
+            break;
+        case PathSegment::KEY:
+            out += "['";
+            out += node.key;
+            out += "']";
+            break;
+        case PathSegment::ATTR:
+            out += '.';
+            out += node.key;
+            break;
+        }
+    }
+    return out;
+}
 
 static PyObject* do_encode(PyObject* value, PyObject* defaultFn,
                            PyObject* defaultDictFn, PyObject* defaultListFn,
@@ -2226,6 +2296,24 @@ dumps_internal(
         pathTracker->registered.pop_back();                             \
     }
 
+// Mémo C++ des conteneurs (encoder memo_refs=True) : si le dict/liste a déjà
+// été écrit, émet {"$ref": "chemin"} et sort de la branche ; sinon l'insère
+// dans le mémo (référence forte relâchée en fin d'encodage) et continue.
+#define CONTAINER_MEMO_OR_REF()                                         \
+    if (pathTracker && pathTracker->memoContainers) {                   \
+        auto memo_it = pathTracker->memo.find(object);                  \
+        if (memo_it != pathTracker->memo.end()) {                       \
+            std::string ref_ = "{\"$ref\": \"";                         \
+            ref_ += path_tracker_string(pathTracker, memo_it->second);  \
+            ref_ += "\"}";                                              \
+            writer->RawValue(ref_.data(), ref_.size());                 \
+            return true;                                                \
+        }                                                               \
+        pathTracker->memo.emplace(                                      \
+            object, path_tracker_materialize(pathTracker));             \
+        Py_INCREF(object);                                              \
+    }
+
 // Appelle le hook default_dict/default_list de l'Encoder s'il existe : s'il
 // retourne un autre objet (ex: RawString {"$ref": ...}), on sérialise ce
 // remplacant à la place ; s'il retourne l'objet lui-même, chemin natif.
@@ -2413,6 +2501,7 @@ dumps_internal(
 	else if ((!(iterableMode & IM_ONLY_LISTS) && PyList_Check(object))
                ||
                PyList_CheckExact(object)) {
+        CONTAINER_MEMO_OR_REF()
         CALL_CONTAINER_HOOK(defaultListFn, " while JSONifying list object")
         writer->StartArray();
 
@@ -2496,6 +2585,7 @@ dumps_internal(
                 (mappingMode & MM_COERCE_KEYS_TO_STRINGS)
                 ||
                 all_keys_are_string(object))) {
+        CONTAINER_MEMO_OR_REF()
         CALL_CONTAINER_HOOK(defaultDictFn, " while JSONifying dict object")
         writer->StartObject();
 
@@ -2656,6 +2746,7 @@ dumps_internal(
     return PyErr_Occurred() ? false : true;
 
 #undef RECURSE
+#undef CONTAINER_MEMO_OR_REF
 #undef CALL_CONTAINER_HOOK
 #undef PATH_PUSH_INDEX
 #undef PATH_PUSH_KEY
@@ -2677,6 +2768,8 @@ typedef struct {
     unsigned iterableMode;
     unsigned mappingMode;
     bool returnBytes;
+    // mémo C++ des dicts/listes déjà écrits (doublons et cycles -> $ref)
+    bool memoRefs;
     // traqueur de chemin actif pendant un encodage (nullptr sinon),
     // consulté par la méthode json_path()
     PathTracker* activePathTracker;
@@ -2730,24 +2823,23 @@ encoder_json_path_id(PyObject* self, PyObject* Py_UNUSED(unused))
     PathTracker* tracker = e->activePathTracker;
     if (tracker == nullptr)
         Py_RETURN_NONE;
-    int parent = -1;
-    for (size_t level = 0; level < tracker->segments.size(); level++) {
-        int node_index = tracker->registered[level];
-        if (node_index == -1) {
-            const PathSegment& segment = tracker->segments[level];
-            PathNode node;
-            node.parent = parent;
-            node.kind = segment.kind;
-            node.index = segment.index;
-            if (segment.str != nullptr)
-                node.key.assign(segment.str, segment.len);
-            tracker->nodes.push_back(std::move(node));
-            node_index = (int) tracker->nodes.size() - 1;
-            tracker->registered[level] = node_index;
-        }
-        parent = node_index;
-    }
-    return PyLong_FromLong(parent);
+    return PyLong_FromLong(path_tracker_materialize(tracker));
+}
+
+
+// identifiant de chemin mémorisé pour un dict/liste déjà écrit par le mémo
+// C++ (encoder memo_refs=True) ; None si inconnu — utile pour les Reference
+static PyObject*
+encoder_json_path_id_of(PyObject* self, PyObject* arg)
+{
+    EncoderObject* e = (EncoderObject*) self;
+    PathTracker* tracker = e->activePathTracker;
+    if (tracker == nullptr)
+        Py_RETURN_NONE;
+    auto it = tracker->memo.find(arg);
+    if (it == tracker->memo.end())
+        Py_RETURN_NONE;
+    return PyLong_FromLong(it->second);
 }
 
 
@@ -2765,33 +2857,7 @@ encoder_json_path_from_id(PyObject* self, PyObject* arg)
         PyErr_SetString(PyExc_ValueError, "unknown json path id");
         return nullptr;
     }
-    // remonte la chaîne puis écrit du haut vers le bas
-    std::vector<int> chain;
-    while (node_index != -1) {
-        chain.push_back((int) node_index);
-        node_index = tracker->nodes[(size_t) node_index].parent;
-    }
-    std::string out("root");
-    char index_buffer[32];
-    for (size_t i = chain.size(); i-- > 0;) {
-        const PathNode& node = tracker->nodes[(size_t) chain[i]];
-        switch (node.kind) {
-        case PathSegment::INDEX:
-            snprintf(index_buffer, sizeof(index_buffer), "[%zd]",
-                     (ssize_t) node.index);
-            out += index_buffer;
-            break;
-        case PathSegment::KEY:
-            out += "['";
-            out += node.key;
-            out += "']";
-            break;
-        case PathSegment::ATTR:
-            out += '.';
-            out += node.key;
-            break;
-        }
-    }
+    std::string out = path_tracker_string(tracker, node_index);
     return PyUnicode_FromStringAndSize(out.data(), (Py_ssize_t) out.size());
 }
 
@@ -2803,6 +2869,8 @@ static PyMethodDef encoder_methods[] = {
      "Identifiant O(1) du chemin courant, à repasser à json_path_from_id()."},
     {"json_path_from_id", (PyCFunction) encoder_json_path_from_id, METH_O,
      "Chemin JSON correspondant à un identifiant retourné par json_path_id()."},
+    {"json_path_id_of", (PyCFunction) encoder_json_path_id_of, METH_O,
+     "Identifiant de chemin d'un dict/liste déjà écrit (mémo memo_refs), sinon None."},
     {nullptr, nullptr, 0, nullptr}
 };
 
@@ -3456,6 +3524,7 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     }
 
     PathTracker pathTracker;
+    pathTracker.memoContainers = e->memoRefs;
     e->activePathTracker = &pathTracker;
 
     if (stream != nullptr && stream != Py_None) {
@@ -3537,12 +3606,14 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
         "mapping_mode",
         "allow_nan",
         "return_bytes",
+        "memo_refs",
         nullptr
     };
     int skipInvalidKeys = false;
     int sortKeys = false;
+    int memoRefs = false;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|ppOpOOOOOOOpp:Encoder",
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|ppOpOOOOOOOppp:Encoder",
                                      (char**) kwlist,
                                      &skipInvalidKeys,
                                      &ensureAscii,
@@ -3556,7 +3627,8 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
                                      &iterableModeObj,
                                      &mappingModeObj,
                                      &allowNan,
-                                     &returnBytes
+                                     &returnBytes,
+                                     &memoRefs
                                      ))
         return nullptr;
 
@@ -3605,6 +3677,7 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
     e->iterableMode = iterableMode;
     e->mappingMode = mappingMode;
     e->returnBytes = returnBytes? true : false;
+    e->memoRefs = memoRefs? true : false;
     e->activePathTracker = nullptr;
 
     return (PyObject*) e;
