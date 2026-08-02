@@ -17,7 +17,8 @@ except:
 
 import blosc
 import types
-from pybase64 import b64decode, b64decode_as_bytearray, b64encode_as_string
+from pybase64 import b64decode, b64decode_as_bytearray
+from rapidjson import RawBytesToBase64  # base64 écrit directement dans la sortie
 
 
 def bytearrayB64(string, compression=None):
@@ -68,8 +69,8 @@ def serializejson_bytearray(inst):
         else:
             raise Exception(f"{compression} compression unknow")
         if len(compressed) < len(inst):
-            return "bytearray", (b64encode_as_string(compressed), "b64_blosc"), None
-    return "bytearray", (b64encode_as_string(inst), "b64"), None
+            return "bytearray", (RawBytesToBase64(compressed), "b64_blosc"), None
+    return "bytearray", (RawBytesToBase64(inst), "b64"), None
 
 
 serializejson_builtins[bytearray] = serializejson_bytearray
@@ -99,14 +100,14 @@ def serializejson_bytes(inst):
                 None,
                 None,
                 None,
-                (b64encode_as_string(compressed), "b64_blosc"),
+                (RawBytesToBase64(compressed), "b64_blosc"),
             )
     if inst.isascii():
         try:
             return ("bytes", None, None, None, None, (inst.decode("ascii_printables"),))
         except:
             pass
-    return ("bytes", None, None, None, None, (b64encode_as_string(inst), "b64"))
+    return ("bytes", None, None, None, None, (RawBytesToBase64(inst), "b64"))
 
 
 serializejson_builtins[bytes] = serializejson_bytes

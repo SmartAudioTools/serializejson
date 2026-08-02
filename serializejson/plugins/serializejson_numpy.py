@@ -6,7 +6,8 @@ except ModuleNotFoundError:
     pass
 else:
     import blosc
-    from pybase64 import b64encode_as_string, b64decode_as_bytearray
+    from pybase64 import b64decode_as_bytearray
+    from rapidjson import RawBytesToBase64  # base64 écrit directement dans la sortie
     import sys
 
     try:
@@ -185,14 +186,14 @@ else:
                     if len_or_shape is None:
                         return (
                             "numpyB64",
-                            (b64encode_as_string(compressed), dtype_str, compression),
+                            (RawBytesToBase64(compressed), dtype_str, compression),
                             None,
                         )
                     else:
                         return (
                             "numpyB64",
                             (
-                                b64encode_as_string(compressed),
+                                RawBytesToBase64(compressed),
                                 dtype_str,
                                 len_or_shape,
                                 compression,
@@ -202,14 +203,14 @@ else:
             if len_or_shape is None:
                 return (
                     "numpyB64",
-                    (b64encode_as_string(numpy.ascontiguousarray(data)), dtype_str),
+                    (RawBytesToBase64(numpy.ascontiguousarray(data)), dtype_str),
                     None,
                 )
             else:
                 return (
                     "numpyB64",
                     (
-                        b64encode_as_string(numpy.ascontiguousarray(data)),
+                        RawBytesToBase64(numpy.ascontiguousarray(data)),
                         dtype_str,
                         len_or_shape,
                     ),
