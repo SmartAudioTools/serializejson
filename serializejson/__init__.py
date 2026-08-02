@@ -845,12 +845,15 @@ class Encoder(rapidjson.Encoder):
                 return (
                     inst.tolist()
                 )  # A REVOIR : pas génial... va tester si nombres tous du meme type et ne pas pas utiliser rapidjson.NM_NATIVE?
+            if inst.ndim in (1, 2) and inst.dtype.char in _array_rows_dtype_chars:
+                # écrit directement depuis le buffer, entièrement côté C++ :
+                # ni tolist(), ni aucun aller-retour Python par élément
+                return rapidjson.ArrayRows(numpy.ascontiguousarray(inst))
             if inst.dtype in _numpy_float_dtypes:
                 number_mode = self.number_mode
             else:
                 number_mode = rapidjson.NM_NATIVE  # permet décceler pas mal
-            # sous-arbres écrits en compact par le MÊME encodeur (SingleLine) :
-            # mémo des doublons, hooks et chemins restent actifs dedans
+            # repli (float16, ndim > 2...) : sous-arbres compacts via SingleLine
             if inst.ndim == 1:
                 return rapidjson.SingleLine(inst.tolist(), number_mode)
             return [rapidjson.SingleLine(elt.tolist(), number_mode) for elt in inst]
@@ -2043,6 +2046,8 @@ if use_numpy:
     _numpy_float_dtypes = set(
         (numpy.dtype("float16"), numpy.dtype("float32"), numpy.dtype("float64"))
     )
+    # dtypes que rapidjson.ArrayRows sait écrire directement depuis le buffer
+    _array_rows_dtype_chars = frozenset("bhilqBHILQfd?")
 
     _numpy_types = set(
         (

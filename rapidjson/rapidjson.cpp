@@ -2231,6 +2231,112 @@ all_keys_are_string(PyObject* dict) {
 }
 
 
+// Écrit une valeur numérique du buffer (code de format du protocole buffer).
+// Retourne false pour un NaN/Inf refusé par numberMode ou un format inconnu.
+template<typename WriterT>
+static bool
+write_buffer_value(WriterT* writer, char code, const char* ptr, unsigned numberMode)
+{
+    switch (code) {
+    case 'd': case 'f': {
+        double value = (code == 'd') ? *(const double*) ptr
+                                     : (double) *(const float*) ptr;
+        if (IS_NAN(value)) {
+            if (!(numberMode & NM_NAN)) {
+                PyErr_SetString(PyExc_ValueError,
+                                "Out of range float values are not JSON compliant");
+                return false;
+            }
+            writer->RawValue("NaN", 3);
+        } else if (IS_INF(value)) {
+            if (!(numberMode & NM_NAN)) {
+                PyErr_SetString(PyExc_ValueError,
+                                "Out of range float values are not JSON compliant");
+                return false;
+            }
+            writer->RawValue(value < 0 ? "-Infinity" : "Infinity",
+                             value < 0 ? 9 : 8);
+        } else {
+            writer->Double(value);
+        }
+        return true;
+    }
+    case 'b': writer->Int64(*(const signed char*) ptr); return true;
+    case 'h': writer->Int64(*(const short*) ptr); return true;
+    case 'i': writer->Int64(*(const int*) ptr); return true;
+    case 'l': writer->Int64((int64_t) *(const long*) ptr); return true;
+    case 'q': writer->Int64((int64_t) *(const long long*) ptr); return true;
+    case 'B': writer->Uint64(*(const unsigned char*) ptr); return true;
+    case 'H': writer->Uint64(*(const unsigned short*) ptr); return true;
+    case 'I': writer->Uint64(*(const unsigned int*) ptr); return true;
+    case 'L': writer->Uint64((uint64_t) *(const unsigned long*) ptr); return true;
+    case 'Q': writer->Uint64((uint64_t) *(const unsigned long long*) ptr); return true;
+    case '?': writer->Bool(*(const char*) ptr != 0); return true;
+    }
+    PyErr_Format(PyExc_TypeError, "ArrayRows: unsupported buffer format '%c'", code);
+    return false;
+}
+
+
+// Écrit un buffer numérique 1D/2D en lignes lisibles : lignes compactes
+// [v,v,...], tableau extérieur indenté pour la 2D.
+template<typename WriterT>
+static bool
+write_buffer_rows(WriterT* writer, PyObject* arrayObj, unsigned numberMode)
+{
+    Py_buffer view;
+    if (PyObject_GetBuffer(arrayObj, &view,
+                           PyBUF_C_CONTIGUOUS | PyBUF_FORMAT) != 0)
+        return false;
+    const char* format = view.format ? view.format : "B";
+    if (*format == '@' || *format == '=' || *format == '<' || *format == '>'
+        || *format == '!')
+        format++;
+    char code = *format;
+    bool ok = true;
+    size_t itemsize = (size_t) view.itemsize;
+    const char* data = (const char*) view.buf;
+    if (view.ndim == 1) {
+        bool pushed = !writer->InCompact();
+        if (pushed)
+            writer->PushCompact();
+        writer->StartArray();
+        Py_ssize_t count = view.shape[0];
+        for (Py_ssize_t i = 0; ok && i < count; i++)
+            ok = write_buffer_value(writer, code, data + i * itemsize, numberMode);
+        if (ok)
+            writer->EndArray();
+        if (pushed)
+            writer->PopCompact();
+    } else if (view.ndim == 2) {
+        writer->StartArray();
+        Py_ssize_t rows = view.shape[0];
+        Py_ssize_t columns = view.shape[1];
+        for (Py_ssize_t row = 0; ok && row < rows; row++) {
+            bool pushed = !writer->InCompact();
+            if (pushed)
+                writer->PushCompact();
+            writer->StartArray();
+            const char* row_data = data + row * columns * itemsize;
+            for (Py_ssize_t column = 0; ok && column < columns; column++)
+                ok = write_buffer_value(writer, code,
+                                        row_data + column * itemsize, numberMode);
+            if (ok)
+                writer->EndArray();
+            if (pushed)
+                writer->PopCompact();
+        }
+        if (ok)
+            writer->EndArray();
+    } else {
+        PyErr_SetString(PyExc_TypeError, "ArrayRows: only 1D and 2D buffers");
+        ok = false;
+    }
+    PyBuffer_Release(&view);
+    return ok;
+}
+
+
 template<typename WriterT>
 static bool
 dumps_internal(
@@ -2750,6 +2856,10 @@ dumps_internal(
             writer->PopCompact();
         numberMode = savedNumberMode;
         if (!r)
+            return false;
+    }
+	else if (PyObject_TypeCheck(object, &ArrayRows_Type)) {
+        if (!write_buffer_rows(writer, ((ArrayRows*) object)->value, numberMode))
             return false;
     }
 	else if (PyObject_TypeCheck(object, &BloscToBase64_Type)) {
@@ -4019,6 +4129,9 @@ module_exec(PyObject* m)
     if (PyType_Ready(&BloscToBase64_Type) < 0)
         return -1;
 
+    if (PyType_Ready(&ArrayRows_Type) < 0)
+        return -1;
+
     if (PyType_Ready(&RawBytesToPutInQuotes_Type) < 0)
         return -1;
 
@@ -4246,6 +4359,12 @@ module_exec(PyObject* m)
     Py_INCREF(&BloscToBase64_Type);
     if (PyModule_AddObject(m, "BloscToBase64", (PyObject*) &BloscToBase64_Type) < 0) {
         Py_DECREF(&BloscToBase64_Type);
+        return -1;
+    }
+
+    Py_INCREF(&ArrayRows_Type);
+    if (PyModule_AddObject(m, "ArrayRows", (PyObject*) &ArrayRows_Type) < 0) {
+        Py_DECREF(&ArrayRows_Type);
         return -1;
     }
 

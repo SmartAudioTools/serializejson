@@ -616,6 +616,113 @@ static PyTypeObject BloscToBase64_Type = {
 
 
 //////////////////
+// ArrayRows //
+//////////////////
+
+// Tableau numérique 1D/2D (protocole buffer C-contigu : tableau numpy...)
+// écrit DIRECTEMENT depuis son buffer par l'encodeur C++ : lignes compactes
+// [v,v,...], extérieur indenté pour la 2D — sans tolist() ni aucun
+// aller-retour Python par élément.
+
+typedef struct {
+    PyObject_HEAD
+    PyObject* value;
+} ArrayRows;
+
+
+static void
+ArrayRows_dealloc(ArrayRows* self)
+{
+    Py_XDECREF(self->value);
+    Py_TYPE(self)->tp_free((PyObject*) self);
+}
+
+
+static PyObject*
+ArrayRows_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
+{
+    static char const* kwlist[] = {
+        "value",
+        nullptr
+    };
+    PyObject* value = nullptr;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O", (char**) kwlist, &value))
+        return nullptr;
+
+    if (!PyObject_CheckBuffer(value)) {
+        PyErr_SetString(PyExc_TypeError, "ArrayRows expects a buffer object");
+        return nullptr;
+    }
+
+    PyObject* self = type->tp_alloc(type, 0);
+    if (self == nullptr)
+        return nullptr;
+
+    ((ArrayRows*) self)->value = value;
+
+    Py_INCREF(value);
+
+    return self;
+}
+
+static PyMemberDef ArrayRows_members[] = {
+    {"value",
+     T_OBJECT_EX, offsetof(ArrayRows, value), READONLY,
+     "numeric 1D/2D buffer written as readable rows"},
+    {nullptr}  /* Sentinel */
+};
+
+
+PyDoc_STRVAR(ArrayRows_doc,
+             "Numeric 1D/2D buffer written as human readable rows straight"
+             " from its memory: compact [v,v,...] rows, indented outer array"
+             " for 2D — no tolist(), no per-element Python round trip.");
+
+
+static PyTypeObject ArrayRows_Type = {
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    "rapidjson.ArrayRows",            /* tp_name */
+    sizeof(ArrayRows),                /* tp_basicsize */
+    0,                              /* tp_itemsize */
+    (destructor) ArrayRows_dealloc,   /* tp_dealloc */
+    0,                              /* tp_print */
+    0,                              /* tp_getattr */
+    0,                              /* tp_setattr */
+    0,                              /* tp_compare */
+    0,                              /* tp_repr */
+    0,                              /* tp_as_number */
+    0,                              /* tp_as_sequence */
+    0,                              /* tp_as_mapping */
+    0,                              /* tp_hash */
+    0,                              /* tp_call */
+    0,                              /* tp_str */
+    0,                              /* tp_getattro */
+    0,                              /* tp_setattro */
+    0,                              /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT,             /* tp_flags */
+    ArrayRows_doc,                    /* tp_doc */
+    0,                              /* tp_traverse */
+    0,                              /* tp_clear */
+    0,                              /* tp_richcompare */
+    0,                              /* tp_weaklistoffset */
+    0,                              /* tp_iter */
+    0,                              /* tp_iternext */
+    0,                              /* tp_methods */
+    ArrayRows_members,                /* tp_members */
+    0,                              /* tp_getset */
+    0,                              /* tp_base */
+    0,                              /* tp_dict */
+    0,                              /* tp_descr_get */
+    0,                              /* tp_descr_set */
+    0,                              /* tp_dictoffset */
+    0,                              /* tp_init */
+    0,                              /* tp_alloc */
+    ArrayRows_new,                    /* tp_new */
+};
+
+
+//////////////////
 // SingleLine //
 //////////////////
 
