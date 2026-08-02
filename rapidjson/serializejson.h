@@ -445,6 +445,126 @@ static PyTypeObject RawBytesToBase64_Type = {
 };
 
 
+//////////////////
+// SingleLine //
+//////////////////
+
+// Valeur à écrire au format compact (sur une seule ligne) au milieu d'un
+// document indenté, par le MÊME encodeur : le mémo des doublons, les hooks et
+// le traqueur de chemin restent actifs dans le sous-arbre — contrairement à
+// l'ancien contournement qui re-sérialisait la valeur avec un second encodeur
+// compact, aveugle aux références déjà sérialisées. number_mode permet de
+// surcharger le mode numérique pour le sous-arbre (ex : NM_NATIVE pour les
+// lignes de tableaux numpy non flottants).
+
+typedef struct {
+    PyObject_HEAD
+    PyObject* value;
+    long numberMode;   // -1 : pas de surcharge
+} SingleLine;
+
+
+static void
+SingleLine_dealloc(SingleLine* self)
+{
+    Py_XDECREF(self->value);
+    Py_TYPE(self)->tp_free((PyObject*) self);
+}
+
+
+static PyObject*
+SingleLine_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
+{
+    static char const* kwlist[] = {
+        "value",
+        "number_mode",
+        nullptr
+    };
+    PyObject* value = nullptr;
+    PyObject* numberModeObj = nullptr;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|O", (char**) kwlist,
+                                     &value, &numberModeObj))
+        return nullptr;
+
+    long numberMode = -1;
+    if (numberModeObj != nullptr && numberModeObj != Py_None) {
+        numberMode = PyLong_AsLong(numberModeObj);
+        if (numberMode == -1 && PyErr_Occurred())
+            return nullptr;
+    }
+
+    PyObject* self = type->tp_alloc(type, 0);
+    if (self == nullptr)
+        return nullptr;
+
+    ((SingleLine*) self)->value = value;
+    ((SingleLine*) self)->numberMode = numberMode;
+
+    Py_INCREF(value);
+
+    return self;
+}
+
+static PyMemberDef SingleLine_members[] = {
+    {"value",
+     T_OBJECT_EX, offsetof(SingleLine, value), READONLY,
+     "value to write in compact form"},
+    {"number_mode",
+     T_LONG, offsetof(SingleLine, numberMode), READONLY,
+     "number mode override for the subtree (-1: none)"},
+    {nullptr}  /* Sentinel */
+};
+
+
+PyDoc_STRVAR(SingleLine_doc,
+             "Value written in compact form (single line) inside an indented"
+             " document, by the same encoder: duplicates memo, hooks and path"
+             " tracking stay active inside the subtree.");
+
+
+static PyTypeObject SingleLine_Type = {
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    "rapidjson.SingleLine",            /* tp_name */
+    sizeof(SingleLine),                /* tp_basicsize */
+    0,                              /* tp_itemsize */
+    (destructor) SingleLine_dealloc,   /* tp_dealloc */
+    0,                              /* tp_print */
+    0,                              /* tp_getattr */
+    0,                              /* tp_setattr */
+    0,                              /* tp_compare */
+    0,                              /* tp_repr */
+    0,                              /* tp_as_number */
+    0,                              /* tp_as_sequence */
+    0,                              /* tp_as_mapping */
+    0,                              /* tp_hash */
+    0,                              /* tp_call */
+    0,                              /* tp_str */
+    0,                              /* tp_getattro */
+    0,                              /* tp_setattro */
+    0,                              /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT,             /* tp_flags */
+    SingleLine_doc,                    /* tp_doc */
+    0,                              /* tp_traverse */
+    0,                              /* tp_clear */
+    0,                              /* tp_richcompare */
+    0,                              /* tp_weaklistoffset */
+    0,                              /* tp_iter */
+    0,                              /* tp_iternext */
+    0,                              /* tp_methods */
+    SingleLine_members,                /* tp_members */
+    0,                              /* tp_getset */
+    0,                              /* tp_base */
+    0,                              /* tp_dict */
+    0,                              /* tp_descr_get */
+    0,                              /* tp_descr_set */
+    0,                              /* tp_dictoffset */
+    0,                              /* tp_init */
+    0,                              /* tp_alloc */
+    SingleLine_new,                    /* tp_new */
+};
+
+
 // ====================================================================
 
 #endif // SERIALIZEJSON_H

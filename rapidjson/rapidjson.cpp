@@ -2601,6 +2601,25 @@ dumps_internal(
 	else if (PyObject_TypeCheck(object, &RawBytesToPutInQuotes_Type)) {
         writer->RawBytesToPutInQuotes_(object);
     }
+	else if (PyObject_TypeCheck(object, &SingleLine_Type)) {
+        // sous-arbre écrit au format compact par le MÊME encodeur : mémo,
+        // hooks et traqueur de chemin restent actifs à l'intérieur
+        SingleLine* wrapper = (SingleLine*) object;
+        unsigned savedNumberMode = numberMode;
+        if (wrapper->numberMode >= 0)
+            numberMode = (unsigned) wrapper->numberMode;
+        writer->PushCompact();
+        if (Py_EnterRecursiveCall(" while JSONifying single line value")) {
+            writer->PopCompact();
+            return false;
+        }
+        bool r = RECURSE(wrapper->value);
+        Py_LeaveRecursiveCall();
+        writer->PopCompact();
+        numberMode = savedNumberMode;
+        if (!r)
+            return false;
+    }
 	else if (PyObject_TypeCheck(object, &RawBytesToBase64_Type)) {
         writer->RawBytesToBase64_(object);
     } 
@@ -3815,6 +3834,9 @@ module_exec(PyObject* m)
     if (PyType_Ready(&RawBytesToBase64_Type) < 0)
         return -1;
 
+    if (PyType_Ready(&SingleLine_Type) < 0)
+        return -1;
+
     if (PyType_Ready(&RawBytesToPutInQuotes_Type) < 0)
         return -1;
 
@@ -4030,6 +4052,12 @@ module_exec(PyObject* m)
     Py_INCREF(&RawBytesToBase64_Type);
     if (PyModule_AddObject(m, "RawBytesToBase64", (PyObject*) &RawBytesToBase64_Type) < 0) {
         Py_DECREF(&RawBytesToBase64_Type);
+        return -1;
+    }
+
+    Py_INCREF(&SingleLine_Type);
+    if (PyModule_AddObject(m, "SingleLine", (PyObject*) &SingleLine_Type) < 0) {
+        Py_DECREF(&SingleLine_Type);
         return -1;
     }
 

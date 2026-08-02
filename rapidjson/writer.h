@@ -323,6 +323,11 @@ public:
         return true;
     }
 
+    // sous-arbre compact (rapidjson.SingleLine) : le Writer est déjà compact,
+    // rien à faire — seules les surcharges du PrettyWriter agissent
+    void PushCompact() {}
+    void PopCompact() {}
+
     //! Flush the output stream.
     /*!
         Allows the user to flush the output stream immediately.

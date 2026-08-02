@@ -59,15 +59,37 @@ public:
         \param levelDepth Initial capacity of stack.
     */
     explicit PrettyWriter(OutputStream& os, StackAllocator* allocator = 0, size_t levelDepth = Base::kDefaultLevelDepth) :
-        Base(os, allocator, levelDepth), indentChar_(' '), indentCharCount_(4), formatOptions_(kFormatDefault) {}
+        Base(os, allocator, levelDepth), indentChar_(' '), indentCharCount_(4), formatOptions_(kFormatDefault),
+        compactDepth_(0), compactPending_(false) {}
 
 
-    explicit PrettyWriter(StackAllocator* allocator = 0, size_t levelDepth = Base::kDefaultLevelDepth) : 
-        Base(allocator, levelDepth), indentChar_(' '), indentCharCount_(4), formatOptions_(kFormatDefault) {}
+    explicit PrettyWriter(StackAllocator* allocator = 0, size_t levelDepth = Base::kDefaultLevelDepth) :
+        Base(allocator, levelDepth), indentChar_(' '), indentCharCount_(4), formatOptions_(kFormatDefault),
+        compactDepth_(0), compactPending_(false) {}
+
+    //! Sous-arbre compact (pour rapidjson.SingleLine) : tout ce qui est écrit
+    //! entre PushCompact() et PopCompact() l'est au format compact du Writer
+    //! de base (virgules et deux-points sans espace, ni retour à la ligne, ni
+    //! indentation). La bascule ne prend effet qu'APRÈS le préfixe du premier
+    //! jeton du sous-arbre, qui appartient encore à la mise en page du parent
+    //! (": " après la clé, ou virgule et indentation dans une liste).
+    void PushCompact() {
+        if (compactDepth_ == 0)
+            compactPending_ = true;
+        else
+            compactDepth_++;
+    }
+    void PopCompact() {
+        if (compactPending_)
+            compactPending_ = false;  // sous-arbre sans aucun jeton (sécurité)
+        else
+            compactDepth_--;
+    }
 
 #if RAPIDJSON_HAS_CXX11_RVALUE_REFS
     PrettyWriter(PrettyWriter&& rhs) :
-        Base(std::forward<PrettyWriter>(rhs)), indentChar_(rhs.indentChar_), indentCharCount_(rhs.indentCharCount_), formatOptions_(rhs.formatOptions_) {}
+        Base(std::forward<PrettyWriter>(rhs)), indentChar_(rhs.indentChar_), indentCharCount_(rhs.indentCharCount_), formatOptions_(rhs.formatOptions_),
+        compactDepth_(rhs.compactDepth_), compactPending_(rhs.compactPending_) {}
 #endif
 
     //! Set custom indentation.
@@ -181,7 +203,7 @@ public:
     
     bool EndObject() {
         bool empty = Base::level_stack_.template Pop<typename Base::Level>(1)->valueCount == 0;
-        if (!empty) {
+        if (!empty && compactDepth_ == 0) {
             Base::os_->Put('\n');
             WriteIndent();
         }
@@ -196,7 +218,7 @@ public:
 
     bool EndArray() {
         bool empty = Base::level_stack_.template Pop<typename Base::Level>(1)->valueCount == 0;
-        if (!empty && !(formatOptions_ & kFormatSingleLineArray)) {
+        if (!empty && compactDepth_ == 0 && !(formatOptions_ & kFormatSingleLineArray)) {
             Base::os_->Put('\n');
             WriteIndent();
         }
@@ -257,6 +279,25 @@ public:
 
 protected:
     void PrettyPrefix() {
+        if (compactDepth_ > 0) {
+            // style du Writer compact : séparateurs seuls, sans espace,
+            // retour à la ligne ni indentation
+            if (Base::level_stack_.GetSize() != 0) {
+                typename Base::Level* level = Base::level_stack_.template Top<typename Base::Level>();
+                if (level->valueCount > 0) {
+                    if (level->inArray)
+                        Base::os_->Put(',');
+                    else
+                        Base::os_->Put((level->valueCount % 2 == 0) ? ',' : ':');
+                }
+                level->valueCount++;
+            }
+            else {
+                RAPIDJSON_ASSERT(!Base::hasRoot_);
+                Base::hasRoot_ = true;
+            }
+            return;
+        }
         //void)type;
         if (Base::level_stack_.GetSize() != 0) { // this value is not at root
             typename Base::Level* level = Base::level_stack_.template Top<typename Base::Level>();
@@ -298,6 +339,12 @@ protected:
             RAPIDJSON_ASSERT(!Base::hasRoot_);  // Should only has one and only one root.
             Base::hasRoot_ = true;
         }
+        // le passage en compact demandé par PushCompact() prend effet
+        // maintenant : après le préfixe du premier jeton du sous-arbre
+        if (compactPending_) {
+            compactPending_ = false;
+            compactDepth_ = 1;
+        }
     }
 
     void WriteIndent()  {
@@ -308,6 +355,8 @@ protected:
     Ch indentChar_;
     unsigned indentCharCount_;
     PrettyFormatOptions formatOptions_;
+    unsigned compactDepth_;
+    bool compactPending_;
 
 private:
     // Prohibit copy constructor & assignment operator.
