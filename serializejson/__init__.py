@@ -809,11 +809,18 @@ class Encoder(rapidjson.Encoder):
         id_ = id(inst)
         if id_ in self._already_serialized:
             if not isinstance(inst, Enum):
-                path = self._get_path(inst, already_explored=set([id(locals())]))
+                # chemin enregistré à la première écriture par json_path() ;
+                # _get_path (remontée gc.get_referrers) reste en secours pour
+                # les encodages qui ne passent pas par le traqueur C++
+                path = self._already_serialized[id_]
+                if path is None:
+                    path = self._get_path(
+                        inst, already_explored=set([id(locals())])
+                    )
                 if path is not None:
                     return rapidjson.RawString(f'{{"$ref": "{path}"}}')
         else:
-            self._already_serialized.add(id_)
+            self._already_serialized[id_] = self.json_path()
             self._already_serialized_keep_alive.append(inst)
         type_inst = type(inst)
         if self.numpy_types_to_python_types and type_inst in _numpy_types:
@@ -854,13 +861,12 @@ class Encoder(rapidjson.Encoder):
             self.dumped_classes.add(tuple)
             dic = {"__class__": "tuple", "__new__": list(inst)}
         elif type_inst is Reference:
-            return rapidjson.RawString(
-                '{"$ref": "%s%s"}'
-                % (
-                    self._get_path(inst.obj, already_explored=set([id(inst.__dict__)])),
-                    inst.sup_str,
+            path = self._already_serialized.get(id(inst.obj))
+            if path is None:
+                path = self._get_path(
+                    inst.obj, already_explored=set([id(inst.__dict__)])
                 )
-            )
+            return rapidjson.RawString('{"$ref": "%s%s"}' % (path, inst.sup_str))
         else:
             dic = self._dict_from_instance(
                 inst
@@ -943,11 +949,13 @@ class Encoder(rapidjson.Encoder):
         # natif C++.
         id_ = id(inst)
         if id_ in self._already_serialized:
-            path = self._get_path(inst, already_explored=set([id(locals())]))
+            path = self._already_serialized[id_]
+            if path is None:
+                path = self._get_path(inst, already_explored=set([id(locals())]))
             if path is not None:
                 return rapidjson.RawString(f'{{"$ref": "{path}"}}')
         else:
-            self._already_serialized.add(id_)
+            self._already_serialized[id_] = self.json_path()
             self._already_serialized_keep_alive.append(inst)
         return inst
 
@@ -1114,7 +1122,9 @@ class Encoder(rapidjson.Encoder):
 
     def _reset(self):
         self.dumped_classes = set()
-        self._already_serialized = set()
+        # mémo des objets déjà écrits : id -> chemin json enregistré à la
+        # première écriture (json_path() du traqueur C++), ou None si inconnu
+        self._already_serialized = dict()
         # référence forte sur ce qui est mémorisé, le temps du dump : sinon un
         # objet temporaire détruit peut laisser son id être réutilisé et faire
         # croire à un doublon (même rôle que le memo de pickle)
