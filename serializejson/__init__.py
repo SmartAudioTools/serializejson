@@ -641,7 +641,10 @@ class Encoder(rapidjson.Encoder):
             number_mode=rapidjson.NM_NAN,
             iterable_mode=rapidjson.IM_ONLY_LISTS,
             mapping_mode=rapidjson.MM_ONLY_DICTS,
-            return_bytes=return_bytes
+            return_bytes=return_bytes,
+            # mémo C++ des dicts/listes déjà écrits : doublons et références
+            # circulaires émis en {"$ref": ...} sans repasser par Python
+            memo_refs=True
             # **argsDict
         )
         self.use_tuple_for_numpy_shape = False
@@ -847,7 +850,11 @@ class Encoder(rapidjson.Encoder):
             self.dumped_classes.add(tuple)
             dic = {"__class__": "tuple", "__new__": list(inst)}
         elif type_inst is Reference:
+            # cible objet : mémo Python ; cible dict/liste : mémo C++ ;
+            # remontée gc en dernier secours
             path_id = self._already_serialized.get(id(inst.obj))
+            if path_id is None:
+                path_id = self.json_path_id_of(inst.obj)
             if path_id is None:
                 path = self._get_path(
                     inst.obj, already_explored=set([id(inst.__dict__)])
@@ -893,28 +900,10 @@ class Encoder(rapidjson.Encoder):
         return dic
         # raise TypeError('%r is not JSON serializable' % inst)
 
-    def default_dict(self, inst):
-        # Appelé par le rapidjson du dépôt avant la traversée native d'un dict à
-        # clés chaînes : permet, comme default() pour les objets, de détecter les
-        # dicts déjà sérialisés (doublons et références circulaires) et de les
-        # remplacer par {"$ref": chemin}. Retourner inst laisse faire le chemin
-        # natif C++.
-        id_ = id(inst)
-        if id_ in self._already_serialized:
-            path_id = self._already_serialized[id_]
-            if path_id is None:
-                path = self._get_path(inst, already_explored=set([id(locals())]))
-            else:
-                path = self.json_path_from_id(path_id)
-            if path is not None:
-                return rapidjson.RawString(f'{{"$ref": "{path}"}}')
-        else:
-            self._already_serialized[id_] = self.json_path_id()
-            self._already_serialized_keep_alive.append(inst)
-        return inst
-
-    # même logique pour les listes
-    default_list = default_dict
+    # Les doublons et cycles de dicts/listes sont gérés par le mémo C++ du
+    # rapidjson du dépôt (memo_refs=True) : plus aucun aller-retour Python par
+    # conteneur. Les hooks default_dict/default_list de l'Encoder C++ restent
+    # disponibles pour d'autres usages.
 
     # @profile
     def _default_one_line(self, inst):
