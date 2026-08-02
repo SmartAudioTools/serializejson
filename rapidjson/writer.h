@@ -323,6 +323,13 @@ public:
         return true;
     }
 
+    bool BloscToBase64_(PyObject* object) {
+        Prefix();
+        os_->RawDataToBase64((const unsigned char*) ((BloscToBase64*) object)->data,
+                             (size_t) ((BloscToBase64*) object)->size);
+        return true;
+    }
+
     // sous-arbre compact (rapidjson.SingleLine) : le Writer est déjà compact,
     // rien à faire — seules les surcharges du PrettyWriter agissent
     void PushCompact() {}

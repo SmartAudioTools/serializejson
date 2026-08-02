@@ -275,6 +275,13 @@ public:
         return true;
     }
 
+    bool BloscToBase64_(PyObject* object) {
+        PrettyPrefix();
+        Base::os_->RawDataToBase64((const unsigned char*) ((BloscToBase64*) object)->data,
+                                   (size_t) ((BloscToBase64*) object)->size);
+        return true;
+    }
+
 
 
 protected:

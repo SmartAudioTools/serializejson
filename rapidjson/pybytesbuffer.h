@@ -96,18 +96,20 @@ struct PyBytesBuffer { // a revoir c'est quoi la différence entre struc et clas
         *bufferCursor++ = '\"';
     }
 
-    void RawBytesToBase64(PyObject* obj){
+    void RawDataToBase64(const unsigned char* data, size_t length){
         // encode le base64 directement dans le buffer de sortie,
         // sans chaîne intermédiaire
+        Reserve(4 * ((length + 2) / 3) + 2);
+        *bufferCursor++ = '\"';
+        bufferCursor = serializejson_b64_encode(data, length, bufferCursor);
+        *bufferCursor++ = '\"';
+    }
+
+    void RawBytesToBase64(PyObject* obj){
         Py_buffer view;
         if (PyObject_GetBuffer(obj, &view, PyBUF_CONTIG_RO) != 0)
             return;  // l'erreur Python sera vue en fin d'encodage
-        size_t length = (size_t) view.len;
-        Reserve(4 * ((length + 2) / 3) + 2);
-        *bufferCursor++ = '\"';
-        bufferCursor = serializejson_b64_encode(
-            (const unsigned char*) view.buf, length, bufferCursor);
-        *bufferCursor++ = '\"';
+        RawDataToBase64((const unsigned char*) view.buf, (size_t) view.len);
         PyBuffer_Release(&view);
     }
     

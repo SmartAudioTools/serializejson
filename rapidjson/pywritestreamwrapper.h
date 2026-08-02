@@ -107,16 +107,11 @@ public:
         Put('\"');
     }
 
-    void RawBytesToBase64(PyObject* obj){
+    void RawDataToBase64(const unsigned char* src, size_t remaining){
         // encode le base64 par morceaux dans les chunks du flux,
         // sans chaîne intermédiaire (coupures sur des multiples de 3 octets
         // source pour que le padding ne tombe qu'à la toute fin)
-        Py_buffer view;
-        if (PyObject_GetBuffer(obj, &view, PyBUF_CONTIG_RO) != 0)
-            return;  // l'erreur Python sera vue en fin d'encodage
         Put('\"');
-        const unsigned char* src = (const unsigned char*) view.buf;
-        size_t remaining = (size_t) view.len;
         while (remaining) {
             Reserve(4);
             size_t triples = (size_t)(bufferEnd - bufferCursor) / 4;
@@ -128,6 +123,13 @@ public:
             remaining -= take;
         }
         Put('\"');
+    }
+
+    void RawBytesToBase64(PyObject* obj){
+        Py_buffer view;
+        if (PyObject_GetBuffer(obj, &view, PyBUF_CONTIG_RO) != 0)
+            return;  // l'erreur Python sera vue en fin d'encodage
+        RawDataToBase64((const unsigned char*) view.buf, (size_t) view.len);
         PyBuffer_Release(&view);
     }
     

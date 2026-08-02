@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <dlfcn.h>
 
 #include "serializejson.h"
 #include "reader.h"
@@ -2710,6 +2711,9 @@ dumps_internal(
         if (!r)
             return false;
     }
+	else if (PyObject_TypeCheck(object, &BloscToBase64_Type)) {
+        writer->BloscToBase64_(object);
+    }
 	else if (PyObject_TypeCheck(object, &RawBytesToBase64_Type)) {
         writer->RawBytesToBase64_(object);
     } 
@@ -3867,6 +3871,56 @@ static PyObject* validator_new(PyTypeObject* type, PyObject* args, PyObject* kwa
 ////////////
 
 
+// Charge libblosc2 à l'exécution (celle de la roue python-blosc2 ou du
+// système) et résout les symboles de l'API de compatibilité blosc1 utilisés
+// par BloscToBase64. Le handle n'est jamais refermé : la bibliothèque vit
+// aussi longtemps que le processus.
+static PyObject*
+load_blosc_library(PyObject* Py_UNUSED(self), PyObject* arg)
+{
+    const char* path = PyUnicode_AsUTF8(arg);
+    if (path == nullptr)
+        return nullptr;
+    void* handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+    if (handle == nullptr) {
+        PyErr_Format(PyExc_OSError, "dlopen(%s) : %s", path, dlerror());
+        return nullptr;
+    }
+    serializejson_blosc1_compress_t compress =
+        (serializejson_blosc1_compress_t) dlsym(handle, "blosc1_compress");
+    serializejson_blosc1_set_compressor_t set_compressor =
+        (serializejson_blosc1_set_compressor_t) dlsym(handle, "blosc1_set_compressor");
+    serializejson_blosc2_set_nthreads_t set_nthreads =
+        (serializejson_blosc2_set_nthreads_t) dlsym(handle, "blosc2_set_nthreads");
+    serializejson_blosc2_init_t init =
+        (serializejson_blosc2_init_t) dlsym(handle, "blosc2_init");
+    if (compress == nullptr || set_compressor == nullptr || init == nullptr) {
+        dlclose(handle);
+        PyErr_SetString(PyExc_OSError,
+                        "blosc1 compatibility symbols not found in library");
+        return nullptr;
+    }
+    init();
+    serializejson_blosc1_compress = compress;
+    serializejson_blosc1_set_compressor = set_compressor;
+    serializejson_blosc2_set_nthreads = set_nthreads;
+    Py_RETURN_TRUE;
+}
+
+
+static PyObject*
+blosc_set_nthreads_fn(PyObject* Py_UNUSED(self), PyObject* arg)
+{
+    long nthreads = PyLong_AsLong(arg);
+    if (nthreads == -1 && PyErr_Occurred())
+        return nullptr;
+    if (serializejson_blosc2_set_nthreads == nullptr)
+        Py_RETURN_NONE;
+    return PyLong_FromLong(
+        serializejson_blosc2_set_nthreads((int16_t) nthreads));
+}
+
+
 static PyMethodDef functions[] = {
     {"loads", (PyCFunction) loads, METH_VARARGS | METH_KEYWORDS,
      loads_docstring},
@@ -3878,6 +3932,10 @@ static PyMethodDef functions[] = {
      dumpb_docstring},
     {"dump", (PyCFunction) dump, METH_VARARGS | METH_KEYWORDS,
      dump_docstring},
+    {"load_blosc_library", (PyCFunction) load_blosc_library, METH_O,
+     "Charge libblosc2 (chemin du .so) pour compresser en C via BloscToBase64."},
+    {"blosc_set_nthreads", (PyCFunction) blosc_set_nthreads_fn, METH_O,
+     "Nombre de threads de la libblosc2 chargée (None si non chargée)."},
     {nullptr, nullptr, 0, nullptr} /* sentinel */
 };
 
@@ -3908,6 +3966,9 @@ module_exec(PyObject* m)
         return -1;
 
     if (PyType_Ready(&SingleLine_Type) < 0)
+        return -1;
+
+    if (PyType_Ready(&BloscToBase64_Type) < 0)
         return -1;
 
     if (PyType_Ready(&RawBytesToPutInQuotes_Type) < 0)
@@ -4131,6 +4192,12 @@ module_exec(PyObject* m)
     Py_INCREF(&SingleLine_Type);
     if (PyModule_AddObject(m, "SingleLine", (PyObject*) &SingleLine_Type) < 0) {
         Py_DECREF(&SingleLine_Type);
+        return -1;
+    }
+
+    Py_INCREF(&BloscToBase64_Type);
+    if (PyModule_AddObject(m, "BloscToBase64", (PyObject*) &BloscToBase64_Type) < 0) {
+        Py_DECREF(&BloscToBase64_Type);
         return -1;
     }
 

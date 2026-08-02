@@ -446,6 +446,176 @@ static PyTypeObject RawBytesToBase64_Type = {
 
 
 //////////////////
+// BloscToBase64 //
+//////////////////
+
+// Compression blosc faite en C, sans repasser par Python : la bibliothèque
+// libblosc2 (celle de la roue python-blosc2, ou du système) est chargée à
+// l'exécution par rapidjson.load_blosc_library(path) — aucune dépendance de
+// compilation ni d'édition de liens. On passe par son API de compatibilité
+// blosc1 : les trames produites gardent le format (et l'étiquette "b64_blosc")
+// que python-blosc sait déjà relire.
+
+typedef int  (*serializejson_blosc1_compress_t)(int clevel, int doshuffle,
+                                                size_t typesize, size_t nbytes,
+                                                const void* src, void* dest,
+                                                size_t destsize);
+typedef int  (*serializejson_blosc1_set_compressor_t)(const char* compname);
+typedef int16_t (*serializejson_blosc2_set_nthreads_t)(int16_t nthreads);
+typedef void (*serializejson_blosc2_init_t)(void);
+
+static serializejson_blosc1_compress_t serializejson_blosc1_compress = nullptr;
+static serializejson_blosc1_set_compressor_t serializejson_blosc1_set_compressor = nullptr;
+static serializejson_blosc2_set_nthreads_t serializejson_blosc2_set_nthreads = nullptr;
+
+#define SERIALIZEJSON_BLOSC1_MAX_OVERHEAD 32
+
+
+typedef struct {
+    PyObject_HEAD
+    char* data;          // trame compressée, possédée par l'objet (free au dealloc)
+    Py_ssize_t size;
+} BloscToBase64;
+
+
+static void
+BloscToBase64_dealloc(BloscToBase64* self)
+{
+    if (self->data != nullptr)
+        free(self->data);
+    Py_TYPE(self)->tp_free((PyObject*) self);
+}
+
+
+static PyObject*
+BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
+{
+    static char const* kwlist[] = {
+        "value",
+        "typesize",
+        "clevel",
+        "shuffle",
+        "cname",
+        nullptr
+    };
+    PyObject* value = nullptr;
+    Py_ssize_t typesize = 1;
+    int clevel = 5;
+    int shuffle = 1;
+    const char* cname = "blosclz";
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|niis", (char**) kwlist,
+                                     &value, &typesize, &clevel, &shuffle,
+                                     &cname))
+        return nullptr;
+
+    if (serializejson_blosc1_compress == nullptr) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "blosc library not loaded (call load_blosc_library first)");
+        return nullptr;
+    }
+
+    Py_buffer view;
+    if (PyObject_GetBuffer(value, &view, PyBUF_CONTIG_RO) != 0)
+        return nullptr;
+
+    if (serializejson_blosc1_set_compressor(cname) < 0) {
+        PyBuffer_Release(&view);
+        PyErr_Format(PyExc_ValueError, "unknown blosc compressor '%s'", cname);
+        return nullptr;
+    }
+
+    size_t dest_size = (size_t) view.len + SERIALIZEJSON_BLOSC1_MAX_OVERHEAD;
+    char* dest = (char*) malloc(dest_size);
+    if (dest == nullptr) {
+        PyBuffer_Release(&view);
+        PyErr_NoMemory();
+        return nullptr;
+    }
+
+    int compressed_size;
+    Py_BEGIN_ALLOW_THREADS
+    compressed_size = serializejson_blosc1_compress(
+        clevel, shuffle, (size_t) typesize, (size_t) view.len,
+        view.buf, dest, dest_size);
+    Py_END_ALLOW_THREADS
+    PyBuffer_Release(&view);
+
+    if (compressed_size <= 0) {
+        free(dest);
+        PyErr_Format(PyExc_ValueError, "blosc compression failed (%d)",
+                     compressed_size);
+        return nullptr;
+    }
+
+    PyObject* self = type->tp_alloc(type, 0);
+    if (self == nullptr) {
+        free(dest);
+        return nullptr;
+    }
+    ((BloscToBase64*) self)->data = dest;
+    ((BloscToBase64*) self)->size = (Py_ssize_t) compressed_size;
+
+    return self;
+}
+
+static PyMemberDef BloscToBase64_members[] = {
+    {"compressed_size",
+     T_PYSSIZET, offsetof(BloscToBase64, size), READONLY,
+     "size of the compressed frame, to compare with the original size"},
+    {nullptr}  /* Sentinel */
+};
+
+
+PyDoc_STRVAR(BloscToBase64_doc,
+             "Buffer compressed with blosc in C at construction time, written"
+             " as base64 straight into the output: no Python round trip, no"
+             " intermediate bytes object.");
+
+
+static PyTypeObject BloscToBase64_Type = {
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    "rapidjson.BloscToBase64",            /* tp_name */
+    sizeof(BloscToBase64),                /* tp_basicsize */
+    0,                              /* tp_itemsize */
+    (destructor) BloscToBase64_dealloc,   /* tp_dealloc */
+    0,                              /* tp_print */
+    0,                              /* tp_getattr */
+    0,                              /* tp_setattr */
+    0,                              /* tp_compare */
+    0,                              /* tp_repr */
+    0,                              /* tp_as_number */
+    0,                              /* tp_as_sequence */
+    0,                              /* tp_as_mapping */
+    0,                              /* tp_hash */
+    0,                              /* tp_call */
+    0,                              /* tp_str */
+    0,                              /* tp_getattro */
+    0,                              /* tp_setattro */
+    0,                              /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT,             /* tp_flags */
+    BloscToBase64_doc,                    /* tp_doc */
+    0,                              /* tp_traverse */
+    0,                              /* tp_clear */
+    0,                              /* tp_richcompare */
+    0,                              /* tp_weaklistoffset */
+    0,                              /* tp_iter */
+    0,                              /* tp_iternext */
+    0,                              /* tp_methods */
+    BloscToBase64_members,                /* tp_members */
+    0,                              /* tp_getset */
+    0,                              /* tp_base */
+    0,                              /* tp_dict */
+    0,                              /* tp_descr_get */
+    0,                              /* tp_descr_set */
+    0,                              /* tp_dictoffset */
+    0,                              /* tp_init */
+    0,                              /* tp_alloc */
+    BloscToBase64_new,                    /* tp_new */
+};
+
+
+//////////////////
 // SingleLine //
 //////////////////
 
