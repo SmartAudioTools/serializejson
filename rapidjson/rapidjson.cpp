@@ -214,8 +214,26 @@ static PyObject* decoder_call(PyObject* self, PyObject* args, PyObject* kwargs);
 static PyObject* decoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs);
 
 
+// Suivi du chemin JSON courant pendant l'encodage ("root[0].attr['clef']"),
+// pour que les hooks default/default_dict/default_list puissent mémoriser où
+// chaque objet a été écrit et émettre des {"$ref": chemin} sans avoir à
+// remonter le graphe avec gc.get_referrers côté Python.
+struct PathSegment {
+    enum Kind { INDEX, KEY, ATTR } kind;
+    const char* str;   // clé utf-8 empruntée, valide pendant la récursion sous cette clé
+    size_t len;
+    Py_ssize_t index;
+};
+struct PathTracker {
+    std::vector<PathSegment> segments;
+    // vrai si le prochain dict rencontré est l'état d'un objet retourné par
+    // default() : ses clés sont alors des attributs (".attr" et non "['clef']")
+    bool next_dict_is_attrs = false;
+};
+
 static PyObject* do_encode(PyObject* value, PyObject* defaultFn,
                            PyObject* defaultDictFn, PyObject* defaultListFn,
+                           PathTracker* pathTracker,
                            bool ensureAscii,
                            unsigned writeMode, char indentChar, unsigned indentCount,
                            unsigned numberMode, unsigned datetimeMode,
@@ -224,6 +242,7 @@ static PyObject* do_encode(PyObject* value, PyObject* defaultFn,
 static PyObject* do_stream_encode(PyObject* value, PyObject* stream, size_t chunkSize,
                                   PyObject* defaultFn,
                                   PyObject* defaultDictFn, PyObject* defaultListFn,
+                                  PathTracker* pathTracker,
                                   bool ensureAscii,
                                   unsigned writeMode, char indentChar,
                                   unsigned indentCount, unsigned numberMode,
@@ -2133,6 +2152,7 @@ dumps_internal(
     PyObject* defaultFn,
     PyObject* defaultDictFn,
     PyObject* defaultListFn,
+    PathTracker* pathTracker,
     unsigned numberMode,
     unsigned datetimeMode,
     unsigned uuidMode,
@@ -2141,6 +2161,14 @@ dumps_internal(
     unsigned mappingMode)
 {
     int is_decimal;
+
+    // consomme le marqueur "dict d'attributs" posé par la branche defaultFn :
+    // il ne concerne que la valeur immédiatement recursée après default()
+    bool attrsDict = false;
+    if (pathTracker) {
+        attrsDict = pathTracker->next_dict_is_attrs;
+        pathTracker->next_dict_is_attrs = false;
+    }
 
     // Consomme une unité du budget de récursion de CPython à chaque niveau,
     // en plus de celles prises autour des RECURSE : la détection de profondeur
@@ -2162,8 +2190,22 @@ dumps_internal(
 
 #define RECURSE(v) dumps_internal(writer, v, defaultFn,                 \
                                   defaultDictFn, defaultListFn,         \
+                                  pathTracker,                          \
                                   numberMode, datetimeMode, uuidMode,   \
                                   bytesMode, iterableMode, mappingMode)
+
+#define PATH_PUSH_INDEX(i)                                              \
+    if (pathTracker)                                                    \
+        pathTracker->segments.push_back(                                \
+            {PathSegment::INDEX, nullptr, 0, (Py_ssize_t) (i)})
+#define PATH_PUSH_KEY(s, l)                                             \
+    if (pathTracker)                                                    \
+        pathTracker->segments.push_back(                                \
+            {attrsDict ? PathSegment::ATTR : PathSegment::KEY,          \
+             s, (size_t) (l), 0})
+#define PATH_POP()                                                      \
+    if (pathTracker)                                                    \
+        pathTracker->segments.pop_back()
 
 // Appelle le hook default_dict/default_list de l'Encoder s'il existe : s'il
 // retourne un autre objet (ex: RawString {"$ref": ...}), on sérialise ce
@@ -2361,7 +2403,9 @@ dumps_internal(
             if (Py_EnterRecursiveCall(" while JSONifying list object"))
                 return false;
             PyObject* item = PyList_GET_ITEM(object, i);
+            PATH_PUSH_INDEX(i);
             bool r = RECURSE(item);
+            PATH_POP();
             Py_LeaveRecursiveCall();
             if (!r)
                 return false;
@@ -2378,7 +2422,9 @@ dumps_internal(
             if (Py_EnterRecursiveCall(" while JSONifying tuple object"))
                 return false;
             PyObject* item = PyTuple_GET_ITEM(object, i);
+            PATH_PUSH_INDEX(i);
             bool r = RECURSE(item);
+            PATH_POP();
             Py_LeaveRecursiveCall();
             if (!r)
                 return false;
@@ -2394,13 +2440,16 @@ dumps_internal(
         writer->StartArray();
 
         PyObject* item;
+        Py_ssize_t iter_index = 0;
         while ((item = PyIter_Next(iterator))) {
             if (Py_EnterRecursiveCall(" while JSONifying iterable object")) {
                 Py_DECREF(item);
                 Py_DECREF(iterator);
                 return false;
             }
+            PATH_PUSH_INDEX(iter_index++);
             bool r = RECURSE(item);
+            PATH_POP();
             Py_LeaveRecursiveCall();
             Py_DECREF(item);
             if (!r) {
@@ -2459,7 +2508,9 @@ dumps_internal(
                         Py_XDECREF(coercedKey);
                         return false;
                     }
+                    PATH_PUSH_KEY(key_str, l);
                     bool r = RECURSE(item);
+                    PATH_POP();
                     Py_LeaveRecursiveCall();
                     if (!r) {
                         Py_XDECREF(coercedKey);
@@ -2509,7 +2560,9 @@ dumps_internal(
                 writer->Key(items[i].key_str, (SizeType) items[i].key_size);
                 if (Py_EnterRecursiveCall(" while JSONifying dict object"))
                     return false;
+                PATH_PUSH_KEY(items[i].key_str, items[i].key_size);
                 bool r = RECURSE(items[i].item);
+                PATH_POP();
                 Py_LeaveRecursiveCall();
                 if (!r)
                     return false;
@@ -2539,24 +2592,33 @@ dumps_internal(
             Py_DECREF(retval);
             return false;
         }
+        // le résultat de default() est l'état de l'objet : si c'est un dict,
+        // ses clés sont des attributs pour le chemin JSON (".attr")
+        if (pathTracker)
+            pathTracker->next_dict_is_attrs = true;
         bool r = RECURSE(retval);
+        if (pathTracker)
+            pathTracker->next_dict_is_attrs = false;
         Py_LeaveRecursiveCall();
         Py_DECREF(retval);
         if (!r)
             return false;
-    } 
+    }
 	else {
         PyErr_Format(PyExc_TypeError, "%R is not JSON serializable", object);
         return false;
     }
 
     // Catch possible error raised in associated stream operations
-    
+
     writer->Flush();
     return PyErr_Occurred() ? false : true;
 
 #undef RECURSE
 #undef CALL_CONTAINER_HOOK
+#undef PATH_PUSH_INDEX
+#undef PATH_PUSH_KEY
+#undef PATH_POP
 #undef ASSERT_VALID_SIZE
 }
 
@@ -2574,7 +2636,52 @@ typedef struct {
     unsigned iterableMode;
     unsigned mappingMode;
     bool returnBytes;
+    // traqueur de chemin actif pendant un encodage (nullptr sinon),
+    // consulté par la méthode json_path()
+    PathTracker* activePathTracker;
 } EncoderObject;
+
+
+// Chemin JSON de la valeur en cours d'encodage, au format des "$ref" de
+// serializejson : "root", "root[0]", "root['clef']", "root.attribut"...
+// À appeler depuis les hooks default/default_dict/default_list ;
+// retourne None en dehors d'un encodage.
+static PyObject*
+encoder_json_path(PyObject* self, PyObject* Py_UNUSED(unused))
+{
+    EncoderObject* e = (EncoderObject*) self;
+    PathTracker* tracker = e->activePathTracker;
+    if (tracker == nullptr)
+        Py_RETURN_NONE;
+    std::string out("root");
+    char index_buffer[32];
+    for (const PathSegment& segment : tracker->segments) {
+        switch (segment.kind) {
+        case PathSegment::INDEX:
+            snprintf(index_buffer, sizeof(index_buffer), "[%zd]",
+                     (ssize_t) segment.index);
+            out += index_buffer;
+            break;
+        case PathSegment::KEY:
+            out += "['";
+            out.append(segment.str, segment.len);
+            out += "']";
+            break;
+        case PathSegment::ATTR:
+            out += '.';
+            out.append(segment.str, segment.len);
+            break;
+        }
+    }
+    return PyUnicode_FromStringAndSize(out.data(), (Py_ssize_t) out.size());
+}
+
+
+static PyMethodDef encoder_methods[] = {
+    {"json_path", (PyCFunction) encoder_json_path, METH_NOARGS,
+     "Chemin JSON de la valeur en cours d'encodage (None hors encodage)."},
+    {nullptr, nullptr, 0, nullptr}
+};
 
 // dumps =====================================================================
 
@@ -2696,7 +2803,7 @@ dumps(PyObject* self, PyObject* args, PyObject* kwargs)
     if (sortKeys)
         mappingMode |= MM_SORT_KEYS;
 
-    return do_encode(value, defaultFn, nullptr, nullptr,
+    return do_encode(value, defaultFn, nullptr, nullptr, nullptr,
                      ensureAscii ? true : false, writeMode, indentChar,
                      indentCount, numberMode, datetimeMode, uuidMode, bytesMode,
                      iterableMode, mappingMode, returnBytes);
@@ -2818,7 +2925,7 @@ dumpb(PyObject* self, PyObject* args, PyObject* kwargs)
     if (sortKeys)
         mappingMode |= MM_SORT_KEYS;
 
-    return do_encode(value, defaultFn, nullptr, nullptr,
+    return do_encode(value, defaultFn, nullptr, nullptr, nullptr,
                      ensureAscii ? true : false, writeMode, indentChar,
                      indentCount, numberMode, datetimeMode, uuidMode, bytesMode,
                      iterableMode, mappingMode, true);
@@ -2951,7 +3058,7 @@ dump(PyObject* self, PyObject* args, PyObject* kwargs)
     if (sortKeys)
         mappingMode |= MM_SORT_KEYS;
 
-    return do_stream_encode(value, stream, chunkSize, defaultFn, nullptr, nullptr,
+    return do_stream_encode(value, stream, chunkSize, defaultFn, nullptr, nullptr, nullptr,
                             ensureAscii ? true : false, writeMode, indentChar,
                             indentCount, numberMode, datetimeMode, uuidMode, bytesMode,
                             iterableMode, mappingMode);
@@ -3053,7 +3160,7 @@ static PyTypeObject Encoder_Type = {
     0,                                        /* tp_weaklistoffset */
     0,                                        /* tp_iter */
     0,                                        /* tp_iternext */
-    0,                                        /* tp_methods */
+    encoder_methods,                          /* tp_methods */
     encoder_members,                          /* tp_members */
     encoder_props,                            /* tp_getset */
     0,                                        /* tp_base */
@@ -3112,6 +3219,7 @@ static PyTypeObject Encoder_Type = {
                     defaultFn,                          \
                     defaultDictFn,                      \
                     defaultListFn,                      \
+                    pathTracker,                        \
                     numberMode,                         \
                     datetimeMode,                       \
                     uuidMode,                           \
@@ -3124,6 +3232,7 @@ static PyTypeObject Encoder_Type = {
 static PyObject*
 do_encode(PyObject* value, PyObject* defaultFn,
           PyObject* defaultDictFn, PyObject* defaultListFn,
+          PathTracker* pathTracker,
           bool ensureAscii, unsigned writeMode,
           char indentChar, unsigned indentCount, unsigned numberMode,
           unsigned datetimeMode, unsigned uuidMode, unsigned bytesMode,
@@ -3151,6 +3260,7 @@ do_encode(PyObject* value, PyObject* defaultFn,
                     defaultFn,                  \
                     defaultDictFn,              \
                     defaultListFn,              \
+                    pathTracker,                \
                     numberMode,                 \
                     datetimeMode,               \
                     uuidMode,                   \
@@ -3163,6 +3273,7 @@ do_encode(PyObject* value, PyObject* defaultFn,
 static PyObject*
 do_stream_encode(PyObject* value, PyObject* stream, size_t chunkSize, PyObject* defaultFn,
                  PyObject* defaultDictFn, PyObject* defaultListFn,
+                 PathTracker* pathTracker,
                  bool ensureAscii, unsigned writeMode, char indentChar,
                  unsigned indentCount, unsigned numberMode, unsigned datetimeMode,
                  unsigned uuidMode, unsigned bytesMode, unsigned iterableMode,
@@ -3221,9 +3332,13 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         defaultListFn = PyObject_GetAttr(self, default_list_name);
     }
 
+    PathTracker pathTracker;
+    e->activePathTracker = &pathTracker;
+
     if (stream != nullptr && stream != Py_None) {
         if (!PyObject_HasAttr(stream, write_name)) {
             PyErr_SetString(PyExc_TypeError, "Expected a writable stream");
+            e->activePathTracker = nullptr;
             Py_XDECREF(defaultFn);
             Py_XDECREF(defaultDictFn);
             Py_XDECREF(defaultListFn);
@@ -3231,6 +3346,7 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         }
 
         if (!accept_chunk_size_arg(chunkSizeObj, chunkSize)) {
+            e->activePathTracker = nullptr;
             Py_XDECREF(defaultFn);
             Py_XDECREF(defaultDictFn);
             Py_XDECREF(defaultListFn);
@@ -3238,17 +3354,20 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         }
 
         result = do_stream_encode(value, stream, chunkSize, defaultFn,
-                                  defaultDictFn, defaultListFn, e->ensureAscii,
+                                  defaultDictFn, defaultListFn, &pathTracker,
+                                  e->ensureAscii,
                                   e->writeMode, e->indentChar, e->indentCount,
                                   e->numberMode, e->datetimeMode, e->uuidMode,
                                   e->bytesMode, e->iterableMode, e->mappingMode);
     } else {
         result = do_encode(value, defaultFn, defaultDictFn, defaultListFn,
+                           &pathTracker,
                            e->ensureAscii, e->writeMode, e->indentChar,
                            e->indentCount, e->numberMode, e->datetimeMode, e->uuidMode,
                            e->bytesMode, e->iterableMode, e->mappingMode, e->returnBytes);
     }
 
+    e->activePathTracker = nullptr;
     Py_XDECREF(defaultFn);
     Py_XDECREF(defaultDictFn);
     Py_XDECREF(defaultListFn);
@@ -3363,6 +3482,7 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
     e->iterableMode = iterableMode;
     e->mappingMode = mappingMode;
     e->returnBytes = returnBytes? true : false;
+    e->activePathTracker = nullptr;
 
     return (PyObject*) e;
 }
