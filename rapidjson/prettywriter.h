@@ -247,6 +247,12 @@ public:
         return true;
     }
 
+    bool RawBytesToBase64_(PyObject* object) {
+        PrettyPrefix();
+        Base::os_->RawBytesToBase64(((RawBytesToBase64*) object)-> value);
+        return true;
+    }
+
 
 
 protected:

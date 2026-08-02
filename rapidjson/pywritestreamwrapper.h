@@ -106,6 +106,30 @@ public:
         sendBytes(bytes);
         Put('\"');
     }
+
+    void RawBytesToBase64(PyObject* obj){
+        // encode le base64 par morceaux dans les chunks du flux,
+        // sans chaîne intermédiaire (coupures sur des multiples de 3 octets
+        // source pour que le padding ne tombe qu'à la toute fin)
+        Py_buffer view;
+        if (PyObject_GetBuffer(obj, &view, PyBUF_CONTIG_RO) != 0)
+            return;  // l'erreur Python sera vue en fin d'encodage
+        Put('\"');
+        const unsigned char* src = (const unsigned char*) view.buf;
+        size_t remaining = (size_t) view.len;
+        while (remaining) {
+            Reserve(4);
+            size_t triples = (size_t)(bufferEnd - bufferCursor) / 4;
+            size_t take = triples * 3;
+            if (take >= remaining)
+                take = remaining;      // dernier morceau, avec padding
+            bufferCursor = serializejson_b64_encode(src, take, bufferCursor);
+            src += take;
+            remaining -= take;
+        }
+        Put('\"');
+        PyBuffer_Release(&view);
+    }
     
     ~PyWriteStreamWrapper() {
         Py_CLEAR(stream);

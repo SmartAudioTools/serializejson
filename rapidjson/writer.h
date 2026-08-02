@@ -317,6 +317,12 @@ public:
         return true;
     }
 
+    bool RawBytesToBase64_(PyObject* object) {
+        Prefix();
+        os_->RawBytesToBase64(((RawBytesToBase64*) object)-> value);
+        return true;
+    }
+
     //! Flush the output stream.
     /*!
         Allows the user to flush the output stream immediately.

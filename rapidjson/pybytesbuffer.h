@@ -88,12 +88,27 @@ struct PyBytesBuffer { // a revoir c'est quoi la différence entre struc et clas
     void RawBytesToPutInQuotes(PyObject* bytes){
         Py_ssize_t length;
         char* json;
-        PyBytes_AsStringAndSize(bytes,&json, &length); 
+        PyBytes_AsStringAndSize(bytes,&json, &length);
         Reserve(length+2);
         *bufferCursor++ = '\"';
         memcpy(bufferCursor, json,length);
         bufferCursor += length;
         *bufferCursor++ = '\"';
+    }
+
+    void RawBytesToBase64(PyObject* obj){
+        // encode le base64 directement dans le buffer de sortie,
+        // sans chaîne intermédiaire
+        Py_buffer view;
+        if (PyObject_GetBuffer(obj, &view, PyBUF_CONTIG_RO) != 0)
+            return;  // l'erreur Python sera vue en fin d'encodage
+        size_t length = (size_t) view.len;
+        Reserve(4 * ((length + 2) / 3) + 2);
+        *bufferCursor++ = '\"';
+        bufferCursor = serializejson_b64_encode(
+            (const unsigned char*) view.buf, length, bufferCursor);
+        *bufferCursor++ = '\"';
+        PyBuffer_Release(&view);
     }
     
 

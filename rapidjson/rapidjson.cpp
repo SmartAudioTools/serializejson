@@ -2581,6 +2581,9 @@ dumps_internal(
     } 
 	else if (PyObject_TypeCheck(object, &RawBytesToPutInQuotes_Type)) {
         writer->RawBytesToPutInQuotes_(object);
+    }
+	else if (PyObject_TypeCheck(object, &RawBytesToBase64_Type)) {
+        writer->RawBytesToBase64_(object);
     } 
 	
 	// all others ojects --------------------------------------------------------
@@ -3708,6 +3711,9 @@ module_exec(PyObject* m)
     if (PyType_Ready(&RawBytes_Type) < 0)
         return -1;
     
+    if (PyType_Ready(&RawBytesToBase64_Type) < 0)
+        return -1;
+
     if (PyType_Ready(&RawBytesToPutInQuotes_Type) < 0)
         return -1;
 
@@ -3917,6 +3923,12 @@ module_exec(PyObject* m)
     Py_INCREF(&RawBytesToPutInQuotes_Type);
     if (PyModule_AddObject(m, "RawBytesToPutInQuotes", (PyObject*) &RawBytesToPutInQuotes_Type) < 0) {
         Py_DECREF(&RawBytesToPutInQuotes_Type);
+        return -1;
+    }
+
+    Py_INCREF(&RawBytesToBase64_Type);
+    if (PyModule_AddObject(m, "RawBytesToBase64", (PyObject*) &RawBytesToBase64_Type) < 0) {
+        Py_DECREF(&RawBytesToBase64_Type);
         return -1;
     }
 
