@@ -89,6 +89,26 @@ def test_liste_dupliquee_partage():
     assert loaded[0] is loaded[1]
 
 
+class AvecInitArgs:
+    def __init__(self, a, b=None):
+        self.a = a
+        self.b = b
+
+    def __reduce__(self):
+        return (self.__class__, (self.a, self.b))
+
+
+def test_doublon_dans_init_compact():
+    # un doublon à l'intérieur des args __init__ (sous-arbre compact SingleLine)
+    # doit être détecté par le mémo : un seul encodeur pour tout le document
+    partage = [1, 2]
+    obj = AvecInitArgs(partage, partage)
+    dumped = serializejson.dumps(obj, indent="\t")
+    assert dumped.count('"$ref"') == 1
+    loaded = serializejson.loads(dumped, authorized_classes=[AvecInitArgs])
+    assert loaded.a is loaded.b
+
+
 class NodeSlots:
     __slots__ = ("child",)
 

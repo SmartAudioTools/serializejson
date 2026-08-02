@@ -837,28 +837,11 @@ class Encoder(rapidjson.Encoder):
                 number_mode = self.number_mode
             else:
                 number_mode = rapidjson.NM_NATIVE  # permet décceler pas mal
+            # sous-arbres écrits en compact par le MÊME encodeur (SingleLine) :
+            # mémo des doublons, hooks et chemins restent actifs dedans
             if inst.ndim == 1:
-                return rapidjson.RawBytes(
-                    rapidjson.dumpb(
-                        inst.tolist(),
-                        ensure_ascii=False,
-                        number_mode=number_mode,
-                        iterable_mode=rapidjson.IM_ONLY_LISTS,
-                        mapping_mode=rapidjson.MM_ONLY_DICTS,
-                    )
-                )
-            return [
-                rapidjson.RawBytes(
-                    rapidjson.dumpb(
-                        elt.tolist(),
-                        ensure_ascii=False,
-                        number_mode=number_mode,
-                        iterable_mode=rapidjson.IM_ONLY_LISTS,
-                        mapping_mode=rapidjson.MM_ONLY_DICTS,
-                    )
-                )
-                for elt in inst
-            ]  # inst.tolist()
+                return rapidjson.SingleLine(inst.tolist(), number_mode)
+            return [rapidjson.SingleLine(elt.tolist(), number_mode) for elt in inst]
         if type_inst is tuple:
             # isinstance(inst,tuple) attrape les struct_time # je l'ai mis là plutot que dans tuple_from_instance car très spécifique à json et les tuples n'ont pas de réduce contrairement à set , qui lui est pour l'instant traité dans dict_from_instance -> tuple_from_instance
             self.dumped_classes.add(tuple)
@@ -878,42 +861,18 @@ class Encoder(rapidjson.Encoder):
             )  # 8.6 % (correspond au temps pour conversion en b64 avec pybase64.b64encode) du temps sur obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
 
         if not self._dump_one_line:
+            # sous-arbres écrits en compact par le MÊME encodeur (SingleLine) :
+            # contrairement à l'ancienne re-sérialisation par un second encodeur
+            # compact (RawBytes), le mémo des doublons, les hooks et le traqueur
+            # de chemins restent actifs à l'intérieur
             if self.single_line_init:
                 args = dic.get("__init__", None)
                 if isinstance(args, list):
-                    # 91.2 % du temps avec obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
-                    dic["__init__"] = rapidjson.RawBytes(
-                        rapidjson.dumpb(
-                            args,
-                            ensure_ascii=self.ensure_ascii,
-                            default=self._default_one_line,
-                            sort_keys=self.sort_keys,
-                            bytes_mode=self.bytes_mode,
-                            number_mode=self.number_mode,
-                            iterable_mode=rapidjson.IM_ONLY_LISTS,
-                            mapping_mode=rapidjson.MM_ONLY_DICTS
-                            # **self.kargs
-                        )
-                    )
+                    dic["__init__"] = rapidjson.SingleLine(args)
             if self.single_line_new:
                 args = dic.get("__new__", None)
                 if type(args) is list:
-                    dic[
-                        "__new__"
-                        # 91.2 % du temps avec obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
-                    ] = rapidjson.RawBytes(
-                        rapidjson.dumpb(
-                            args,
-                            ensure_ascii=self.ensure_ascii,
-                            default=self._default_one_line,
-                            sort_keys=self.sort_keys,
-                            bytes_mode=self.bytes_mode,
-                            number_mode=self.number_mode,
-                            iterable_mode=rapidjson.IM_ONLY_LISTS,
-                            mapping_mode=rapidjson.MM_ONLY_DICTS
-                            # **self.kargs
-                        )
-                    )
+                    dic["__new__"] = rapidjson.SingleLine(args)
 
             if self.single_line_list_numbers:
                 for key, value in dic.items():
@@ -924,19 +883,7 @@ class Encoder(rapidjson.Encoder):
                         and type(value) is list
                         and _onlyOneDimSameTypeNumbers(value)
                     ):
-
-                        dic[key] = rapidjson.RawBytes(
-                            rapidjson.dumpb(
-                                value,
-                                ensure_ascii=self.ensure_ascii,
-                                default=self._default_one_line,
-                                bytes_mode=self.bytes_mode,
-                                number_mode=self.number_mode,
-                                iterable_mode=rapidjson.IM_ONLY_LISTS,
-                                mapping_mode=rapidjson.MM_ONLY_DICTS
-                                # **self.kargs
-                            )
-                        )
+                        dic[key] = rapidjson.SingleLine(value)
         # self._already_serialized_id_dic_to_obj_dic[id(dic)] = (
         # inst,
         #    dic,
