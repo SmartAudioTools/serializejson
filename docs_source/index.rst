@@ -518,19 +518,23 @@ Future Versions (TODO)
     * Add test for:
         - every Encoder and Decoder parameters combinaisons.
         - object update
-        - circular references and duplicates 
-        - PySide2 
-        
-    * Optimization: 
-        - bytes: need pybase64.b64encode directly to str and rapidjson.RawJSON improvements
+        - PySide2
+
+    * Optimization:
         - numpy array: need pybase64.b64decode directly to bytearray.
-        - circular references and duplicates: need rapidjson improvements (Encoder.default call for list an dictionaries)
-        - list of numbers: speed up _onlyOneDimNumbers function with Cython ? 
-        - json iterator: 
+        - list of numbers: speed up _onlyOneDimNumbers function with Cython ?
+        - json iterator:
             - speed up _json_object_file_iterator function with Cython ?
-            - improve rapidjson for something like raw_decode of the standard json library ? 
-    
+            - improve rapidjson for something like raw_decode of the standard json library ?
+
     * Improvements :
-        - replace id check for duplicates by weakd_ref ? because id can be reused 
         - allow alternatives compressors for images ?
+
+    * Done in 2026-08 (see repository) :
+        - circular references and duplicates for lists and dictionaries
+          (Encoder.default_dict/default_list hooks in bundled rapidjson) + tests
+        - bytes/numpy encoded to base64 directly in the output buffer
+          (rapidjson.RawBytesToBase64), without intermediate base64 string
+        - duplicates memo keeps strong references (like pickle's memo),
+          so a reused id can no longer be mistaken for a duplicate
         

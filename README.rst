@@ -45,7 +45,7 @@ Some of the main features:
 - can update existing objects recursively instead of override them. serializejson can be used to save and restore in place a complete application state (⚠ not yet well tested).
 - filters attribute starting with "_" by default (unlike pickle). You can keep them if wanted with `filter_ = False`.
 - numpy arrays can be serialized as lists with automatic conversion in both ways or in a conservative way.
-- supports circular references and serialize only once duplicated objects, using "$ref" key an path to the first occurance in the json : `{"$ref": "root.xxx.elt"}` (⚠ not yet if the object is a list or dictionary).
+- supports circular references and serialize only once duplicated objects, lists and dictionaries, using "$ref" key an path to the first occurance in the json : `{"$ref": "root.xxx.elt"}`.
 - accepts json with comment (// and /\* \*/) if `accept_comments = True`.
 - can automatically recognize objects in json from keys names and recreate them, without the need of `__class__` key, if passed in `recognized_classes`.
 - serializejson is easly interoperable outside of the Python ecosystem with this recognition of objects from keys names or with `__class__` translation between python and other language classes.
