@@ -129,6 +129,42 @@ def test_ref_differee_dans_slot():
     assert loaded[0].child is loaded[1].child
 
 
+# --- rigueur des __dict__ partagés : au-delà de pickle, qui perd ces partages --
+
+
+def test_dict_reel_reference_apres_objet():
+    # l'objet est aplati d'abord, puis son vrai __dict__ apparait comme valeur
+    a = Node()
+    a.child = 1
+    dumped = serializejson.dumps([a, a.__dict__], indent=None)
+    assert '"$ref"' in dumped
+    loaded = serializejson.loads(dumped, authorized_classes=[Node])
+    assert loaded[1] is loaded[0].__dict__
+
+
+def test_dict_reel_reference_avant_objet():
+    # le dict apparait d'abord comme simple valeur, l'objet qui l'utilise
+    # comme __dict__ est sérialisé ensuite
+    a = Node()
+    a.child = 1
+    dumped = serializejson.dumps([a.__dict__, a], indent=None)
+    assert '"__dict__"' in dumped
+    loaded = serializejson.loads(dumped, authorized_classes=[Node])
+    assert loaded[1].__dict__ is loaded[0]
+
+
+def test_deux_objets_partageant_le_meme_dict():
+    b = Node()
+    c = Node()
+    c.__dict__ = b.__dict__
+    b.child = 5
+    dumped = serializejson.dumps([b, c], indent=None)
+    loaded_b, loaded_c = serializejson.loads(dumped, authorized_classes=[Node])
+    assert loaded_b.__dict__ is loaded_c.__dict__
+    loaded_b.autre = 1
+    assert loaded_c.autre == 1
+
+
 # --- grosses données : verrouille le chemin bytes -> blosc -> b64 --------------
 
 

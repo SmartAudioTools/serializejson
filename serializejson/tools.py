@@ -1082,6 +1082,7 @@ def instance(
     __new__=None,
     __initArgs__=None,
     __items__=None,
+    __dict__=None,
     **argsSup,
 ):
     """créer une instance d'un objet :
@@ -1166,6 +1167,12 @@ def instance(
             inst.update(__items__)
         except:
             inst.extend(__items__)
+
+    if __dict__ is not None:
+        # partage physique du __dict__ (clé "__dict__" écrite par l'encodeur
+        # pour un état déjà sérialisé ailleurs) : ASSIGNATION, pas recopie —
+        # les objets qui partageaient leur __dict__ le partagent à nouveau
+        inst.__dict__ = __dict__
 
     if argsSup:
         __state__ = argsSup

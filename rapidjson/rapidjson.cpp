@@ -2729,7 +2729,12 @@ dumps_internal(
                 (mappingMode & MM_COERCE_KEYS_TO_STRINGS)
                 ||
                 all_keys_are_string(object))) {
-        CONTAINER_MEMO_OR_REF()
+        // les dicts d'attributs construits par default() sont uniques par
+        // construction : inutile de les mémoïser (le VRAI __dict__ de l'objet
+        // est, lui, enregistré par memo_state_dict au moment de l'aplatissement)
+        if (!attrsDict) {
+            CONTAINER_MEMO_OR_REF()
+        }
         CALL_CONTAINER_HOOK(defaultDictFn, " while JSONifying dict object")
         writer->StartObject();
 
@@ -2984,6 +2989,33 @@ encoder_json_path_id(PyObject* self, PyObject* Py_UNUSED(unused))
 }
 
 
+// Enregistre le VRAI __dict__ d'un objet au moment où ses attributs sont
+// aplatis : un noeud virtuel "<chemin de l'objet>.__dict__" est matérialisé
+// et le dict y est mémorisé (référence forte relâchée en fin d'encodage).
+// S'il est revu plus tard — directement, ou comme état d'un autre objet qui
+// le partage — il devient {"$ref": "....__dict__"} au lieu d'être ré-écrit.
+static PyObject*
+encoder_memo_state_dict(PyObject* self, PyObject* arg)
+{
+    EncoderObject* e = (EncoderObject*) self;
+    PathTracker* tracker = e->activePathTracker;
+    if (tracker == nullptr || !tracker->memoContainers)
+        Py_RETURN_NONE;
+    if (tracker->memo.find(arg) != tracker->memo.end())
+        Py_RETURN_NONE;
+    long object_node = path_tracker_materialize(tracker);
+    PathNode node;
+    node.parent = (int) object_node;
+    node.kind = PathSegment::ATTR;
+    node.key = "__dict__";
+    node.index = 0;
+    tracker->nodes.push_back(std::move(node));
+    tracker->memo.emplace(arg, (long) tracker->nodes.size() - 1);
+    Py_INCREF(arg);
+    Py_RETURN_NONE;
+}
+
+
 // identifiant de chemin mémorisé pour un dict/liste déjà écrit par le mémo
 // C++ (encoder memo_refs=True) ; None si inconnu — utile pour les Reference
 static PyObject*
@@ -3028,6 +3060,8 @@ static PyMethodDef encoder_methods[] = {
      "Chemin JSON correspondant à un identifiant retourné par json_path_id()."},
     {"json_path_id_of", (PyCFunction) encoder_json_path_id_of, METH_O,
      "Identifiant de chemin d'un dict/liste déjà écrit (mémo memo_refs), sinon None."},
+    {"memo_state_dict", (PyCFunction) encoder_memo_state_dict, METH_O,
+     "Mémorise le vrai __dict__ d'un objet sous '<chemin>.__dict__' (rigueur doublons)."},
     {nullptr, nullptr, 0, nullptr}
 };
 

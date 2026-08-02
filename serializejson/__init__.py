@@ -1032,6 +1032,21 @@ class Encoder(rapidjson.Encoder):
             ):
                 dictionnaire["__state__"] = state
             else:
+                if state is getattr(inst, "__dict__", None):
+                    # rigueur des doublons : ce state est le VRAI __dict__ de
+                    # l'objet. S'il a déjà été écrit ailleurs (directement, ou
+                    # aplati dans un objet qui le partage), on le référence au
+                    # lieu de l'aplatir une seconde fois — et au chargement
+                    # l'assignation restaure le partage physique (ce que même
+                    # pickle ne préserve pas). Sinon on l'enregistre sous
+                    # "<chemin de l'objet>.__dict__" pour la suite du dump.
+                    path_id = self.json_path_id_of(state)
+                    if path_id is not None:
+                        dictionnaire["__dict__"] = rapidjson.RawString(
+                            f'{{"$ref": "{self.json_path_from_id(path_id)}"}}'
+                        )
+                        return dictionnaire
+                    self.memo_state_dict(state)
                 dictionnaire.update(state)
         return dictionnaire
 
@@ -1967,6 +1982,12 @@ def _replace_ref_placeholders(root, placeholders):
         else:
             node_dict = getattr(node, "__dict__", None)
             if type(node_dict) is dict:
+                # le __dict__ entier peut être un marqueur {"$ref": ...}
+                # différé (clé "__dict__" assignée par instance())
+                replacement = placeholders.get(id(node_dict))
+                if replacement is not None:
+                    node.__dict__ = replacement
+                    node_dict = replacement
                 stack.append(node_dict)
             if hasattr(node, "__slots__"):
                 for slot in slots_from_class(type_node):
