@@ -180,6 +180,7 @@ import rapidjson
 import gc
 import blosc
 import errno
+from copyreg import dispatch_table
 from collections import deque
 from pybase64 import b64decode, b64encode_as_string
 from _collections_abc import list_iterator
@@ -220,6 +221,9 @@ from .tools import (
     blosc_compressions,
     blosc2_compressions,
     use_blosc2_cpp,
+    serializejson_,
+    serializejson_builtins,
+    class_has_user_getstate,
     setters_names_from_class,
     slots_from_class,
     authorized_classes,
@@ -260,6 +264,9 @@ __all__ = [
 ]
 # flag allowing to keep None as allowed value for Encoder default_value.
 no_default_value = []
+
+# Py_TPFLAGS_HEAPTYPE : distingue les classes définies en Python des types natifs
+_TPFLAGS_HEAPTYPE = 1 << 9
 
 
 # --- FONCTIONS BASED API ----------------------
@@ -909,6 +916,51 @@ class Encoder(rapidjson.Encoder):
     # rapidjson du dépôt (memo_refs=True) : plus aucun aller-retour Python par
     # conteneur. Les hooks default_dict/default_list de l'Encoder C++ restent
     # disponibles pour d'autres usages.
+
+    def class_plan(self, class_):
+        # Chemin rapide par classe, consulté par le C++ UNE fois par classe et
+        # par dump : None -> chemin Python complet (default/reduce) ; sinon
+        # (nom_de_classe, filtrer_underscores) -> les objets de cette classe
+        # sont écrits entièrement en C++ ({"__class__": nom, attributs du
+        # __dict__ triés}, mémo des doublons et rigueur du __dict__ partagé
+        # compris). Les conditions reproduisent exactement le chemin Python
+        # par défaut : au moindre doute, None.
+        try:
+            if (
+                self.strict_pickle
+                or self.properties
+                or self.getters
+                or self.remove_default_values
+            ):
+                return None
+            if not isinstance(class_, type) or not (
+                class_.__flags__ & _TPFLAGS_HEAPTYPE
+            ):
+                # types natifs (tuple, dict, bytes...) : chemins dédiés
+                return None
+            if (
+                class_ in serializejson_builtins
+                or class_ in serializejson_
+                or class_ in dispatch_table
+                or class_ is Reference
+                or class_ is dotdict
+                or hasattr(class_, "__serializejson__")
+                or class_.__reduce_ex__ is not object.__reduce_ex__
+                or class_.__reduce__ is not object.__reduce__
+                or class_has_user_getstate(class_)
+                or hasattr(class_, "__getnewargs__")
+                or hasattr(class_, "__getnewargs_ex__")
+                or hasattr(class_, "__slots__")
+            ):
+                return None
+            attributes_filter = self.attributes_filter
+            if type(attributes_filter) is set:
+                attributes_filter = class_ in attributes_filter
+            class_str = class_str_from_class(class_)
+            self.dumped_classes.add(class_str)
+            return (class_str, bool(attributes_filter))
+        except Exception:
+            return None
 
     # @profile
     def _default_one_line(self, inst):

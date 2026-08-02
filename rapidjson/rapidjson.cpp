@@ -74,6 +74,8 @@ static PyObject* end_object_name = nullptr;
 static PyObject* default_name = nullptr;
 static PyObject* default_dict_name = nullptr;
 static PyObject* default_list_name = nullptr;
+static PyObject* class_plan_name = nullptr;
+static PyObject* dict_dunder_name = nullptr;
 static PyObject* end_array_name = nullptr;
 static PyObject* string_name = nullptr;
 static PyObject* read_name = nullptr;
@@ -247,6 +249,12 @@ struct PathTracker {
     // de conteneur temporaire réutilisé ne passe pas pour un doublon
     std::unordered_map<PyObject*, long> memo;
     bool memoContainers = false;
+    // chemin rapide par classe : class_plan(classe) est appelé UNE fois par
+    // classe et par dump ; il retourne None (chemin Python complet) ou un
+    // tuple (nom_de_classe, filtrer_underscores) autorisant l'écriture de
+    // l'objet entièrement en C++ (attributs du __dict__, triés)
+    PyObject* classPlanFn = nullptr;   // référence empruntée (encoder_call)
+    std::unordered_map<PyTypeObject*, PyObject*> classPlans;  // réfs possédées
     // écrit sur une seule ligne les listes homogènes de nombres, où qu'elles
     // soient (valeurs de dicts purs et sous-listes comprises)
     bool singleLineNumbers = false;
@@ -257,6 +265,8 @@ struct PathTracker {
     ~PathTracker() {
         for (auto& entry : memo)
             Py_DECREF(entry.first);
+        for (auto& entry : classPlans)
+            Py_DECREF(entry.second);
     }
 };
 
@@ -2876,6 +2886,182 @@ dumps_internal(
 	
 	// all others ojects --------------------------------------------------------
 	else if (defaultFn) {
+        // ----- chemin rapide par classe : objet ordinaire écrit tout en C++,
+        // sans passer par default()/reduce Python. La décision est prise UNE
+        // fois par classe (class_plan), le résultat doit être identique octet
+        // pour octet au chemin Python pour les classes éligibles.
+        if (pathTracker && pathTracker->classPlanFn) {
+            PyTypeObject* object_type = Py_TYPE(object);
+            PyObject* plan;
+            auto plan_it = pathTracker->classPlans.find(object_type);
+            if (plan_it != pathTracker->classPlans.end()) {
+                plan = plan_it->second;
+            } else {
+                plan = PyObject_CallFunctionObjArgs(
+                    pathTracker->classPlanFn, (PyObject*) object_type, nullptr);
+                if (plan == nullptr)
+                    return false;
+                if (plan != Py_None
+                    && (!PyTuple_Check(plan) || PyTuple_GET_SIZE(plan) != 2)) {
+                    Py_DECREF(plan);
+                    plan = Py_None;
+                    Py_INCREF(Py_None);
+                }
+                pathTracker->classPlans.emplace(object_type, plan);
+            }
+            if (plan != Py_None) {
+                PyObject* class_name = PyTuple_GET_ITEM(plan, 0);
+                bool filter_underscore =
+                    PyObject_IsTrue(PyTuple_GET_ITEM(plan, 1)) == 1;
+
+                // doublon ou cycle -> $ref
+                auto memo_it = pathTracker->memo.find(object);
+                if (memo_it != pathTracker->memo.end()) {
+                    std::string ref_ = "{\"$ref\": \"";
+                    ref_ += path_tracker_string(pathTracker, memo_it->second);
+                    ref_ += "\"}";
+                    writer->RawValue(ref_.data(), ref_.size());
+                    return true;
+                }
+
+                PyObject* object_dict = PyObject_GetAttr(object, dict_dunder_name);
+                if (object_dict == nullptr)
+                    PyErr_Clear();  // objet sans __dict__ : aucun attribut
+
+                // collecte et validation des attributs AVANT toute écriture
+                struct FastAttr {
+                    const char* key;
+                    Py_ssize_t len;
+                    PyObject* value;
+                };
+                std::vector<FastAttr> attrs;
+                bool eligible = true;
+                bool all_kept = true;
+                bool already_sorted = true;
+                if (object_dict != nullptr) {
+                    if (PyDict_CheckExact(object_dict)) {
+                        attrs.reserve((size_t) PyDict_GET_SIZE(object_dict));
+                        Py_ssize_t pos = 0;
+                        PyObject* key;
+                        PyObject* value;
+                        while (PyDict_Next(object_dict, &pos, &key, &value)) {
+                            if (!PyUnicode_Check(key)) {
+                                eligible = false;  // clés non-chaînes : chemin Python
+                                break;
+                            }
+                            Py_ssize_t key_length;
+                            const char* key_str =
+                                PyUnicode_AsUTF8AndSize(key, &key_length);
+                            if (key_str == nullptr) {
+                                Py_DECREF(object_dict);
+                                return false;
+                            }
+                            if (filter_underscore && key_length
+                                && key_str[0] == '_') {
+                                all_kept = false;
+                                continue;
+                            }
+                            if (!attrs.empty()) {
+                                const FastAttr& previous = attrs.back();
+                                size_t common = (size_t)
+                                    (previous.len < key_length ? previous.len
+                                                               : key_length);
+                                int compare = memcmp(previous.key, key_str, common);
+                                if (compare > 0
+                                    || (compare == 0 && previous.len > key_length))
+                                    already_sorted = false;
+                            }
+                            attrs.push_back({key_str, key_length, value});
+                        }
+                    } else {
+                        eligible = false;  // __dict__ exotique : chemin Python
+                    }
+                }
+                if (eligible) {
+                    if (!already_sorted)
+                        std::sort(attrs.begin(), attrs.end(),
+                                  [](const FastAttr& a, const FastAttr& b) {
+                                      size_t common = (size_t)
+                                          (a.len < b.len ? a.len : b.len);
+                                      int compare = memcmp(a.key, b.key, common);
+                                      return compare < 0
+                                          || (compare == 0 && a.len < b.len);
+                                  });
+
+                    // rigueur du __dict__ réel partagé, comme le chemin Python :
+                    // s'il a déjà été écrit ailleurs, on le référence au lieu
+                    // de l'aplatir une seconde fois
+                    long shared_dict_node = -2;
+                    if (object_dict != nullptr && pathTracker->memoContainers) {
+                        auto dict_it = pathTracker->memo.find(object_dict);
+                        if (dict_it != pathTracker->memo.end())
+                            shared_dict_node = dict_it->second;
+                    }
+
+                    // mémo de l'objet lui-même (avant les valeurs : cycles)
+                    long object_node = path_tracker_materialize(pathTracker);
+                    pathTracker->memo.emplace(object, object_node);
+                    Py_INCREF(object);
+
+                    writer->StartObject();
+                    writer->Key("__class__", 9);
+                    Py_ssize_t name_length;
+                    const char* name_str =
+                        PyUnicode_AsUTF8AndSize(class_name, &name_length);
+                    if (name_str == nullptr) {
+                        Py_XDECREF(object_dict);
+                        return false;
+                    }
+                    writer->String(name_str, (SizeType) name_length);
+
+                    if (shared_dict_node != -2) {
+                        writer->Key("__dict__", 8);
+                        std::string ref_ = "{\"$ref\": \"";
+                        ref_ += path_tracker_string(pathTracker, shared_dict_node);
+                        ref_ += "\"}";
+                        writer->RawValue(ref_.data(), ref_.size());
+                    } else {
+                        // rend le vrai __dict__ adressable pour la suite s'il
+                        // est écrit à l'identique (rien filtré, déjà trié)
+                        if (object_dict != nullptr && pathTracker->memoContainers
+                            && all_kept && already_sorted) {
+                            PathNode node;
+                            node.parent = (int) object_node;
+                            node.kind = PathSegment::ATTR;
+                            node.key = "__dict__";
+                            node.index = 0;
+                            pathTracker->nodes.push_back(std::move(node));
+                            pathTracker->memo.emplace(
+                                object_dict,
+                                (long) pathTracker->nodes.size() - 1);
+                            Py_INCREF(object_dict);
+                        }
+                        attrsDict = true;  // segments de chemin en style ".attr"
+                        for (const FastAttr& attr : attrs) {
+                            writer->Key(attr.key, (SizeType) attr.len);
+                            if (Py_EnterRecursiveCall(" while JSONifying object")) {
+                                Py_XDECREF(object_dict);
+                                return false;
+                            }
+                            PATH_PUSH_KEY(attr.key, attr.len);
+                            bool r = RECURSE(attr.value);
+                            PATH_POP();
+                            Py_LeaveRecursiveCall();
+                            if (!r) {
+                                Py_XDECREF(object_dict);
+                                return false;
+                            }
+                        }
+                    }
+                    writer->EndObject();
+                    Py_XDECREF(object_dict);
+                    writer->Flush();
+                    return PyErr_Occurred() ? false : true;
+                }
+                Py_XDECREF(object_dict);
+                // classe éligible mais objet particulier : chemin Python
+            }
+        }
         PyObject* retval = PyObject_CallFunctionObjArgs(defaultFn, object, nullptr);
         if (retval == nullptr)
             return false;
@@ -3713,10 +3899,15 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     if (PyObject_HasAttr(self, default_list_name)) {
         defaultListFn = PyObject_GetAttr(self, default_list_name);
     }
+    PyObject* classPlanFn = nullptr;
+    if (PyObject_HasAttr(self, class_plan_name)) {
+        classPlanFn = PyObject_GetAttr(self, class_plan_name);
+    }
 
     PathTracker pathTracker;
     pathTracker.memoContainers = e->memoRefs;
     pathTracker.singleLineNumbers = e->singleLineNumbers;
+    pathTracker.classPlanFn = classPlanFn;
     e->activePathTracker = &pathTracker;
 
     if (stream != nullptr && stream != Py_None) {
@@ -3726,6 +3917,7 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
             Py_XDECREF(defaultFn);
             Py_XDECREF(defaultDictFn);
             Py_XDECREF(defaultListFn);
+            Py_XDECREF(classPlanFn);
             return nullptr;
         }
 
@@ -3734,6 +3926,7 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
             Py_XDECREF(defaultFn);
             Py_XDECREF(defaultDictFn);
             Py_XDECREF(defaultListFn);
+            Py_XDECREF(classPlanFn);
             return nullptr;
         }
 
@@ -3755,6 +3948,7 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     Py_XDECREF(defaultFn);
     Py_XDECREF(defaultDictFn);
     Py_XDECREF(defaultListFn);
+    Py_XDECREF(classPlanFn);
 
     return result;
 }
@@ -4265,6 +4459,14 @@ module_exec(PyObject* m)
 
     default_list_name = PyUnicode_InternFromString("default_list");
     if (default_list_name == nullptr)
+        return -1;
+
+    class_plan_name = PyUnicode_InternFromString("class_plan");
+    if (class_plan_name == nullptr)
+        return -1;
+
+    dict_dunder_name = PyUnicode_InternFromString("__dict__");
+    if (dict_dunder_name == nullptr)
         return -1;
 
     end_array_name = PyUnicode_InternFromString("end_array");
