@@ -247,6 +247,9 @@ struct PathTracker {
     // de conteneur temporaire réutilisé ne passe pas pour un doublon
     std::unordered_map<PyObject*, long> memo;
     bool memoContainers = false;
+    // écrit sur une seule ligne les listes homogènes de nombres, où qu'elles
+    // soient (valeurs de dicts purs et sous-listes comprises)
+    bool singleLineNumbers = false;
     // vrai si le prochain dict rencontré est l'état d'un objet retourné par
     // default() : ses clés sont alors des attributs (".attr" et non "['clef']")
     bool next_dict_is_attrs = false;
@@ -2504,23 +2507,57 @@ dumps_internal(
                PyList_CheckExact(object)) {
         CONTAINER_MEMO_OR_REF()
         CALL_CONTAINER_HOOK(defaultListFn, " while JSONifying list object")
-        writer->StartArray();
 
         Py_ssize_t size = PyList_GET_SIZE(object);
 
+        // liste homogène de nombres -> une seule ligne (même sémantique que
+        // _onlyOneDimSameTypeNumbers : tous les éléments du type EXACT du
+        // premier, qui doit être numérique et non complexe)
+        bool compact_numbers = false;
+        if (pathTracker && pathTracker->singleLineNumbers && size > 0) {
+            PyObject* first = PyList_GET_ITEM(object, 0);
+            PyTypeObject* first_type = Py_TYPE(first);
+            if (first_type == &PyFloat_Type || first_type == &PyLong_Type
+                || first_type == &PyBool_Type
+                || (PyNumber_Check(first) && !PyComplex_Check(first))) {
+                compact_numbers = true;
+                for (Py_ssize_t i = 1; i < size; i++) {
+                    if (Py_TYPE(PyList_GET_ITEM(object, i)) != first_type) {
+                        compact_numbers = false;
+                        break;
+                    }
+                }
+            }
+        }
+        // ne bascule que si on n'est pas déjà en compact (imbrication redondante,
+        // qui déséquilibrerait le compteur si deux demandes précédaient le 1er jeton)
+        bool pushed_compact = compact_numbers && !writer->InCompact();
+        if (pushed_compact)
+            writer->PushCompact();
+
+        writer->StartArray();
+
         for (Py_ssize_t i = 0; i < size; i++) {
-            if (Py_EnterRecursiveCall(" while JSONifying list object"))
+            if (Py_EnterRecursiveCall(" while JSONifying list object")) {
+                if (pushed_compact)
+                    writer->PopCompact();
                 return false;
+            }
             PyObject* item = PyList_GET_ITEM(object, i);
             PATH_PUSH_INDEX(i);
             bool r = RECURSE(item);
             PATH_POP();
             Py_LeaveRecursiveCall();
-            if (!r)
+            if (!r) {
+                if (pushed_compact)
+                    writer->PopCompact();
                 return false;
+            }
         }
 
         writer->EndArray();
+        if (pushed_compact)
+            writer->PopCompact();
     } 
 	else if (!(iterableMode & IM_ONLY_LISTS) && PyTuple_Check(object)) {
         writer->StartArray();
@@ -2699,14 +2736,18 @@ dumps_internal(
         unsigned savedNumberMode = numberMode;
         if (wrapper->numberMode >= 0)
             numberMode = (unsigned) wrapper->numberMode;
-        writer->PushCompact();
+        bool pushed_compact = !writer->InCompact();
+        if (pushed_compact)
+            writer->PushCompact();
         if (Py_EnterRecursiveCall(" while JSONifying single line value")) {
-            writer->PopCompact();
+            if (pushed_compact)
+                writer->PopCompact();
             return false;
         }
         bool r = RECURSE(wrapper->value);
         Py_LeaveRecursiveCall();
-        writer->PopCompact();
+        if (pushed_compact)
+            writer->PopCompact();
         numberMode = savedNumberMode;
         if (!r)
             return false;
@@ -2774,6 +2815,8 @@ typedef struct {
     bool returnBytes;
     // mémo C++ des dicts/listes déjà écrits (doublons et cycles -> $ref)
     bool memoRefs;
+    // listes homogènes de nombres sur une seule ligne, partout
+    bool singleLineNumbers;
     // traqueur de chemin actif pendant un encodage (nullptr sinon),
     // consulté par la méthode json_path()
     PathTracker* activePathTracker;
@@ -3529,6 +3572,7 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
 
     PathTracker pathTracker;
     pathTracker.memoContainers = e->memoRefs;
+    pathTracker.singleLineNumbers = e->singleLineNumbers;
     e->activePathTracker = &pathTracker;
 
     if (stream != nullptr && stream != Py_None) {
@@ -3611,13 +3655,15 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
         "allow_nan",
         "return_bytes",
         "memo_refs",
+        "single_line_numbers",
         nullptr
     };
     int skipInvalidKeys = false;
     int sortKeys = false;
     int memoRefs = false;
+    int singleLineNumbers = false;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|ppOpOOOOOOOppp:Encoder",
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|ppOpOOOOOOOpppp:Encoder",
                                      (char**) kwlist,
                                      &skipInvalidKeys,
                                      &ensureAscii,
@@ -3632,7 +3678,8 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
                                      &mappingModeObj,
                                      &allowNan,
                                      &returnBytes,
-                                     &memoRefs
+                                     &memoRefs,
+                                     &singleLineNumbers
                                      ))
         return nullptr;
 
@@ -3682,6 +3729,7 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
     e->mappingMode = mappingMode;
     e->returnBytes = returnBytes? true : false;
     e->memoRefs = memoRefs? true : false;
+    e->singleLineNumbers = singleLineNumbers? true : false;
     e->activePathTracker = nullptr;
 
     return (PyObject*) e;

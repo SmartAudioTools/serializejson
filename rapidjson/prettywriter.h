@@ -85,6 +85,12 @@ public:
         else
             compactDepth_--;
     }
+    // vrai si un sous-arbre compact est en cours (ou demandé) : une bascule
+    // imbriquée serait alors redondante — et déséquilibrerait le compteur si
+    // deux demandes étaient posées avant le premier jeton
+    bool InCompact() const {
+        return compactDepth_ > 0 || compactPending_;
+    }
 
 #if RAPIDJSON_HAS_CXX11_RVALUE_REFS
     PrettyWriter(PrettyWriter&& rhs) :

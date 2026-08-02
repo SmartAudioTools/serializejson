@@ -646,7 +646,10 @@ class Encoder(rapidjson.Encoder):
             return_bytes=return_bytes,
             # mémo C++ des dicts/listes déjà écrits : doublons et références
             # circulaires émis en {"$ref": ...} sans repasser par Python
-            memo_refs=True
+            memo_refs=True,
+            # listes homogènes de nombres sur une seule ligne, décidé en C++,
+            # partout (attributs, valeurs de dicts purs, sous-listes)
+            single_line_numbers=bool(single_line_list_numbers) and indent is not None
             # **argsDict
         )
         self.use_tuple_for_numpy_shape = False
@@ -887,16 +890,9 @@ class Encoder(rapidjson.Encoder):
                 if type(args) is list:
                     dic["__new__"] = rapidjson.SingleLine(args)
 
-            if self.single_line_list_numbers:
-                for key, value in dic.items():
-                    if (
-                        key != "__class__"
-                        and (key != "__init__" or not self.single_line_init)
-                        and (key != "__new__" or not self.single_line_new)
-                        and type(value) is list
-                        and _onlyOneDimSameTypeNumbers(value)
-                    ):
-                        dic[key] = rapidjson.SingleLine(value)
+            # les listes homogènes de nombres sont mises sur une ligne par le
+            # C++ lui-même (single_line_numbers), où qu'elles soient : plus
+            # besoin de balayer les attributs ici
         # self._already_serialized_id_dic_to_obj_dic[id(dic)] = (
         # inst,
         #    dic,

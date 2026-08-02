@@ -334,6 +334,7 @@ public:
     // rien à faire — seules les surcharges du PrettyWriter agissent
     void PushCompact() {}
     void PopCompact() {}
+    bool InCompact() const { return true; }
 
     //! Flush the output stream.
     /*!
