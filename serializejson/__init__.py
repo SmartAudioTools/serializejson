@@ -218,6 +218,8 @@ from .tools import (
     _onlyOneDimSameTypeNumbers,
     _onlyOneDimNumbers,
     blosc_compressions,
+    blosc2_compressions,
+    use_blosc2_cpp,
     setters_names_from_class,
     slots_from_class,
     authorized_classes,
@@ -671,9 +673,13 @@ class Encoder(rapidjson.Encoder):
         if bytes_compression is not None:
             if isinstance(bytes_compression, (list, tuple)):
                 bytes_compression, bytes_compression_level = bytes_compression
-                if bytes_compression not in blosc_compressions:
+                if (
+                    bytes_compression not in blosc_compressions
+                    and bytes_compression not in blosc2_compressions
+                ):
                     raise Exception(
-                        f"{bytes_compression} compression unknown. Available values for bytes_compression are {', '.join(blosc_compressions)}"
+                        f"{bytes_compression} compression unknown. Available values for bytes_compression are "
+                        f"{', '.join(blosc_compressions)}, {', '.join(blosc2_compressions)}"
                     )
         self.bytes_compression = bytes_compression
         self.bytes_compression_threads = bytes_compression_threads
@@ -1060,6 +1066,8 @@ class Encoder(rapidjson.Encoder):
 
     def _update_serialize_parameters(self):
         blosc.set_nthreads(self.bytes_compression_threads)
+        if use_blosc2_cpp:
+            rapidjson.blosc_set_nthreads(self.bytes_compression_threads)
         serialize_parameters.__dict__.update(self.__dict__)
         serialize_parameters.__dict__.update(self.plugins_parameters)
 

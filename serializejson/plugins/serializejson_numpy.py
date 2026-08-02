@@ -7,7 +7,9 @@ except ModuleNotFoundError:
 else:
     import blosc
     from pybase64 import b64decode_as_bytearray
-    from rapidjson import RawBytesToBase64  # base64 écrit directement dans la sortie
+
+    # base64 écrit directement dans la sortie, et compression blosc2 faite en C
+    from rapidjson import RawBytesToBase64, BloscToBase64
     import sys
 
     try:
@@ -16,6 +18,9 @@ else:
             serializejson_,
             constructors,
             blosc_compressions,
+            blosc2_compressions,
+            blosc_decompress,
+            use_blosc2_cpp,
             authorized_classes,
         )
         from SmartFramework.serialize import serialize_parameters
@@ -25,6 +30,9 @@ else:
             serializejson_,
             constructors,
             blosc_compressions,
+            blosc2_compressions,
+            blosc_decompress,
+            use_blosc2_cpp,
             authorized_classes,
         )
 
@@ -70,8 +78,8 @@ else:
         if compression:
             if compression.endswith("_diff"):
                 compression = compression[:-5]
-            if compression == "blosc":
-                decoded_bytearray = blosc.decompress(
+            if compression in ("blosc", "blosc2"):
+                decoded_bytearray = blosc_decompress(
                     decoded_bytearray, as_bytearray=True
                 )
             else:
@@ -169,31 +177,50 @@ else:
                 if use_diff:
                     data = numpy.diff(data, axis=0, prepend=numpy.uint8(0))
                     # data = numpy.ediff1d(data,to_begin=data.flat[0])
-                blosc_compression = blosc_compressions.get(compression, None)
-                if blosc_compression:
-                    compressed = blosc.compress(
+                blosc2_compression = blosc2_compressions.get(compression, None)
+                if blosc2_compression:
+                    # compression faite en C (libblosc2), sans repasser par Python
+                    if not use_blosc2_cpp:
+                        raise Exception(
+                            f"{compression} compression needs the python-blosc2 wheel"
+                        )
+                    payload = BloscToBase64(
                         numpy.ascontiguousarray(data),
                         data.itemsize,
-                        cname=blosc_compression,
-                        clevel=serialize_parameters.bytes_compression_level,
+                        serialize_parameters.bytes_compression_level,
+                        1,  # SHUFFLE, comme blosc.compress par défaut
+                        blosc2_compression,
                     )
-                    compression = "blosc"
+                    compressed_size = payload.compressed_size
+                    compression = "blosc2"
                 else:
-                    raise Exception(f"{compression} compression unknow")
+                    blosc_compression = blosc_compressions.get(compression, None)
+                    if blosc_compression:
+                        compressed = blosc.compress(
+                            numpy.ascontiguousarray(data),
+                            data.itemsize,
+                            cname=blosc_compression,
+                            clevel=serialize_parameters.bytes_compression_level,
+                        )
+                        payload = RawBytesToBase64(compressed)
+                        compressed_size = len(compressed)
+                        compression = "blosc"
+                    else:
+                        raise Exception(f"{compression} compression unknow")
                 if use_diff:
                     compression += "_diff"
-                if len(compressed) < data.nbytes:
+                if compressed_size < data.nbytes:
                     if len_or_shape is None:
                         return (
                             "numpyB64",
-                            (RawBytesToBase64(compressed), dtype_str, compression),
+                            (payload, dtype_str, compression),
                             None,
                         )
                     else:
                         return (
                             "numpyB64",
                             (
-                                RawBytesToBase64(compressed),
+                                payload,
                                 dtype_str,
                                 len_or_shape,
                                 compression,

@@ -57,6 +57,48 @@ property_types = {property}  # property types
 blosc_compressions = {
     (name if name == "blosclz" else "blosc_" + name): name for name in blosc.cnames
 }
+# compressions blosc2, réalisées en C par le rapidjson du dépôt (BloscToBase64),
+# sans repasser par Python. ⚠ opt-in : trames au format blosc2, relisibles par
+# le décodage ci-dessous (via python-blosc2) mais PAS par python-blosc v1 ni
+# par les environnements 3.10 — les défauts restent sur blosc v1.
+blosc2_compressions = {
+    ("blosc2" if name == "blosclz" else "blosc2_" + name): name
+    for name in blosc.cnames
+    if name != "snappy"  # absent de c-blosc2
+}
+use_blosc2_cpp = False
+try:
+    from importlib.util import find_spec as _find_spec
+
+    _blosc2_spec = _find_spec("blosc2")
+    if _blosc2_spec is not None:
+        import os as _os
+        import rapidjson as _rapidjson
+
+        use_blosc2_cpp = bool(
+            _rapidjson.load_blosc_library(
+                _os.path.join(
+                    _os.path.dirname(_blosc2_spec.origin), "lib", "libblosc2.so"
+                )
+            )
+        )
+except Exception:
+    use_blosc2_cpp = False
+
+
+def blosc_decompress(frame, as_bytearray=False):
+    # dispatch sur l'octet de version de la trame : <= 3 -> python-blosc v1,
+    # >= 4 -> blosc2 (qui relit aussi les trames v1, mais pas l'inverse)
+    if frame[:1] and frame[0] >= 4:
+        import blosc2  # exige la roue python-blosc2 (Python 3.11+)
+
+        decompressed = blosc2.decompress(frame)
+        if as_bytearray:
+            return bytearray(decompressed)
+        return decompressed
+    if as_bytearray:
+        return blosc.decompress(frame, as_bytearray=True)
+    return blosc.decompress(frame)
 # encoding & decoding --------------
 
 properties = (

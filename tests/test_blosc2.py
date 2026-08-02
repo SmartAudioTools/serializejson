@@ -1,0 +1,70 @@
+"""Compressions blosc2 (opt-in) : faites en C par le rapidjson du dépôt.
+
+Trames au format blosc2 (étiquette "b64_blosc2" / "blosc2"), relisibles par le
+décodage de serializejson via python-blosc2 mais pas par python-blosc v1 —
+les défauts restent sur blosc v1, l'activation est explicite :
+bytes_compression=("blosc2_zstd", 9) etc.
+"""
+
+import pytest
+import serializejson
+from serializejson.tools import use_blosc2_cpp
+
+try:
+    import numpy
+
+    use_numpy = True
+except ModuleNotFoundError:
+    use_numpy = False
+
+pytestmark = pytest.mark.skipif(
+    not use_blosc2_cpp, reason="roue python-blosc2 absente (Python 3.10 ?)"
+)
+
+
+def roundtrip(obj, **encoder_args):
+    dumped = serializejson.dumps(obj, indent=None, **encoder_args)
+    return dumped, serializejson.loads(dumped)
+
+
+def test_bytes_blosc2():
+    data = bytes(range(256)) * 5000
+    dumped, loaded = roundtrip(data, bytes_compression=("blosc2_zstd", 5))
+    assert '"b64_blosc2"' in dumped
+    assert len(dumped) < len(data)
+    assert loaded == data
+
+
+def test_bytearray_blosc2():
+    data = bytearray(range(256)) * 5000
+    dumped, loaded = roundtrip(data, bytes_compression=("blosc2", 9))  # blosclz
+    assert '"b64_blosc2"' in dumped
+    assert type(loaded) is bytearray
+    assert loaded == data
+
+
+def test_bytes_blosc2_incompressibles():
+    import random
+
+    data = bytes(random.Random(0).getrandbits(8) for _ in range(100_000))
+    dumped, loaded = roundtrip(data, bytes_compression=("blosc2_zstd", 5))
+    # trop peu compressible : retombe sur le base64 brut, et se recharge
+    assert loaded == data
+
+
+@pytest.mark.skipif(not use_numpy, reason="numpy absent")
+def test_numpy_blosc2():
+    array = numpy.arange(200_000, dtype=numpy.float64)
+    dumped, loaded = roundtrip(array, bytes_compression=("blosc2_zstd", 5))
+    assert '"blosc2"' in dumped
+    assert loaded.dtype == array.dtype
+    assert numpy.array_equal(loaded, array)
+
+
+def test_anciens_fichiers_blosc_v1_toujours_lisibles():
+    # un fichier écrit avec la compression v1 par défaut doit rester lisible
+    # même quand blosc2 est disponible (dispatch sur l'octet de version)
+    data = bytes(range(256)) * 5000
+    dumped = serializejson.dumps(data, indent=None)  # défaut : blosc v1
+    assert '"b64_blosc"' in dumped
+    assert serializejson.loads(dumped) == data

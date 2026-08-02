@@ -4,6 +4,9 @@
         serializejson_builtins,
         constructors,
         blosc_compressions,
+        blosc2_compressions,
+        blosc_decompress,
+        use_blosc2_cpp,
     )
     from SmartFramework.serialize import serialize_parameters
 except:
@@ -12,13 +15,18 @@ except:
         serializejson_builtins,
         constructors,
         blosc_compressions,
+        blosc2_compressions,
+        blosc_decompress,
+        use_blosc2_cpp,
     )
     from serializejson import serialize_parameters
 
 import blosc
 import types
 from pybase64 import b64decode, b64decode_as_bytearray
-from rapidjson import RawBytesToBase64  # base64 écrit directement dans la sortie
+
+# base64 écrit directement dans la sortie, et compression blosc2 faite en C
+from rapidjson import RawBytesToBase64, BloscToBase64
 
 
 def bytearrayB64(string, compression=None):
@@ -28,8 +36,8 @@ def bytearrayB64(string, compression=None):
         )  # A REVOIR : 2 COPIES !!! a priori n'arrive jamsi d'encoder bytearray en "ascii"
     elif compression == "b64":
         return b64decode_as_bytearray(string, validate=True)
-    elif compression == "b64_blosc":
-        return blosc.decompress(b64decode(string, validate=True), as_bytearray=True)
+    elif compression in ("b64_blosc", "b64_blosc2"):
+        return blosc_decompress(b64decode(string, validate=True), as_bytearray=True)
     raise Exception(f"unknow {compression} compression")
 
 
@@ -42,8 +50,8 @@ class bytesB64:
             return bytes(string, "ascii")  # A REVOIR : 2 COPIES !!!
         elif compression == "b64":
             return b64decode(string, validate=True)
-        elif compression == "b64_blosc":
-            return blosc.decompress(b64decode(string, validate=True))
+        elif compression in ("b64_blosc", "b64_blosc2"):
+            return blosc_decompress(b64decode(string, validate=True))
         raise Exception(f"unknow {compression} compression")
 
 
@@ -57,19 +65,36 @@ def serializejson_bytearray(inst):
         compression
         and len(inst) >= serialize_parameters.bytes_size_compression_threshold
     ):
-        blosc_compression = blosc_compressions.get(compression, None)
-        if blosc_compression:
-            compressed = blosc.compress(
+        blosc2_compression = blosc2_compressions.get(compression, None)
+        if blosc2_compression:
+            # compression faite en C (libblosc2), sans repasser par Python
+            if not use_blosc2_cpp:
+                raise Exception(
+                    f"{compression} compression needs the python-blosc2 wheel"
+                )
+            compressed = BloscToBase64(
                 inst,
                 1,
-                cname=blosc_compression,
-                clevel=serialize_parameters.bytes_compression_level,
-                shuffle=blosc.NOSHUFFLE,
+                serialize_parameters.bytes_compression_level,
+                0,  # NOSHUFFLE
+                blosc2_compression,
             )
+            if compressed.compressed_size < len(inst):
+                return "bytearray", (compressed, "b64_blosc2"), None
         else:
-            raise Exception(f"{compression} compression unknow")
-        if len(compressed) < len(inst):
-            return "bytearray", (RawBytesToBase64(compressed), "b64_blosc"), None
+            blosc_compression = blosc_compressions.get(compression, None)
+            if blosc_compression:
+                compressed = blosc.compress(
+                    inst,
+                    1,
+                    cname=blosc_compression,
+                    clevel=serialize_parameters.bytes_compression_level,
+                    shuffle=blosc.NOSHUFFLE,
+                )
+            else:
+                raise Exception(f"{compression} compression unknow")
+            if len(compressed) < len(inst):
+                return "bytearray", (RawBytesToBase64(compressed), "b64_blosc"), None
     return "bytearray", (RawBytesToBase64(inst), "b64"), None
 
 
@@ -82,26 +107,43 @@ def serializejson_bytes(inst):
         compression
         and len(inst) >= serialize_parameters.bytes_size_compression_threshold
     ):
-        blosc_compression = blosc_compressions.get(compression, None)
-        if blosc_compression:
-            compressed = blosc.compress(
+        blosc2_compression = blosc2_compressions.get(compression, None)
+        if blosc2_compression:
+            # compression faite en C (libblosc2), sans repasser par Python
+            if not use_blosc2_cpp:
+                raise Exception(
+                    f"{compression} compression needs the python-blosc2 wheel"
+                )
+            compressed = BloscToBase64(
                 inst,
                 1,
-                cname=blosc_compression,
-                clevel=serialize_parameters.bytes_compression_level,
-                shuffle=blosc.NOSHUFFLE,
+                serialize_parameters.bytes_compression_level,
+                0,  # NOSHUFFLE
+                blosc2_compression,
             )
+            if compressed.compressed_size < len(inst):
+                return ("bytes", None, None, None, None, (compressed, "b64_blosc2"))
         else:
-            raise Exception(f"{compression} compression unknow")
-        if len(compressed) < len(inst):
-            return (
-                "bytes",
-                None,
-                None,
-                None,
-                None,
-                (RawBytesToBase64(compressed), "b64_blosc"),
-            )
+            blosc_compression = blosc_compressions.get(compression, None)
+            if blosc_compression:
+                compressed = blosc.compress(
+                    inst,
+                    1,
+                    cname=blosc_compression,
+                    clevel=serialize_parameters.bytes_compression_level,
+                    shuffle=blosc.NOSHUFFLE,
+                )
+            else:
+                raise Exception(f"{compression} compression unknow")
+            if len(compressed) < len(inst):
+                return (
+                    "bytes",
+                    None,
+                    None,
+                    None,
+                    None,
+                    (RawBytesToBase64(compressed), "b64_blosc"),
+                )
     if inst.isascii():
         try:
             return ("bytes", None, None, None, None, (inst.decode("ascii_printables"),))
