@@ -12,6 +12,8 @@ from statistics import median
 
 use_numpy = False
 use_qtpy = False
+if use_numpy:
+    import numpy
 
 nb_iter = 1
 full_smartFramework = False
