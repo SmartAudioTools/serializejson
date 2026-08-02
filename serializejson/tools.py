@@ -94,7 +94,7 @@ def getstate(
     remove_default_values=False,
     default_values=None,
 ):
-    """
+    r"""
     Generic __gestate__ method to retrieve the state of an object .
 
     Args:
