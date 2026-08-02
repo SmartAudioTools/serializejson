@@ -61,10 +61,20 @@ def test_numpy_blosc2():
     assert numpy.array_equal(loaded, array)
 
 
+def test_defaut_blosc2_quand_disponible():
+    # depuis la bascule des défauts : blosc2 dès que la roue est disponible
+    data = bytes(range(256)) * 5000
+    dumped = serializejson.dumps(data, indent=None)
+    assert '"b64_blosc2"' in dumped
+    assert serializejson.loads(dumped) == data
+
+
 def test_anciens_fichiers_blosc_v1_toujours_lisibles():
-    # un fichier écrit avec la compression v1 par défaut doit rester lisible
+    # un fichier écrit avec la compression v1 doit rester lisible
     # même quand blosc2 est disponible (dispatch sur l'octet de version)
     data = bytes(range(256)) * 5000
-    dumped = serializejson.dumps(data, indent=None)  # défaut : blosc v1
+    dumped = serializejson.dumps(
+        data, indent=None, bytes_compression=("blosc_zstd", 1)
+    )
     assert '"b64_blosc"' in dumped
     assert serializejson.loads(dumped) == data

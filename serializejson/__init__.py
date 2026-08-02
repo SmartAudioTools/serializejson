@@ -609,7 +609,7 @@ class Encoder(rapidjson.Encoder):
         single_line_new=True,
         single_line_list_numbers=True,
         sort_keys=False,
-        bytes_compression=("blosc_zstd", 1),  #
+        bytes_compression=("blosc2_zstd", 1) if use_blosc2_cpp else ("blosc_zstd", 1),  #
         bytes_compression_diff_dtypes=tuple(),
         bytes_size_compression_threshold=512,
         bytes_compression_threads=1,
