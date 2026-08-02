@@ -70,6 +70,8 @@ static PyObject* is_nan_name = nullptr;
 static PyObject* start_object_name = nullptr;
 static PyObject* end_object_name = nullptr;
 static PyObject* default_name = nullptr;
+static PyObject* default_dict_name = nullptr;
+static PyObject* default_list_name = nullptr;
 static PyObject* end_array_name = nullptr;
 static PyObject* string_name = nullptr;
 static PyObject* read_name = nullptr;
@@ -212,13 +214,17 @@ static PyObject* decoder_call(PyObject* self, PyObject* args, PyObject* kwargs);
 static PyObject* decoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs);
 
 
-static PyObject* do_encode(PyObject* value, PyObject* defaultFn, bool ensureAscii,
+static PyObject* do_encode(PyObject* value, PyObject* defaultFn,
+                           PyObject* defaultDictFn, PyObject* defaultListFn,
+                           bool ensureAscii,
                            unsigned writeMode, char indentChar, unsigned indentCount,
                            unsigned numberMode, unsigned datetimeMode,
                            unsigned uuidMode, unsigned bytesMode,
                            unsigned iterableMode, unsigned mappingMode, bool returnBytes);
 static PyObject* do_stream_encode(PyObject* value, PyObject* stream, size_t chunkSize,
-                                  PyObject* defaultFn, bool ensureAscii,
+                                  PyObject* defaultFn,
+                                  PyObject* defaultDictFn, PyObject* defaultListFn,
+                                  bool ensureAscii,
                                   unsigned writeMode, char indentChar,
                                   unsigned indentCount, unsigned numberMode,
                                   unsigned datetimeMode, unsigned uuidMode,
@@ -2125,6 +2131,8 @@ dumps_internal(
     WriterT* writer,
     PyObject* object,
     PyObject* defaultFn,
+    PyObject* defaultDictFn,
+    PyObject* defaultListFn,
     unsigned numberMode,
     unsigned datetimeMode,
     unsigned uuidMode,
@@ -2134,9 +2142,50 @@ dumps_internal(
 {
     int is_decimal;
 
+    // Consomme une unité du budget de récursion de CPython à chaque niveau,
+    // en plus de celles prises autour des RECURSE : la détection de profondeur
+    // se déclenche ainsi bien avant l'épuisement de la pile C, quelle que soit
+    // la taille des frames (segfault constaté sinon sur 3.12/3.13, dont la
+    // marge C_RECURSION_LIMIT est plus étroite que 3.10/3.11/3.14).
+    struct DepthGuard {
+        bool ok;
+        explicit DepthGuard(const char* msg) {
+            ok = !Py_EnterRecursiveCall(msg);
+        }
+        ~DepthGuard() {
+            if (ok)
+                Py_LeaveRecursiveCall();
+        }
+    } depth_guard(" while JSONifying value");
+    if (!depth_guard.ok)
+        return false;
+
 #define RECURSE(v) dumps_internal(writer, v, defaultFn,                 \
+                                  defaultDictFn, defaultListFn,         \
                                   numberMode, datetimeMode, uuidMode,   \
                                   bytesMode, iterableMode, mappingMode)
+
+// Appelle le hook default_dict/default_list de l'Encoder s'il existe : s'il
+// retourne un autre objet (ex: RawString {"$ref": ...}), on sérialise ce
+// remplacant à la place ; s'il retourne l'objet lui-même, chemin natif.
+#define CALL_CONTAINER_HOOK(hookFn, msg)                                \
+    if (hookFn) {                                                       \
+        PyObject* replacement =                                         \
+            PyObject_CallFunctionObjArgs(hookFn, object, nullptr);      \
+        if (replacement == nullptr)                                     \
+            return false;                                               \
+        if (replacement != object) {                                    \
+            if (Py_EnterRecursiveCall(msg)) {                           \
+                Py_DECREF(replacement);                                 \
+                return false;                                           \
+            }                                                           \
+            bool hook_r = RECURSE(replacement);                         \
+            Py_LeaveRecursiveCall();                                    \
+            Py_DECREF(replacement);                                     \
+            return hook_r;                                              \
+        }                                                               \
+        Py_DECREF(replacement);                                         \
+    }
 
 #define ASSERT_VALID_SIZE(l) do {                                       \
     if (l < 0 || l > UINT_MAX) {                                        \
@@ -2303,6 +2352,7 @@ dumps_internal(
 	else if ((!(iterableMode & IM_ONLY_LISTS) && PyList_Check(object))
                ||
                PyList_CheckExact(object)) {
+        CALL_CONTAINER_HOOK(defaultListFn, " while JSONifying list object")
         writer->StartArray();
 
         Py_ssize_t size = PyList_GET_SIZE(object);
@@ -2378,6 +2428,7 @@ dumps_internal(
                 (mappingMode & MM_COERCE_KEYS_TO_STRINGS)
                 ||
                 all_keys_are_string(object))) {
+        CALL_CONTAINER_HOOK(defaultDictFn, " while JSONifying dict object")
         writer->StartObject();
 
         Py_ssize_t pos = 0;
@@ -2505,6 +2556,7 @@ dumps_internal(
     return PyErr_Occurred() ? false : true;
 
 #undef RECURSE
+#undef CALL_CONTAINER_HOOK
 #undef ASSERT_VALID_SIZE
 }
 
@@ -2644,7 +2696,8 @@ dumps(PyObject* self, PyObject* args, PyObject* kwargs)
     if (sortKeys)
         mappingMode |= MM_SORT_KEYS;
 
-    return do_encode(value, defaultFn, ensureAscii ? true : false, writeMode, indentChar,
+    return do_encode(value, defaultFn, nullptr, nullptr,
+                     ensureAscii ? true : false, writeMode, indentChar,
                      indentCount, numberMode, datetimeMode, uuidMode, bytesMode,
                      iterableMode, mappingMode, returnBytes);
 }
@@ -2765,7 +2818,8 @@ dumpb(PyObject* self, PyObject* args, PyObject* kwargs)
     if (sortKeys)
         mappingMode |= MM_SORT_KEYS;
 
-    return do_encode(value, defaultFn, ensureAscii ? true : false, writeMode, indentChar,
+    return do_encode(value, defaultFn, nullptr, nullptr,
+                     ensureAscii ? true : false, writeMode, indentChar,
                      indentCount, numberMode, datetimeMode, uuidMode, bytesMode,
                      iterableMode, mappingMode, true);
 }
@@ -2897,7 +2951,7 @@ dump(PyObject* self, PyObject* args, PyObject* kwargs)
     if (sortKeys)
         mappingMode |= MM_SORT_KEYS;
 
-    return do_stream_encode(value, stream, chunkSize, defaultFn,
+    return do_stream_encode(value, stream, chunkSize, defaultFn, nullptr, nullptr,
                             ensureAscii ? true : false, writeMode, indentChar,
                             indentCount, numberMode, datetimeMode, uuidMode, bytesMode,
                             iterableMode, mappingMode);
@@ -3056,6 +3110,8 @@ static PyTypeObject Encoder_Type = {
     (dumps_internal(&writer,                            \
                     value,                              \
                     defaultFn,                          \
+                    defaultDictFn,                      \
+                    defaultListFn,                      \
                     numberMode,                         \
                     datetimeMode,                       \
                     uuidMode,                           \
@@ -3066,7 +3122,9 @@ static PyTypeObject Encoder_Type = {
 
 
 static PyObject*
-do_encode(PyObject* value, PyObject* defaultFn, bool ensureAscii, unsigned writeMode,
+do_encode(PyObject* value, PyObject* defaultFn,
+          PyObject* defaultDictFn, PyObject* defaultListFn,
+          bool ensureAscii, unsigned writeMode,
           char indentChar, unsigned indentCount, unsigned numberMode,
           unsigned datetimeMode, unsigned uuidMode, unsigned bytesMode,
           unsigned iterableMode, unsigned mappingMode, bool returnBytes)
@@ -3091,6 +3149,8 @@ do_encode(PyObject* value, PyObject* defaultFn, bool ensureAscii, unsigned write
     (dumps_internal(&writer,                    \
                     value,                      \
                     defaultFn,                  \
+                    defaultDictFn,              \
+                    defaultListFn,              \
                     numberMode,                 \
                     datetimeMode,               \
                     uuidMode,                   \
@@ -3102,6 +3162,7 @@ do_encode(PyObject* value, PyObject* defaultFn, bool ensureAscii, unsigned write
 
 static PyObject*
 do_stream_encode(PyObject* value, PyObject* stream, size_t chunkSize, PyObject* defaultFn,
+                 PyObject* defaultDictFn, PyObject* defaultListFn,
                  bool ensureAscii, unsigned writeMode, char indentChar,
                  unsigned indentCount, unsigned numberMode, unsigned datetimeMode,
                  unsigned uuidMode, unsigned bytesMode, unsigned iterableMode,
@@ -3137,6 +3198,8 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     PyObject* chunkSizeObj = nullptr;
     size_t chunkSize = 65536;
     PyObject* defaultFn = nullptr;
+    PyObject* defaultDictFn = nullptr;
+    PyObject* defaultListFn = nullptr;
     PyObject* result;
 
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|O$O",
@@ -3148,35 +3211,47 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
 
     EncoderObject* e = (EncoderObject*) self;
 
+    if (PyObject_HasAttr(self, default_name)) {
+        defaultFn = PyObject_GetAttr(self, default_name);
+    }
+    if (PyObject_HasAttr(self, default_dict_name)) {
+        defaultDictFn = PyObject_GetAttr(self, default_dict_name);
+    }
+    if (PyObject_HasAttr(self, default_list_name)) {
+        defaultListFn = PyObject_GetAttr(self, default_list_name);
+    }
+
     if (stream != nullptr && stream != Py_None) {
         if (!PyObject_HasAttr(stream, write_name)) {
             PyErr_SetString(PyExc_TypeError, "Expected a writable stream");
+            Py_XDECREF(defaultFn);
+            Py_XDECREF(defaultDictFn);
+            Py_XDECREF(defaultListFn);
             return nullptr;
         }
 
-        if (!accept_chunk_size_arg(chunkSizeObj, chunkSize))
+        if (!accept_chunk_size_arg(chunkSizeObj, chunkSize)) {
+            Py_XDECREF(defaultFn);
+            Py_XDECREF(defaultDictFn);
+            Py_XDECREF(defaultListFn);
             return nullptr;
-
-        if (PyObject_HasAttr(self, default_name)) {
-            defaultFn = PyObject_GetAttr(self, default_name);
         }
 
-        result = do_stream_encode(value, stream, chunkSize, defaultFn, e->ensureAscii,
+        result = do_stream_encode(value, stream, chunkSize, defaultFn,
+                                  defaultDictFn, defaultListFn, e->ensureAscii,
                                   e->writeMode, e->indentChar, e->indentCount,
                                   e->numberMode, e->datetimeMode, e->uuidMode,
                                   e->bytesMode, e->iterableMode, e->mappingMode);
     } else {
-        if (PyObject_HasAttr(self, default_name)) {
-            defaultFn = PyObject_GetAttr(self, default_name);
-        }
-
-        result = do_encode(value, defaultFn, e->ensureAscii, e->writeMode, e->indentChar,
+        result = do_encode(value, defaultFn, defaultDictFn, defaultListFn,
+                           e->ensureAscii, e->writeMode, e->indentChar,
                            e->indentCount, e->numberMode, e->datetimeMode, e->uuidMode,
                            e->bytesMode, e->iterableMode, e->mappingMode, e->returnBytes);
     }
 
-    if (defaultFn != nullptr)
-        Py_DECREF(defaultFn);
+    Py_XDECREF(defaultFn);
+    Py_XDECREF(defaultDictFn);
+    Py_XDECREF(defaultListFn);
 
     return result;
 }
@@ -3604,6 +3679,14 @@ module_exec(PyObject* m)
 
     default_name = PyUnicode_InternFromString("default");
     if (default_name == nullptr)
+        return -1;
+
+    default_dict_name = PyUnicode_InternFromString("default_dict");
+    if (default_dict_name == nullptr)
+        return -1;
+
+    default_list_name = PyUnicode_InternFromString("default_list");
+    if (default_list_name == nullptr)
         return -1;
 
     end_array_name = PyUnicode_InternFromString("end_array");
