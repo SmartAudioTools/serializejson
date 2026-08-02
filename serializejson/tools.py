@@ -26,6 +26,19 @@ except:
     use_numpy = False
 ascii_printables_ = ascii_printables  # sert juste à éviter warning
 not_memorized_types = (int, float)
+
+_object_getstate = getattr(object, "__getstate__", None)  # existe depuis Python 3.11
+
+
+def class_has_user_getstate(class_):
+    # __getstate__ réimplémenté par la classe, sans compter le __getstate__ par défaut
+    # ajouté à object en Python 3.11 (sinon depuis 3.11 toutes les classes semblent
+    # avoir un __getstate__, ce qui court-circuitait l'aplatissement des __slots__,
+    # le tri et le filtrage des attributs)
+    method = getattr(class_, "__getstate__", None)
+    return callable(method) and method is not _object_getstate
+
+
 # --- PLUGINS API -------------------------------
 
 # encoding -------------
@@ -773,7 +786,7 @@ def tuple_from_reduce(func, args, state=None, listitems=None, dictitems=None, ob
 
             if type(state) is tuple:
                 # ATTENTION en vrais rien ne nous dit qu'on a pas voulu retourne un autre tuple de longeur deux, si c'est le cas on a codé
-                if not class_has_method(class_, "__getstate__") or not class_has_method(
+                if not class_has_user_getstate(class_) or not class_has_method(
                     class_, "__setstate__"
                 ):
                     __dict__, state = state
@@ -782,7 +795,7 @@ def tuple_from_reduce(func, args, state=None, listitems=None, dictitems=None, ob
                         state.update(__dict__)
 
             if type(state) is dict:
-                if not class_has_method(class_, "__getstate__"):
+                if not class_has_user_getstate(class_):
                     # on devrait mettre ce qui suit pour être exacte mais couteux pour cas qui n'arrivera jamais : and ( class_.__reduce__ is object.__reduce__) and (class_.__reduce_ex__ is object.__reduce_ex__):
                     # le __reduce_ex__ a déjà recupéra les slots et attributs du __dict__
 
