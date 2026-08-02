@@ -89,6 +89,26 @@ def test_liste_dupliquee_partage():
     assert loaded[0] is loaded[1]
 
 
+class NodeSlots:
+    __slots__ = ("child",)
+
+    def __init__(self):
+        self.child = None
+
+
+def test_ref_differee_dans_slot():
+    # racine liste -> les $ref ne peuvent être résolus qu'après le parse,
+    # et la cible doit être réinstallée dans un slot
+    shared = {"x": 1}
+    a = NodeSlots()
+    b = NodeSlots()
+    a.child = shared
+    b.child = shared
+    dumped = serializejson.dumps([a, b], indent=None)
+    loaded = serializejson.loads(dumped, authorized_classes=[NodeSlots])
+    assert loaded[0].child is loaded[1].child
+
+
 # --- grosses données : verrouille le chemin bytes -> blosc -> b64 --------------
 
 

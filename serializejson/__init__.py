@@ -1696,45 +1696,35 @@ class Decoder(rapidjson.Decoder):
                 self, json, chunk_size=self.chunk_size
             )
             loaded = self._exploreToUpdate(obj, loaded_dict)
-        # on restaure doublons qu'on a pu restaurer pendant deserialisation (dans une liste ou doublon referencant un parent)
+        # on restaure les doublons qu'on n'a pas pu restaurer pendant la
+        # deserialisation (references en avant, ou json commencant par une liste
+        # pour lequel root n'est pas connu pendant le parse)
         duplicates_to_replace = self.duplicates_to_replace
         if duplicates_to_replace:
-            # pas sur qu'indispensable mais dans le doute  https://docs.python.org/3/library/gc.html#gc.get_referrers:
-            gc.collect()
-            while duplicates_to_replace:
-                duplicate_to_replace = duplicates_to_replace.pop()
+            # cible de chaque marqueur {"$ref": ...}, en suivant les eventuelles
+            # chaines de $ref pointant sur d'autres marqueurs
+            placeholders = {}
+            for placeholder in duplicates_to_replace:
                 referenced = from_name(
-                    duplicate_to_replace["$ref"],
-                    accept_dict_as_object=True,
-                    root=loaded,
+                    placeholder["$ref"], accept_dict_as_object=True, root=loaded
                 )
-                if referenced is duplicate_to_replace:
+                if referenced is placeholder:
                     raise Exception(
-                        '{"$ref": "%s"} pointing to himself'
-                        % duplicate_to_replace["$ref"]
+                        '{"$ref": "%s"} pointing to himself' % placeholder["$ref"]
                     )
-                refs = gc.get_referrers(duplicate_to_replace)
-                skip = (locals(), refs)
-                for parent in refs:
-                    if parent not in skip:
-                        if type(parent) is dict:
-                            for key, value in parent.items():
-                                if value is duplicate_to_replace:
-                                    parent[key] = referenced
-                                    break
-                        elif type(parent) is list:
-                            for key, value in enumerate(parent):
-                                if value is duplicate_to_replace:
-                                    parent[key] = referenced
-                                    break
-                        elif hasattr(parent, "__slots__"):
-                            for slot in parent.__slots__:
-                                if (
-                                    hasattr(parent, slot)
-                                    and getattr(parent, slot) is duplicate_to_replace
-                                ):
-                                    setattr(parent, slot, referenced)
-                                    break
+                placeholders[id(placeholder)] = referenced
+            for id_, referenced in placeholders.items():
+                followed = {id_}
+                while id(referenced) in placeholders:
+                    if id(referenced) in followed:
+                        raise Exception('{"$ref": ...} circular chain of references')
+                    followed.add(id(referenced))
+                    referenced = placeholders[id(referenced)]
+                placeholders[id_] = referenced
+            # puis remplacement de toutes leurs occurrences par UN parcours de
+            # l'arbre charge — deterministe, au lieu de gc.collect() suivi d'un
+            # gc.get_referrers() par marqueur (couteux : tout le tas a chaque fois)
+            _replace_ref_placeholders(loaded, placeholders)
         # clean ---------------
         del self.duplicates_to_replace
         if self._updating:
@@ -1980,6 +1970,65 @@ class Decoder(rapidjson.Decoder):
 # ----------------------------------------------------------------------------------------------------------------------------
 # --- INTERNES -----------------------------------------------------------------------------------------------------
 # ----------------------------------------------------------------------------------------------------------------------------
+# types dans lesquels un marqueur {"$ref": ...} ne peut pas se trouver :
+# inutile de les explorer
+_leaf_types = (str, int, float, bool, type(None), bytes, bytearray, complex)
+
+
+def _replace_ref_placeholders(root, placeholders):
+    # Remplace en place, dans les dicts, listes, attributs et slots de l'arbre
+    # chargé, les marqueurs {"$ref": ...} (clé : id du marqueur) par leur cible.
+    # Parcours itératif (pas de limite de récursion) protégé des cycles.
+    from types import ModuleType, FunctionType, BuiltinFunctionType
+
+    visited = set()
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        id_node = id(node)
+        if id_node in visited:
+            continue
+        visited.add(id_node)
+        type_node = type(node)
+        if type_node is dict:
+            for key, value in node.items():
+                replacement = placeholders.get(id(value))
+                if replacement is not None:
+                    node[key] = replacement
+                elif type(value) not in _leaf_types:
+                    stack.append(value)
+        elif type_node is list:
+            for index, value in enumerate(node):
+                replacement = placeholders.get(id(value))
+                if replacement is not None:
+                    node[index] = replacement
+                elif type(value) not in _leaf_types:
+                    stack.append(value)
+        elif type_node is tuple:
+            # un marqueur directement dans un tuple n'est pas remplaçable
+            # (immuable), comme avec l'ancien mécanisme ; on explore son contenu
+            for value in node:
+                if type(value) not in _leaf_types:
+                    stack.append(value)
+        elif isinstance(node, (type, ModuleType, FunctionType, BuiltinFunctionType)):
+            # ne pas se promener dans les classes, modules et fonctions :
+            # aucun marqueur ne peut s'y trouver
+            continue
+        else:
+            node_dict = getattr(node, "__dict__", None)
+            if type(node_dict) is dict:
+                stack.append(node_dict)
+            if hasattr(node, "__slots__"):
+                for slot in slots_from_class(type_node):
+                    if hasattr(node, slot):
+                        value = getattr(node, slot)
+                        replacement = placeholders.get(id(value))
+                        if replacement is not None:
+                            setattr(node, slot, replacement)
+                        elif type(value) not in _leaf_types:
+                            stack.append(value)
+
+
 class dotdict(dict):
     """dot notation access to dictionary attributes"""
 
