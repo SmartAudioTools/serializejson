@@ -32,6 +32,7 @@ else:
     authorized_classes.update(
         {
             "numpy.bool_",
+            "numpy.bool",  # nom canonique depuis numpy 2
             "numpy.int8",
             "numpy.int16",
             "numpy.int32",
@@ -50,6 +51,10 @@ else:
             "numpyB64",
             "numpy.core.multiarray._reconstruct",
             "numpy.core.multiarray.scalar",
+            # renommés en numpy._core par numpy 2 (les anciens noms restent
+            # nécessaires pour relire les fichiers écrits avec numpy 1)
+            "numpy._core.multiarray._reconstruct",
+            "numpy._core.multiarray.scalar",
         }
     )
 
