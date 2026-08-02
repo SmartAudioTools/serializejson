@@ -1,9 +1,7 @@
 """Filet de sécurité pour la migration C++ : références circulaires, duplicatas, grosses données.
 
-Les cas marqués xfail(strict=True) documentent les limites actuelles (dict/list
-circulaires ou dupliqués, cf. section 5.1 du rapport d'audit) : ils se mettront à
-"réussir" quand les hooks default_dict/default_list seront en place, et pytest
-forcera alors à les dé-marquer.
+Les cycles et duplicatas de dicts/listes sont couverts depuis les hooks
+default_dict/default_list de l'Encoder (rapidjson du dépôt + serializejson).
 """
 
 import pytest
@@ -60,10 +58,9 @@ def test_objet_reference_son_parent():
     assert loaded.child.child is loaded
 
 
-# --- dict/list : limites actuelles, à faire tomber par les hooks C++ -----------
+# --- dict/list : couverts par les hooks default_dict/default_list --------------
 
 
-@pytest.mark.xfail(reason="dict circulaire -> RecursionError (pas de hook C++ dict)", strict=True)
 def test_dict_circulaire():
     A = {"name": "A"}
     B = {"name": "B"}
@@ -73,7 +70,6 @@ def test_dict_circulaire():
     assert loaded["link"]["link"] is loaded
 
 
-@pytest.mark.xfail(reason="liste circulaire -> RecursionError (pas de hook C++ list)", strict=True)
 def test_liste_circulaire():
     L = [1]
     L.append(L)
@@ -81,14 +77,12 @@ def test_liste_circulaire():
     assert loaded[1] is loaded
 
 
-@pytest.mark.xfail(reason="dict dupliqué écrit deux fois, partage perdu", strict=True)
 def test_dict_duplique_partage():
     d = {"x": 1}
     dumped, loaded = roundtrip([d, d])
     assert loaded[0] is loaded[1]
 
 
-@pytest.mark.xfail(reason="liste dupliquée écrite deux fois, partage perdu", strict=True)
 def test_liste_dupliquee_partage():
     L = [1, 2]
     dumped, loaded = roundtrip([L, L])

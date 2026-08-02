@@ -777,6 +777,12 @@ class Encoder(rapidjson.Encoder):
 
         """
         self._update_serialize_parameters()
+        # chaque append est un dump indépendant : il lui faut son mémo de
+        # doublons ($ref), que dump/dumps initialisent via __call__ mais
+        # qu'append, qui appelle directement rapidjson.Encoder.__call__,
+        # n'initialisait jamais (crash dès qu'un default* était déclenché)
+        self._reset()
+        self._root = obj
         if file is None:
             file = self.file
         if hasattr(self, "fp"):
@@ -784,6 +790,7 @@ class Encoder(rapidjson.Encoder):
         else:
             self.fp = fp = _open_for_append(file, self.indent)
         rapidjson.Encoder.__call__(self, obj, stream=fp, chunk_size=self.chunk_size)
+        self._clean()
         _close_for_append(fp, self.indent)
         if close:
             fp.close()
@@ -807,6 +814,7 @@ class Encoder(rapidjson.Encoder):
                     return rapidjson.RawString(f'{{"$ref": "{path}"}}')
         else:
             self._already_serialized.add(id_)
+            self._already_serialized_keep_alive.append(inst)
         type_inst = type(inst)
         if self.numpy_types_to_python_types and type_inst in _numpy_types:
             return _numpy_dtypes_to_python_types[type_inst](inst)
@@ -926,6 +934,25 @@ class Encoder(rapidjson.Encoder):
         #    dic["_id"] = id_
         return dic
         # raise TypeError('%r is not JSON serializable' % inst)
+
+    def default_dict(self, inst):
+        # Appelé par le rapidjson du dépôt avant la traversée native d'un dict à
+        # clés chaînes : permet, comme default() pour les objets, de détecter les
+        # dicts déjà sérialisés (doublons et références circulaires) et de les
+        # remplacer par {"$ref": chemin}. Retourner inst laisse faire le chemin
+        # natif C++.
+        id_ = id(inst)
+        if id_ in self._already_serialized:
+            path = self._get_path(inst, already_explored=set([id(locals())]))
+            if path is not None:
+                return rapidjson.RawString(f'{{"$ref": "{path}"}}')
+        else:
+            self._already_serialized.add(id_)
+            self._already_serialized_keep_alive.append(inst)
+        return inst
+
+    # même logique pour les listes
+    default_list = default_dict
 
     # @profile
     def _default_one_line(self, inst):
@@ -1088,10 +1115,15 @@ class Encoder(rapidjson.Encoder):
     def _reset(self):
         self.dumped_classes = set()
         self._already_serialized = set()
+        # référence forte sur ce qui est mémorisé, le temps du dump : sinon un
+        # objet temporaire détruit peut laisser son id être réutilisé et faire
+        # croire à un doublon (même rôle que le memo de pickle)
+        self._already_serialized_keep_alive = []
         # self._already_serialized_id_dic_to_obj_dic = dict()
 
     def _clean(self):
         del self._already_serialized
+        del self._already_serialized_keep_alive
         # del self.dumped_classes
         # del self._already_serialized_id_dic_to_obj_dic
 
