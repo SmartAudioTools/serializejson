@@ -533,6 +533,8 @@ struct PathTracker {
     // écrit sur une seule ligne les listes homogènes de nombres, où qu'elles
     // soient (valeurs de dicts purs et sous-listes comprises)
     bool singleLineNumbers = false;
+    bool singleLineInit = true;
+    bool singleLineNew = true;
     // vrai si le prochain dict rencontré est l'état d'un objet retourné par
     // default() : ses clés sont alors des attributs (".attr" et non "['clef']")
     bool next_dict_is_attrs = false;
@@ -1638,10 +1640,10 @@ struct PyHandler {
                 else if (PyUnicode_CompareWithASCIIString(cls_value,
                                                           "bytearray") == 0)
                     as_bytearray = 1;
+                PyObject* ctor_args = PyDict_GetItem(mapping, new_key_name);
+                if (ctor_args == nullptr)
+                    ctor_args = PyDict_GetItem(mapping, init_key_name);
                 if (as_bytearray != -1) {
-                    PyObject* ctor_args = PyDict_GetItem(mapping, new_key_name);
-                    if (ctor_args == nullptr)
-                        ctor_args = PyDict_GetItem(mapping, init_key_name);
                     if (ctor_args != nullptr && PyList_CheckExact(ctor_args)
                         && PyList_GET_SIZE(ctor_args) == 2) {
                         PyObject* payload = PyList_GET_ITEM(ctor_args, 0);
@@ -1656,6 +1658,72 @@ struct PyHandler {
                             Py_DECREF(mapping);
                         }
                     }
+                }
+                // ----- autres classes de base instanciées en C++ (mêmes
+                // sémantiques que les constructeurs Python : tuple(liste),
+                // set(liste), date(bytes de reduce), complex/range/slice) —
+                // au moindre doute sur la forme, voie Python inchangée
+                else if (ctor_args != nullptr) {
+                    if (PyUnicode_CompareWithASCIIString(cls_value,
+                                                         "tuple") == 0) {
+                        if (PyList_CheckExact(ctor_args))
+                            replacement = PyList_AsTuple(ctor_args);
+                    } else if (PyUnicode_CompareWithASCIIString(cls_value,
+                                                                "set") == 0) {
+                        if (PyList_CheckExact(ctor_args))
+                            replacement = PySet_New(ctor_args);
+                    } else if (PyUnicode_CompareWithASCIIString(
+                                   cls_value, "frozenset") == 0) {
+                        if (PyList_CheckExact(ctor_args))
+                            replacement = PyFrozenSet_New(ctor_args);
+                    } else if (PyUnicode_CompareWithASCIIString(
+                                   cls_value, "datetime.date") == 0) {
+                        if (PyBytes_CheckExact(ctor_args)
+                            && PyBytes_GET_SIZE(ctor_args) == 4
+                            // ce bâtisseur LIT le contenu : la file différée
+                            // doit être vidée d'abord (défense en profondeur,
+                            // les payloads < 64 octets ne sont plus différés)
+                            && (pendingB64.empty() || FlushPendingB64())) {
+                            const unsigned char* raw4 = (const unsigned char*)
+                                PyBytes_AS_STRING(ctor_args);
+                            replacement = PyDate_FromDate(
+                                (raw4[0] << 8) | raw4[1], raw4[2], raw4[3]);
+                        }
+                    } else if (PyUnicode_CompareWithASCIIString(
+                                   cls_value, "complex") == 0) {
+                        if (PyList_CheckExact(ctor_args)
+                            && PyList_GET_SIZE(ctor_args) == 2) {
+                            double re = PyFloat_AsDouble(
+                                PyList_GET_ITEM(ctor_args, 0));
+                            double im = PyFloat_AsDouble(
+                                PyList_GET_ITEM(ctor_args, 1));
+                            if (!PyErr_Occurred())
+                                replacement = PyComplex_FromDoubles(re, im);
+                            else
+                                PyErr_Clear();
+                        }
+                    } else if (PyUnicode_CompareWithASCIIString(
+                                   cls_value, "range") == 0) {
+                        if (PyList_CheckExact(ctor_args)
+                            && PyList_GET_SIZE(ctor_args) == 3)
+                            replacement = PyObject_CallFunctionObjArgs(
+                                (PyObject*) &PyRange_Type,
+                                PyList_GET_ITEM(ctor_args, 0),
+                                PyList_GET_ITEM(ctor_args, 1),
+                                PyList_GET_ITEM(ctor_args, 2), nullptr);
+                    } else if (PyUnicode_CompareWithASCIIString(
+                                   cls_value, "slice") == 0) {
+                        if (PyList_CheckExact(ctor_args)
+                            && PyList_GET_SIZE(ctor_args) == 3)
+                            replacement = PySlice_New(
+                                PyList_GET_ITEM(ctor_args, 0),
+                                PyList_GET_ITEM(ctor_args, 1),
+                                PyList_GET_ITEM(ctor_args, 2));
+                    }
+                    if (replacement != nullptr)
+                        Py_DECREF(mapping);
+                    else if (PyErr_Occurred())
+                        PyErr_Clear();   // voie Python en cas d'échec
                 }
             }
         }
@@ -2243,7 +2311,10 @@ struct PyHandler {
                             auto it = b64PayloadClasses.find(
                                 std::string(class_str, (size_t) class_length));
                             if (it != b64PayloadClasses.end()) {
-                                if (deferB64) {
+                                if (deferB64 && length >= 64) {
+                                    // les petits payloads se décodent tout de
+                                    // suite : le différé n'y gagne rien et
+                                    // leurs consommateurs (date...) lisent
                                     // validation complète tout de suite (le
                                     // repli « chaîne ordinaire » doit rester
                                     // possible), remplissage différé
@@ -3883,6 +3954,167 @@ dumps_internal(
         writer->EndArray();
     } 
 	
+	// tuple : {"__class__": "tuple", "__new__": [éléments]} — le __new__
+	// en compact quand single_line_new (défaut), octets identiques au chemin
+	// Python (default + SingleLine)
+	else if (PyTuple_CheckExact(object) && (iterableMode & IM_ONLY_LISTS)
+             && pathTracker != nullptr) {
+        CONTAINER_MEMO_OR_REF()
+        writer->StartObject();
+        writer->Key("__class__", 9);
+        writer->String("tuple", 5);
+        writer->Key("__new__", 7);
+        // compact si single_line_new, ou si single_line_numbers et tuple
+        // homogène de nombres (même règle que les listes)
+        bool tuple_numbers = false;
+        Py_ssize_t tuple_size_probe = PyTuple_GET_SIZE(object);
+        if (!pathTracker->singleLineNew && pathTracker->singleLineNumbers
+            && tuple_size_probe > 0) {
+            PyTypeObject* first_type =
+                Py_TYPE(PyTuple_GET_ITEM(object, 0));
+            if (first_type == &PyFloat_Type || first_type == &PyLong_Type
+                || first_type == &PyBool_Type) {
+                tuple_numbers = true;
+                for (Py_ssize_t pi = 1; pi < tuple_size_probe; pi++)
+                    if (Py_TYPE(PyTuple_GET_ITEM(object, pi)) != first_type) {
+                        tuple_numbers = false;
+                        break;
+                    }
+            }
+        }
+        bool tuple_compact = (pathTracker->singleLineNew || tuple_numbers)
+                             && !writer->InCompact();
+        if (tuple_compact)
+            writer->PushCompact();
+        writer->StartArray();
+        Py_ssize_t tuple_size = PyTuple_GET_SIZE(object);
+        for (Py_ssize_t ti = 0; ti < tuple_size; ti++) {
+            PyObject* item = PyTuple_GET_ITEM(object, ti);
+            if (PyUnicode_CheckExact(item)) {
+                Py_ssize_t inline_length;
+                const char* inline_str =
+                    PyUnicode_AsUTF8AndSize(item, &inline_length);
+                if (inline_str == nullptr) {
+                    if (tuple_compact)
+                        writer->PopCompact();
+                    return false;
+                }
+                if (!PyUnicode_IS_ASCII(item))
+                    writer->MarkMaybeNonAscii();
+                writer->String(inline_str, (SizeType) inline_length);
+                continue;
+            }
+            PATH_PUSH_INDEX(ti)
+            bool r = RECURSE(item);
+            PATH_POP()
+            if (!r) {
+                if (tuple_compact)
+                    writer->PopCompact();
+                return false;
+            }
+        }
+        writer->EndArray();
+        if (tuple_compact)
+            writer->PopCompact();
+        writer->EndObject();
+    }
+
+	// datetime.date : {"__class__": "datetime.date", "__init__": {"__class__":
+	// "bytes", "__new__": ["<b64 de 4 octets>","b64"]}} — la forme reduce
+	// native (année big-endian, mois, jour)
+	else if (PyDate_CheckExact(object) && pathTracker != nullptr) {
+        CONTAINER_MEMO_OR_REF()
+        writer->StartObject();
+        writer->Key("__class__", 9);
+        writer->String("datetime.date", 13);
+        writer->Key("__init__", 8);
+        writer->StartObject();
+        writer->Key("__class__", 9);
+        writer->String("bytes", 5);
+        writer->Key("__new__", 7);
+        bool date_compact = pathTracker->singleLineNew && !writer->InCompact();
+        if (date_compact)
+            writer->PushCompact();
+        writer->StartArray();
+        {
+            int year = PyDateTime_GET_YEAR(object);
+            unsigned char raw4[4] = {
+                (unsigned char) ((year >> 8) & 0xFF),
+                (unsigned char) (year & 0xFF),
+                (unsigned char) PyDateTime_GET_MONTH(object),
+                (unsigned char) PyDateTime_GET_DAY(object)};
+            char b64_buf[9];
+            serializejson_b64_encode(raw4, 4, b64_buf);
+            writer->String(b64_buf, 8);
+            writer->String("b64", 3);
+        }
+        writer->EndArray();
+        if (date_compact)
+            writer->PopCompact();
+        writer->EndObject();
+        writer->EndObject();
+    }
+
+	// complex / range / slice : {"__class__": ..., "__init__": [...]} — les
+	// mêmes listes d'arguments que la voie Python
+	else if ((PyComplex_CheckExact(object)
+              || Py_TYPE(object) == &PyRange_Type
+              || Py_TYPE(object) == &PySlice_Type)
+             && pathTracker != nullptr) {
+        CONTAINER_MEMO_OR_REF()
+        writer->StartObject();
+        writer->Key("__class__", 9);
+        bool simple_ok = true;
+        if (PyComplex_CheckExact(object))
+            writer->String("complex", 7);
+        else if (Py_TYPE(object) == &PyRange_Type)
+            writer->String("range", 5);
+        else
+            writer->String("slice", 5);
+        writer->Key("__init__", 8);
+        bool simple_compact =
+            pathTracker->singleLineInit && !writer->InCompact();
+        if (simple_compact)
+            writer->PushCompact();
+        writer->StartArray();
+        if (PyComplex_CheckExact(object)) {
+            Py_complex cv = PyComplex_AsCComplex(object);
+            double parts[2] = {cv.real, cv.imag};
+            for (int pi = 0; pi < 2 && simple_ok; pi++) {
+                PyObject* tmp = PyFloat_FromDouble(parts[pi]);
+                if (tmp == nullptr) {
+                    simple_ok = false;
+                    break;
+                }
+                simple_ok = RECURSE(tmp);
+                Py_DECREF(tmp);
+            }
+        } else if (Py_TYPE(object) == &PyRange_Type) {
+            static const char* range_attrs[3] = {"start", "stop", "step"};
+            for (int pi = 0; pi < 3 && simple_ok; pi++) {
+                PyObject* tmp = PyObject_GetAttrString(object,
+                                                       range_attrs[pi]);
+                if (tmp == nullptr) {
+                    simple_ok = false;
+                    break;
+                }
+                simple_ok = RECURSE(tmp);
+                Py_DECREF(tmp);
+            }
+        } else {
+            PySliceObject* sl = (PySliceObject*) object;
+            PyObject* parts[3] = {sl->start, sl->stop, sl->step};
+            for (int pi = 0; pi < 3 && simple_ok; pi++)
+                simple_ok = RECURSE(parts[pi]);
+        }
+        writer->EndArray();
+        if (simple_compact)
+            writer->PopCompact();
+        writer->EndObject();
+        if (!simple_ok)
+            return false;
+    }
+
 	// dictionnaire à clés toutes entières (int exacts, 64 bits) : forme
 	// {"__class__": "dict_non_str_keys", "<entier>": valeur, ...} écrite
 	// directement en C++, à l'octet près du chemin Python historique — les
@@ -4456,6 +4688,8 @@ typedef struct {
     bool memoRefs;
     // listes homogènes de nombres sur une seule ligne, partout
     bool singleLineNumbers;
+    bool singleLineInit;
+    bool singleLineNew;
     // traqueur de chemin actif pendant un encodage (nullptr sinon),
     // consulté par la méthode json_path()
     PathTracker* activePathTracker;
@@ -5274,6 +5508,8 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         pathTracker.memo.reserve(e->memoHighWater);
     pathTracker.memoContainers = e->memoRefs;
     pathTracker.singleLineNumbers = e->singleLineNumbers;
+    pathTracker.singleLineInit = e->singleLineInit;
+    pathTracker.singleLineNew = e->singleLineNew;
     pathTracker.classPlanFn = classPlanFn;
     e->activePathTracker = &pathTracker;
 
@@ -5366,14 +5602,18 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
         "return_bytes",
         "memo_refs",
         "single_line_numbers",
+        "single_line_init",
+        "single_line_new",
         nullptr
     };
     int skipInvalidKeys = false;
     int sortKeys = false;
     int memoRefs = false;
     int singleLineNumbers = false;
+    int singleLineInit = true;
+    int singleLineNew = true;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|ppOpOOOOOOOpppp:Encoder",
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|ppOpOOOOOOOpppppp:Encoder",
                                      (char**) kwlist,
                                      &skipInvalidKeys,
                                      &ensureAscii,
@@ -5389,7 +5629,9 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
                                      &allowNan,
                                      &returnBytes,
                                      &memoRefs,
-                                     &singleLineNumbers
+                                     &singleLineNumbers,
+                                     &singleLineInit,
+                                     &singleLineNew
                                      ))
         return nullptr;
 
@@ -5444,6 +5686,8 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
     e->mtScratch = nullptr;
     e->outputHighWater = 0;
     e->singleLineNumbers = singleLineNumbers? true : false;
+    e->singleLineInit = singleLineInit? true : false;
+    e->singleLineNew = singleLineNew? true : false;
     e->activePathTracker = nullptr;
 
     return (PyObject*) e;

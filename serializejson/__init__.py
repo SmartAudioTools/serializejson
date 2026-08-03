@@ -673,7 +673,11 @@ class Encoder(rapidjson.Encoder):
             memo_refs=True,
             # listes homogènes de nombres sur une seule ligne, décidé en C++,
             # partout (attributs, valeurs de dicts purs, sous-listes)
-            single_line_numbers=bool(single_line_list_numbers) and indent is not None
+            single_line_numbers=bool(single_line_list_numbers) and indent is not None,
+            # transmis au C++ pour les chemins rapides (tuple, date...) : le
+            # __new__/__init__ compact doit suivre ces drapeaux
+            single_line_init=bool(single_line_init),
+            single_line_new=bool(single_line_new)
             # **argsDict
         )
         self.use_tuple_for_numpy_shape = False
