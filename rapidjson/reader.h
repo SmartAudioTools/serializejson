@@ -828,6 +828,20 @@ private:
             SkipWhitespaceAndComments<parseFlags>(is);
             RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
 
+            // fork serializejson : nombre simple en valeur d'objet, émis
+            // sans repasser par ParseValue/ParseNumber
+            bool sjValueDone = false;
+            if ((parseFlags & kParseInsituFlag) != 0
+                && (parseFlags & kParseBigIntsAsStringsFlag) != 0
+                && (parseFlags & kParseNumbersAsStringsFlag) == 0
+                && (parseFlags & kParseCommentsFlag) == 0) {
+                bool sjTerminate = false;
+                sjValueDone = SjObjectNumberValue<parseFlags>(
+                    is, handler, &sjTerminate);
+                if (RAPIDJSON_UNLIKELY(sjTerminate))
+                    RAPIDJSON_PARSE_ERROR(kParseErrorTermination, is.Tell());
+            }
+            if (!sjValueDone)
             ParseValue<parseFlags>(is, handler);
             RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
 
@@ -862,125 +876,184 @@ private:
         }
     }
 
-    // fork serializejson : consomme goulûment les motifs « entier, » d'un
-    // tableau (flux insitu borné seulement) en émettant chaque valeur sans
-    // repasser par ParseValue/ParseNumber. S'arrête au premier élément qui
-    // n'est pas un entier simple suivi d'une virgule (flottant, grand
-    // entier, JSON invalide comme 01 : la voie normale tranche). Rend le
-    // nombre d'éléments émis ; *terminate est levé si le handler refuse.
+    // fork serializejson : analyse UN jeton nombre simple dans [start,
+    // runEnd) — entier <= 17 chiffres, ou flottant mantisse <= 17 chiffres
+    // / exposant <= 3, converti par Eisel-Lemire (SWAR par 8 chiffres sur
+    // les deux parties). Rend la position APRÈS le jeton et ses blancs, ou
+    // nullptr si le jeton n'est pas simple (rien n'est consommé : la voie
+    // normale reprend, erreurs JSON comprises). Ne touche pas au flux.
+    RAPIDJSON_FORCEINLINE static const char* SjScanNumber(
+        const char* start, const char* runEnd,
+        bool* isDouble, bool* neg, uint64_t* intValue, double* dblValue) {
+        const char* p = start;
+        *neg = false;
+        if (p < runEnd && *p == '-') {
+            *neg = true;
+            p++;
+        }
+        const char* digitsBegin = p;
+        uint64_t value = 0;
+        while (p + 8 <= runEnd && p - digitsBegin <= 8) {
+            uint32_t swarVal;
+            if (!sj_swar8_digits(p, &swarVal))
+                break;
+            value = value * RAPIDJSON_UINT64_C2(0x00000000, 0x05F5E100)
+                + swarVal;
+            p += 8;
+        }
+        while (p < runEnd && static_cast<unsigned>(*p - '0') <= 9
+               && p - digitsBegin < 18) {
+            value = value * 10 + static_cast<unsigned>(*p - '0');
+            p++;
+        }
+        size_t digitCount = static_cast<size_t>(p - digitsBegin);
+        if (digitCount == 0 || digitCount >= 18)
+            return nullptr;
+        if (*digitsBegin == '0' && digitCount > 1)
+            return nullptr;                 // 01 : invalide, voie normale
+        *isDouble = false;
+        if (p < runEnd && (*p == '.' || *p == 'e' || *p == 'E')) {
+            size_t fracCount = 0;
+            if (*p == '.') {
+                p++;
+                const char* fracBegin = p;
+                while (p + 8 <= runEnd
+                       && digitCount + (size_t)(p - fracBegin) + 8 <= 17) {
+                    uint32_t swarVal;
+                    if (!sj_swar8_digits(p, &swarVal))
+                        break;
+                    value = value
+                        * RAPIDJSON_UINT64_C2(0x00000000, 0x05F5E100)
+                        + swarVal;
+                    p += 8;
+                }
+                while (p < runEnd
+                       && static_cast<unsigned>(*p - '0') <= 9
+                       && digitCount + (size_t)(p - fracBegin) < 17) {
+                    value = value * 10 + static_cast<unsigned>(*p - '0');
+                    p++;
+                }
+                fracCount = static_cast<size_t>(p - fracBegin);
+                if (fracCount == 0
+                    || (p < runEnd
+                        && static_cast<unsigned>(*p - '0') <= 9))
+                    return nullptr;         // « 1. » ou trop de chiffres
+            }
+            int expVal = 0;
+            if (p < runEnd && (*p == 'e' || *p == 'E')) {
+                p++;
+                bool expNeg = false;
+                if (p < runEnd && (*p == '+' || *p == '-')) {
+                    expNeg = (*p == '-');
+                    p++;
+                }
+                const char* expBegin = p;
+                while (p < runEnd
+                       && static_cast<unsigned>(*p - '0') <= 9
+                       && p - expBegin < 4) {
+                    expVal = expVal * 10 + static_cast<int>(*p - '0');
+                    p++;
+                }
+                if (p == expBegin
+                    || (p < runEnd
+                        && static_cast<unsigned>(*p - '0') <= 9))
+                    return nullptr;         // exposant vide ou trop long
+                if (expNeg)
+                    expVal = -expVal;
+            }
+            if (value == 0)
+                return nullptr;             // 0.0 / -0.0 : voie normale
+            if (!sj_eisel_lemire(value,
+                                 expVal - static_cast<int>(fracCount),
+                                 dblValue))
+                return nullptr;             // doute : voie normale
+            *isDouble = true;
+        }
+        *intValue = value;
+        // les blancs de fin sont insignifiants : inclus dans le jeton
+        while (p < runEnd && (*p == ' ' || *p == '\n' || *p == '\r'
+                              || *p == '\t'))
+            p++;
+        return p;
+    }
+
+    // consomme goulûment les « nombre , » d'un tableau, et le dernier
+    // nombre avant « ] » (émis, le crochet laissé à ParseArray qui saute
+    // alors son ParseValue via *lastBeforeBracket). *terminate : le
+    // handler a refusé une valeur.
     template<unsigned parseFlags, typename InputStream, typename Handler>
     RAPIDJSON_FORCEINLINE SizeType SjIntRun(InputStream& is, Handler& handler,
-                                            bool* terminate) {
+                                            bool* terminate,
+                                            bool* lastBeforeBracket) {
         const char* runEnd = reinterpret_cast<const char*>(SjRawEnd(is));
         if (runEnd == nullptr)
             return 0;
         SizeType emitted = 0;
         for (;;) {
             const char* start = reinterpret_cast<const char*>(SjRawCursor(is));
-            const char* p = start;
-            bool neg = false;
-            if (p < runEnd && *p == '-') {
-                neg = true;
-                p++;
-            }
-            const char* digitsBegin = p;
-            uint64_t value = 0;
-            while (p + 8 <= runEnd && p - digitsBegin <= 8) {
-                uint32_t swarVal;
-                if (!sj_swar8_digits(p, &swarVal))
-                    break;
-                value = value * RAPIDJSON_UINT64_C2(0x00000000, 0x05F5E100)
-                    + swarVal;
-                p += 8;
-            }
-            while (p < runEnd
-                   && static_cast<unsigned>(*p - '0') <= 9
-                   && p - digitsBegin < 18) {
-                value = value * 10 + static_cast<unsigned>(*p - '0');
-                p++;
-            }
-            size_t digitCount = static_cast<size_t>(p - digitsBegin);
-            if (digitCount == 0 || digitCount >= 18)
-                return emitted;             // vide ou possiblement trop long
-            if (*digitsBegin == '0' && digitCount > 1)
-                return emitted;             // 01 : invalide, voie normale
-            if (p >= runEnd)
-                return emitted;
-            bool isDouble = false;
-            double dval = 0.0;
-            if (*p == '.' || *p == 'e' || *p == 'E') {
-                // flottant simple : mantisse totale <= 17 chiffres,
-                // exposant <= 3 chiffres, converti par Eisel-Lemire —
-                // au moindre doute (renoncement, zéro, forme exotique),
-                // la voie normale reprend le jeton entier
-                size_t fracCount = 0;
-                if (*p == '.') {
-                    p++;
-                    const char* fracBegin = p;
-                    while (p < runEnd
-                           && static_cast<unsigned>(*p - '0') <= 9
-                           && digitCount + (size_t)(p - fracBegin) < 17) {
-                        value = value * 10
-                            + static_cast<unsigned>(*p - '0');
-                        p++;
-                    }
-                    fracCount = static_cast<size_t>(p - fracBegin);
-                    if (fracCount == 0
-                        || (p < runEnd
-                            && static_cast<unsigned>(*p - '0') <= 9))
-                        return emitted;     // « 1. » ou trop de chiffres
-                }
-                int expVal = 0;
-                if (p < runEnd && (*p == 'e' || *p == 'E')) {
-                    p++;
-                    bool expNeg = false;
-                    if (p < runEnd && (*p == '+' || *p == '-')) {
-                        expNeg = (*p == '-');
-                        p++;
-                    }
-                    const char* expBegin = p;
-                    while (p < runEnd
-                           && static_cast<unsigned>(*p - '0') <= 9
-                           && p - expBegin < 4) {
-                        expVal = expVal * 10
-                            + static_cast<int>(*p - '0');
-                        p++;
-                    }
-                    if (p == expBegin
-                        || (p < runEnd
-                            && static_cast<unsigned>(*p - '0') <= 9))
-                        return emitted;     // exposant vide ou trop long
-                    if (expNeg)
-                        expVal = -expVal;
-                }
-                if (value == 0)
-                    return emitted;         // 0.0 / -0.0 : voie normale
-                if (!sj_eisel_lemire(value,
-                                     expVal - static_cast<int>(fracCount),
-                                     &dval))
-                    return emitted;         // doute : voie normale
-                isDouble = true;
-            }
-            if (p >= runEnd || *p != ',')
-                return emitted;             // pas un « nombre, » complet
+            bool isDouble;
+            bool neg;
+            uint64_t intValue;
+            double dblValue;
+            const char* p = SjScanNumber(start, runEnd, &isDouble, &neg,
+                                         &intValue, &dblValue);
+            if (p == nullptr || p >= runEnd || (*p != ',' && *p != ']'))
+                return emitted;             // jeton non simple ou autre fin
             bool ok = isDouble
-                ? handler.Double(neg ? -dval : dval)
-                : (neg ? handler.Int64(-static_cast<int64_t>(value))
-                       : handler.Uint64(value));
+                ? handler.Double(neg ? -dblValue : dblValue)
+                : (neg ? handler.Int64(-static_cast<int64_t>(intValue))
+                       : handler.Uint64(intValue));
             if (!ok) {
                 *terminate = true;
                 return emitted;
             }
             emitted++;
-            // consomme le jeton, la virgule et les blancs qui suivent
-            Ch c;
-            size_t consume = static_cast<size_t>(p - start) + 1;
+            bool bracket = (*p == ']');
+            size_t consume = static_cast<size_t>(p - start)
+                + (bracket ? 0 : 1);
             while (consume--)
                 is.Take();
+            if (bracket) {
+                *lastBeforeBracket = true;
+                return emitted;
+            }
+            Ch c;
             while ((c = is.Peek()) == ' ' || c == '\n' || c == '\r'
                    || c == '\t')
                 is.Take();
         }
+    }
+
+    // même accélération pour UN nombre en position de valeur d'objet :
+    // émis et consommé si simple et suivi de « , » ou « } », sinon rien
+    template<unsigned parseFlags, typename InputStream, typename Handler>
+    RAPIDJSON_FORCEINLINE bool SjObjectNumberValue(InputStream& is,
+                                                   Handler& handler,
+                                                   bool* terminate) {
+        const char* runEnd = reinterpret_cast<const char*>(SjRawEnd(is));
+        if (runEnd == nullptr)
+            return false;
+        const char* start = reinterpret_cast<const char*>(SjRawCursor(is));
+        bool isDouble;
+        bool neg;
+        uint64_t intValue;
+        double dblValue;
+        const char* p = SjScanNumber(start, runEnd, &isDouble, &neg,
+                                     &intValue, &dblValue);
+        if (p == nullptr || p >= runEnd || (*p != ',' && *p != '}'))
+            return false;
+        bool ok = isDouble
+            ? handler.Double(neg ? -dblValue : dblValue)
+            : (neg ? handler.Int64(-static_cast<int64_t>(intValue))
+                   : handler.Uint64(intValue));
+        if (!ok) {
+            *terminate = true;
+            return false;
+        }
+        size_t consume = static_cast<size_t>(p - start);
+        while (consume--)
+            is.Take();
+        return true;
     }
 
     // Parse array: [ value, ... ]
@@ -1002,17 +1075,25 @@ private:
         }
 
         for (SizeType elementCount = 0;;) {
-            // fork serializejson : suite d'entiers consommée par lots
+            // fork serializejson : suite de nombres consommée par lots ;
+            // si elle s'achève sur le dernier élément avant « ] », le
+            // ParseValue est sauté (la valeur est déjà émise)
+            bool sjSkipValue = false;
             if ((parseFlags & kParseInsituFlag) != 0
                 && (parseFlags & kParseBigIntsAsStringsFlag) != 0
                 && (parseFlags & kParseNumbersAsStringsFlag) == 0
                 && (parseFlags & kParseCommentsFlag) == 0) {
                 bool sjTerminate = false;
-                elementCount += SjIntRun<parseFlags>(is, handler, &sjTerminate);
+                SizeType sjEmitted = SjIntRun<parseFlags>(
+                    is, handler, &sjTerminate, &sjSkipValue);
+                elementCount += sjEmitted;
                 if (RAPIDJSON_UNLIKELY(sjTerminate))
                     RAPIDJSON_PARSE_ERROR(kParseErrorTermination, is.Tell());
+                if (sjSkipValue)
+                    elementCount--;   // le dernier émis compte pour le tour
             }
 
+            if (!sjSkipValue)
             ParseValue<parseFlags>(is, handler);
             RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
 
