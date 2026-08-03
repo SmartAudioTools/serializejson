@@ -954,6 +954,57 @@ normale inchangée. Une régression du blob unique (dctx à 1 thread : 57 ms) a
 64 Mo compressibles 6,5 ms (pickle 19,5 — 3× plus vite) ; 30 tableaux
 compressés ~8-11 ms ; 64 Mo incompressible stable à 40 ms.**
 
+## BILAN DE LA CAMPAGNE (2-3 août 2026, ~24 h, 61 commits)
+
+### Tableau définitif (3.14, PGO, min de 15-20, 13 h 35)
+
+| Cas | dumps vs pickle | loads vs pickle |
+|---|---|---|
+| 20 000 objets | **×0,54** | ×1,19 |
+| 50 000 chaînes | **×0,22** | ×1,17 |
+| dict 100 000 clés | **×0,57** | **×0,89** |
+| conteneurs mixtes | ×1,27 | **×1,01** |
+| 1 000 000 d'entiers | **×0,91** | ×1,26 |
+| 100 000 flottants | **×0,93** | ×1,45 |
+| numpy 64 Mo compressible | **×0,19** | **×0,28** |
+| numpy 64 Mo incompressible | ×1,39 | ×1,87 |
+| 30 tableaux compressés 1 Mo | ×4,8 | ×2,7 |
+| 30 blobs bruts 1 Mo | ×8,8 (zstd+b64 vs memcpy) | ×3,2 |
+
+Au départ de la nuit : objets ×9,2/×8,3, chaînes ×4,5/×10,2, entiers
+×10,5/×8,8 (×42 avant le correctif quadratique), conteneurs ×6,8/×6,6.
+À l'arrivée : l'écriture BAT pickle sur toutes les familles usuelles, la
+lecture est entre ×0,3 et ×1,5 (devant pickle sur dicts, conteneurs mixtes et
+numpy compressé, devant json standard partout). Seul le binaire brut
+incompressible reste structurellement derrière (compression+base64 contre un
+memcpy).
+
+### Les cinq découvertes qui ont fait la campagne
+
+1. **Le module se compilait en -O0 depuis toujours** (distutils perdait les
+   CFLAGS) — trouvé au profil gprofng, corrigé par -O3 imposé, puis PGO.
+2. **L'encodage était QUADRATIQUE** (Flush par valeur qui rétrécissait le
+   tampon) : 1M d'entiers 3 s → 72 ms avant même le reste.
+3. **Les listes numériques racines contournaient tout le C++** par un
+   raccourci Python historique.
+4. **La compression tournait sur 1 thread** : les symboles documentés
+   n'étaient pas résolus — le fork déterministe permettait le MT sans changer
+   un octet.
+5. **La copie d'entrée au décodage dominait les gros blobs** (61 % en
+   memcpy) : parse en place sans terminateurs quand aucun échappement.
+
+### Les mécanismes construits
+
+Fork rapidjson : mémo  en C (cycles, doublons, __dict__ physiquement
+partagés au-delà de pickle), chemins rapides par classe dans les deux sens,
+plans de forme des dicts, Grisu3 à graphie repr() garantie, base64 SSE
+parallèle bilatéral, conversion multithreadée des listes de nombres (octets
+identiques), blobs différés (validation SIMD immédiate, remplissage
+parallèle, décompression comprise), parse en place. Fork libblosc2 : le MT
+interne rendu déterministe. Discipline : batterie 27 tests × 5 versions et
+goldens octet à octet à CHAQUE étape, A/B contre-vérifiés, chaque rejet
+chiffré et consigné.
+
 ### Ce qui borne encore, et pourquoi
 
 - **Flottants et entiers scalaires en dumps** : pickle copie 8 octets binaires
