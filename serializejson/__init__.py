@@ -1001,6 +1001,46 @@ class Encoder(rapidjson.Encoder):
                     class_str_from_class(class_),
                     hasattr(class_, "__setstate__"),
                 )
+            # recette __reduce__ réimplémenté : un adaptateur minuscule
+            # appelle obj.__reduce_ex__(protocole) et reforme le tuple pour
+            # la branche recette C (classe, args, état). Formes hors recette
+            # (callable autre que la classe, listitems/dictitems) : None,
+            # que le C traduit en repli voie Python. Enum est exclu (son
+            # traitement des doublons dans default() est particulier)
+            if (
+                (
+                    class_.__reduce_ex__ is not object.__reduce_ex__
+                    or class_.__reduce__ is not object.__reduce__
+                )
+                and class_ not in dispatch_table
+                and class_ not in serializejson_builtins
+                and not issubclass(class_, Enum)
+                and class_str_from_class(class_) not in remove_add_braces
+                and self.protocol >= 2
+            ):
+
+                def _reduce_recipe(obj, _protocol=self.protocol):
+                    reduced = obj.__reduce_ex__(_protocol)
+                    if (
+                        not isinstance(reduced, tuple)
+                        or len(reduced) < 2
+                        or reduced[0] is not obj.__class__
+                        or (len(reduced) > 3 and reduced[3] is not None)
+                        or (len(reduced) > 4 and reduced[4] is not None)
+                    ):
+                        return None
+                    return (
+                        obj.__class__,
+                        reduced[1],
+                        reduced[2] if len(reduced) > 2 else None,
+                    )
+
+                return (
+                    None,
+                    _reduce_recipe,
+                    bool(self.numpy_array_to_list),
+                    class_str_from_class(class_),
+                )
             if not (class_.__flags__ & _TPFLAGS_HEAPTYPE):
                 # types natifs (tuple, dict, bytes...) : chemins dédiés
                 return None
