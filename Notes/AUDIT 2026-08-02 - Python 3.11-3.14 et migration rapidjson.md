@@ -1533,3 +1533,78 @@ objets slots ×0,65/×1,16.
 3. Étendre le fast-path valeur d'objet aux chaînes courtes/littéraux
    (aujourd'hui nombres seulement).
 4. Décodage multi-thread par sous-arbres (free-threaded 3.13+).
+
+
+---
+
+## 11. Nuit du 3 au 4/08, seconde partie — PyLong compacts, contre-vérifications, valeur d'objet
+
+### Extraction rapide des petits entiers : ESSAYÉ, MESURÉ, ÉCARTÉ
+Lecture directe des PyLong compacts (PyUnstable_Long_IsCompact/CompactValue
+en 3.12+, Py_SIZE ∈ {-1,0,1} + ob_digit[0] en 3.10/3.11) posée aux quatre
+sites du dump (entier isolé ×2, extraction MT, boucle séquentielle).
+Octets identiques (4 jeux d'empreintes dont bornes 2^30/2^62/2^63).
+Mesure, 6 tours entrelacés : NEUTRE sur les petits (7,5 → 7,3 ms/M, dans le
+bruit) et ~+2 % sur les gros (test compact raté puis appel). Cause : le
+convertisseur de CPython a déjà son raccourci interne pour les valeurs
+moyennes, et le mur réel est la MARCHE MÉMOIRE (un pointeur à déréférencer
+par élément sur un tas de dizaines de Mo), pas l'appel. Retiré.
+
+### Contre-vérifications des rejets (demande explicite), 10 tours chacun
+- **Tranche de None (pré-dimensionnement)** : unpickle_list ×2,13-2,56 AVEC
+  contre ×1,76-1,95 SANS — 10/10 sans recouvrement, rejet CONFIRMÉ largement
+  au-dessus du bruit. Les 10 tours ont aussi montré un vrai gain de la
+  tranche sur les grands lots plats de littéraux (~−15 %).
+- **itoa SSE2** : −2 à −3 % sur les seuls gros tableaux (7/10 tours dans ce
+  sens), neutre ailleurs — rejet confirmé (90 lignes de SIMD pour un gain
+  au niveau du bruit).
+
+### ⚠ LEÇON DE MÉTHODE : le bruit de DISPOSITION BINAIRE entre deux builds
+vaut ~5-10 % sur les micro-bancs. Prouvé en comparant deux variantes de la
+tranche hybride aux chemins logiquement identiques pour les booléens :
+10 % d'écart systématique. Conséquences : (1) seuls sont probants les
+écarts >> 10 %, les A/B du MÊME build (copie de .so), ou les RATIOS contre
+pickle mesurés dans le même processus ; (2) une ligne micro qui bouge de
+5 % entre deux builds ne prouve RIEN. C'est ce bruit qui rendait la
+tranche hybride « gagnante » puis « perdante » selon le build.
+
+### Tranche HYBRIDE (activation paresseuse au 65e élément) : essayée sur la
+foi du gain −15 % ci-dessus, puis ABANDONNÉE : ses gains apparents
+(littéraux −20 %, mixte −10 %) ne se sont pas reproduits d'un build à
+l'autre (voir leçon), unpickle_list neutre, chaînes plates ~+7 % sur
+certains builds. Aucun effet net ne franchit le plancher de
+reproductibilité → la simplicité l'emporte, code retiré.
+
+### Raccourci « valeur d'objet » étendu (746ec36) : FAIT
+SjObjectSimpleValue : true/false/null et chaînes courtes propres émis sans
+ParseValue en position de valeur d'objet, mêmes règles que le lot des
+tableaux, même handler.String (datetime/uuid/hooks). unpickle ×1,90 →
+×1,83, 8 tours sur 8 dans le même sens (ratio interne au processus, donc
+insensible au bruit de disposition), reste neutre.
+
+### Réflexion : ce qui peut encore accélérer (par rendement estimé)
+1. **Enveloppe des micro-dicts** (pickle_dict ×2,1) : le chemin C des clés
+   entières existe déjà ; le reste est la VERBOSITÉ du format
+   ("__class__":"dict_non_str_keys" par dict) + un pousser/dépiler de
+   chemin par clé (memo). Toute forme plus compacte = décision de FORMAT
+   (à toi). Sans changer le format : plafonner le suivi de chemin quand
+   memo_refs ne peut plus rencontrer de conteneur (~5-10 % estimé).
+2. **Chargement des chaînes répétitives** (×3,7) : pickle mémoïse DANS son
+   format (BINGET). Nos caches (clés, valeurs persistantes) compensent en
+   partie ; le reste est structurel sans étiquette $strref (format).
+3. **Décodage multi-thread par sous-arbres** : free-threaded 3.13+/3.14t —
+   le gros levier restant côté load (les builds ft ne sont pas dans la
+   batterie aujourd'hui).
+4. **Écriture des flottants** : Ryu fait ; l'écart restant (×2-4 au dump)
+   est le texte contre le memcpy de 8 octets — structurel. Un mode
+   « float hex » ou binaire = format.
+5. **Extraction MT des gros tableaux d'entiers** : le mur est la marche
+   mémoire des PyObject (~12 ns/élément incompressibles en pointeurs
+   épars). Seule une source contiguë (numpy, array) l'évite — déjà
+   couverte par les chemins numpy.
+6. **Fusion clé+valeur au parse d'objets** : scanner « "clé": valeur, » en
+   un seul passage SWAR (aujourd'hui clé et valeur ont chacun leur
+   mécanique). Gain estimé 3-5 % sur unpickle, complexité moyenne.
+7. **PGO élargi** : le profil actuel vient de la batterie + pgo_workload ;
+   y ajouter les benchs officiels pourrait déplacer 2-3 % (à essayer une
+   fois, mesure par ratios).
