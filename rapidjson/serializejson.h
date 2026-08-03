@@ -443,6 +443,62 @@ serializejson_b64_decode_to_pyobject(const char* src, size_t length,
 }
 
 
+// encodage base64 PARALLÈLE et déterministe d'un gros buffer : l'entrée est
+// découpée sur des multiples de 3 octets, chaque segment s'encode vers son
+// offset de sortie exact (4/3 de l'offset d'entrée) — octets identiques au
+// chemin séquentiel, quel que soit le nombre de threads
+struct SjB64Job {
+    const unsigned char* src;
+    size_t length;      // multiple de 3, sauf pour le dernier segment
+    char* dst;
+};
+
+static void
+sj_b64_worker(std::vector<SjB64Job>* jobs, std::atomic<size_t>* next)
+{
+    while (true) {
+        size_t index = next->fetch_add(1);
+        if (index >= jobs->size())
+            break;
+        SjB64Job& job = (*jobs)[index];
+        serializejson_b64_encode(job.src, job.length, job.dst);
+    }
+}
+
+#define SERIALIZEJSON_B64_PARALLEL_THRESHOLD (3 << 20)  // 3 Mo
+
+static void
+sj_b64_encode_maybe_parallel(const unsigned char* src, size_t length, char* dst)
+{
+    if (length < SERIALIZEJSON_B64_PARALLEL_THRESHOLD) {
+        serializejson_b64_encode(src, length, dst);
+        return;
+    }
+    unsigned hardware = std::thread::hardware_concurrency();
+    int nthreads = (int) (hardware ? hardware : 1);
+    if (nthreads > 8)
+        nthreads = 8;
+    // segments de taille fixe multiple de 3 (déterminisme du découpage)
+    const size_t segment = ((size_t) 1 << 20) / 3 * 3;  // ~1 Mo
+    size_t count = (length + segment - 1) / segment;
+    std::vector<SjB64Job> jobs(count);
+    for (size_t i = 0; i < count; i++) {
+        size_t offset = i * segment;
+        size_t size = (offset + segment <= length) ? segment : (length - offset);
+        jobs[i] = {src + offset, size, dst + offset / 3 * 4};
+    }
+    if (nthreads > (int) count)
+        nthreads = (int) count;
+    std::atomic<size_t> next(0);
+    std::vector<std::thread> threads;
+    for (int t = 1; t < nthreads; t++)
+        threads.emplace_back(sj_b64_worker, &jobs, &next);
+    sj_b64_worker(&jobs, &next);
+    for (std::thread& worker : threads)
+        worker.join();
+}
+
+
 typedef struct {
     PyObject_HEAD
     PyObject* value;

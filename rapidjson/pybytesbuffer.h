@@ -98,10 +98,20 @@ struct PyBytesBuffer { // a revoir c'est quoi la différence entre struc et clas
 
     void RawDataToBase64(const unsigned char* data, size_t length){
         // encode le base64 directement dans le buffer de sortie,
-        // sans chaîne intermédiaire
+        // sans chaîne intermédiaire ; en parallèle (découpage fixe sur des
+        // multiples de 3 octets, octets identiques au séquentiel) au-delà
+        // du seuil, GIL relâché
         Reserve(4 * ((length + 2) / 3) + 2);
         *bufferCursor++ = '\"';
-        bufferCursor = serializejson_b64_encode(data, length, bufferCursor);
+        if (length >= SERIALIZEJSON_B64_PARALLEL_THRESHOLD) {
+            char* out = bufferCursor;
+            Py_BEGIN_ALLOW_THREADS
+            sj_b64_encode_maybe_parallel(data, length, out);
+            Py_END_ALLOW_THREADS
+            bufferCursor += 4 * ((length + 2) / 3);
+        } else {
+            bufferCursor = serializejson_b64_encode(data, length, bufferCursor);
+        }
         *bufferCursor++ = '\"';
     }
 
