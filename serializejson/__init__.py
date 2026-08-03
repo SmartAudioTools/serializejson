@@ -179,6 +179,7 @@ import io
 import rapidjson
 import gc
 import blosc
+import copyreg
 import errno
 from copyreg import dispatch_table
 from collections import deque
@@ -226,6 +227,7 @@ from .tools import (
     serializejson_builtins,
     class_has_user_getstate,
     setters as _setters_registry,
+    getters as _getters_registry,
     properties as _properties_registry,
     slots_properties_getters_setters_from_class,
     setters_names_from_class,
@@ -942,12 +944,7 @@ class Encoder(rapidjson.Encoder):
         # compris). Les conditions reproduisent exactement le chemin Python
         # par défaut : au moindre doute, None.
         try:
-            if (
-                self.strict_pickle
-                or self.properties
-                or self.getters
-                or self.remove_default_values
-            ):
+            if self.strict_pickle or self.remove_default_values:
                 return None
             if not isinstance(class_, type) or not (
                 class_.__flags__ & _TPFLAGS_HEAPTYPE
@@ -966,15 +963,52 @@ class Encoder(rapidjson.Encoder):
                 or class_has_user_getstate(class_)
                 or hasattr(class_, "__getnewargs__")
                 or hasattr(class_, "__getnewargs_ex__")
-                or hasattr(class_, "__slots__")
             ):
+                return None
+            slots_names = None
+            if hasattr(class_, "__slots__"):
+                if class_.__dictoffset__ != 0:
+                    # __slots__ ET __dict__ (parent sans slots, ou "__dict__"
+                    # dans les slots) : fusion d'états, voie Python
+                    return None
+                # mêmes noms que le __getstate__ par défaut (héritage et name
+                # mangling compris), triés une fois pour toutes : le C écrit
+                # dans cet ordre
+                slots_names = tuple(sorted(copyreg._slotnames(class_)))
+            # getters/properties : gating PAR CLASSE, mêmes résolutions que la
+            # voie Python (tools.reduce) — le plan ne tombe que si CETTE classe
+            # a réellement des getters/properties effectifs, au lieu de couper
+            # le chemin C pour toutes les classes dès que le drapeau global est
+            # posé
+            _getters = self.getters
+            if _getters is True:
+                _getters = _getters_registry.get(class_, True)
+            elif type(_getters) is dict:
+                _getters = _getters.get(class_, False)
+            _properties = self.properties
+            if _properties is True:
+                _properties = _properties_registry.get(class_, True)
+            elif type(_properties) is dict:
+                _properties = _properties.get(class_, False)
+            if _getters is True or _properties is True:
+                (
+                    _,
+                    class_properties,
+                    class_getters,
+                    _,
+                ) = slots_properties_getters_setters_from_class(class_)
+                if _getters is True:
+                    _getters = class_getters
+                if _properties is True:
+                    _properties = class_properties
+            if _getters or _properties:
                 return None
             attributes_filter = self.attributes_filter
             if type(attributes_filter) is set:
                 attributes_filter = class_ in attributes_filter
             class_str = class_str_from_class(class_)
             self.dumped_classes.add(class_str)
-            return (class_str, bool(attributes_filter))
+            return (class_str, bool(attributes_filter), slots_names)
         except Exception:
             return None
 
@@ -1644,8 +1678,15 @@ class Decoder(rapidjson.Decoder):
                 class_.__flags__ & _TPFLAGS_HEAPTYPE
             ):
                 return None
-            if hasattr(class_, "__setstate__") or hasattr(class_, "__slots__"):
+            if hasattr(class_, "__setstate__"):
                 return None
+            by_setattr = False
+            if hasattr(class_, "__slots__"):
+                if class_.__dictoffset__ != 0:
+                    return None
+                # classe à __slots__ purs : restauration par setattr (le
+                # setstate Python fait de même via set(slots))
+                by_setattr = True
             _setters = self.setters
             if _setters is True:
                 _setters = _setters_registry.get(class_, True)
@@ -1664,6 +1705,8 @@ class Decoder(rapidjson.Decoder):
                 _properties = slots_properties_getters_setters_from_class(class_)[1]
             if _properties:
                 return None
+            if by_setattr:
+                return (class_, True)
             return class_
         except Exception:
             return None

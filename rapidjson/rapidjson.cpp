@@ -175,6 +175,18 @@ struct HandlerContext {
 };
 
 
+// détient des références fortes relâchées à la sortie de portée (les
+// valeurs de slots viennent de PyObject_GetAttr, contrairement aux valeurs
+// de __dict__ qui sont empruntées)
+struct SjOwnedRefs {
+    std::vector<PyObject*> refs;
+    ~SjOwnedRefs() {
+        for (PyObject* ref : refs)
+            Py_DECREF(ref);
+    }
+};
+
+
 // vrai si l'instance est d'un type serializejson enregistré (ou dérivé)
 static inline bool
 sj_is_registered(PyObject* self, PyObject* registered)
@@ -1649,7 +1661,10 @@ struct PyHandler {
                         Py_DECREF(mapping);
                         return false;
                     }
-                    if (plan != Py_None && !PyType_Check(plan)) {
+                    if (plan != Py_None && !PyType_Check(plan)
+                        && !(PyTuple_Check(plan)
+                             && PyTuple_GET_SIZE(plan) == 2
+                             && PyType_Check(PyTuple_GET_ITEM(plan, 0)))) {
                         Py_DECREF(plan);
                         plan = Py_None;
                         Py_INCREF(Py_None);
@@ -1661,15 +1676,39 @@ struct PyHandler {
                         Py_DECREF(mapping);
                         return false;
                     }
-                    PyTypeObject* cls = (PyTypeObject*) plan;
+                    PyTypeObject* cls;
+                    bool by_setattr;
+                    if (PyType_Check(plan)) {
+                        cls = (PyTypeObject*) plan;
+                        by_setattr = false;
+                    } else {
+                        cls = (PyTypeObject*) PyTuple_GET_ITEM(plan, 0);
+                        by_setattr = true;
+                    }
                     PyObject* inst = cls->tp_new(cls, empty_args_tuple, nullptr);
                     if (inst == nullptr) {
                         Py_DECREF(mapping);
                         return false;
                     }
+                    if (by_setattr) {
+                        // classe à __slots__ : un setattr par attribut, dans
+                        // l'ordre du JSON (celui du setstate Python)
+                        Py_ssize_t attr_pos = 0;
+                        PyObject* attr_key;
+                        PyObject* attr_value;
+                        while (PyDict_Next(mapping, &attr_pos,
+                                           &attr_key, &attr_value)) {
+                            if (PyObject_SetAttr(inst, attr_key,
+                                                 attr_value) == -1) {
+                                Py_DECREF(inst);
+                                Py_DECREF(mapping);
+                                return false;
+                            }
+                        }
                     // assignation directe du dict d'attributs (objet neuf au
                     // dict vide : équivalent du update() du chemin Python)
-                    if (PyObject_SetAttr(inst, dict_dunder_name, mapping) == -1) {
+                    } else if (PyObject_SetAttr(inst, dict_dunder_name,
+                                                mapping) == -1) {
                         Py_DECREF(inst);
                         Py_DECREF(mapping);
                         return false;
@@ -4798,7 +4837,9 @@ dumps_internal(
                 if (plan == nullptr)
                     return false;
                 if (plan != Py_None
-                    && (!PyTuple_Check(plan) || PyTuple_GET_SIZE(plan) != 2)) {
+                    && (!PyTuple_Check(plan)
+                        || (PyTuple_GET_SIZE(plan) != 2
+                            && PyTuple_GET_SIZE(plan) != 3))) {
                     Py_DECREF(plan);
                     plan = Py_None;
                     Py_INCREF(Py_None);
@@ -4809,6 +4850,14 @@ dumps_internal(
                 PyObject* class_name = PyTuple_GET_ITEM(plan, 0);
                 bool filter_underscore =
                     PyObject_IsTrue(PyTuple_GET_ITEM(plan, 1)) == 1;
+                // recette __slots__ : tuple de noms PRÉ-TRIÉS par le Python
+                // (copyreg._slotnames : héritage et name mangling compris)
+                PyObject* slotsNames = nullptr;
+                if (PyTuple_GET_SIZE(plan) == 3) {
+                    slotsNames = PyTuple_GET_ITEM(plan, 2);
+                    if (slotsNames == Py_None || !PyTuple_CheckExact(slotsNames))
+                        slotsNames = nullptr;
+                }
 
                 // doublon ou cycle -> $ref
                 auto memo_it = pathTracker->memo.find(object);
@@ -4873,6 +4922,42 @@ dumps_internal(
                         }
                     } else {
                         eligible = false;  // __dict__ exotique : chemin Python
+                    }
+                }
+                // slots : valeurs par getattr, dans l'ordre trié de la
+                // recette ; un slot jamais assigné est simplement absent
+                // (comme le __getstate__ du chemin Python). La recette
+                // garantit dictoffset == 0, donc pas de __dict__ à fusionner
+                // — s'il y en a un malgré tout, prudence : voie Python.
+                SjOwnedRefs ownedSlotValues;
+                if (slotsNames != nullptr) {
+                    if (object_dict != nullptr) {
+                        eligible = false;
+                    } else {
+                        Py_ssize_t slots_count = PyTuple_GET_SIZE(slotsNames);
+                        attrs.reserve((size_t) slots_count);
+                        for (Py_ssize_t si = 0; si < slots_count; si++) {
+                            PyObject* slot_name =
+                                PyTuple_GET_ITEM(slotsNames, si);
+                            Py_ssize_t key_length;
+                            const char* key_str = PyUnicode_AsUTF8AndSize(
+                                slot_name, &key_length);
+                            if (key_str == nullptr)
+                                return false;
+                            if (filter_underscore && key_length
+                                && key_str[0] == '_')
+                                continue;
+                            PyObject* value =
+                                PyObject_GetAttr(object, slot_name);
+                            if (value == nullptr) {
+                                PyErr_Clear();   // slot jamais assigné
+                                continue;
+                            }
+                            ownedSlotValues.refs.push_back(value);
+                            if (!PyUnicode_IS_ASCII(slot_name))
+                                writer->MarkMaybeNonAscii();
+                            attrs.push_back({key_str, key_length, value});
+                        }
                     }
                 }
                 if (eligible) {
