@@ -1030,6 +1030,19 @@ struct PyHandler {
     PyObject* decodeClassPlanFn;
     bool fastStartObject;           // start_object Python court-circuité
     bool fastPlainEndObject;        // end_object sauté pour les dicts ordinaires
+    // décodage base64 DIFFÉRÉ des charges binaires : validées et mises en
+    // file pendant le parse (l'objet destination, créé tout de suite, entre
+    // dans l'arbre), remplies en parallèle au premier rappel Python ou en
+    // fin de parse. Actif seulement en insitu (deferB64) : les pointeurs
+    // source restent valides jusqu'à la fin du parse.
+    struct PendingB64 {
+        const char* src;
+        size_t length;
+        unsigned char* dst;
+        PyObject* obj;              // référence forte le temps du différé
+    };
+    std::vector<PendingB64> pendingB64;
+    bool deferB64;
     bool rootAttrSet;
     std::unordered_map<std::string, PyObject*> decodePlans;  // réfs possédées
     // classes dont la charge __init__/__new__[0] est du base64 à décoder
@@ -1054,6 +1067,7 @@ struct PyHandler {
           decodeClassPlanFn(nullptr),
           fastStartObject(false),
           fastPlainEndObject(false),
+          deferB64(false),
           rootAttrSet(false)
         {
             stack.reserve(128);
@@ -1136,6 +1150,61 @@ struct PyHandler {
         Py_CLEAR(decodeClassPlanFn);
         for (auto& entry : decodePlans)
             Py_DECREF(entry.second);
+        ReleasePendingB64();
+    }
+
+    // abandon des différés (chemins d'erreur : l'arbre est jeté avec eux)
+    void ReleasePendingB64() {
+        for (PendingB64& job : pendingB64)
+            Py_DECREF(job.obj);
+        pendingB64.clear();
+    }
+
+    // remplit tous les tampons différés (en parallèle au-delà d'un job) ;
+    // à appeler avant tout rappel Python et en fin de parse
+    bool FlushPendingB64() {
+        if (pendingB64.empty())
+            return true;
+        const unsigned char* table = serializejson_b64_decode_table();
+        bool ok = true;
+        size_t count = pendingB64.size();
+        if (count == 1) {
+            PendingB64& job = pendingB64[0];
+            ok = sj_b64_decode_into(job.src, job.length, job.dst, table);
+        } else {
+            std::atomic<size_t> next(0);
+            std::atomic<bool> good(true);
+            std::vector<PendingB64>* jobs = &pendingB64;
+            auto work = [jobs, &next, &good, table]() {
+                for (;;) {
+                    size_t i = next.fetch_add(1);
+                    if (i >= jobs->size())
+                        return;
+                    PendingB64& job = (*jobs)[i];
+                    if (!sj_b64_decode_into(job.src, job.length, job.dst,
+                                            table))
+                        good.store(false, std::memory_order_relaxed);
+                }
+            };
+            size_t hw = std::thread::hardware_concurrency();
+            size_t nthreads = hw ? (hw > 8 ? 8 : hw) : 1;
+            if (nthreads > count)
+                nthreads = count;
+            Py_BEGIN_ALLOW_THREADS
+            std::vector<std::thread> pool;
+            for (size_t t = 1; t < nthreads; t++)
+                pool.emplace_back(work);
+            work();
+            for (std::thread& t : pool)
+                t.join();
+            Py_END_ALLOW_THREADS
+            ok = good.load();
+        }
+        ReleasePendingB64();
+        if (!ok)
+            PyErr_SetString(PyExc_ValueError,
+                            "invalid deferred base64 payload");
+        return ok;
     }
 
     bool Handle(PyObject* value) {
@@ -1252,6 +1321,8 @@ struct PyHandler {
                 rootAttrSet = true;
             }
         } else if (decoderStartObject != nullptr) {
+            if (!pendingB64.empty() && !FlushPendingB64())
+                return false;
             mapping = PyObject_CallFunctionObjArgs(decoderStartObject, nullptr);
             if (mapping == nullptr)
                 return false;
@@ -1331,6 +1402,10 @@ struct PyHandler {
                 if (plan_it != decodePlans.end()) {
                     plan = plan_it->second;
                 } else {
+                    if (!pendingB64.empty() && !FlushPendingB64()) {
+                        Py_DECREF(mapping);
+                        return false;
+                    }
                     plan = PyObject_CallFunctionObjArgs(decodeClassPlanFn,
                                                         class_value, nullptr);
                     if (plan == nullptr) {
@@ -1368,12 +1443,53 @@ struct PyHandler {
             }
         }
 
+        // ----- bytes / bytearray pré-décodés : {"__class__": "bytes",
+        // "__new__": [payload, "b64"]} où le payload a déjà été décodé par
+        // l'interception base64 -> le payload EST l'objet final (le plugin
+        // Python accepte les charges pré-décodées telles quelles, sans copie).
+        // Gardé par fastPlainEndObject : jamais en mode update.
+        if (replacement == nullptr && fastPlainEndObject
+            && PyDict_CheckExact(mapping) && PyDict_GET_SIZE(mapping) == 2) {
+            PyObject* cls_value = PyDict_GetItem(mapping, class_key_name);
+            if (cls_value != nullptr && PyUnicode_CheckExact(cls_value)) {
+                int as_bytearray = -1;
+                if (PyUnicode_CompareWithASCIIString(cls_value, "bytes") == 0)
+                    as_bytearray = 0;
+                else if (PyUnicode_CompareWithASCIIString(cls_value,
+                                                          "bytearray") == 0)
+                    as_bytearray = 1;
+                if (as_bytearray != -1) {
+                    PyObject* ctor_args = PyDict_GetItem(mapping, new_key_name);
+                    if (ctor_args == nullptr)
+                        ctor_args = PyDict_GetItem(mapping, init_key_name);
+                    if (ctor_args != nullptr && PyList_CheckExact(ctor_args)
+                        && PyList_GET_SIZE(ctor_args) == 2) {
+                        PyObject* payload = PyList_GET_ITEM(ctor_args, 0);
+                        PyObject* label = PyList_GET_ITEM(ctor_args, 1);
+                        bool type_ok = as_bytearray
+                            ? PyByteArray_CheckExact(payload)
+                            : PyBytes_CheckExact(payload);
+                        if (type_ok && PyUnicode_CheckExact(label)
+                            && PyUnicode_CompareWithASCIIString(label, "b64") == 0) {
+                            Py_INCREF(payload);
+                            replacement = payload;
+                            Py_DECREF(mapping);
+                        }
+                    }
+                }
+            }
+        }
+
         if (replacement == nullptr) {
             if (objectHook == nullptr && decoderEndObject == nullptr) {
                 Py_DECREF(mapping);
                 return true;
             }
 
+            if (!pendingB64.empty() && !FlushPendingB64()) {
+                Py_DECREF(mapping);
+                return false;
+            }
             if (decoderEndObject != nullptr) {
                 replacement = PyObject_CallFunctionObjArgs(decoderEndObject, mapping, nullptr);
             } else /* if (objectHook != nullptr) */ {
@@ -1497,6 +1613,10 @@ struct PyHandler {
             return true;
         }
 
+        if (!pendingB64.empty() && !FlushPendingB64()) {
+            Py_DECREF(sequence);
+            return false;
+        }
         PyObject* replacement = PyObject_CallFunctionObjArgs(decoderEndArray, sequence,
                                                              nullptr);
         Py_DECREF(sequence);
@@ -1942,11 +2062,41 @@ struct PyHandler {
                             auto it = b64PayloadClasses.find(
                                 std::string(class_str, (size_t) class_length));
                             if (it != b64PayloadClasses.end()) {
-                                PyObject* decoded =
-                                    serializejson_b64_decode_to_pyobject(
-                                        str, (size_t) length, it->second);
-                                if (decoded != nullptr)
-                                    return Handle(decoded);
+                                if (deferB64) {
+                                    // validation complète tout de suite (le
+                                    // repli « chaîne ordinaire » doit rester
+                                    // possible), remplissage différé
+                                    size_t groups, pad, out_length;
+                                    if (sj_b64_layout(str, (size_t) length,
+                                                      &groups, &pad,
+                                                      &out_length,
+                                                      serializejson_b64_decode_table())) {
+                                        PyObject* dest = it->second
+                                            ? PyByteArray_FromStringAndSize(
+                                                  nullptr,
+                                                  (Py_ssize_t) out_length)
+                                            : PyBytes_FromStringAndSize(
+                                                  nullptr,
+                                                  (Py_ssize_t) out_length);
+                                        if (dest == nullptr)
+                                            return false;
+                                        unsigned char* dst = it->second
+                                            ? (unsigned char*)
+                                                  PyByteArray_AS_STRING(dest)
+                                            : (unsigned char*)
+                                                  PyBytes_AS_STRING(dest);
+                                        Py_INCREF(dest);
+                                        pendingB64.push_back(
+                                            {str, (size_t) length, dst, dest});
+                                        return Handle(dest);
+                                    }
+                                } else {
+                                    PyObject* decoded =
+                                        serializejson_b64_decode_to_pyobject(
+                                            str, (size_t) length, it->second);
+                                    if (decoded != nullptr)
+                                        return Handle(decoded);
+                                }
                             }
                         }
                     }
@@ -1971,6 +2121,10 @@ struct PyHandler {
             return false;
 
         if (decoderString != nullptr) {
+            if (!pendingB64.empty() && !FlushPendingB64()) {
+                Py_DECREF(value);
+                return false;
+            }
             PyObject* replacement = PyObject_CallFunctionObjArgs(decoderString, value,
                                                                  nullptr);
             Py_DECREF(value);
@@ -2475,20 +2629,40 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
         // dans les deux cas (objets +19%, ints +6% : le dés-échappement des
         // chaînes vers la pile coûte plus que l'unique memcpy d'entrée) :
         // la copie unique de l'entrée est le bon échange
-        char* jsonStrCopy = (char*) PyMem_Malloc(sizeof(char) * (jsonStrLen+1));
+        // ... SAUF quand le parse n'écrira RIEN : sans terminateurs (drapeau
+        // du fork) la seule écriture insitu est le dés-échappement — un gros
+        // document SANS aucun antislash (memchr) se parse EN PLACE, zéro
+        // copie (la copie de 40 Mo dominait le décodage des gros blobs)
+        char* jsonStrCopy = nullptr;
+        char* parseBuffer;
+        if (jsonStrLen >= (Py_ssize_t) (1 << 20)
+            && memchr(jsonStr, '\\', (size_t) jsonStrLen) == nullptr) {
+            parseBuffer = const_cast<char*>(jsonStr);
+        } else {
+            jsonStrCopy = (char*) PyMem_Malloc(sizeof(char) * (jsonStrLen+1));
+            if (jsonStrCopy == nullptr)
+                return PyErr_NoMemory();
+            memcpy(jsonStrCopy, jsonStr, jsonStrLen+1);
+            parseBuffer = jsonStrCopy;
+        }
 
-        if (jsonStrCopy == nullptr)
-            return PyErr_NoMemory();
+        InsituStringStream ss(parseBuffer);
 
-        memcpy(jsonStrCopy, jsonStr, jsonStrLen+1);
-
-        InsituStringStream ss(jsonStrCopy);
+        handler.deferB64 = true;
 
         // pleine precision + grands entiers exacts : sans effet dans les branches
         // nombres-en-chaines, actifs dans les branches natives (NM_NATIVE)
-        DECODE(reader, kParseInsituFlag | kParseFullPrecisionFlag | kParseBigIntsAsStringsFlag, ss, handler);
+        DECODE(reader, kParseInsituFlag | kParseInsituNoTerminatorFlag | kParseFullPrecisionFlag | kParseBigIntsAsStringsFlag, ss, handler);
 
-        PyMem_Free(jsonStrCopy);
+        // vide les différés AVANT de libérer le tampon qu'ils référencent ;
+        // sur échec, l'erreur posée est ramassée par le bloc PyErr_Occurred
+        if (!reader.HasParseError())
+            handler.FlushPendingB64();
+        else
+            handler.ReleasePendingB64();
+
+        if (jsonStrCopy != nullptr)
+            PyMem_Free(jsonStrCopy);
     } else {
         PyReadStreamWrapper sw(jsonStream, chunkSize);
 

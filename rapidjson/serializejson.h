@@ -437,6 +437,42 @@ sj_b64_decode_groups_scalar(const unsigned char* in, size_t groups,
     return true;
 }
 
+// validation seule des groupes complets (classification SIMD, pas d'écriture)
+static inline bool
+sj_b64_validate_groups(const unsigned char* in, size_t groups,
+                       const unsigned char* table)
+{
+    size_t g = 0;
+#if defined(__SSSE3__)
+    if (groups >= 4) {
+        const __m128i lut_lo = _mm_setr_epi8(
+            0x15, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+            0x11, 0x11, 0x13, 0x1A, 0x1B, 0x1B, 0x1B, 0x1A);
+        const __m128i lut_hi = _mm_setr_epi8(
+            0x10, 0x10, 0x01, 0x02, 0x04, 0x08, 0x04, 0x08,
+            0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10);
+        const __m128i mask_0F = _mm_set1_epi8(0x0F);
+        while (groups - g >= 4) {
+            __m128i str = _mm_loadu_si128((const __m128i*) (in + g * 4));
+            __m128i hi_nib = _mm_and_si128(_mm_srli_epi32(str, 4), mask_0F);
+            __m128i lo_nib = _mm_and_si128(str, mask_0F);
+            __m128i lo = _mm_shuffle_epi8(lut_lo, lo_nib);
+            __m128i hi = _mm_shuffle_epi8(lut_hi, hi_nib);
+            if (_mm_movemask_epi8(_mm_cmpgt_epi8(_mm_and_si128(lo, hi),
+                                                 _mm_setzero_si128())) != 0)
+                return false;
+            g += 4;
+        }
+    }
+#endif
+    for (; g < groups; g++) {
+        const unsigned char* q = in + g * 4;
+        if ((table[q[0]] | table[q[1]] | table[q[2]] | table[q[3]]) >= 64)
+            return false;
+    }
+    return true;
+}
+
 static bool
 sj_b64_decode_groups(const unsigned char* in, size_t groups,
                      unsigned char* dst, const unsigned char* table)
@@ -524,6 +560,71 @@ sj_b64_decode_maybe_parallel(const unsigned char* in, size_t groups,
     for (std::thread& t : pool)
         t.join();
     return ok.load();
+}
+
+// disposition d'une charge base64 stricte : nombre de groupes complets,
+// padding, taille décodée — et validation COMPLÈTE des caractères (le
+// différé exige de trancher la validité au moment de la mise en file)
+static inline bool
+sj_b64_layout(const char* src, size_t length, size_t* full_groups,
+              size_t* padding, size_t* out_length, const unsigned char* table)
+{
+    if (length == 0 || (length % 4) != 0)
+        return false;
+    size_t pad = 0;
+    if (src[length - 1] == '=')
+        pad = (src[length - 2] == '=') ? 2 : 1;
+    size_t groups = length / 4 - (pad ? 1 : 0);
+    const unsigned char* in = (const unsigned char*) src;
+    if (!sj_b64_validate_groups(in, groups, table))
+        return false;
+    if (pad) {
+        const unsigned char* q = in + groups * 4;
+        if ((table[q[0]] | table[q[1]]) >= 64)
+            return false;
+        if (pad == 1) {
+            if (table[q[2]] >= 64 || q[3] != '=')
+                return false;
+        } else if (q[2] != '=' || q[3] != '=') {
+            return false;
+        }
+    }
+    *full_groups = groups;
+    *padding = pad;
+    *out_length = length / 4 * 3 - pad;
+    return true;
+}
+
+// décode une charge DÉJÀ validée par sj_b64_layout vers dst
+static inline bool
+sj_b64_decode_into(const char* src, size_t length, unsigned char* dst,
+                   const unsigned char* table)
+{
+    size_t pad = 0;
+    if (src[length - 1] == '=')
+        pad = (src[length - 2] == '=') ? 2 : 1;
+    size_t groups = length / 4 - (pad ? 1 : 0);
+    const unsigned char* in = (const unsigned char*) src;
+    if (!sj_b64_decode_groups(in, groups, dst, table))
+        return false;
+    dst += groups * 3;
+    in += groups * 4;
+    if (pad) {
+        unsigned a = table[in[0]], b = table[in[1]];
+        if (a >= 64 || b >= 64)
+            return false;
+        if (pad == 1) {
+            unsigned c = table[in[2]];
+            if (c >= 64)
+                return false;
+            unsigned v = (a << 18) | (b << 12) | (c << 6);
+            *dst++ = (unsigned char) (v >> 16);
+            *dst++ = (unsigned char) (v >> 8);
+        } else {
+            *dst++ = (unsigned char) ((a << 2) | (b >> 4));
+        }
+    }
+    return true;
 }
 
 static PyObject*

@@ -156,6 +156,7 @@ enum ParseFlag {
     kParseTrailingCommasFlag = 128, //!< Allow trailing commas at the end of objects and arrays.
     kParseNanAndInfFlag = 256,      //!< Allow parsing NaN, Inf, Infinity, -Inf and -Infinity as doubles.
     kParseEscapedApostropheFlag = 512,  //!< Allow escaped apostrophe in strings.
+    kParseInsituNoTerminatorFlag = 2048,  //!< fork serializejson : en insitu, ne pas ecrire de terminateur nul apres les chaines (le gestionnaire recoit les longueurs) ; permet le parse en place d'un tampon en lecture seule sans echappements.
     kParseBigIntsAsStringsFlag = 1024,  //!< fork serializejson : parse natif, mais les entiers qui debordent 64 bits sont livres en chaine via RawNumber (exactitude). Requiert kParseFullPrecisionFlag.
     kParseDefaultFlags = RAPIDJSON_PARSE_DEFAULT_FLAGS  //!< Default parse flags. Can be customized by defining RAPIDJSON_PARSE_DEFAULT_FLAGS
 };
@@ -978,7 +979,8 @@ private:
             typename InputStream::Ch *head = s.PutBegin();
             ParseStringToStream<parseFlags, SourceEncoding, SourceEncoding>(s, s);
             RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
-            size_t length = s.PutEnd(head) - 1;
+            size_t length = s.PutEnd(head)
+                - ((parseFlags & kParseInsituNoTerminatorFlag) ? 0 : 1);
             RAPIDJSON_ASSERT(length <= 0xFFFFFFFF);
             const typename TargetEncoding::Ch* const str = reinterpret_cast<typename TargetEncoding::Ch*>(head);
             success = (isKey ? handler.Key(str, SizeType(length), false) : handler.String(str, SizeType(length), false));
@@ -1058,7 +1060,8 @@ private:
             }
             else if (RAPIDJSON_UNLIKELY(c == '"')) {    // Closing double quote
                 is.Take();
-                os.Put('\0');   // null-terminate the string
+                if (!(parseFlags & kParseInsituNoTerminatorFlag))
+                    os.Put('\0');   // null-terminate the string
                 return;
             }
             else if (RAPIDJSON_UNLIKELY(static_cast<unsigned>(c) < 0x20)) { // RFC 4627: unescaped = %x20-21 / %x23-5B / %x5D-10FFFF
