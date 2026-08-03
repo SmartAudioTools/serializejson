@@ -1,8 +1,8 @@
 {\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset2 Symbol;}}
-{\colortbl ;\red0\green176\blue80;\red255\green0\blue0;\red0\green0\blue255;\red155\green0\blue211;}
+{\colortbl ;\red0\green176\blue80;\red255\green0\blue0;\red0\green0\blue255;\red155\green0\blue211;\red255\green105\blue180;}
 {\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1\lang12\ul\b\f0\fs22 Optimisation \par
 \par
-\pard\li720\sl240\slmult1\cf1\ulnone\b0 d\'e9sactivation du garbage collector (comme serpent)\cf0\ul\b\par
+\pard\li720\sl240\slmult1\cf1\ulnone\b0 {\cf5 d\'e9sactivation du garbage collector (comme serpent)}{\cf4  [FAIT 03/08/2026 au d\'e9codage : GC g\'e9n\'e9rationnel en pause RAII pendant le parse (l'arbre construit est acyclique, les collections ne lib\'e9raient rien \'97 ~13 % du temps mesur\'e9 au profil)]}\cf0\ul\b\par
 \pard\sl240\slmult1\ulnone\par
 \pard\li720\sl240\slmult1 def _onlyOneDimNumbers(list_or_tuple)  -> passer en cython ? \par
 def _json_object_file_iterator -> passer en cython ? \par
@@ -145,7 +145,7 @@ avec serializejson.Encoder().dumps\par
 => 4.7%  (3.7108769997757918   / 78.81728000029398  ) du temps est pass\'e9 sur pybase64 \par
 \pard\li3240\sl240\slmult1\cf1 pybase64._pybase64.b64encode prend 36 % plus de temps que la copy de bytes_ ( pour 30% de taille en plus )  et moins que la copie de bytes_encoded \par
 => le decodage en lui meme ne prend pas plus de temps qu'une copie d'un bytes de la taille final. \par
-peut \'eatre est-il possible de ne faire la converstion en bytes 64 que lors de la cr\'e9ation de la string (ou bytes) contenant le json total , en reservant une place , pour eviter une copie \cf0\par
+{\cf5 peut \'eatre est-il possible de ne faire la converstion en bytes 64 que lors de la cr\'e9ation de la string (ou bytes) contenant le json total , en reservant une place , pour eviter une copie}{\cf4  [FAIT : le base64 (vectoris\'e9 SSE, parall\'e8le au-del\'e0 de 3 Mo) s'\'e9crit directement dans le tampon de sortie final, sans aucun interm\'e9diaire]} \cf0\par
 \pard\li2520\sl240\slmult1 => 95.3 % sur le reste  soit dans des checks, copies et conversion ascii  utf-8 <-> str  <-> str with \\n escaped  (json)\par
 \par
 \par
@@ -165,7 +165,7 @@ sur 39.7  ms = 100 % du temps ,  une partie est pass\'e9e: \par
 \tab\tab\tab\tab\tab\tab return (b64decode, (encodedB64(inst),), None) # 99.8 % du temps def tuple_from_bytes (\par
 \tab\tab\tab\tab\tab\tab\tab class encodedB64(bytes):\par
 \tab\tab\tab\tab\tab\tab\tab         return super().__new__(cls, b64encode(val)) # 100% du temps dan encodedB64\cf2\b\par
-\pard\li2160\sl240\slmult1\cf0 VERDICT dumps bytes : \par
+\pard\li2160\sl240\slmult1\cf0 {\cf5 VERDICT dumps bytes :}{\cf4  [R\'c9GL\'c9 : plus aucun RawJSON ni pybase64 sur ce chemin \'97 RawBytesToBase64/BloscToBase64 \'e9crivent en direct, sans check d'\'e9chappement ; le co\'fbt est celui d'une copie]} \par
 \pard\li2880\sl240\slmult1 rapidjson : \par
 \pard\li3600\sl240\slmult1 RawJSON : \b0 y'a un probl\'e8me de p\'e9rformance : 12x plus long qu'une copie , alors que ne fait que \'e7a (pas de checks si ensure_ascii = False)\par
 \pard\li4320\sl240\slmult1 import rapidjson \par
@@ -185,7 +185,7 @@ test_rawjson()\par
 \cf0\b0 pybase64.b64encode_to_str(bytes_) => eviterai un .decode("ascii") (le cout d'une copie) \par
 pybase64.b64encode_to_str_with_double_quotes(bytes_) => eviterait une deuxi\'e8me copie pour rajouter juste les doubles quotes si on veut utilsier RawJson une fois qu'il aura \'e9t\'e9 optimis\'e9 dans \par
 \pard\li1440\sl240\slmult1\b Decoding  :\par
-\pard\li2160\sl240\slmult1\tx3060\cf2 pour l'instant d'apr\'e8s les courbes donn\'e9e par test_serialize_vs_pickle beaucoup trop long.....   decodage des escape + decodage utf-8 + ....\par
+\pard\li2160\sl240\slmult1\tx3060\cf2 {\cf5 pour l'instant d'apr\'e8s les courbes donn\'e9e par test_serialize_vs_pickle beaucoup trop long}{\cf4  [FAIT 02-03/08/2026 : lecture d\'e9sormais entre \'d70,3 et \'d71,5 de pickle (b64 SSE parall\'e8le, blobs diff\'e9r\'e9s, parse en place, GC en pause, dicts sans end_object Python)]}.....   decodage des escape + decodage utf-8 + ....\par
 \par
 \par
 \par

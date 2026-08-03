@@ -1,12 +1,12 @@
 {\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset2 Symbol;}}
-{\colortbl ;\red155\green0\blue211;\red0\green176\blue80;\red0\green0\blue255;\red255\green0\blue0;}
+{\colortbl ;\red155\green0\blue211;\red0\green176\blue80;\red0\green0\blue255;\red255\green0\blue0;\red255\green105\blue180;}
 {\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\li720\sl240\slmult1\lang12\f0\fs22\par
 \pard\sl240\slmult1\b permetre \'e0 RawJSON de prendre des bytes plutot que de l'unicode \par
 \pard\li720\sl240\slmult1\b0 pour l'instant j'ai rajouter RawJSONBYTES car je n'arrivais pas faire que RawJSON accepter des bytes ou des strings\par
 \cf1 => voir si je peut permetre \'e0 RawJSON de prendre des bytes ou strings \par
 \cf0\par
 \pard\sl240\slmult1\b\par
-optimisation  malloc ,  realloc et ecriture directement dans des bytes  \par
+{\cf5 optimisation  malloc ,  realloc et ecriture directement dans des bytes}{\cf1  [FAIT 02-03/08/2026 : \'e9criture directe dans un PyBytes ; mesur\'e9 : le realloc Linux des gros blocs est un mremap sans copie de donn\'e9es, la strat\'e9gie gagnante est la haute-eau (capacit\'e9 initiale = taille du dump pr\'e9c\'e9dent, ~10 %) ; le FIFO (strat\'e9gie 4) ajouterait une copie de recollage, mesur\'e9 perdant en A/B]}  \par
 \par
 \pard\li360\sl240\slmult1 dumps : \par
 \pard\li1440\sl240\slmult1\b0 la strategie pour les realloc est vraiement mauvaise !!!! \par
@@ -32,7 +32,7 @@ et si c'est un bytes , on envoit le  currentBytes resiz\'e9 \'e0 son contenu et 
 \par
 \par
 \par
-\pard\sl240\slmult1\b string encode performance problem :\par
+\pard\sl240\slmult1\b {\cf5 string encode performance problem :}{\cf1  [FAIT : scan d'\'e9chappement vectoris\'e9 SSE2, raccourcis en ligne dans les boucles, aiguillage str en t\'eate, PGO \'97 50 000 cha\'eenes s'\'e9crivent \'e0 \'d70,22 de pickle, plus vite qu'une copie]}\par
 \pard\li720\sl240\slmult1\b0 Hello, \par
 \par
 from my benchmark,  to serialize a simple string, rapidjson.dumps take 10x more time than a copy, juste for adding  doubles quotes at both ends  and sometimes escape " ,\\  ,controls characters (ord(c) < 32 including \\b,\\t,\\n,\\f,\\r) and non-ascii characters when ensure_ascii is True and string.isascii() is False .\par
@@ -76,7 +76,7 @@ I coded an example with a need_escape function that checks if a string needs esc
 \b\fs22\par
 \par
 \par
-\pard\sl240\slmult1 string decode performance probleme \par
+\pard\sl240\slmult1 {\cf5 string decode performance probleme}{\cf1  [FAIT : parse insitu, cr\'e9ation des str par copie brute quand ascii, et parse EN PLACE sans copie d'entr\'e9e quand aucun antislash \'97 lecture des cha\'eenes ~\'d71,2 de pickle]} \par
 \pard\li720\sl240\slmult1\par
 \b0 Hello, \par
 \par
@@ -111,7 +111,7 @@ for i in range(32,128):\par
     assert decoded == decoded_optimized\par
 \pard\li720\sl240\slmult1\par
 \par
-\b ideal : \par
+\b {\cf5 ideal : }{\cf1  [ATTEINT : l'utf-8 des str s'\'e9crit directement dans le tampon de sortie, et la conversion finale est une copie brute si tout est rest\'e9 ascii (drapeau maybe_non_ascii)]}\par
 \pard\li1440\sl240\slmult1\b0 on devrait juste avoir le cout d'un peu plus qu'un encodage en utf-8 , \par
 l'encodeage en utf-8 devraite ecrire directement dans le memory buffeur . \par
 les echapement devraient se faire directement dans l'encodage en utf-8 ? soit dans la fonction\par
@@ -235,13 +235,13 @@ j'ai \'e9galument du l'ajouter \'e0 PyWriteStreamWrapper  pour r\'e9ussir \'e0 c
 \ulnone\par
 5) je permet \'e0 rapidjson de retourner directement des bytes avec une nouvelle fonction dumpb , qui utilise \ul PyBytes_FromStringAndSize(buf.GetBuffer(),buf.GetSize())\ulnone\par
 \par
-6 ) en modifiant Stack.h Expand  pour allouer directement PyBytes en m\'e9moire, je pense qu'on pourrait encore acc\'e9l\'e9r\'e9 x2 en \'e9vitant d'avoir \'e0 utiliser le PyBytes_FromStringAndSize\par
+{\cf5 6 ) en modifiant Stack.h Expand  pour allouer directement PyBytes en m\'e9moire, je pense qu'on pourrait encore acc\'e9l\'e9r\'e9 x2 en \'e9vitant d'avoir \'e0 utiliser le PyBytes_FromStringAndSize}{\cf1  [Rendu inutile : PyBytesBuffer \'e9crit directement dans un PyBytes, et le r\'e9tr\'e9cissement final est un mremap]}\par
 \par
-7) en utilisant un flag qui permet de savoir toutes les strings qu'on a serialis\'e9 \'e9taient en ascii :\par
+{\cf5 7) en utilisant un flag qui permet de savoir toutes les strings qu'on a serialis\'e9 \'e9taient en ascii :\par
 on pourra alors utiliser  _PyUnicode_FromASCII(buf.GetString(),  buf.\ul GetSize\ulnone ())) \par
-qui permetra encore d'acceler le retour en Unicode et evitant de scanner le buf \'e0 la recherche de caract\'e8re en UTF-8 \par
+qui permetra encore d'acceler le retour en Unicode et evitant de scanner le buf \'e0 la recherche de caract\'e8re en UTF-8}{\cf1  [FAIT 03/08/2026 : drapeau maybe_non_ascii pos\'e9 par le writer \'e0 chaque cha\'eene non-ascii ; _PyUnicode_FromASCII n'est plus export\'e9 en 3.14, remplac\'e9 par PyUnicode_New(127)+memcpy \'97 la sortie str co\'fbte le prix de la sortie bytes]} \par
 \par
-Je m'arr\'e8te l\'e0 pour l'instant , mais je pense qu'il y a encore beaucoup d'optimisations possibles avec une int\'e9gration plus profonde de serializejson, python-rapidjson et rapidjson qui permetrait d'atteindre les performences de cpickle, voir m\'eame de le surpasser grace \'e0 la compression ultra-rapide de blosc \par
+Je m'arr\'e8te l\'e0 pour l'instant , mais {\cf5 je pense qu'il y a encore beaucoup d'optimisations possibles avec une int\'e9gration plus profonde de serializejson, python-rapidjson et rapidjson qui permetrait d'atteindre les performences de cpickle, voir m\'eame de le surpasser grace \'e0 la compression ultra-rapide de blosc}{\cf1  [FAIT, \'e0 la lettre : campagne des 2-3/08/2026 \'97 \'e9criture DEVANT pickle sur objets, cha\'eenes, dicts, nombres et numpy ; lecture au niveau ; fork libblosc2 d\'e9terministe multithread. Tout le d\'e9tail dans AUDIT 2026-08-02.md]} \par
 \fs22\par
 version anglaise : \par
 \par

@@ -1,5 +1,5 @@
 {\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fswiss\fprq2\fcharset0 Arial;}}
-{\colortbl ;\red0\green0\blue0;\red0\green176\blue80;\red0\green0\blue255;\red255\green0\blue0;}
+{\colortbl ;\red0\green0\blue0;\red0\green176\blue80;\red0\green0\blue255;\red255\green0\blue0;\red255\green105\blue180;\red155\green0\blue211;}
 {\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1\lang12\b\f0\fs22 Compression \par
 \pard\sl240\slmult1\tx1980\par
 \pard\li720\sl240\slmult1\tx1980\b0 pourquoi blosclz et pas blosc_lz ? parceqeu blosclz est le vrai nom \par
@@ -13,9 +13,9 @@ faudrait une compression iterative pour pouvoir se faire au fur et \'e0 mesure d
 \pard\sl240\slmult1\cf1\lang1033\f1\fs20\par
 \pard\li720\sl240\slmult1\cf0\lang12\ul\f0\fs22 compressoin d'images \par
 \pard\li1440\sl240\slmult1\par
-\cf2 blosc2 ?  \par
+\cf2 {\cf5 blosc2 ?}{\cf6  [FAIT : blosc2 est le d\'e9faut (fork d\'e9terministe embarqu\'e9, d\'e9codage des trames par notre C m\'eame sans la roue python-blosc2) ; le filtre delta reste \'e0 explorer]}  \par
 \pard\li2160\sl240\slmult1\ulnone\b0 y'a un nouveau filtre "delta" avec blosc2 !!!\par
-le faire du cot\'e9 C++ pour eviter d'avoir \'e0 faire des copies lors de passage pythons <-> C++\cf0\b\par
+{\cf5 le faire du cot\'e9 C++ pour eviter d'avoir \'e0 faire des copies lors de passage pythons <-> C++}{\cf6  [FAIT : compression, d\'e9compression et base64 enti\'e8rement c\'f4t\'e9 C++, z\'e9ro copie Python (protocole buffer en entr\'e9e, \'e9criture directe dans la sortie)]}\cf0\b\par
 \pard\li1440\sl240\slmult1\par
 avec numpy.diff + blosc ? \par
 \pard\li2160\sl240\slmult1\b0 j'ai laiss\'e9 impl\'e9mentation sans la documenter \i\par
@@ -40,9 +40,9 @@ blosc \par
 \pard\li1440\sl240\slmult1\tx3060\cf4\ulnone - pas compatible avec zstandard \'e0 cause header diff\'e9rent () \cf0\b0\par
 \pard\li2160\sl240\slmult1\tx3060 -> pas top pour la p\'e9r\'e9nit\'e9 des datas\par
 -> si on d\'e9cide alors de compression avec zstandard pour continuer \'e0 avoir quelque choses de deterministe meme si nthreads > 1, blosc n'arrive pas \'e0 lire le header...\par
-\pard\li1440\sl240\slmult1\tx3060 - \cf4\b pas deterministe si nb thread > 1\cf0\b0  pendant la compression (serialize pas toujours de la meme fa\'e7on si donn\'e9es d\'e9passent une certaine taille (il d\'e9coupe en plusieurs CPU si d\'e9passe cette taille ? )) \par
-\pard\li2160\sl240\slmult1\tx3060\cf4 => pause probl\'e8me pour versionner json...\par
-\cf0 -> pour l'instant je suis partis  sur set_nbtread(1) .. pas top ... \par
+\pard\li1440\sl240\slmult1\tx3060 - \cf4\b {\cf5 pas deterministe si nb thread > 1\b0  pendant la compression (serialize pas toujours de la meme fa\'e7on si donn\'e9es d\'e9passent une certaine taille (il d\'e9coupe en plusieurs CPU si d\'e9passe cette taille ? )) \par
+\pard\li2160\sl240\slmult1\tx3060=> pause probl\'e8me pour versionner json...\par
+-> pour l'instant je suis partis  sur set_nbtread(1) .. pas top ... }{\cf6  [R\'c9SOLU 03/08/2026 : fork libblosc2 embarqu\'e9 \'e0 commit ORDONN\'c9 des blocs \'97 le multithread interne produit des octets identiques \'e0 1 thread ; d\'e9faut bytes_compression_threads='determinist' qui n'active le MT que par cette voie]}\par
 {\field{\*\fldinst{HYPERLINK "https://github.com/Blosc/python-blosc/issues/236"}}{\fldrslt{\ul\cf3 https://github.com/Blosc/python-blosc/issues/236}}}\f0\fs22\par
 \fs16 Hi, I'm developing [serializejson](https://smartaudiotools.github.io/serializejson), a python library for fast serialization and deserialization of complex Python objects in [JSON](http://json.org) highly compatible with [pickle](https://docs.python.org/3/library/pickle.html)\par
 I use blosc in order to compress binary data before encoding in Base64 for json serialisation.\par
@@ -62,7 +62,7 @@ Otherwise i would like to use the  [python-zstandard](https://github.com/indygre
 Is there an option to recognize or ignore the header of the data compressed with the python-zstandard library if we pass the name of the compression to blosc.decompress ? \par
 More generally, is it possible to have data compressed with blosc that does not use specific blosc headers, to have data that can still be readable in 10 years even if blosc is no longer maintained?\par
 --------------------\par
-Hi. Unfortunately it is not possible. Blosc achieves efficient paralellism by letting the first thread that ends its part of the compression to write first in the output buffer, then the next thread to finish will write after that, and so on so forth; this is the way we can save precious copy time. \cf4 As there is no guarantee on the order of the sequence of completing times for every thread, it is essentially impossible to guarantee an order (except for the trivial case that you use 1 single thread, as you found out already).\par
+Hi. {\cf5 Unfortunately it is not possible}{\cf6  [D\'c9MENTI le 03/08/2026 : le patch de 184 lignes (blosc2_determinisme.patch, commit ordonn\'e9 par variable de condition) rend le MT interne d\'e9terministe sans perte mesurable \'97 ce que l'auteur tenait pour impossible]}. Blosc achieves efficient paralellism by letting the first thread that ends its part of the compression to write first in the output buffer, then the next thread to finish will write after that, and so on so forth; this is the way we can save precious copy time. \cf4 As there is no guarantee on the order of the sequence of completing times for every thread, it is essentially impossible to guarantee an order (except for the trivial case that you use 1 single thread, as you found out already).\par
 \cf0\par
 Regarding compatibility with zstandard, unfortunately the answer is negative again. Blosc is all about speed, and it makes a number of choices for compressing/decompressing that makes it difficult (if not impossible) to read other formats in order to decompress them faster than the original implementation. At any rate, my guess is that it is going to be difficult for any codec to decompress faster than zstandard when it is required to use zstandard own format.\par
 \par

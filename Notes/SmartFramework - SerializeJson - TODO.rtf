@@ -1,5 +1,5 @@
 {\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset134 SimSun;}{\f2\fnil\fcharset2 Symbol;}}
-{\colortbl ;\red0\green0\blue255;\red0\green176\blue80;\red255\green0\blue0;\red155\green0\blue211;}
+{\colortbl ;\red0\green0\blue255;\red0\green176\blue80;\red255\green0\blue0;\red155\green0\blue211;\red255\green105\blue180;}
 {\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\li720\sl240\slmult1\lang12\b\f0\fs22 probl\'e8me test serialization  :  \b0 pas le me resultat avec python 3.7 et 3.8 pour serializejson_blosclz_level9.txt\par
 \pard\sl240\slmult1 pas mal de truc chelous affich\'e9s \par
 \par
@@ -7,7 +7,7 @@ verifier tout les isinstance pour \'eatre sur que pas de bug dus \'e0 isinstance
 \par
 pb de remplacement des tab par 4 espace dans spyer pour le jsons\b\par
 serializejson :  \par
-\pard\li720\sl240\slmult1 accelerer deserialisation pour pouvoir utiliser le json comme format de video \par
+\pard\li720\sl240\slmult1 {\cf5 accelerer deserialisation pour pouvoir utiliser le json comme format de video}{\cf4  [FAIT 02-03/08/2026 : lecture entre \'d70,3 et \'d71,5 de pickle selon les cas (blobs diff\'e9r\'e9s parall\'e8les, parse en place, GC en pause) \'97 devant le json standard partout]} \par
 \pard\li1440\sl240\slmult1\b0 acceler la lecture de fichiers ? {\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/30294146/fastest-way-to-process-a-large-file"}}{\fldrslt{\ul\cf1 https://stackoverflow.com/questions/30294146/fastest-way-to-process-a-large-file}}}\b\f0\fs22\par
 \pard\li720\sl240\slmult1\par
 pb compilation Gcc\par
@@ -33,7 +33,7 @@ permetre des d'autorizer des classe avec des   "*" ? merdique pas du tout s\'e9c
 \pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li1080\sl240\slmult1 voir dans code de martin si on ne doit appeller aucun __init__ de ses objets , car serializejon ne vas pas les appeller si pas d\'e9fini de __reduc__\par
 {\pntext\f2\'B7\tab}frame["image"] etc ..dans script d'\'e9valuation de martin . probl\'e8me du au fait qu'on a pas mis __class__ dans les json pour export pour IM -> passer en dotdict ? va pas ralentir ? \par
 {\pntext\f2\'B7\tab}voir pour ne plus sierialize classes en commencant par __main__ ? \par
-{\pntext\f2\'B7\tab}nb thread par defaut pour truc deterministe pas claire \par
+{\pntext\f2\'B7\tab}{\cf5 nb thread par defaut pour truc deterministe pas claire}{\cf4  [FAIT : d\'e9faut bytes_compression_threads='determinist' d\'e9sormais r\'e9solu \'97 multithread UNIQUEMENT via le fork libblosc2 \'e0 octets stables, sinon 1 ; 'cpus' aussi r\'e9solu]} \par
 \pard\li720\sl240\slmult1\par
 \par
 \par
@@ -41,11 +41,11 @@ permetre des d'autorizer des classe avec des   "*" ? merdique pas du tout s\'e9c
 \pard\li1440\sl240\slmult1\b0 reloud de devoir mettre autorized_classes \'e0 chaque fois...  mais dangereux de le d\'e9sactiver . \par
 on peut utiliser unauthorized_classes_as_dict = True et dotdict = Trur,\par
 pour que serialization single_line_list_numbers marche  (elle ne marche pas sur les elemetn d'un dictionnaire pur)\par
-\cf2 => id\'e9alament faudrait que single_line_list_numbers marche pour des element d'un dictionnaire . \par
+\cf2 => id\'e9alament {\cf5 faudrait que single_line_list_numbers marche pour des element d'un dictionnaire .}{\cf4  [FAIT (voir ci-dessus)]} \par
 \pard\li720\sl240\slmult1\cf0\par
 \b single_line_list_numbers \par
-\pard\li1440\sl240\slmult1\b0 ne marche pas sur les key de dictionnaire, mais que sur les attributs d'un objet \par
-ne marche par sur liste de listes d'element du meme type. \par
+\pard\li1440\sl240\slmult1\b0 {\cf5 ne marche pas sur les key de dictionnaire, mais que sur les attributs d'un objet}{\cf4  [FAIT nuit du 2-3/08 : single_line_numbers d\'e9cid\'e9 en C++ partout \'97 valeurs de dicts purs et sous-listes comprises]} \par
+{\cf5 ne marche par sur liste de listes d'element du meme type.} \par
 \cf2 => faudrait un default_list pour pouvoir gere \'e7a  ?\par
 \par
 \pard\li720\sl240\slmult1\cf0\b ajout\'e9 un param\'e8tre single_line_new. \par
@@ -57,7 +57,7 @@ faire de la pub : \par
 Il est possible de poser des questions  (Ask) ... il y a souvent des r\'e9ponses, mais rarement plein de r\'e9ponses... Il est aussi possible de montrer son projet, m\'eame quand il n'est pas 200% fini (Show), avec des r\'e9actions dans les comments... Il y a une certaine bienveillance... Peut-\'eatre que cela pourrait permettre \'e0 la fois de faire connaitre un peu plus votre travail, et d'avoir des feedback sur le produit, ou sur le model \'e9conomique...\par
 \pard\li720\sl240\slmult1\b\par
 am\'e9liorations rapidjson \par
-\pard\li1440\sl240\slmult1\b0 il faudrait un "default_list" avec  en param\'e8tre le nom de l'attribut qui contient la liste  pour pouvoir la mettre en une ligne si __init__, __new__, ou liste de nombres \par
+\pard\li1440\sl240\slmult1\b0 {\cf5 il faudrait un "default_list" avec  en param\'e8tre le nom de l'attribut qui contient la liste}{\cf4  [FAIT et d\'e9pass\'e9 : hooks default_dict/default_list ajout\'e9s \'e0 l'Encoder, mais la mise en une-ligne est finalement d\'e9cid\'e9e directement dans le C++ (PushCompact), sans double s\'e9rialisation]}  pour pouvoir la mettre en une ligne si __init__, __new__, ou liste de nombres \par
 \pard\li2160\sl240\slmult1\par
 \pard\li720\sl240\slmult1\cf3\b sort_keys :  A VOIR \cf0\par
 \pard\li1440\sl240\slmult1\b0 j'avais mis sort_keys = true pour smartmusic etc..\par
@@ -77,7 +77,7 @@ and serialize_parameters.numpyB64_convert_int64_to_int32_and_align_in_Python_32B
             ):  # pour pouvoir deserialiser les classifiers en python 32 bit ?\par
 \pard\li720\sl240\slmult1 faut vraiment convertire les int64 en int32 ? \par
 \pard\sl240\slmult1\b serializejson : \b0\par
-\pard\li720\sl240\slmult1 On peut ne traduir en base 64 qu,au moment de la concatenation pour dumps  !\par
+\pard\li720\sl240\slmult1 {\cf5 On peut ne traduir en base 64 qu,au moment de la concatenation pour dumps  !}{\cf4  [FAIT en mieux : le base64 s'\'e9crit directement dans le tampon final (jamais d'interm\'e9diaire), la compression est multithread, et au d\'e9codage le remplissage des blobs est diff\'e9r\'e9 et parall\'e8le \'97 l'esprit exact de cette note]}\par
 Voir faire aussi la compression \'e0 ce moment  ?\par
 Sinon serialiser tout ce qui est petit dans un buffeur en stoquant les poiteur des truc \'e0 inserer  ?\par
 (Pointeur source, taille source, offset d'insertion )\par
@@ -93,13 +93,13 @@ Faudrait voir si l'\'e9criture est bloquante. Etb si elle ne les pas qui g\'e8re
 \pard\sl240\slmult1\par
 serializejson  : \par
 \pard\li720\sl240\slmult1 // r\'e9ussir \'e0 envoyer sur test.pypi ({\field{\*\fldinst{HYPERLINK "https://twine.readthedocs.io/en/latest/#twine-check"}}{\fldrslt{\ul\cf1 https://twine.readthedocs.io/en/latest/#twine-check}}}\f0\fs22 )\par
-\pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li1080\sl240\slmult1 accelerer  la s\'e9rialisation et d\'e9serialisetaion de bytes en eviter de checker les echappements\cf4\b  <- j'attend reponse du gars sur RawJSON , pour ensuite lui demander si on ne pourrait pas permetre \'e0 RawJson de prendre des listes,des bytes et des listes de bytes (permetrai d'eviter une recopie juste pour ajouter des " quand serialize vers un fichier)\par
-\cf0\b0{\pntext\f2\'B7\tab}passer \'e0 blosc2? \par
+\pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li1080\sl240\slmult1 {\cf5 accelerer  la s\'e9rialisation et d\'e9serialisetaion de bytes en eviter de checker les echappements}{\cf4  [FAIT : RawBytesToBase64/BloscToBase64 \'e9crivent directement dans le tampon de sortie sans aucune v\'e9rification d'\'e9chappement, base64 vectoris\'e9 SSE et parall\'e8le dans les deux sens]}\cf4\b  <- j'attend reponse du gars sur RawJSON , pour ensuite lui demander si on ne pourrait pas permetre \'e0 RawJson de prendre des listes,des bytes et des listes de bytes (permetrai d'eviter une recopie juste pour ajouter des " quand serialize vers un fichier)\par
+\cf0\b0{\pntext\f2\'B7\tab}{\cf5 passer \'e0 blosc2?}{\cf4  [FAIT : blosc2 par d\'e9faut, via le fork libblosc2 d\'e9terministe embarqu\'e9 (multithread interne \'e0 octets stables) ; d\'e9codage des trames par notre C, y compris sous 3.10 sans la roue python-blosc2]} \par
 \pard\sl240\slmult1 am\'e9liorer la compression avec delta ?  de facon automatique  en testant diff\'e9rent param\'e8tre sur chaque nouvelle element d'un shape et type donn\'e9 ? et resterstant toutes les 20 occurences?\par
 \par
 comment commiter \par
 \b projet C++  ?\b0\par
-\pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li720\sl240\slmult1 trouver solution pour faire de line profiler en C++  ? ou avec de prints ? \line Intel\'ae VTune\'99 Profiler ? {\field{\*\fldinst{HYPERLINK "https://www.intel.com/content/www/us/en/developer/tools/oneapi/vtune-profiler.html"}}{\fldrslt{\ul\cf1 https://www.intel.com/content/www/us/en/developer/tools/oneapi/vtune-profiler.html}}}\f0\fs22\line{\field{\*\fldinst{HYPERLINK "https://www.intel.com/content/www/us/en/develop/documentation/vtune-help/top/analyze-performance/code-profiling-scenarios/python-code-analysis.html"}}{\fldrslt{\ul\cf1 https://www.intel.com/content/www/us/en/develop/documentation/vtune-help/top/analyze-performance/code-profiling-scenarios/python-code-analysis.html}}}\f0\fs22\par
+\pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li720\sl240\slmult1 {\cf5 trouver solution pour faire de line profiler en C++  ?}{\cf4  [R\'c9SOLU autrement : gprofng (binutils) marche dans le bac \'e0 sable \'97 c'est lui qui a r\'e9v\'e9l\'e9 la compilation en -O0 et guid\'e9 toute la campagne]} ou avec de prints ? \line Intel\'ae VTune\'99 Profiler ? {\field{\*\fldinst{HYPERLINK "https://www.intel.com/content/www/us/en/developer/tools/oneapi/vtune-profiler.html"}}{\fldrslt{\ul\cf1 https://www.intel.com/content/www/us/en/developer/tools/oneapi/vtune-profiler.html}}}\f0\fs22\line{\field{\*\fldinst{HYPERLINK "https://www.intel.com/content/www/us/en/develop/documentation/vtune-help/top/analyze-performance/code-profiling-scenarios/python-code-analysis.html"}}{\fldrslt{\ul\cf1 https://www.intel.com/content/www/us/en/develop/documentation/vtune-help/top/analyze-performance/code-profiling-scenarios/python-code-analysis.html}}}\f0\fs22\par
 {\pntext\f2\'B7\tab}voir avec quel outil il test compile et  debug rapidjson\par
 {\pntext\f2\'B7\tab}voir avec martin si visual studio code mieux que visual studio 2017 \par
 {\pntext\f2\'B7\tab}pouvoir faire du debug , line par line , pour \'eatre sur de l\'e0 o\'f9 il passe \par
@@ -116,7 +116,7 @@ test_serialize_vs_pickle\par
 2) ajouter test sur grosse donn\'e9es \par
 \par
 \pard\sl240\slmult1 optimisation \par
-\pard\li720\sl240\slmult1 optimiser ecriture de string\par
+\pard\li720\sl240\slmult1 {\cf5 optimiser ecriture de string}{\cf4  [FAIT : \'d70,22 de pickle en \'e9criture]}\par
 \pard\li1440\sl240\slmult1\par
 \cf3 bizarre j'ai perdu en performances sur     bytes_str1 = rapidjson.dumps(str1, ensure_ascii=False, return_bytes = True)# \ul 32 msec \ulnone (646 msec before optimisations)\par
 ou alors j'avais juste mal not\'e9 ? \par
@@ -215,7 +215,7 @@ unicode_fill_utf8(PyObject *unicode)\par
 \}\par
 \pard\li1440\sl240\slmult1\fs22 ucs2lib_utf8_encoder\par
 \par
-\pard\li720\sl240\slmult1 voir pour eviter de passer par une serialisation sp\'e9ciale pour du one_line ? \par
+\pard\li720\sl240\slmult1 {\cf5 voir pour eviter de passer par une serialisation sp\'e9ciale pour du one_line ?}{\cf4  [FAIT : un seul encodeur, mode compact par sous-arbre dans le PrettyWriter C++ ; le raccourci Python des listes racines a \'e9t\'e9 retir\'e9 (il contournait toutes les optimisations)]} \par
 \par
 \par
 \par
