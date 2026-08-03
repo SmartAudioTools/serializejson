@@ -114,6 +114,7 @@ static PyObject* class_plan_name = nullptr;
 static PyObject* dict_dunder_name = nullptr;
 static PyObject* decode_class_plan_name = nullptr;
 static PyObject* fast_start_object_name = nullptr;
+static PyObject* fast_plain_end_object_name = nullptr;
 static PyObject* root_attr_name = nullptr;
 static PyObject* class_key_name = nullptr;
 static PyObject* init_key_name = nullptr;
@@ -140,6 +141,10 @@ struct HandlerContext {
     bool isObject;
     bool keyValuePairs;
     bool copiedKey;
+    // vrai si une clé "__class__" ou "$ref" a été vue dans ce dict : les
+    // dicts SANS clé spéciale peuvent sauter le end_object Python quand le
+    // décodeur l'a certifié (_fast_plain_end_object)
+    bool specialKey;
 };
 
 
@@ -1024,6 +1029,7 @@ struct PyHandler {
     PyObject* decoderObject;        // le Decoder lui-même (pour poser .root)
     PyObject* decodeClassPlanFn;
     bool fastStartObject;           // start_object Python court-circuité
+    bool fastPlainEndObject;        // end_object sauté pour les dicts ordinaires
     bool rootAttrSet;
     std::unordered_map<std::string, PyObject*> decodePlans;  // réfs possédées
     // classes dont la charge __init__/__new__[0] est du base64 à décoder
@@ -1047,6 +1053,7 @@ struct PyHandler {
           decoderObject(nullptr),
           decodeClassPlanFn(nullptr),
           fastStartObject(false),
+          fastPlainEndObject(false),
           rootAttrSet(false)
         {
             stack.reserve(128);
@@ -1073,6 +1080,15 @@ struct PyHandler {
                         PyErr_Clear();
                     else {
                         fastStartObject = PyObject_IsTrue(fast) == 1;
+                        Py_DECREF(fast);
+                    }
+                }
+                if (decoderEndObject != nullptr) {
+                    PyObject* fast = PyObject_GetAttr(decoder, fast_plain_end_object_name);
+                    if (fast == nullptr)
+                        PyErr_Clear();
+                    else {
+                        fastPlainEndObject = PyObject_IsTrue(fast) == 1;
                         Py_DECREF(fast);
                     }
                 }
@@ -1188,6 +1204,10 @@ struct PyHandler {
     bool Key(const char* str, SizeType length, bool copy) {
         HandlerContext& current = stack.back();
 
+        if ((length == 9 && memcmp(str, "__class__", 9) == 0)
+            || (length == 4 && memcmp(str, "$ref", 4) == 0))
+            current.specialKey = true;
+
         // This happens when operating in stream mode and kParseInsituFlag is not set: we
         // must copy the incoming string in the context, and destroy the duplicate when
         // the context gets reused for the next dictionary key
@@ -1260,6 +1280,7 @@ struct PyHandler {
         ctx.object = mapping;
         ctx.key = nullptr;
         ctx.copiedKey = false;
+        ctx.specialKey = false;
         Py_INCREF(mapping);
 
         stack.push_back(ctx);
@@ -1274,7 +1295,16 @@ struct PyHandler {
             PyMem_Free((void*) ctx.key);
 
         PyObject* mapping = ctx.object;
+        bool plainDict = !ctx.specialKey && !ctx.keyValuePairs;
         stack.pop_back();
+
+        // dict ordinaire (aucune clé __class__/$ref) et décodeur ayant
+        // certifié qu'aucune transformation Python ne s'applique : le dict
+        // est déjà inséré dans son parent (Handle au StartObject), rien à faire
+        if (plainDict && fastPlainEndObject && objectHook == nullptr) {
+            Py_DECREF(mapping);
+            return true;
+        }
 
         PyObject* replacement = nullptr;
 
@@ -1445,6 +1475,7 @@ struct PyHandler {
         ctx.object = list;
         ctx.key = nullptr;
         ctx.copiedKey = false;
+        ctx.specialKey = false;
         Py_INCREF(list);
 
         stack.push_back(ctx);
@@ -5540,6 +5571,7 @@ module_exec(PyObject* m)
         return -1;
 
     fast_start_object_name = PyUnicode_InternFromString("_fast_start_object");
+    fast_plain_end_object_name = PyUnicode_InternFromString("_fast_plain_end_object");
     if (fast_start_object_name == nullptr)
         return -1;
 

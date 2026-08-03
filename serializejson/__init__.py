@@ -1616,6 +1616,7 @@ class Decoder(rapidjson.Decoder):
     # court-circuit du start_object Python par le C++ (racine posée par lui) ;
     # False par défaut : les chemins itérateur et update le laissent inactif
     _fast_start_object = False
+    _fast_plain_end_object = False
 
     # classes dont la charge __init__/__new__[0] est du base64 : le parseur
     # C++ la décode directement depuis son tampon de parse, sans matérialiser
@@ -1788,8 +1789,15 @@ class Decoder(rapidjson.Decoder):
             self._updating = False
             # le C++ crée les dicts et pose .root lui-même (chemin rapide)
             self._fast_start_object = True
+            # dicts ordinaires (aucune clé __class__/$ref rencontrée) rendus
+            # par le C++ sans repasser par end_object — possible seulement
+            # quand aucune des transformations Python ne s'applique
+            self._fast_plain_end_object = (
+                not self.dotdict and not self._class_from_attributes_names
+            )
             loaded = rapidjson.Decoder.__call__(self, json, chunk_size=self.chunk_size)
             self._fast_start_object = False
+            self._fast_plain_end_object = False
         else:  # update
             self._updating = True
             self.ancestors = deque()
