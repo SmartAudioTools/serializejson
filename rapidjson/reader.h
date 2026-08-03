@@ -208,6 +208,27 @@ RAPIDJSON_FORCEINLINE const char* SjRawEnd(StreamType&) { return nullptr; }
 // no-op pour les autres flux
 template <typename StreamType>
 RAPIDJSON_FORCEINLINE void SjStringHintDirty(StreamType&) {}
+template <typename StreamType>
+RAPIDJSON_FORCEINLINE void SjStringHintSet(StreamType&, int) {}
+template <typename Encoding>
+RAPIDJSON_FORCEINLINE void SjStringHintSet(SjBoundedInsituStream<Encoding>& s,
+                                           int v) {
+    if (s.sjHintOut)
+        *s.sjHintOut = v;
+}
+
+// hooks de lot du handler (pré-dimensionnement) : no-op pour les handlers
+// qui ne les définissent pas
+template <typename Handler>
+RAPIDJSON_FORCEINLINE auto SjRunBeginImpl(Handler& h, int)
+    -> decltype(h.SjRunBegin()) { return h.SjRunBegin(); }
+template <typename Handler>
+RAPIDJSON_FORCEINLINE void SjRunBeginImpl(Handler&, long) {}
+template <typename Handler>
+RAPIDJSON_FORCEINLINE auto SjRunEndImpl(Handler& h, int)
+    -> decltype(h.SjRunEnd()) { return h.SjRunEnd(); }
+template <typename Handler>
+RAPIDJSON_FORCEINLINE void SjRunEndImpl(Handler&, long) {}
 template <typename Encoding>
 RAPIDJSON_FORCEINLINE void SjStringHintDirty(SjBoundedInsituStream<Encoding>& s) {
     if (s.sjHintOut)
@@ -1009,6 +1030,49 @@ private:
         return p;
     }
 
+    // chaîne courte PROPRE (sans échappement ni contrôle, <= 24 octets —
+    // au-delà le pré-scan raté coûterait un double balayage) :
+    // rend le curseur après le guillemet fermant et les blancs, pose
+    // *strEnd sur le guillemet et *pure (1 = tout ascii) ; nullptr = sale,
+    // trop longue ou trop près de la fin -> voie normale
+    RAPIDJSON_FORCEINLINE static const char* SjScanShortString(
+            const char* s, const char* runEnd,
+            const char** strEnd, int* pure) {
+        uint64_t seen = 0;
+        const char* p = s;
+        for (int step = 0; step < 3; step++) {
+            if (RAPIDJSON_UNLIKELY(p + 8 > runEnd))
+                return nullptr;
+            uint64_t v;
+            memcpy(&v, p, 8);
+            uint64_t quote =
+                sj_haszero8(v ^ RAPIDJSON_UINT64_C2(0x22222222, 0x22222222));
+            uint64_t bad =
+                sj_haszero8(v ^ RAPIDJSON_UINT64_C2(0x5C5C5C5C, 0x5C5C5C5C))
+                | ((v - RAPIDJSON_UINT64_C2(0x20202020, 0x20202020)) & ~v
+                   & RAPIDJSON_UINT64_C2(0x80808080, 0x80808080));
+            if (quote | bad) {
+                unsigned qi = quote ? (sj_ctz64(quote) >> 3) : 8;
+                unsigned bi = bad ? (sj_ctz64(bad) >> 3) : 8;
+                if (bi < qi)
+                    return nullptr;     // échappement ou contrôle d'abord
+                if (qi)
+                    seen |= v & ((UINT64_C(1) << (8 * qi)) - 1);
+                *strEnd = p + qi;
+                *pure = (seen & RAPIDJSON_UINT64_C2(0x80808080, 0x80808080))
+                            ? 0 : 1;
+                const char* q = p + qi + 1;
+                while (q < runEnd && (*q == ' ' || *q == '\n' || *q == '\r'
+                                      || *q == '\t'))
+                    q++;
+                return q;
+            }
+            seen |= v;
+            p += 8;
+        }
+        return nullptr;
+    }
+
     // consomme goulûment les « nombre , » d'un tableau, et le dernier
     // nombre avant « ] » (émis, le crochet laissé à ParseArray qui saute
     // alors son ParseValue via *lastBeforeBracket). *terminate : le
@@ -1021,23 +1085,71 @@ private:
         if (runEnd == nullptr)
             return 0;
         SizeType emitted = 0;
+        bool begun = false;
         for (;;) {
             const char* start = reinterpret_cast<const char*>(SjRawCursor(is));
-            bool isDouble;
-            bool neg;
-            uint64_t intValue;
-            double dblValue;
-            const char* p = SjScanNumber(start, runEnd, &isDouble, &neg,
-                                         &intValue, &dblValue);
+            const char* p;
+            int kind = 0;   // 0 nombre, 1 true, 2 false, 3 null, 4 chaîne
+            bool isDouble = false;
+            bool neg = false;
+            uint64_t intValue = 0;
+            double dblValue = 0;
+            const char* strEnd = nullptr;
+            int strPure = 0;
+            const Ch first = (start < runEnd) ? *start : Ch('\0');
+            if (RAPIDJSON_LIKELY((first >= '0' && first <= '9')
+                                 || first == '-')) {
+                p = SjScanNumber(start, runEnd, &isDouble, &neg,
+                                 &intValue, &dblValue);
+            } else if (first == 't' || first == 'f' || first == 'n') {
+                // littéraux (« nan » échoue au memcmp -> voie normale)
+                if (first == 't' && start + 4 <= runEnd
+                    && memcmp(start, "true", 4) == 0) {
+                    kind = 1; p = start + 4;
+                } else if (first == 'f' && start + 5 <= runEnd
+                           && memcmp(start, "false", 5) == 0) {
+                    kind = 2; p = start + 5;
+                } else if (first == 'n' && start + 4 <= runEnd
+                           && memcmp(start, "null", 4) == 0) {
+                    kind = 3; p = start + 4;
+                } else
+                    p = nullptr;
+                if (p != nullptr)
+                    while (p < runEnd && (*p == ' ' || *p == '\n'
+                                          || *p == '\r' || *p == '\t'))
+                        p++;
+            } else if (first == '\"') {
+                kind = 4;
+                p = SjScanShortString(start + 1, runEnd, &strEnd, &strPure);
+            } else
+                break;
             if (p == nullptr || p >= runEnd || (*p != ',' && *p != ']'))
-                return emitted;             // jeton non simple ou autre fin
-            bool ok = isDouble
-                ? handler.Double(neg ? -dblValue : dblValue)
-                : (neg ? handler.Int64(-static_cast<int64_t>(intValue))
-                       : handler.Uint64(intValue));
+                break;                      // jeton non simple ou autre fin
+            if (!begun) {
+                SjRunBeginImpl(handler, 0);
+                begun = true;
+            }
+            bool ok;
+            switch (kind) {
+            case 1: ok = handler.Bool(true); break;
+            case 2: ok = handler.Bool(false); break;
+            case 3: ok = handler.Null(); break;
+            case 4:
+                SjStringHintSet(is, strPure);
+                ok = handler.String(start + 1,
+                                    static_cast<SizeType>(strEnd - (start + 1)),
+                                    false);
+                break;
+            default:
+                ok = isDouble
+                    ? handler.Double(neg ? -dblValue : dblValue)
+                    : (neg ? handler.Int64(-static_cast<int64_t>(intValue))
+                           : handler.Uint64(intValue));
+                break;
+            }
             if (!ok) {
                 *terminate = true;
-                return emitted;
+                break;
             }
             emitted++;
             bool bracket = (*p == ']');
@@ -1047,13 +1159,16 @@ private:
                 is.Take();
             if (bracket) {
                 *lastBeforeBracket = true;
-                return emitted;
+                break;
             }
             Ch c;
             while ((c = is.Peek()) == ' ' || c == '\n' || c == '\r'
                    || c == '\t')
                 is.Take();
         }
+        if (begun)
+            SjRunEndImpl(handler, 0);
+        return emitted;
     }
 
     // même accélération pour UN nombre en position de valeur d'objet :

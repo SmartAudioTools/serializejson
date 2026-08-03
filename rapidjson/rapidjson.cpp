@@ -1236,6 +1236,57 @@ struct PyHandler {
         return value;
     }
 
+    // pré-dimensionnement des lots de tableau : une tranche de None est
+    // épissée en une fois, les valeurs du lot VOLENT leur case
+    // (PyList_SET_ITEM) au lieu d'un append unitaire ; SjRunEnd rend les
+    // cases non remplies. Actif seulement entre SjRunBegin/SjRunEnd du
+    // reader, qui n'émettent que des feuilles (nombres, littéraux,
+    // chaînes courtes) — jamais de conteneur imbriqué.
+    PyObject* bulkList;         // liste cible du lot en cours, sinon nullptr
+    Py_ssize_t bulkFill;        // prochaine case à remplir
+    PyObject* noneSlab;         // tranche réutilisable de kBulkSlab None
+    static const Py_ssize_t kBulkSlab = 64;
+
+    void SjRunBegin() {
+        bulkList = nullptr;
+        if (root == nullptr || stack.empty())
+            return;
+        HandlerContext& current = stack.back();
+        if (current.isObject || !PyList_CheckExact(current.object))
+            return;
+        bulkList = current.object;
+        bulkFill = PyList_GET_SIZE(bulkList);
+    }
+
+    bool SjBulkGrow() {
+        if (noneSlab == nullptr) {
+            noneSlab = PyList_New(kBulkSlab);
+            if (noneSlab == nullptr)
+                return false;
+            for (Py_ssize_t i = 0; i < kBulkSlab; i++) {
+                Py_INCREF(Py_None);
+                PyList_SET_ITEM(noneSlab, i, Py_None);
+            }
+        }
+        Py_ssize_t size = PyList_GET_SIZE(bulkList);
+        return PyList_SetSlice(bulkList, size, size, noneSlab) == 0;
+    }
+
+    void SjRunEnd() {
+        if (bulkList == nullptr)
+            return;
+        Py_ssize_t size = PyList_GET_SIZE(bulkList);
+        if (bulkFill < size)
+            PyList_SetSlice(bulkList, bulkFill, size, nullptr);
+        bulkList = nullptr;
+    }
+
+    // taille EFFECTIVE d'une liste (les cases réservées non remplies d'un
+    // lot en cours ne comptent pas)
+    Py_ssize_t SjListFill(PyObject* list) const {
+        return (list == bulkList) ? bulkFill : PyList_GET_SIZE(list);
+    }
+
     void ReleaseKeyCache() {
         for (unsigned i = 0; i < kKeyCacheSize; i++)
             if (keyCache[i].hash != 0) {
@@ -1305,6 +1356,9 @@ struct PyHandler {
           valCacheBudget(nullptr),
           valCacheEnabled(false),
           stringAsciiHint(0),
+          bulkList(nullptr),
+          bulkFill(0),
+          noneSlab(nullptr),
           fastStartObject(false),
           fastPlainEndObject(false),
           deferB64(false),
@@ -1411,6 +1465,7 @@ struct PyHandler {
         ReleaseKeyCache();
         Py_CLEAR(decoderObject);
         Py_CLEAR(decodeClassPlanFn);
+        Py_CLEAR(noneSlab);
         for (auto& entry : decodePlans)
             Py_DECREF(entry.second);
         ReleasePendingB64();
@@ -1680,6 +1735,17 @@ struct PyHandler {
                 if (rc == -1) {
                     return false;
                 }
+            } else if (current.object == bulkList) {
+                if (value == nullptr)
+                    return false;
+                if (bulkFill >= PyList_GET_SIZE(bulkList) && !SjBulkGrow()) {
+                    Py_DECREF(value);
+                    return false;
+                }
+                PyObject* old = PyList_GET_ITEM(bulkList, bulkFill);
+                PyList_SET_ITEM(bulkList, bulkFill, value);  // vole la réf
+                bulkFill++;
+                Py_DECREF(old);
             } else {
                 PyList_Append(current.object, value);
                 Py_DECREF(value);
@@ -2638,7 +2704,7 @@ struct PyHandler {
         if (!b64PayloadClasses.empty() && length >= 8 && stack.size() >= 2) {
             const HandlerContext& top = stack.back();
             if (!top.isObject && PyList_CheckExact(top.object)
-                && PyList_GET_SIZE(top.object) == 0) {
+                && SjListFill(top.object) == 0) {
                 const HandlerContext& parent = stack[stack.size() - 2];
                 if (parent.isObject && parent.key != nullptr
                     && ((parent.keyLength == 8
