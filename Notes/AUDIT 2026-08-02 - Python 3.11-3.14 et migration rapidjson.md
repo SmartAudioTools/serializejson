@@ -1089,6 +1089,33 @@ Reste de ce chantier : les recettes déclaratives complètes (constructeur et
 disposition des arguments __init__/__new__ décrits par le Python, exécutés
 par le C — couvrirait __getinitargs__, les setters, et l'habillage numpy).
 
+### Nuit du 3 au 4 août : allocation et recette constructeur
+
+1. **Allocation de sortie** (règle décidée en planification du soir) :
+   préallocation = 2 × haute-eau décroissante (max(taille, niveau/2)),
+   croissance ×4 en dépassement, grosse réservation sautant directement à la
+   puissance de deux couvrante. A/B ENTRELACÉ (rondes alternées ancien/
+   nouveau, minimums — la charge machine à 8 rendait les mesures absolues
+   inutilisables, premier jet des chiffres jeté pour cette raison) : aucun
+   écart significatif dans les deux sens sur Linux — la glibc agrandit par
+   mremap sans recopie, la croissance était déjà presque gratuite. La règle
+   vaut par sa marge sous Windows (mémoire réservée pour de vrai) et par sa
+   robustesse ; à re-mesurer machine calme si besoin.
+
+2. **Recette constructeur au décodage** : {"__class__": X, "__init__":
+   [args], attrs...} instancié en C — cls(*args) comme instance(), fusion
+   des attributs restants dans inst.__dict__ (jamais de remplacement : le
+   __init__ a pu le remplir), setattr pour les slots, repli Python si
+   __init__ n'est pas une liste exacte. Utilisateurs réels de cette forme :
+   les classes Qt (QPoint, QWidget...) et les plugins — non testables ici
+   (pas de Qt dans les venvs), validés par classes-miroir forgées.
+   1 000 objets à __init__ : 963 → 432 µs (×2,2). Le vrai __init__ est bien
+   appelé (side effects préservés), vérifié par A/B de traces contre HEAD.
+
+Leçon de mesure consignée : sous charge (load 8, autres instances), seules
+les mesures ENTRELACÉES minimum-de-rondes sont interprétables ; un premier
+verdict « tout s'est dégradé » venait entièrement de la charge.
+
 ### Cycle de vie du tampon de sortie : fuite str et OOM (3 août, soir)
 
 Deux défauts trouvés en répondant aux questions sur l'allocation de sortie :
