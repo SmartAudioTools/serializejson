@@ -330,6 +330,8 @@ static PyObject* do_decode(PyObject* decoder,
                            PyObject* objectHook,
                            unsigned numberMode, unsigned datetimeMode,
                            unsigned uuidMode, unsigned parseMode);
+extern PyTypeObject Decoder_Type;
+static void decoder_dealloc(PyObject* self);
 static PyObject* decoder_call(PyObject* self, PyObject* args, PyObject* kwargs);
 static PyObject* decoder_decode_fn(PyObject* self, PyObject* args, PyObject* kwargs);
 static PyObject* decoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs);
@@ -1083,6 +1085,21 @@ float_from_string(const char* s, Py_ssize_t len)
 }
 
 
+typedef struct {
+    PyObject_HEAD
+    unsigned datetimeMode;
+    unsigned uuidMode;
+    unsigned numberMode;
+    unsigned parseMode;
+    // cache PERSISTANT des valeurs chaînes courtes (alloué au premier
+    // besoin, libéré au dealloc) : les mêmes documents relus par le même
+    // Decoder partagent leurs objets str d'un appel à l'autre
+    void* sjValCache;          // KeyCacheSlot[kValCacheSize]
+    unsigned sjValCacheCount;
+    int sjValCacheBudget;      // crédit adaptatif, persistant lui aussi
+} DecoderObject;
+
+
 struct PyHandler {
     PyObject* decoderStartObject;
     PyObject* decoderEndObject;
@@ -1143,18 +1160,21 @@ struct PyHandler {
         return key;
     }
 
-    // cache ADAPTATIF des VALEURS chaînes courtes : mêmes principes que le
-    // cache des clés, plus un interrupteur — si les données ne se répètent
-    // pas (échecs dominants), il se coupe pour le reste du parse afin que
-    // les chaînes toutes distinctes ne paient que quelques sondes
+    // cache ADAPTATIF des VALEURS chaînes courtes, PERSISTANT sur le
+    // Decoder (les mêmes documents relus partagent leurs str d'un appel à
+    // l'autre — le partage que pickle obtient par son memo) ; interrupteur
+    // par parse : si les données ne se répètent pas (échecs dominants), il
+    // se coupe pour le reste du parse
     static const unsigned kValCacheSize = 2048;   // puissance de deux
-    KeyCacheSlot valCache[kValCacheSize];
-    unsigned valCacheCount;
-    int valCacheBudget;      // crédits : gagnés aux succès, perdus aux échecs
+    KeyCacheSlot* valCache;  // table du DecoderObject, nullptr sinon
+    unsigned* valCacheCount;
+    int* valCacheBudget;     // crédit PERSISTANT du DecoderObject : les
+                             // données prouvées distinctes ne repaient que
+                             // le plancher de 64 essais par parse
     bool valCacheEnabled;
 
     PyObject* ValueString(const char* s, size_t n) {
-        if (!valCacheEnabled || n > 48)
+        if (!valCacheEnabled || valCache == nullptr || n > 48)
             return sj_unicode_from_utf8(s, n);
         uint64_t h = KeyHash(s, n);
         unsigned i = (unsigned) h & (kValCacheSize - 1);
@@ -1167,9 +1187,9 @@ struct PyHandler {
                 const char* ss = PyUnicode_AsUTF8AndSize(slot.str, &sl);
                 if (ss != nullptr && (size_t) sl == n
                     && memcmp(ss, s, n) == 0) {
-                    valCacheBudget += 2;
-                    if (valCacheBudget > 4096)
-                        valCacheBudget = 4096;
+                    *valCacheBudget += 2;
+                    if (*valCacheBudget > 4096)
+                        *valCacheBudget = 4096;
                     Py_INCREF(slot.str);
                     return slot.str;
                 }
@@ -1177,30 +1197,30 @@ struct PyHandler {
             }
             i = (i + 1) & (kValCacheSize - 1);
         }
-        // échec : l'interrupteur se ferme si le crédit est épuisé
-        if (--valCacheBudget < 0)
+        // échec : l'interrupteur se ferme si le crédit est épuisé, et la
+        // table (manifestement du bruit) est rendue — les insertions
+        // fraîches repartiront de zéro si les données changent de régime
+        if (--(*valCacheBudget) < 0) {
             valCacheEnabled = false;
+            for (unsigned k = 0; k < kValCacheSize; k++)
+                if (valCache[k].hash != 0) {
+                    Py_DECREF(valCache[k].str);
+                    valCache[k].hash = 0;
+                    valCache[k].str = nullptr;
+                }
+            *valCacheCount = 0;
+        }
         PyObject* value = sj_unicode_from_utf8(s, n);
         if (value == nullptr)
             return nullptr;
-        if (valCacheCount < kValCacheSize - (kValCacheSize / 4)) {
+        if (*valCacheCount < kValCacheSize - (kValCacheSize / 4)) {
             KeyCacheSlot& slot = valCache[i];
             slot.hash = h;
             slot.str = value;
             Py_INCREF(value);
-            valCacheCount++;
+            (*valCacheCount)++;
         }
         return value;
-    }
-
-    void ReleaseValCache() {
-        for (unsigned i = 0; i < kValCacheSize; i++)
-            if (valCache[i].hash != 0) {
-                Py_DECREF(valCache[i].str);
-                valCache[i].hash = 0;
-                valCache[i].str = nullptr;
-            }
-        valCacheCount = 0;
     }
 
     void ReleaseKeyCache() {
@@ -1267,6 +1287,10 @@ struct PyHandler {
           numberMode(nm),
           decoderObject(nullptr),
           decodeClassPlanFn(nullptr),
+          valCache(nullptr),
+          valCacheCount(nullptr),
+          valCacheBudget(nullptr),
+          valCacheEnabled(false),
           fastStartObject(false),
           fastPlainEndObject(false),
           deferB64(false),
@@ -1330,14 +1354,30 @@ struct PyHandler {
                 }
                 decoderObject = decoder;
                 Py_INCREF(decoder);
+                if (PyObject_TypeCheck(decoder, &Decoder_Type)) {
+                    DecoderObject* dobj = (DecoderObject*) decoder;
+                    if (dobj->sjValCache == nullptr) {
+                        dobj->sjValCache = PyMem_Calloc(
+                            kValCacheSize, sizeof(KeyCacheSlot));
+                        dobj->sjValCacheCount = 0;
+                        dobj->sjValCacheBudget = 512;
+                    }
+                    if (dobj->sjValCache != nullptr) {
+                        valCache = (KeyCacheSlot*) dobj->sjValCache;
+                        valCacheCount = &dobj->sjValCacheCount;
+                        // plancher par parse : un régime distinct installé
+                        // ne coûte plus que ~64 essais, un régime répétitif
+                        // peut toujours regagner son crédit
+                        if (dobj->sjValCacheBudget < 64)
+                            dobj->sjValCacheBudget = 64;
+                        valCacheBudget = &dobj->sjValCacheBudget;
+                        valCacheEnabled = true;
+                    }
+                }
             }
             sharedKeys = PyDict_New();
             memset(keyCache, 0, sizeof(keyCache));
             keyCacheCount = 0;
-            memset(valCache, 0, sizeof(valCache));
-            valCacheCount = 0;
-            valCacheBudget = 512;    // ~512 échecs nets avant de renoncer
-            valCacheEnabled = true;
         }
 
     ~PyHandler() {
@@ -1355,7 +1395,6 @@ struct PyHandler {
         Py_CLEAR(decoderString);
         Py_CLEAR(sharedKeys);
         ReleaseKeyCache();
-        ReleaseValCache();
         Py_CLEAR(decoderObject);
         Py_CLEAR(decodeClassPlanFn);
         for (auto& entry : decodePlans)
@@ -2683,13 +2722,7 @@ struct PyHandler {
 };
 
 
-typedef struct {
-    PyObject_HEAD
-    unsigned datetimeMode;
-    unsigned uuidMode;
-    unsigned numberMode;
-    unsigned parseMode;
-} DecoderObject;
+// (DecoderObject déplacé avant PyHandler : le handler branche sa table)
 
 
 PyDoc_STRVAR(loads_docstring,
@@ -3000,6 +3033,23 @@ static PyMemberDef decoder_members[] = {
 };
 
 
+static void
+decoder_dealloc(PyObject* self)
+{
+    DecoderObject* d = (DecoderObject*) self;
+    if (d->sjValCache != nullptr) {
+        struct Slot { uint64_t hash; PyObject* str; };
+        Slot* slots = (Slot*) d->sjValCache;
+        for (unsigned i = 0; i < 2048; i++)
+            if (slots[i].hash != 0)
+                Py_DECREF(slots[i].str);
+        PyMem_Free(d->sjValCache);
+        d->sjValCache = nullptr;
+    }
+    Py_TYPE(self)->tp_free(self);
+}
+
+
 static PyMethodDef decoder_methods[] = {
     {"_decode", (PyCFunction) decoder_decode_fn, METH_VARARGS | METH_KEYWORDS,
      "Décodage brut, sans le protocole serializejson du __call__ (mise à\n"
@@ -3008,12 +3058,12 @@ static PyMethodDef decoder_methods[] = {
 };
 
 
-static PyTypeObject Decoder_Type = {
+PyTypeObject Decoder_Type = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     "rapidjson.Decoder",                      /* tp_name */
     sizeof(DecoderObject),                    /* tp_basicsize */
     0,                                        /* tp_itemsize */
-    0,                                        /* tp_dealloc */
+    (destructor) decoder_dealloc,             /* tp_dealloc */
     0,                                        /* tp_print */
     0,                                        /* tp_getattr */
     0,                                        /* tp_setattr */
@@ -3643,6 +3693,9 @@ decoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
     d->uuidMode = uuidMode;
     d->numberMode = numberMode;
     d->parseMode = parseMode;
+    d->sjValCache = nullptr;
+    d->sjValCacheCount = 0;
+    d->sjValCacheBudget = 512;
 
     return (PyObject*) d;
 }
