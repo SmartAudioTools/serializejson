@@ -4,8 +4,8 @@
 \par
 \pard\li720\sl240\slmult1\cf1\ulnone\b0 {\cf5 d\'e9sactivation du garbage collector (comme serpent)}{\cf4  [FAIT 03/08/2026 au d\'e9codage : GC g\'e9n\'e9rationnel en pause RAII pendant le parse (l'arbre construit est acyclique, les collections ne lib\'e9raient rien \'97 ~13 % du temps mesur\'e9 au profil)]}\cf0\ul\b\par
 \pard\sl240\slmult1\ulnone\par
-\pard\li720\sl240\slmult1 def _onlyOneDimNumbers(list_or_tuple)  -> passer en cython ? \par
-def _json_object_file_iterator -> passer en cython ? \par
+\pard\li720\sl240\slmult1 {\cf5 def _onlyOneDimNumbers(list_or_tuple)  -> passer en cython ?}{\cf4  [RENDU INUTILE 03/08/2026 : la d\'e9tection des listes homog\'e8nes de nombres est faite en C++ (single_line_numbers), et le raccourci Python racine qui utilisait _onlyOneDimSameTypeNumbers a \'e9t\'e9 retir\'e9]} \par
+def _json_object_file_iterator -> passer en cython ?{\cf4  [NON TRAIT\'c9 pendant la campagne des 2-3/08/2026 \'97 la machinerie d'it\'e9ration sur fichier n'a pas \'e9t\'e9 touch\'e9e]} \par
 \pard\li1440\sl240\slmult1\par
 \pard\li2160\sl240\slmult1\par
 \pard\li720\sl240\slmult1\ul array_to_list et array_from_list\par
@@ -26,10 +26,10 @@ solution 3\par
 \pard\li720\sl240\slmult1\par
 \pard\li2160\sl240\slmult1\par
 \pard\li720\sl240\slmult1\ul\b liste d'objets: \ulnone\par
-\pard\li1440\sl240\slmult1 dump_iter = append ?\par
+\pard\li1440\sl240\slmult1 dump_iter = append ?{\cf4  [Non trait\'e9, mais le bug latent d'append() (_already_serialized jamais initialis\'e9) a \'e9t\'e9 corrig\'e9 au passage]}\par
 \pard\li2160\sl240\slmult1\b0 voir pour ne pas fermer le fichier \'e0 chaque fois ? \par
 \b\par
-\pard\li1440\sl240\slmult1 load_iter :  \cf1\b0\par
+\pard\li1440\sl240\slmult1 load_iter :{\cf4  [NON TRAIT\'c9 \'97 les trois solutions restent ouvertes]}  \cf1\b0\par
 \pard\li2160\sl240\slmult1\cf0\b solution  1 \b0 : se baser sur des readline avec le json format\'e9 comme \'e7a : \par
 \pard\li2880\sl240\slmult1 [\par
 elt1_sur_1_ligne \par
@@ -61,7 +61,7 @@ ou regarder comment il a \'e9t\'e9 cod\'e9 ? \par
     return f"b'\{bytes.decode(obj.encoded_bytes)\}'" \par
 j'ai pas encore timer pour savoir si c'est mieux \par
 \b\par
-\pard\li720\sl240\slmult1 tester et recuperer  un element dans un dictionnaire\par
+\pard\li720\sl240\slmult1 tester et recuperer  un element dans un dictionnaire{\cf4  [OBSOL\'c8TE : ces micro-choix Python n'ont plus d'enjeu, les chemins chauds concern\'e9s sont pass\'e9s en C++]}\par
 \pard\li1440\sl240\slmult1\b0 test pour chaque taille de dictionnaire timing si key dans dictionnaire , si pas dedans  ->  on peur alors ponderer les deux par la probabilit\'e9 que dedans ou non . \par
 \pard\li720\sl240\slmult1\b\par
 \par
@@ -80,7 +80,7 @@ except : \par
 else : \par
    ....\b\par
 \par
-\pard\li720\sl240\slmult1 lire truc sur protocol buffeur et memoryview, ctype , pointer etc..\par
+\pard\li720\sl240\slmult1 {\cf5 lire truc sur protocol buffeur et memoryview, ctype , pointer etc..}{\cf4  [FAIT en pratique : tout le chemin binaire passe par le protocole buffer (Py_buffer) \'97 numpy entre en compression/base64 sans aucune copie Python]}\par
 \pard\li1440\sl240\slmult1\b0{\field{\*\fldinst{HYPERLINK "https://julien.danjou.info/high-performance-in-python-with-zero-copy-and-the-buffer-protocol/"}}{\fldrslt{\ul\cf3 https://julien.danjou.info/high-performance-in-python-with-zero-copy-and-the-buffer-protocol/}}}\f0\fs22\par
 {\field{\*\fldinst{HYPERLINK "https://eli.thegreenplace.net/2011/11/28/less-copies-in-python-with-the-buffer-protocol-and-memoryviews"}}{\fldrslt{\ul\cf3 https://eli.thegreenplace.net/2011/11/28/less-copies-in-python-with-the-buffer-protocol-and-memoryviews}}}\f0\fs22\par
 {\field{\*\fldinst{HYPERLINK "https://docs.python.org/fr/3.9/c-api/buffer.html#bufferobjects"}}{\fldrslt{\ul\cf3 https://docs.python.org/fr/3.9/c-api/buffer.html#bufferobjects}}}\b\f0\fs22\par
@@ -90,7 +90,7 @@ else : \par
 \par
 \pard\sl240\slmult1\tx1980\par
 \pard\li720\sl240\slmult1\tx1980 serializejson\par
-\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li1440\sl240\slmult1\tx1980\b0 plutot utiliser des fonctions avec caching ? \par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li1440\sl240\slmult1\tx1980\b0 {\cf5 plutot utiliser des fonctions avec caching ?}{\cf4  [FAIT autrement et en mieux : caches PAR CLASSE c\'f4t\'e9 C++ (class_plan \'e0 l'encodage, decode_class_plan au d\'e9codage, consult\'e9s une fois par classe) + plans de forme pour les dicts]} \par
 {\pntext\f1\'B7\tab}pour la recher de setter = stocker pour caque classe les setter qui existent (dans meme dictionnaire que pour le reste?)\par
 {\pntext\f1\'B7\tab}avoir un seul dictionnaire pour class_ -> tuple_from_xxx , qui se construit au fur est \'e0 mesure avec des values None , pour les object pour lequel on a pas de tuple_from_xx\par
 {\pntext\f1\'B7\tab}plutot que de passer par class_ -> class_str -> tuple_from_xx\par
@@ -99,14 +99,14 @@ else : \par
 \tab Serialization bytes\par
 \pard\li720\sl240\slmult1\par
 \tab Compression : \par
-\pard\li2160\sl240\slmult1\b0 utiliser blosc pour toutes les compressions ? \par
+\pard\li2160\sl240\slmult1\b0 {\cf5 utiliser blosc pour toutes les compressions ?}{\cf4  [FAIT : blosc2_zstd niveau 1 par d\'e9faut, via le fork libblosc2 d\'e9terministe multithread embarqu\'e9]} \par
 \pard\li720\sl240\slmult1\b\tab\tab\b0{\field{\*\fldinst{HYPERLINK "https://quixdb.github.io/squash-benchmark/unstable/"}}{\fldrslt{\ul\cf3 https://quixdb.github.io/squash-benchmark/unstable/}}}\b\f0\fs22\tab\tab\par
 \pard\li2160\sl240\slmult1\b0\par
 si la memoire est le plsu important : zstd level 9 \par
 si la viettes de compression est importante : zstd level 1\par
 si la vitess n'est toujorus pas suffisant lz4 level 9 , mais on compresse pas beaucoup et pas di qu'on ne perde pas ce qu'on a gagn\'e9  tout en temps de transfer \par
 \b\par
-\pard\li1440\sl240\slmult1 Ecriture et lecture de fichier json non-bloquante ? \par
+\pard\li1440\sl240\slmult1 Ecriture et lecture de fichier json non-bloquante ?{\cf4  [PARTIEL : l'esprit est r\'e9alis\'e9 c\'f4t\'e9 LECTURE (blobs d\'e9cod\'e9s en diff\'e9r\'e9-parall\'e8le pendant que le parse continue) ; l'\'e9criture non-bloquante vers le disque reste une piste, not\'e9e au rapport d'audit]} \par
 \pard\li2160\sl240\slmult1\b0 permetrait de compresser pendant qu'il ecrit sur le disc sans ralentir \par
 alors qu'en bloquant on additionne les temps , en non-bloquant c'est le temp du maillon le plus faible . \b\par
 \b0{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/9259380/how-to-write-to-a-file-using-non-blocking-io"}}{\fldrslt{\ul\cf3 https://stackoverflow.com/questions/9259380/how-to-write-to-a-file-using-non-blocking-io}}}\f0\fs22\par
@@ -181,7 +181,7 @@ test_rawjson()\par
 \b0\tab permtrai de fournir une string en demandant de ne faire aucun check  et \'e0 ce que rapidjson mette les "" contrairement \'e0 RawJSON \par
 \par
 \pard\li2880\sl240\slmult1\b pybase64 : \par
-\pard\li3600\sl240\slmult1\b0 faudrait pouvoir encoder directemetn dans une string et si possible en ajoutant "" \cf2\b\par
+\pard\li3600\sl240\slmult1\b0 faudrait pouvoir encoder directemetn dans une string et si possible en ajoutant ""{\cf4  [RENDU INUTILE : pybase64 n'est plus sur le chemin \'97 notre base64 SSE \'e9crit directement dans le tampon de sortie, guillemets compris]} \cf2\b\par
 \cf0\b0 pybase64.b64encode_to_str(bytes_) => eviterai un .decode("ascii") (le cout d'une copie) \par
 pybase64.b64encode_to_str_with_double_quotes(bytes_) => eviterait une deuxi\'e8me copie pour rajouter juste les doubles quotes si on veut utilsier RawJson une fois qu'il aura \'e9t\'e9 optimis\'e9 dans \par
 \pard\li1440\sl240\slmult1\b Decoding  :\par
@@ -194,17 +194,17 @@ pybase64.b64encode_to_str_with_double_quotes(bytes_) => eviterait une deuxi\'e8m
 \par
 \tab Encoding :\par
 \tab\tab dans les cas avec transformation en liste ( avec .tolist())\par
-\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li3240\sl240\slmult1\cf2\b0 il checke de facon inutile liste avec type homog\'e8ne \par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li3240\sl240\slmult1\cf2\b0 il checke de facon inutile liste avec type homog\'e8ne{\cf4  [OBSOL\'c8TE en partie : le chemin tolist n'est plus utilis\'e9 pour les tableaux (base64+blosc2 par d\'e9faut), et la d\'e9tection d'homog\'e9n\'e9it\'e9 C++ est devenue quasi gratuite]} \par
 {\pntext\f1\'B7\tab}il n'utilise rapidjson.NM_NAN pas alors que pourrais l'utiliser si c'\'e9tait des int ou bool  (pas de NaN)\cf0\par
 \cf2{\pntext\f1\'B7\tab}s'il \cf0\par
 \pard\li2880\sl240\slmult1\b\par
 \pard\li720\sl240\slmult1\tab\tab dans le cas de transfomation en bytes 64 \tab\tab\par
 \pard\li2880\sl240\slmult1 si  single_line_init = True  (True par defaut ) fait appel \'e0 RawJSON pour serialisation sur une ligne ( \par
-\pard\li3600\sl240\slmult1\cf2\b0 L'appel \'e0 RAWjson double le temps de serialisation de ce qui est dedans !!!??? \par
+\pard\li3600\sl240\slmult1\cf2\b0 {\cf5 L'appel \'e0 RAWjson double le temps de serialisation de ce qui est dedans !!!???}{\cf4  [RENDU INUTILE : plus aucun RawJSON pour le une-ligne \'97 le PrettyWriter \'e9crit lui-m\'eame les sous-arbres en compact (un seul encodeur)]} \par
 car la serializesation d'un RawJSON est aussi longue qu'une serialisation normal alors que devrait \'eatre juste une recopie \par
 => eviter d'y faire appel si on serialize d\'e9j\'e0 sur une ligne \cf0\b\par
 \pard\li2880\sl240\slmult1 pybase64 \par
-\tab . coder ce qu'il faut pour pemetre de recr\'e9er directement bytearray \'e0 partir d'une string en base 64 . \par
+\tab {\cf5 . coder ce qu'il faut pour pemetre de recr\'e9er directement bytearray \'e0 partir d'une string en base 64 .}{\cf4  [FAIT : le C++ d\'e9code la base64 directement en bytearray depuis le tampon de parse (vectoris\'e9 SSE, diff\'e9r\'e9 et parall\'e8le), sans str interm\'e9diaire ni recopie bytes->bytearray]} \par
 \pard\li4320\sl240\slmult1\b0 l\'e0 y'a peut \'eatre un encodage str-> bytes  dans b64decode avant le d\'e9codage (\'e0 tester )\par
 puis il y a une recopie lors de la convertions bytes -> bytearray , pour avoir un numpy array mutable \b\par
 \pard\li1440\sl240\slmult1 Decoding :\par
