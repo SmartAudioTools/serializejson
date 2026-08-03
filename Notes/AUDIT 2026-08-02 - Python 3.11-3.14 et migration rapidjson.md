@@ -1089,6 +1089,28 @@ Reste de ce chantier : les recettes déclaratives complètes (constructeur et
 disposition des arguments __init__/__new__ décrits par le Python, exécutés
 par le C — couvrirait __getinitargs__, les setters, et l'habillage numpy).
 
+### Cycle de vie du tampon de sortie : fuite str et OOM (3 août, soir)
+
+Deux défauts trouvés en répondant aux questions sur l'allocation de sortie :
+
+1. **FUITE : chaque dumps vers str fuyait tout son tampon.** PyBytesBuffer
+   n'avait ni destructeur ni décrément ; seule la sortie bytes (objet donné à
+   Python) ne fuyait pas. Mesuré : +205 Mo et +202 blocs en 200 dumps de
+   1 Mo. Piège de mesure au passage : le premier test était passé au vert
+   parce que `return_bytes=True` est le DÉFAUT de l'Encoder serializejson —
+   les deux branches mesuraient le chemin bytes. Correctif : destructeur
+   (Py_XDECREF), la sortie bytes TRANSFÈRE la référence (stealPyBytes), les
+   chemins str et d'erreur libèrent au destructeur. Après : +2 blocs sur 200
+   dumps, test de non-régression par getallocatedblocks.
+
+2. **OOM : plantage au lieu de MemoryError.** Sur échec d'allocation,
+   _PyBytes_Resize libère l'objet et met le pointeur à NULL ; le code
+   déréférençait ce NULL (PyBytes_AS_STRING) et continuait d'écrire.
+   Correctif : Resize lève std::bad_alloc (MemoryError déjà posée par
+   l'allocateur CPython), rattrapé dans do_encode. Vérifié sous
+   RLIMIT_AS 400 Mo : MemoryError propre, et l'encodeur reste réutilisable
+   après trois OOM successifs (octets identiques ensuite).
+
 ### Le __call__ porté en C (3 août, tranche 1 du chantier)
 
 Les Encoder/Decoder Python ne définissent plus de `__call__` : le tp_call C
