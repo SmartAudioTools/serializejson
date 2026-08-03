@@ -364,6 +364,117 @@ struct PtrMemo {
     }
 };
 
+// --- conversion parallèle des listes homogènes de nombres ---------------
+// Les valeurs sont extraites sous GIL en tableau C, converties en texte par
+// tranches d'index fixes sur plusieurs threads (GIL relâché), puis recollées
+// dans l'ordre : octets strictement identiques au chemin séquentiel.
+// Les rares flottants dont Grisu3 ne garantit pas l'arrondi sont notés
+// (position de coupe, valeur) et rendus sous GIL au recollage via
+// PyOS_double_to_string.
+
+#define SJ_NUM_MT_MIN 32768
+#define SJ_NUM_MT_CHUNK 16384
+
+struct sj_numchunk {
+    std::vector<char> text;
+    std::vector<std::pair<size_t, double>> fallbacks;  // coupe -> valeur
+};
+
+static void
+sj_render_int_chunk(const long long* vals, size_t n, sj_numchunk& out)
+{
+    out.text.resize(n * 21);
+    char* cursor = out.text.data();
+    for (size_t i = 0; i < n; i++) {
+        if (i)
+            *cursor++ = ',';
+        cursor = rapidjson::internal::i64toa(vals[i], cursor);
+    }
+    out.text.resize((size_t) (cursor - out.text.data()));
+}
+
+static void
+sj_render_double_chunk(const double* vals, size_t n, sj_numchunk& out)
+{
+    out.text.resize(n * 28);
+    char* base = out.text.data();
+    char* cursor = base;
+    for (size_t i = 0; i < n; i++) {
+        if (i)
+            *cursor++ = ',';
+        double v = vals[i];
+        if (IS_NAN(v)) {
+            memcpy(cursor, "NaN", 3); cursor += 3;
+        } else if (IS_INF(v)) {
+            if (v < 0) { memcpy(cursor, "-Infinity", 9); cursor += 9; }
+            else       { memcpy(cursor, "Infinity", 8);  cursor += 8; }
+        } else {
+            int len = sjdtoa::ReprDouble(v, cursor);
+            if (len > 0)
+                cursor += len;
+            else
+                out.fallbacks.push_back({(size_t) (cursor - base), v});
+        }
+    }
+    out.text.resize((size_t) (cursor - base));
+}
+
+// lance nthreads sur les tranches (atomic d'index), GIL relâché par l'appelant
+template <typename T, void (*RENDER)(const T*, size_t, sj_numchunk&)>
+static void
+sj_render_chunks_parallel(const T* vals, size_t total,
+                          std::vector<sj_numchunk>& chunks, size_t nthreads)
+{
+    size_t nchunks = chunks.size();
+    std::atomic<size_t> next(0);
+    auto work = [&]() {
+        for (;;) {
+            size_t c = next.fetch_add(1);
+            if (c >= nchunks)
+                return;
+            size_t begin = c * SJ_NUM_MT_CHUNK;
+            size_t n = std::min((size_t) SJ_NUM_MT_CHUNK, total - begin);
+            RENDER(vals + begin, n, chunks[c]);
+        }
+    };
+    std::vector<std::thread> pool;
+    for (size_t t = 1; t < nthreads; t++)
+        pool.emplace_back(work);
+    work();
+    for (std::thread& t : pool)
+        t.join();
+}
+
+// recolle les tranches dans le flux, en rendant les replis sous GIL ;
+// l'appelant a déjà écrit StartArray et fera AnnounceArrayValues+EndArray
+template <typename WriterT>
+static bool
+sj_splice_chunks(WriterT* writer, std::vector<sj_numchunk>& chunks)
+{
+    auto& os = writer->Os();
+    bool first_chunk = true;
+    for (sj_numchunk& chunk : chunks) {
+        if (!first_chunk)
+            os.Put(',');
+        first_chunk = false;
+        size_t pos = 0;
+        for (auto& fb : chunk.fallbacks) {
+            if (fb.first > pos)
+                os.RawValue(chunk.text.data() + pos, fb.first - pos);
+            pos = fb.first;
+            char* repr_str = PyOS_double_to_string(fb.second, 'r', 0,
+                                                   Py_DTSF_ADD_DOT_0, nullptr);
+            if (repr_str == nullptr)
+                return false;
+            os.RawValue(repr_str, strlen(repr_str));
+            PyMem_Free(repr_str);
+        }
+        if (chunk.text.size() > pos)
+            os.RawValue(chunk.text.data() + pos, chunk.text.size() - pos);
+    }
+    return true;
+}
+
 // plan de forme d'un dict : la séquence exacte de ses clés (références
 // fortes) et leurs graphies pré-échappées. Les listes d'enregistrements
 // homogènes re-rencontrent la même séquence de pointeurs de clés : les clés
@@ -3090,6 +3201,45 @@ dumps_internal(
                 for (Py_ssize_t i = 0; i < size; i++)
                     writer->Bool(PyList_GET_ITEM(object, i) == Py_True);
             } else if (first_type == &PyLong_Type) {
+                // au-delà du seuil : extraction sous GIL puis conversion en
+                // texte par tranches sur plusieurs threads (octets identiques,
+                // repli séquentiel si un entier déborde 64 bits)
+                bool mt_written = false;
+                if (size >= SJ_NUM_MT_MIN) {
+                    std::vector<long long> vals((size_t) size);
+                    bool extractable = true;
+                    for (Py_ssize_t i = 0; i < size; i++) {
+                        int mt_overflow;
+                        vals[(size_t) i] = PyLong_AsLongLongAndOverflow(
+                            PyList_GET_ITEM(object, i), &mt_overflow);
+                        if (mt_overflow != 0) {
+                            extractable = false;
+                            break;
+                        }
+                    }
+                    if (extractable) {
+                        size_t nthreads = std::min<size_t>(
+                            std::min<size_t>(8, std::thread::hardware_concurrency()),
+                            (size_t) size / SJ_NUM_MT_CHUNK);
+                        if (nthreads >= 2) {
+                            size_t nchunks = ((size_t) size + SJ_NUM_MT_CHUNK - 1)
+                                             / SJ_NUM_MT_CHUNK;
+                            std::vector<sj_numchunk> chunks(nchunks);
+                            Py_BEGIN_ALLOW_THREADS
+                            sj_render_chunks_parallel<long long, sj_render_int_chunk>(
+                                vals.data(), (size_t) size, chunks, nthreads);
+                            Py_END_ALLOW_THREADS
+                            if (!sj_splice_chunks(writer, chunks)) {
+                                if (pushed_compact)
+                                    writer->PopCompact();
+                                return false;
+                            }
+                            writer->AnnounceArrayValues((size_t) size);
+                            mt_written = true;
+                        }
+                    }
+                }
+                if (!mt_written)
                 for (Py_ssize_t i = 0; i < size; i++) {
                     PyObject* item = PyList_GET_ITEM(object, i);
                     int overflow;
@@ -3129,6 +3279,41 @@ dumps_internal(
                     }
                 }
             } else {  // PyFloat_Type : repr() conservé (graphie de Python)
+                bool mt_written = false;
+                if (size >= SJ_NUM_MT_MIN) {
+                    std::vector<double> vals((size_t) size);
+                    bool extractable = true;
+                    for (Py_ssize_t i = 0; i < size; i++) {
+                        double v = PyFloat_AS_DOUBLE(PyList_GET_ITEM(object, i));
+                        if ((IS_NAN(v) || IS_INF(v)) && !(numberMode & NM_NAN)) {
+                            extractable = false;  // la boucle séquentielle lèvera
+                            break;
+                        }
+                        vals[(size_t) i] = v;
+                    }
+                    if (extractable) {
+                        size_t nthreads = std::min<size_t>(
+                            std::min<size_t>(8, std::thread::hardware_concurrency()),
+                            (size_t) size / SJ_NUM_MT_CHUNK);
+                        if (nthreads >= 2) {
+                            size_t nchunks = ((size_t) size + SJ_NUM_MT_CHUNK - 1)
+                                             / SJ_NUM_MT_CHUNK;
+                            std::vector<sj_numchunk> chunks(nchunks);
+                            Py_BEGIN_ALLOW_THREADS
+                            sj_render_chunks_parallel<double, sj_render_double_chunk>(
+                                vals.data(), (size_t) size, chunks, nthreads);
+                            Py_END_ALLOW_THREADS
+                            if (!sj_splice_chunks(writer, chunks)) {
+                                if (pushed_compact)
+                                    writer->PopCompact();
+                                return false;
+                            }
+                            writer->AnnounceArrayValues((size_t) size);
+                            mt_written = true;
+                        }
+                    }
+                }
+                if (!mt_written)
                 for (Py_ssize_t i = 0; i < size; i++) {
                     PyObject* item = PyList_GET_ITEM(object, i);
                     double value = PyFloat_AS_DOUBLE(item);

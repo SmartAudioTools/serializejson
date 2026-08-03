@@ -293,6 +293,15 @@ public:
         \param length Length of the json.
         \param type Type of the root of json.
     */
+    // fork serializejson : acces direct au flux et comptabilite pour les
+    // ecritures en masse (listes de nombres converties en parallele) qui
+    // contournent Prefix()/PrettyPrefix()
+    OutputStream& Os() { return *os_; }
+    void AnnounceArrayValues(size_t n) {
+        if (level_stack_.GetSize() != 0)
+            level_stack_.template Top<Level>()->valueCount += n;
+    }
+
     bool RawValue(const Ch* json, size_t length) {
         Prefix();
         os_->RawValue(json,length);

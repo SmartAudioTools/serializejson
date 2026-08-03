@@ -1118,22 +1118,10 @@ class Encoder(rapidjson.Encoder):
     def __call__(self, obj, fp=None, return_bytes=None):
         if return_bytes is None:
             return_bytes = self.return_bytes
-        if (
-            type(obj) is list
-            and self.single_line_list_numbers
-            and _onlyOneDimSameTypeNumbers(obj)
-        ):
-            return rapidjson.dumps(
-                obj,
-                ensure_ascii=False,
-                default=self._default_one_line,
-                bytes_mode=self.bytes_mode,
-                number_mode=self.number_mode,
-                iterable_mode=rapidjson.IM_ONLY_LISTS,
-                mapping_mode=rapidjson.MM_ONLY_DICTS,
-                return_bytes=return_bytes
-                # **self.kargs
-            )
+        # (le raccourci Python historique pour les listes racines homogènes de
+        # nombres — _onlyOneDimSameTypeNumbers + rapidjson.dumps — est retiré :
+        # la détection C++ single_line_numbers produit les mêmes octets et
+        # emprunte les boucles serrées et la conversion parallèle)
         self._update_serialize_parameters()
         self._reset()
         self._root = obj
