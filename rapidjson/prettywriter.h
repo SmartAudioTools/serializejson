@@ -363,7 +363,10 @@ protected:
 
     void WriteIndent()  {
         size_t count = (Base::level_stack_.GetSize() / sizeof(typename Base::Level)) * indentCharCount_;
-        PutN(*Base::os_, static_cast<typename OutputStream::Ch>(indentChar_), count);
+        // appel du PutN MEMBRE du flux (memset) : le PutN generique de
+        // stream.h boucle un Put par caractere, mesure ~20%% du temps
+        // d'encodage des conteneurs indentes
+        Base::os_->PutN(static_cast<typename OutputStream::Ch>(indentChar_), count);
     }
 
     Ch indentChar_;

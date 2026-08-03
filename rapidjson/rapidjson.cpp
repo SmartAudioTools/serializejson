@@ -260,6 +260,72 @@ struct PathNode {
     std::string key;
     Py_ssize_t index;
 };
+// table de hachage a adressage ouvert specialisee pointeur -> long :
+// remplace unordered_map pour le memo des conteneurs (~13% du temps
+// d'encodage des graphes de conteneurs mesure au profil)
+struct PtrMemo {
+    struct Slot { PyObject* first; long second; };
+    struct It {
+        Slot* p;
+        Slot* operator->() const { return p; }
+        bool operator!=(const It& o) const { return p != o.p; }
+        bool operator==(const It& o) const { return p == o.p; }
+    };
+    std::vector<Slot> slots;
+    size_t mask = 0;
+    size_t count = 0;
+
+    static inline size_t hash(PyObject* k) {
+        uintptr_t h = (uintptr_t) k;
+        h ^= h >> 33; h *= (uintptr_t) 0xff51afd7ed558ccdULL; h ^= h >> 29;
+        return (size_t) h;
+    }
+    void rehash(size_t newSize) {
+        std::vector<Slot> old_slots;
+        old_slots.swap(slots);
+        slots.assign(newSize, Slot{nullptr, 0});
+        mask = newSize - 1;
+        for (Slot& s : old_slots)
+            if (s.first) {
+                size_t i = hash(s.first) & mask;
+                while (slots[i].first) i = (i + 1) & mask;
+                slots[i] = s;
+            }
+    }
+    void reserve(size_t n) {
+        size_t needed = 16;
+        while (needed * 7 < (n + 1) * 10) needed <<= 1;
+        if (needed > slots.size()) rehash(needed);
+    }
+    It end() { return It{nullptr}; }
+    It find(PyObject* k) {
+        if (!count) return end();
+        size_t i = hash(k) & mask;
+        while (slots[i].first) {
+            if (slots[i].first == k) return It{&slots[i]};
+            i = (i + 1) & mask;
+        }
+        return end();
+    }
+    void emplace(PyObject* k, long v) {
+        if ((count + 1) * 10 >= slots.size() * 7)
+            rehash(slots.empty() ? 16 : slots.size() * 2);
+        size_t i = hash(k) & mask;
+        while (slots[i].first) {
+            if (slots[i].first == k) return;  // deja present, comme emplace
+            i = (i + 1) & mask;
+        }
+        slots[i] = Slot{k, v};
+        count++;
+    }
+    size_t size() const { return count; }
+    void decref_keys() {
+        for (Slot& s : slots)
+            if (s.first)
+                Py_DECREF(s.first);
+    }
+};
+
 struct PathTracker {
     std::vector<PathSegment> segments;
     // pile parallèle à segments : index du PathNode déjà matérialisé pour ce
@@ -270,7 +336,7 @@ struct PathTracker {
     // conteneur -> index de PathNode ; garde une référence forte sur chaque
     // clé (relâchée par le destructeur, à la fin de l'encodage) pour qu'un id
     // de conteneur temporaire réutilisé ne passe pas pour un doublon
-    std::unordered_map<PyObject*, long> memo;
+    PtrMemo memo;
     bool memoContainers = false;
     // chemin rapide par classe : class_plan(classe) est appelé UNE fois par
     // classe et par dump ; il retourne None (chemin Python complet) ou un
@@ -286,8 +352,7 @@ struct PathTracker {
     bool next_dict_is_attrs = false;
 
     ~PathTracker() {
-        for (auto& entry : memo)
-            Py_DECREF(entry.first);
+        memo.decref_keys();
         for (auto& entry : classPlans)
             Py_DECREF(entry.second);
     }
@@ -3536,6 +3601,10 @@ typedef struct {
     // traqueur de chemin actif pendant un encodage (nullptr sinon),
     // consulté par la méthode json_path()
     PathTracker* activePathTracker;
+    // tailles atteintes au dump précédent : pré-réservation du prochain
+    // (évite les réallocations-copies mesurées ~8% sur les gros graphes)
+    size_t pathNodesHighWater;
+    size_t memoHighWater;
 } EncoderObject;
 
 
@@ -4320,6 +4389,13 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     }
 
     PathTracker pathTracker;
+    if (e->pathNodesHighWater) {
+        pathTracker.nodes.reserve(e->pathNodesHighWater);
+        pathTracker.registered.reserve(64);
+        pathTracker.segments.reserve(64);
+    }
+    if (e->memoHighWater)
+        pathTracker.memo.reserve(e->memoHighWater);
     pathTracker.memoContainers = e->memoRefs;
     pathTracker.singleLineNumbers = e->singleLineNumbers;
     pathTracker.classPlanFn = classPlanFn;
@@ -4360,6 +4436,10 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     }
 
     e->activePathTracker = nullptr;
+    if (pathTracker.nodes.size() > e->pathNodesHighWater)
+        e->pathNodesHighWater = pathTracker.nodes.size();
+    if (pathTracker.memo.size() > e->memoHighWater)
+        e->memoHighWater = pathTracker.memo.size();
     Py_XDECREF(defaultFn);
     Py_XDECREF(defaultDictFn);
     Py_XDECREF(defaultListFn);
@@ -4482,6 +4562,8 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
     e->mappingMode = mappingMode;
     e->returnBytes = returnBytes? true : false;
     e->memoRefs = memoRefs? true : false;
+    e->pathNodesHighWater = 0;
+    e->memoHighWater = 0;
     e->singleLineNumbers = singleLineNumbers? true : false;
     e->activePathTracker = nullptr;
 
