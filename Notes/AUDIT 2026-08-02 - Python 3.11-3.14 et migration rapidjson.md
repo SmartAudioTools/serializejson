@@ -1273,6 +1273,16 @@ enveloppes des micro-dicts (verbosité du format).
   étages : RAPIDJSON_SSE42 balaie les chaînes sans échappement par 16
   octets, et sj_unicode_from_utf8 fait la copie brute quand tout est ASCII
   (scan 8 octets). Le ×2 restant est le coût de l'objet str lui-même.
+  Micro-redondance identifiée en y regardant de plus près (2e question du
+  soir) : les octets sont balayés DEUX fois — une par le SSE du reader
+  (guillemet/échappement/contrôles), une par le scan ASCII à la création.
+  FUSION possible : faire accumuler le bit de poids fort par le balayage
+  SSE du reader et transmettre « pur ASCII » au handler (drapeau sur le
+  flux borné) → économise le second scan, estimé ~5 % du load des chaînes
+  (2-3 ns sur ~45 ns : l'essentiel est l'allocation de l'objet str, que
+  pickle paie aussi — son avance vient de l'opcode+longueur en tête contre
+  notre recherche SSE du guillemet fermant). À faire avec le cache adaptatif
+  des valeurs répétées, qui lui évite l'objet TOUT ENTIER.
 
 ### Cycle de vie du tampon de sortie : fuite str et OOM (3 août, soir)
 
