@@ -3110,6 +3110,27 @@ struct DictItem {
 
 
 static inline bool
+sj_all_keys_exact_int64(PyObject* dict) {
+    Py_ssize_t pos = 0;
+    PyObject* key;
+    PyObject* value;
+    while (PyDict_Next(dict, &pos, &key, &value)) {
+        if (!PyLong_CheckExact(key))
+            return false;
+        int overflow;
+        long long v = PyLong_AsLongLongAndOverflow(key, &overflow);
+        (void) v;
+        if (overflow != 0)
+            return false;
+        if (PyErr_Occurred()) {
+            PyErr_Clear();
+            return false;
+        }
+    }
+    return true;
+}
+
+static inline bool
 all_keys_are_string(PyObject* dict) {
     Py_ssize_t pos = 0;
     PyObject* key;
@@ -3862,6 +3883,39 @@ dumps_internal(
         writer->EndArray();
     } 
 	
+	// dictionnaire à clés toutes entières (int exacts, 64 bits) : forme
+	// {"__class__": "dict_non_str_keys", "<entier>": valeur, ...} écrite
+	// directement en C++, à l'octet près du chemin Python historique — les
+	// autres clés non-str (bool, tuples, mixtes, >64 bits) restent en Python
+	else if (PyDict_CheckExact(object) && (mappingMode & MM_ONLY_DICTS)
+             && !(mappingMode & MM_SORT_KEYS)
+             && PyDict_GET_SIZE(object) > 0
+             && sj_all_keys_exact_int64(object)) {
+        CONTAINER_MEMO_OR_REF()
+        CALL_CONTAINER_HOOK(defaultDictFn, " while JSONifying dict object")
+        writer->StartObject();
+        writer->Key("__class__", 9);
+        writer->String("dict_non_str_keys", 17);
+        Py_ssize_t int_pos = 0;
+        PyObject* int_key;
+        PyObject* int_item;
+        while (PyDict_Next(object, &int_pos, &int_key, &int_item)) {
+            char key_buf[24];
+            int overflow;
+            long long key_value =
+                PyLong_AsLongLongAndOverflow(int_key, &overflow);
+            char* key_end = rapidjson::internal::i64toa(key_value, key_buf);
+            SizeType key_length = (SizeType) (key_end - key_buf);
+            writer->Key(key_buf, key_length);
+            PATH_PUSH_KEY(key_buf, key_length)
+            bool r = RECURSE(int_item);
+            PATH_POP()
+            if (!r)
+                return false;
+        }
+        writer->EndObject();
+    }
+
 	// dictionnaires ---------------------------------------------------------
 	else if (((!(mappingMode & MM_ONLY_DICTS) && PyDict_Check(object))
                 ||
@@ -5197,16 +5251,15 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     if (PyObject_HasAttr(self, default_name)) {
         defaultFn = PyObject_GetAttr(self, default_name);
     }
-    if (PyObject_HasAttr(self, default_dict_name)) {
-        defaultDictFn = PyObject_GetAttr(self, default_dict_name);
-    }
-    if (PyObject_HasAttr(self, default_list_name)) {
-        defaultListFn = PyObject_GetAttr(self, default_list_name);
-    }
-    PyObject* classPlanFn = nullptr;
-    if (PyObject_HasAttr(self, class_plan_name)) {
-        classPlanFn = PyObject_GetAttr(self, class_plan_name);
-    }
+    defaultDictFn = PyObject_GetAttr(self, default_dict_name);
+    if (defaultDictFn == nullptr)
+        PyErr_Clear();
+    defaultListFn = PyObject_GetAttr(self, default_list_name);
+    if (defaultListFn == nullptr)
+        PyErr_Clear();
+    PyObject* classPlanFn = PyObject_GetAttr(self, class_plan_name);
+    if (classPlanFn == nullptr)
+        PyErr_Clear();
 
     PathTracker pathTracker;
     if (e->mtScratch == nullptr)

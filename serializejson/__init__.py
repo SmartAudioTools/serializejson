@@ -1135,7 +1135,27 @@ class Encoder(rapidjson.Encoder):
         self._clean()
         return encoded
 
+    # attributs volatils re-posés à chaque dump : ils ne participent pas aux
+    # paramètres globaux, leur écriture ne doit pas invalider la poussée
+    _volatile_attrs = frozenset(("dumped_classes", "_already_serialized",
+                                 "_already_serialized_keep_alive", "_root"))
+
+    def __setattr__(self, name, value):
+        # invalide la poussée amortie des paramètres globaux : le prochain
+        # appel repoussera (voir _update_serialize_parameters)
+        super().__setattr__(name, value)
+        if name not in Encoder._volatile_attrs and getattr(
+                serialize_parameters, "_owner", None) is self:
+            serialize_parameters._owner = None
+
     def _update_serialize_parameters(self):
+        # amorti : ne repousse les paramètres globaux (et les threads blosc)
+        # que si un autre Encoder/Decoder a poussé entre-temps ou si un
+        # attribut de celui-ci a changé (invalidation par __setattr__).
+        # Mesuré : cette poussée valait 2,2 µs sur les 3,3 µs d'un dump
+        # minuscule — le coût fixe par appel dominait les micro-benchmarks
+        if getattr(serialize_parameters, "_owner", None) is self:
+            return
         # résolution des valeurs symboliques :
         #   "cpus"       -> autant de threads que de coeurs, sans garantie
         #                    d'octets stables hors fork ;
@@ -1161,6 +1181,8 @@ class Encoder(rapidjson.Encoder):
         # les plugins lisent la valeur résolue (le "determinist" symbolique
         # ne doit pas leur parvenir)
         serialize_parameters.bytes_compression_threads = resolved
+        serialize_parameters._owner = self
+        serialize_parameters._decoder_owner = None
 
     def _reset(self):
         self.dumped_classes = set()
@@ -1766,10 +1788,20 @@ class Decoder(rapidjson.Decoder):
             >>> decoder(io.BytesIO(b'"\xe2\x82\xac 0.50"'))
             '€ 0.50'
         """
-        blosc.set_nthreads(blosc.ncores)
-        serialize_parameters.strict_pickle = self.strict_pickle
-        serialize_parameters.setters = self.setters
-        serialize_parameters.properties = self.properties
+        # poussée amortie (voir Encoder._update_serialize_parameters) :
+        # garde par comparaison directe (un __setattr__ ici taxerait les
+        # nombreuses écritures d'attributs faites à chaque appel — mesuré)
+        sp = serialize_parameters
+        if (getattr(sp, "_decoder_owner", None) is not self
+                or sp.strict_pickle != self.strict_pickle
+                or sp.setters is not self.setters
+                or sp.properties is not self.properties):
+            blosc.set_nthreads(blosc.ncores)
+            serialize_parameters.strict_pickle = self.strict_pickle
+            serialize_parameters.setters = self.setters
+            serialize_parameters.properties = self.properties
+            sp._decoder_owner = self
+            sp._owner = None
         self.converted_numpy_array_from_lists = set()
         # self._counter = 0
         self.not_authorized_classes = set()
