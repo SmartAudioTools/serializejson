@@ -1179,6 +1179,45 @@ verdict « tout s'est dégradé » venait entièrement de la charge.
 - Le multi-thread des conversions par lots est DÉJÀ en place (campagne du
   2-3/08) ; un nombre isolé (~40 ns) n'est pas parallélisable.
 
+### Nombres, ce qui a été FAIT dans la nuit du 3 au 4 (directive « battre
+### pickle partout, sans questions, le plus sûr d'abord »)
+
+- **Eisel-Lemire au parse des flottants** : COMMITÉ. Produit 128 bits avec
+  table générée exactement, correctement-arrondi-ou-renonce (~0,1 % de
+  renoncements vers le chemin exact existant). Validation : 9 M de cas C
+  contre strtod (dont VRAIS mi-chemins à 54 bits impairs — un premier
+  générateur à 53 bits ne testait rien), 13,2 M de bout en bout contre
+  float() au bit près. Gain net : 14,1 → 12,7 ms sur 200 k repr longs. Le
+  DiyFp de rapidjson était déjà bon : l'essentiel de l'écart long/court
+  vient du VOLUME de caractères, pas de la conversion.
+- **Cache des clés par octets bruts au décodage** : COMMITÉ. −8 % sur les
+  dicts aux clés répétées, −2,5 % sur le trio unpickle.
+
+Écarté « le plus sûr d'abord », à faire proprement plus tard :
+
+- **SWAR/SIMD sur les chiffres au parse** : lire 8 octets d'un coup exige
+  de PROUVER 8 octets lisibles — le flux insitu n'a pas de pointeur de fin
+  (mode sans terminateur : lecture hors-borne possible sur un nombre en fin
+  de document, jusqu'à 7 octets après le NUL sinon). Chantier propre :
+  ajouter end_ au flux insitu du fork (do_decode connaît la longueur), puis
+  convertir 8 chiffres par multiplication SWAR tant que
+  significandDigit + 8 <= 18 (aucun débordement possible), queue en
+  scalaire. Estimation : quelques % sur les charges à gros entiers.
+- **Dragonbox à l'écriture des flottants** : remplaçant exact de Grisu3
+  (repr le plus court unique → octets identiques), ~×2-3 sur la conversion
+  seule. Implémentation substantielle (intervalles de Schubfach, table
+  128 bits) : à faire de jour, avec le même protocole de validation
+  massive que Grisu3/Eisel-Lemire.
+- **itoa vectorisé par lots** dans les tranches multi-thread existantes.
+
+### Score pyperformance en fin de nuit (3.14, PGO, charge ~4-5)
+
+pickle ×1,63 ; unpickle ×1,84 → **×1,70** ; pickle_list ×1,11 ;
+unpickle_list ×1,79 ; pickle_dict ×2,24. Et hors benchmarks officiels,
+pickle est BATTU sur : chaînes, gros numpy compressibles, objets ordinaires
+en écriture, objets à __slots__ en écriture, objets à __getstate__ en
+écriture.
+
 ### Cycle de vie du tampon de sortie : fuite str et OOM (3 août, soir)
 
 Deux défauts trouvés en répondant aux questions sur l'allocation de sortie :
