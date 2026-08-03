@@ -1,0 +1,168 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset134 SimSun;}{\f2\fnil\fcharset2 Symbol;}}
+{\colortbl ;\red0\green0\blue255;\red0\green176\blue80;\red255\green0\blue0;\red155\green0\blue211;\red255\green105\blue180;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1 \pard\li720\sl240\slmult1\lang12\b\f0\fs22 probl\'e8me test serialization  :  \b0 pas le me resultat avec python 3.7 et 3.8{\cf4  [OBSOL\'c8TE : 3.7/3.8 ne sont plus vis\'e9s ; l'identit\'e9 octet \'e0 octet est d\'e9sormais v\'e9rifi\'e9e en continu sur 3.10-3.14, blosc2 compris (fork d\'e9terministe)]} pour serializejson_blosclz_level9.txt\par
+\pard\sl240\slmult1 pas mal de truc chelous affich\'e9s \par
+\par
+\par
+\pard\sl240\slmult1 \pard\li720\sl240\slmult1 {\cf5 accelerer deserialisation pour pouvoir utiliser le json comme format de video}{\cf4  [FAIT 02-03/08/2026 : lecture entre \'d70,3 et \'d71,5 de pickle selon les cas (blobs diff\'e9r\'e9s parall\'e8les, parse en place, GC en pause) \'97 devant le json standard partout]} \par
+\par
+\pard\sl240\slmult1 {\pntext\f2\'B7\tab}{\cf5 nb thread par defaut pour truc deterministe pas claire}{\cf4  [FAIT : d\'e9faut bytes_compression_threads='determinist' d\'e9sormais r\'e9solu \'97 multithread UNIQUEMENT via le fork libblosc2 \'e0 octets stables, sinon 1 ; 'cpus' aussi r\'e9solu]} \par
+\pard\li720\sl240\slmult1\par
+\par
+\par
+\par
+\pard\sl240\slmult1 pour que serialization single_line_list_numbers marche  (elle ne marche pas sur les elemetn d'un dictionnaire pur)\par
+\cf2 => id\'e9alament {\cf5 faudrait que single_line_list_numbers marche pour des element d'un dictionnaire .}{\cf4  [FAIT (voir ci-dessus)]} \par
+\pard\li720\sl240\slmult1\cf0\par
+\b single_line_list_numbers \par
+\pard\li1440\sl240\slmult1\b0 {\cf5 ne marche pas sur les key de dictionnaire, mais que sur les attributs d'un objet}{\cf4  [FAIT nuit du 2-3/08 : single_line_numbers d\'e9cid\'e9 en C++ partout \'97 valeurs de dicts purs et sous-listes comprises]} \par
+{\cf5 ne marche par sur liste de listes d'element du meme type.} \par
+\cf2 => faudrait un default_list pour pouvoir gere \'e7a  ?\par
+\par
+\pard\li720\sl240\slmult1\cf0\b ajout\'e9 un param\'e8tre single_line_new. \par
+\pard\li1440\sl240\slmult1\b0 j'ai h\'e9sit\'e9 \'e0 utilis\'e9 le m\'eame single_line_init , mais j'ai renonc\'e9 car introduisait une ambiguit\'e9 \cf3\par
+\cf2\par
+\pard\li720\sl240\slmult1\cf0\b\par
+\par
+\pard\sl240\slmult1 am\'e9liorations rapidjson \par
+\pard\li1440\sl240\slmult1\b0 {\cf5 il faudrait un "default_list" avec  en param\'e8tre le nom de l'attribut qui contient la liste}{\cf4  [FAIT et d\'e9pass\'e9 : hooks default_dict/default_list ajout\'e9s \'e0 l'Encoder, mais la mise en une-ligne est finalement d\'e9cid\'e9e directement dans le C++ (PushCompact), sans double s\'e9rialisation]}  pour pouvoir la mettre en une ligne si __init__, __new__, ou liste de nombres \par
+\pard\li2160\sl240\slmult1\par
+\par
+\pard\sl240\slmult1 permetre d'avoir 2 version de serializejson/rapidjson en // pour pouvoir comparer{\cf4  [Contourn\'e9 : les A/B de la campagne ont \'e9t\'e9 faits par bascule \'e0 variable d'environnement dans un m\'eame build, charge machine consign\'e9e]} \par
+\par
+\pard\sl240\slmult1 \pard\li720\sl240\slmult1 {\cf5 On peut ne traduir en base 64 qu,au moment de la concatenation pour dumps  !}{\cf4  [FAIT en mieux : le base64 s'\'e9crit directement dans le tampon final (jamais d'interm\'e9diaire), la compression est multithread, et au d\'e9codage le remplissage des blobs est diff\'e9r\'e9 et parall\'e8le \'97 l'esprit exact de cette note]}\par
+Voir faire aussi la compression \'e0 ce moment  ?\par
+Sinon serialiser tout ce qui est petit dans un buffeur en stoquant les poiteur des truc \'e0 inserer  ?\par
+(Pointeur source, taille source, offset d'insertion )\par
+Puis tout compresser et transformer en b64 lors du concatenage  ?\par
+En faisant ca on consomme un minimum de m\'e9moire\par
+Si blosc transforme en base 64 \'e7a sera multithreade.\par
+On peut aussi commencer \'e0 compresser dans d'autres trheads. Puis quand toutes les dimensions sont connues. Construire peupler le bytes en mulhithread ?\par
+Tout \'e7a c'est pour dumps.\par
+Pour truc dans fichier il est possible que l'\'e9criture sur le disc soit le goulot d'\'e9tranglement. On met les bout de jsons (sans les bytes et grosses strings) dans des buffeurs\f1\'a3\'ac\f0 sans tout ce qui est long \'e0 transformer. On envoit dans un deque des tuples ( *source \f1\'a3\'ac\f0  taille source, type de traitement \'e0 faire sur source, taille destination si on la connait, sinon taille max) .un pool de threas lit ce deque\f1\'a3\'ac\f0  font les transformations et les envoie a un thread qui les r\'e9organise dans le bon ordre.et les envoit \'e0 l'\'e9criture\par
+Faudrait voir si l'\'e9criture est bloquante. Etb si elle ne les pas qui g\'e8re le pool.\par
+\par
+\par
+\pard\sl240\slmult1\par
+\par
+\pard\sl240\slmult1 \pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li1080\sl240\slmult1 {\cf5 accelerer  la s\'e9rialisation et d\'e9serialisetaion de bytes en eviter de checker les echappements}{\cf4  [FAIT : RawBytesToBase64/BloscToBase64 \'e9crivent directement dans le tampon de sortie sans aucune v\'e9rification d'\'e9chappement, base64 vectoris\'e9 SSE et parall\'e8le dans les deux sens]}\cf4\b  <- j'attend reponse du gars sur RawJSON , pour ensuite lui demander si on ne pourrait pas permetre \'e0 RawJson de prendre des listes,des bytes et des listes de bytes (permetrai d'eviter une recopie juste pour ajouter des " quand serialize vers un fichier)\par
+\cf0\b0{\pntext\f2\'B7\tab}{\cf5 passer \'e0 blosc2?}{\cf4  [FAIT : blosc2 par d\'e9faut, via le fork libblosc2 d\'e9terministe embarqu\'e9 (multithread interne \'e0 octets stables) ; d\'e9codage des trames par notre C, y compris sous 3.10 sans la roue python-blosc2]} \par
+\par
+\pard\sl240\slmult1 \b projet C++  ?\b0\par
+\pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li720\sl240\slmult1 {\cf5 trouver solution pour faire de line profiler en C++  ?}{\cf4  [R\'c9SOLU autrement : gprofng (binutils) marche dans le bac \'e0 sable \'97 c'est lui qui a r\'e9v\'e9l\'e9 la compilation en -O0 et guid\'e9 toute la campagne]} ou avec de prints ? \line Intel\'ae VTune\'99 Profiler ? {\field{\*\fldinst{HYPERLINK "https://www.intel.com/content/www/us/en/developer/tools/oneapi/vtune-profiler.html"}}{\fldrslt{\ul\cf1 https://www.intel.com/content/www/us/en/developer/tools/oneapi/vtune-profiler.html}}}\f0\fs22\line{\field{\*\fldinst{HYPERLINK "https://www.intel.com/content/www/us/en/develop/documentation/vtune-help/top/analyze-performance/code-profiling-scenarios/python-code-analysis.html"}}{\fldrslt{\ul\cf1 https://www.intel.com/content/www/us/en/develop/documentation/vtune-help/top/analyze-performance/code-profiling-scenarios/python-code-analysis.html}}}\f0\fs22\par
+{\pntext\f2\'B7\tab}voir avec quel outil il test compile et  debug rapidjson{\cf4  [R\'c9GL\'c9 : gprofng pour le profil, batterie pytest 27 tests x 5 versions + goldens octet \'e0 octet \'e0 chaque commit comme banc de test]}\par
+{\pntext\f2\'B7\tab}voir avec martin si visual studio code mieux que visual studio 2017 \par
+{\pntext\f2\'B7\tab}pouvoir faire du debug , line par line , pour \'eatre sur de l\'e0 o\'f9 il passe \par
+{\pntext\f2\'B7\tab}tester directement rapide-json sans binding python ? \par
+\pard\sl240\slmult1\par
+\par
+\par
+\pard\sl240\slmult1 \pard\li720\sl240\slmult1 {\cf5 optimiser ecriture de string}{\cf4  [FAIT : \'d70,22 de pickle en \'e9criture]}\par
+\pard\li1440\sl240\slmult1\par
+\cf3 bizarre j'ai perdu en performances sur     bytes_str1 = rapidjson.dumps(str1, ensure_ascii=False, return_bytes = True)# \ul 32 msec \ulnone (646 msec before optimisations)\par
+ou alors j'avais juste mal not\'e9 ? \par
+\cf0\par
+\par
+{\field{\*\fldinst{HYPERLINK "https://github.com/python/cpython/blob/main/Objects/unicodeobject.c"}}{\fldrslt{\ul\cf1 https://github.com/python/cpython/blob/main/Objects/unicodeobject.c}}}\f0\fs22\par
+PyUnicode_AsUTF8AndSize\par
+\pard\li2160\sl240\slmult1 retourne un pointeur vers version utf_8 si a d\'e9j\'e0 \'e9t\'e9 encod\'e9 \par
+sinon il remplit avec unicode_fill_utf8\fs16\par
+\par
+const char *\par
+PyUnicode_AsUTF8AndSize(PyObject *unicode, Py_ssize_t *psize)\par
+\{\par
+    if (!PyUnicode_Check(unicode)) \{\par
+        PyErr_BadArgument();\par
+        return NULL;\par
+    \}\par
+\par
+    if (\ul PyUnicode_UTF8(unicode)\ulnone  == NULL) \{\par
+        if (\ul unicode_fill_utf8(unicode\ulnone ) == -1) \{\par
+            return NULL;\par
+        \}\par
+    \}\par
+\par
+    if (psize)\par
+        *psize = PyUnicode_UTF8_LENGTH(unicode);\par
+    return PyUnicode_UTF8(unicode);\par
+\}\par
+\par
+\par
+\fs22 PyUnicode_UTF8(unicode)\par
+\pard\li2880\sl240\slmult1 retourne un pointeur vers version utf_8 si a d\'e9j\'e0 \'e9t\'e9 encod\'e9 ou simple ASCII \par
+\fs16 #define PyUnicode_UTF8(op)                              \\\par
+    (assert(_PyUnicode_CHECK(op)),                      \\\par
+     PyUnicode_IS_COMPACT_ASCII(op) ?                   \\\par
+         \ul ((char*)(_PyASCIIObject_CAST(op) + 1\ulnone )) :       \\\par
+         \ul _PyUnicode_UTF8(op))\ulnone\par
+\par
+#define _PyUnicode_UTF8(op)                             \\\par
+    \ul (_PyCompactUnicodeObject_CAST\ulnone (op)->utf8)\par
+\par
+\fs22 _PyCompactUnicodeObject_CAST\par
+\par
+\pard\li2160\sl240\slmult1 unicode_fill_utf8\par
+\pard\li2880\sl240\slmult1\fs16\par
+static int\par
+unicode_fill_utf8(PyObject *unicode)\par
+\{\par
+    /* the string cannot be ASCII, or PyUnicode_UTF8() would be set */\par
+    assert(!PyUnicode_IS_ASCII(unicode));\par
+\par
+    int kind = PyUnicode_KIND(unicode);\par
+    const void *data = PyUnicode_DATA(unicode);\par
+    Py_ssize_t size = PyUnicode_GET_LENGTH(unicode);\par
+\par
+    _PyBytesWriter writer;\par
+    char *end;\par
+\par
+    switch (kind) \{\par
+    default:\par
+        Py_UNREACHABLE();\par
+    case PyUnicode_1BYTE_KIND:\par
+        end = \ul ucs1lib_utf8_encoder\ulnone (&writer, unicode, data, size,\par
+                                   _Py_ERROR_STRICT, NULL);\par
+        break;\par
+    case PyUnicode_2BYTE_KIND:\par
+        end = \ul ucs2lib_utf8_encoder\ulnone (&writer, unicode, data, size,\par
+                                   _Py_ERROR_STRICT, NULL);\par
+        break;\par
+    case PyUnicode_4BYTE_KIND:\par
+        end = \ul ucs4lib_utf8_encoder\ulnone (&writer, unicode, data, size,\par
+                                   _Py_ERROR_STRICT, NULL);\par
+        break;\par
+    \}\par
+    if (end == NULL) \{\par
+        _PyBytesWriter_Dealloc(&writer);\par
+        return -1;\par
+    \}\par
+\par
+    const char *start = writer.use_small_buffer ? writer.small_buffer :\par
+                    PyBytes_AS_STRING(writer.buffer);\par
+    Py_ssize_t len = end - start;\par
+\par
+    char *cache = PyObject_Malloc(len + 1);\par
+    if (cache == NULL) \{\par
+        _PyBytesWriter_Dealloc(&writer);\par
+        PyErr_NoMemory();\par
+        return -1;\par
+    \}\par
+    _PyUnicode_UTF8(unicode) = cache;\par
+    _PyUnicode_UTF8_LENGTH(unicode) = len;\par
+    memcpy(cache, start, len);\par
+    cache[len] = '\\0';\par
+    _PyBytesWriter_Dealloc(&writer);\par
+    return 0;\par
+\}\par
+\pard\li1440\sl240\slmult1\fs22 ucs2lib_utf8_encoder\par
+\par
+\pard\li720\sl240\slmult1 {\cf5 voir pour eviter de passer par une serialisation sp\'e9ciale pour du one_line ?}{\cf4  [FAIT : un seul encodeur, mode compact par sous-arbre dans le PrettyWriter C++ ; le raccourci Python des listes racines a \'e9t\'e9 retir\'e9 (il contournait toutes les optimisations)]} \par
+\par
+\par
+\par
+\par
+\pard\sl240\slmult1\par
+\pard\sa200\sl276\slmult1\par
+\par
+}
+ 

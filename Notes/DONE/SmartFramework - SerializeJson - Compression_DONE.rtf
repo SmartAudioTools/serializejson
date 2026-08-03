@@ -1,0 +1,62 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fswiss\fprq2\fcharset0 Arial;}}
+{\colortbl ;\red0\green0\blue0;\red0\green176\blue80;\red0\green0\blue255;\red255\green0\blue0;\red255\green105\blue180;\red155\green0\blue211;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1 \cf2 {\cf5 blosc2 ?}{\cf6  [FAIT : blosc2 est le d\'e9faut (fork d\'e9terministe embarqu\'e9, d\'e9codage des trames par notre C m\'eame sans la roue python-blosc2) ; le filtre delta reste \'e0 explorer]}  \par
+\par
+\pard\sl240\slmult1 {\cf5 le faire du cot\'e9 C++ pour eviter d'avoir \'e0 faire des copies lors de passage pythons <-> C++}{\cf6  [FAIT : compression, d\'e9compression et base64 enti\'e8rement c\'f4t\'e9 C++, z\'e9ro copie Python (protocole buffer en entr\'e9e, \'e9criture directe dans la sortie)]}\cf0\b\par
+\pard\li1440\sl240\slmult1\par
+\par
+\pard\sl240\slmult1 \pard\li1440\sl240\slmult1\tx3060\cf4\ulnone - pas compatible avec zstandard \'e0 cause header diff\'e9rent () \cf0\b0\par
+\pard\li2160\sl240\slmult1\tx3060 -> pas top pour la p\'e9r\'e9nit\'e9 des datas\par
+-> si on d\'e9cide alors de compression avec zstandard pour continuer \'e0 avoir quelque choses de deterministe meme si nthreads > 1, blosc n'arrive pas \'e0 lire le header...\par
+\pard\li1440\sl240\slmult1\tx3060 - \cf4\b {\cf5 pas deterministe si nb thread > 1\b0  pendant la compression (serialize pas toujours de la meme fa\'e7on si donn\'e9es d\'e9passent une certaine taille (il d\'e9coupe en plusieurs CPU si d\'e9passe cette taille ? )) \par
+\pard\li2160\sl240\slmult1\tx3060=> pause probl\'e8me pour versionner json...\par
+-> pour l'instant je suis partis  sur set_nbtread(1) .. pas top ... }{\cf6  [R\'c9SOLU 03/08/2026 : fork libblosc2 embarqu\'e9 \'e0 commit ORDONN\'c9 des blocs \'97 le multithread interne produit des octets identiques \'e0 1 thread ; d\'e9faut bytes_compression_threads='determinist' qui n'active le MT que par cette voie]}\par
+{\field{\*\fldinst{HYPERLINK "https://github.com/Blosc/python-blosc/issues/236"}}{\fldrslt{\ul\cf3 https://github.com/Blosc/python-blosc/issues/236}}}\f0\fs22\par
+\fs16 Hi, I'm developing [serializejson](https://smartaudiotools.github.io/serializejson), a python library for fast serialization and deserialization of complex Python objects in [JSON](http://json.org) highly compatible with [pickle](https://docs.python.org/3/library/pickle.html)\par
+I use blosc in order to compress binary data before encoding in Base64 for json serialisation.\par
+I need to have always the same json when I serialize same data for comparison, checking and versioning of jsons.\par
+Sadly, when multi-threaded , the blosc compression is not determinist for big data, forcing me to use only one thread for compression and losing blosc's advantage over other libraries when compressing. \par
+for example, following code give an AssertionError when nb_thread > 1\par
+    import blosc\par
+    datas = bytes(range(256)) * 1200\par
+    nb_thread  = 2\par
+    blosc.set_nthreads(nb_thread)\par
+    for i in range(20):\par
+        compressed_blosc_1 = blosc.compress(datas , 1, cname="zstd", clevel=1)\par
+        compressed_blosc_2 = blosc.compress(datas , 1, cname="zstd", clevel=1)\par
+        assert compressed_blosc_1 == compressed_blosc_2\par
+Is there a possibility of using blosc in multi-tread while maintaining deterministic behavior?\par
+Otherwise i would like to use the  [python-zstandard](https://github.com/indygreg/python-zstandard) libray for compression wich is determinist even in multi-thread. Sadly your blosc library wich is much faster than python-zstandard for decompression is not able to decompress data compressed with python-zstandard library beacause of  unrecognised header. \par
+Is there an option to recognize or ignore the header of the data compressed with the python-zstandard library if we pass the name of the compression to blosc.decompress ? \par
+More generally, is it possible to have data compressed with blosc that does not use specific blosc headers, to have data that can still be readable in 10 years even if blosc is no longer maintained?\par
+--------------------\par
+Hi. {\cf5 Unfortunately it is not possible}{\cf6  [D\'c9MENTI le 03/08/2026 : le patch de 184 lignes (blosc2_determinisme.patch, commit ordonn\'e9 par variable de condition) rend le MT interne d\'e9terministe sans perte mesurable \'97 ce que l'auteur tenait pour impossible]}. Blosc achieves efficient paralellism by letting the first thread that ends its part of the compression to write first in the output buffer, then the next thread to finish will write after that, and so on so forth; this is the way we can save precious copy time. \cf4 As there is no guarantee on the order of the sequence of completing times for every thread, it is essentially impossible to guarantee an order (except for the trivial case that you use 1 single thread, as you found out already).\par
+\cf0\par
+Regarding compatibility with zstandard, unfortunately the answer is negative again. Blosc is all about speed, and it makes a number of choices for compressing/decompressing that makes it difficult (if not impossible) to read other formats in order to decompress them faster than the original implementation. At any rate, my guess is that it is going to be difficult for any codec to decompress faster than zstandard when it is required to use zstandard own format.\par
+\par
+Regarding your last question, well, the Blosc format is completely open (see {\field{\*\fldinst{HYPERLINK "https://github.com/Blosc/c-blosc/blob/master/README_CHUNK_FORMAT.rst"}}{\fldrslt{\ul\cf3 https://github.com/Blosc/c-blosc/blob/master/README_CHUNK_FORMAT.rst}}}\f0\fs16 ) so the idea is that, even if Blosc is going to be unmaintained in 10 years, anybody could produce a reader (even a writer!) for the format. In any case, the Blosc team is confident that happy users will provide resources for, hopefully, at least 10 more years.\par
+----------------\par
+Hello , \par
+Thank for your response . \par
+I was speaking about python blosc with cname = zstd and python-zstandard library compatibility . \par
+From my tests (beside) , for bytes len  between 32 and 8193,   python blosc compression with cname = "zstd" and nb_thread = 1 differ from python-zstandard  library only by adding a header of 24 bytes .\par
+I did'nt investigate much more but my guess was that it could be possible to compress with python-zstandard library wich is deterministe in multithread and to decompress with blosc (wich is 4x faster than python-zstandard library for zstandard compressed data), given to blosc.decompress the codec name "zstd" (information that is no longer in the lost header)\par
+    import blosc\par
+    import zstandard\par
+    import numpy\par
+    blosc.set_nthreads(1)\par
+    for size in range(32,8193,1):    \par
+        inst = numpy.random.randint(0,10,size)\par
+        compressed_zstd_blosc = blosc.compress(inst, 1, cname="zstd", clevel=1)\par
+        compressed_zstandard = zstandard.ZstdCompressor(level=1, threads=1).compress(inst)\par
+        assert compressed_zstd_blosc[24:] == compressed_zstandard\par
+ --------------------\fs22\par
+\fs16 Yes, I know what you was speaking about ;-). Actually, there are a lot of things that differ in the why that blosc+zstd and plain zstd store the output. For one thing, I see that \ul you are directing blosc to use the shuffle filter\ulnone , and I don't think python-zstandard activates this. Then, \ul blosc tends to split the inputs in smaller pieces\ulnone , and then again, this is not something that python-zstandard does. Really, \ul even if blosc and zstd both use the same codec internally, a lot is changing on how the output is created.\ulnone\par
+------------\par
+Sad, so it's just a coincidence if blocks + zstd and zstandard are compatible for random bytes of length between 32 and 8193 ? I don't necessary want to use the shuffle filter . Maybe I should split my bytes into blocks of 8192 elements to keep this compatibility between blosc+zstd and standard ? \cf1\lang1033\b\f1\fs20\par
+\pard\sl240\slmult1\par
+\pard\sa200\sl276\slmult1\cf0\lang12\b0\f0\fs22\par
+\pard\li720\sa200\sl276\slmult1\par
+\par
+}
+ 
