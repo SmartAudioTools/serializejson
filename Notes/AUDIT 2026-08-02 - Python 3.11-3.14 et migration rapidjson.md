@@ -1030,7 +1030,10 @@ n'alloue presque plus d'objets Python) ; la branche set/frozenset à l'encodage
 — et ce chantier a mis au jour un INDÉTERMINISME PRÉ-EXISTANT : l'ordre
 d'itération d'un set à collision de hachage (ex. {(1,2), 3}) varie entre
 processus même à PYTHONHASHSEED fixe, donc les sets ne sont pas garantis
-octet-stables aujourd'hui — à trancher un jour (tri canonique ?).
+octet-stables aujourd'hui — à trancher un jour (tri canonique ?). Symptôme
+reconnaissable dans les diffs de goldens : une divergence INTERMITTENTE dont
+toutes les lignes sont des set/frozenset (vu le 3/08 avec {1, NaN} : le hash
+de NaN dépend de l'adresse mémoire, l'ordre change d'un processus à l'autre).
 
 ### La question « tout en C++ ? » et le découpage retenu (15 h – 16 h)
 
@@ -1048,13 +1051,63 @@ strict_pickle garde la forme octets, le drapeau est désormais transmis au C++.
 Benchmarks officiels après cette tranche (3.14, PGO) : pickle ×2,17,
 unpickle ×1,76, pickle_list ×1,33, unpickle_list ×1,73, pickle_dict ×2,30.
 
-CHANTIER SUIVANT SPÉCIFIÉ (non commencé) : (1) le __call__ des
+CHANTIER SUIVANT SPÉCIFIÉ : (1) le __call__ des
 Encoder/Decoder porté en C (le dernier ~µs par appel : garde amortie, reset,
-curly-check, queue des doublons rare via helper Python) ; (2) la
+curly-check, queue des doublons rare via helper Python) — FAIT le 3 août,
+voir ci-dessous ; (2) la
 généralisation des recettes — class_plan/decode_class_plan étendus pour que
 le Python déclare une fois par classe (constructeur, disposition des
 arguments, politique setters/properties) ce que le C exécute, couvrant les
-classes utilisateur et l'habillage numpy.
+classes utilisateur et l'habillage numpy — NON COMMENCÉ.
+
+### Le __call__ porté en C (3 août, tranche 1 du chantier)
+
+Les Encoder/Decoder Python ne définissent plus de `__call__` : le tp_call C
+de rapidjson exécute tout le protocole d'appel — poussée amortie des
+paramètres globaux (garde par identité de pointeurs, jamais d'égalité par
+valeur : un défaut à tort ne coûte qu'une repoussée), équivalents C de
+_reset/_clean posés par PyObject_GenericSetAttr (contourne le __setattr__,
+comme le voulaient déjà les attributs volatils), json_startswith_curly,
+drapeaux _fast_start_object/_fast_plain_end_object, queue des doublons. Le
+Python n'est rappelé que sur les chemins rares : `_update_serialize_parameters`
+(défaut de garde encodeur), `_push_decode_parameters` (défaut de garde
+décodeur), `_call_update` (mise à jour d'objet), `_resolve_duplicates`
+($ref en avant). L'enregistrement se fait à l'import :
+`rapidjson.register_serializejson(Encoder, Decoder, serialize_parameters)` ;
+une instance de rapidjson.Encoder/Decoder « nue » garde le comportement brut,
+et `rapidjson.Decoder._decode` expose le décodage brut (itérateur de fichier,
+mise à jour).
+
+Mesures (3.14, PGO) : dump minuscule 2 313 → 1 299 ns (pickle : 513),
+load minuscule 1 433 → 1 220 ns (pickle : 314). Benchmarks officiels
+pyperformance : pickle ×1,97 → ×1,64, unpickle ×1,84 → ×1,75,
+pickle_list ×1,56 → ×1,09, unpickle_list ×1,79 → ×1,64,
+pickle_dict ×2,21 → ×2,07.
+
+Le portage a mis au jour et RÉPARÉ deux régressions de la nuit de migration,
+jamais couvertes par un test : `Encoder.dumps()`/`dumpb()` ignoraient le
+return_bytes par appel (dumps rendait des bytes), et `Encoder.dump(obj,
+fichier)` levait TypeError (chunk_size passé à un __call__ qui ne l'acceptait
+plus). Trois tests de non-régression ajoutés (tests/test_encoder_methods.py).
+Vérification : A/B contrôlé même machine même interpréteur (sorties de HEAD
+régénérées par stash) — aucun octet ne change ; batteries 30/30 vertes et
+octets identiques sur les 5 versions ; chemins rares exercés un à un
+(update via updatables_classes, dotdict, $ref en avant, flux str/bytes,
+liste racine, append+itérateur, invalidation par __setattr__, alternance de
+deux encodeurs et d'un décodeur).
+
+Dettes pré-existantes relevées au passage (comportement identique sur HEAD,
+vérifié avant de conclure) : `append()` de doublons partagés écrit des $ref
+relatifs à chaque append, illisibles au chargement du fichier entier
+(TypeError dans from_name) ; la mise à jour `decoder(json, obj)` ne touche
+que les updatables_classes (un dict ou un objet ordinaire ne sont PAS mis à
+jour — c'était déjà le cas) ; la docstring de Decoder.__call__ (exemples
+d'usage) disparaît de help() puisque le __call__ est un slot C ; changer
+`sort_keys` (et les autres membres C) après construction a toujours été
+impossible (membre en lecture seule). Passe de simplification : __call__ ×2,
+_clean et le protocole manuel d'append supprimés côté Python ; regardé et
+laissé tel quel — le couple _reset/_update dans clear() (pas un chemin
+chaud, comportement historique conservé).
 
 ### Ce qui borne encore, et pourquoi
 
