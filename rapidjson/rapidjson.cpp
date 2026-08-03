@@ -367,8 +367,11 @@ struct PtrMemo {
 struct PathTracker {
     std::vector<PathSegment> segments;
     // pile parallèle à segments : index du PathNode déjà matérialisé pour ce
-    // niveau, ou -1 si pas encore demandé
+    // niveau, ou -1 si pas encore demandé. Invariant : préfixe rempli puis
+    // suffixe de -1 (les push ajoutent -1 en queue, les pop retirent en
+    // queue, materialize remplit tout) — firstUnregistered borne le préfixe
     std::vector<int> registered;
+    size_t firstUnregistered = 0;
     std::vector<PathNode> nodes;
     // mémo C++ des dicts/listes déjà écrits (encoder memo_refs=True) :
     // conteneur -> index de PathNode ; garde une référence forte sur chaque
@@ -401,23 +404,22 @@ struct PathTracker {
 static long
 path_tracker_materialize(PathTracker* tracker)
 {
-    int parent = -1;
-    for (size_t level = 0; level < tracker->segments.size(); level++) {
-        int node_index = tracker->registered[level];
-        if (node_index == -1) {
-            const PathSegment& segment = tracker->segments[level];
-            PathNode node;
-            node.parent = parent;
-            node.kind = segment.kind;
-            node.index = segment.index;
-            if (segment.str != nullptr)
-                node.key.assign(segment.str, segment.len);
-            tracker->nodes.push_back(std::move(node));
-            node_index = (int) tracker->nodes.size() - 1;
-            tracker->registered[level] = node_index;
-        }
-        parent = node_index;
+    // repart du premier niveau non enregistré (préfixe déjà matérialisé)
+    size_t start = tracker->firstUnregistered;
+    int parent = start ? tracker->registered[start - 1] : -1;
+    for (size_t level = start; level < tracker->segments.size(); level++) {
+        const PathSegment& segment = tracker->segments[level];
+        PathNode node;
+        node.parent = parent;
+        node.kind = segment.kind;
+        node.index = segment.index;
+        if (segment.str != nullptr)
+            node.key.assign(segment.str, segment.len);
+        tracker->nodes.push_back(std::move(node));
+        parent = (int) tracker->nodes.size() - 1;
+        tracker->registered[level] = parent;
     }
+    tracker->firstUnregistered = tracker->segments.size();
     return parent;
 }
 
@@ -2760,6 +2762,10 @@ dumps_internal(
     if (pathTracker) {                                                  \
         pathTracker->segments.pop_back();                               \
         pathTracker->registered.pop_back();                             \
+        if (pathTracker->firstUnregistered                              \
+                > pathTracker->registered.size())                       \
+            pathTracker->firstUnregistered =                            \
+                pathTracker->registered.size();                         \
     }
 
 // Mémo C++ des conteneurs (encoder memo_refs=True) : si le dict/liste a déjà
