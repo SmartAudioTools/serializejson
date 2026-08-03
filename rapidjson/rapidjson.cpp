@@ -4908,8 +4908,8 @@ dumps_internal(
                     return false;
                 if (plan != Py_None
                     && (!PyTuple_Check(plan)
-                        || (PyTuple_GET_SIZE(plan) != 2
-                            && PyTuple_GET_SIZE(plan) != 3))) {
+                        || PyTuple_GET_SIZE(plan) < 2
+                        || PyTuple_GET_SIZE(plan) > 4)) {
                     Py_DECREF(plan);
                     plan = Py_None;
                     Py_INCREF(Py_None);
@@ -4949,11 +4949,20 @@ dumps_internal(
                     (tup_size > 4) ? PyTuple_GET_ITEM(tup, 4) : Py_None;
                 PyObject* new_args =
                     (tup_size > 5) ? PyTuple_GET_ITEM(tup, 5) : Py_None;
-                // formes prises en charge : nom str, arguments None ou
-                // tuple/liste/dict EXACTS (les mêmes tests de type que
+                // formes prises en charge : nom str — ou la CLASSE de
+                // l'objet elle-même (plugins du registre), remplacée par le
+                // nom précalculé du plan — et arguments None ou tuple/liste/
+                // dict EXACTS (les mêmes tests de type que
                 // _dict_from_instance, qui compare par type exact)
-                bool shape_ok = tup_size >= 2 && tup_size <= 6
-                    && PyUnicode_Check(class_str_obj);
+                bool shape_ok = tup_size >= 2 && tup_size <= 6;
+                if (shape_ok && !PyUnicode_Check(class_str_obj)) {
+                    if (class_str_obj == (PyObject*) Py_TYPE(object)
+                        && PyTuple_GET_SIZE(plan) >= 4
+                        && PyUnicode_Check(PyTuple_GET_ITEM(plan, 3)))
+                        class_str_obj = PyTuple_GET_ITEM(plan, 3);
+                    else
+                        shape_ok = false;
+                }
                 for (PyObject* args : {init_args, new_args})
                     if (shape_ok && args != Py_None && args != nullptr
                         && !PyTuple_CheckExact(args)

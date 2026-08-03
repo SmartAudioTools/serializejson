@@ -954,11 +954,24 @@ class Encoder(rapidjson.Encoder):
             # (serializejson_) prime sur la méthode — classes du registre en
             # voie Python pour l'instant ; Enum a son traitement dans
             # default() ; les noms remove_add_braces ont un déballage à part
+            registry_fn = serializejson_.get(class_)
+            if registry_fn is not None:
+                # le registre plugins PRIME sur la méthode (ordre de
+                # tuple_from_instance). Seul array.array est mis en recette :
+                # les autres entrées (datetime.datetime, ndarray, scalaires
+                # et dtype numpy) ont une branche C dédiée ou un traitement
+                # default() en amont que la recette court-circuiterait
+                if class_.__module__ == "array" and class_.__name__ == "array":
+                    # tuple[0] des plugins est la CLASSE : le nom émis est
+                    # précalculé ici, le C l'utilise quand tuple[0] n'est
+                    # pas une chaîne
+                    return (None, registry_fn,
+                            bool(self.numpy_array_to_list), "array.array")
+                return None
             method = getattr(class_, "__serializejson__", None)
             if method is not None:
                 if (
-                    class_ in serializejson_
-                    or issubclass(class_, Enum)
+                    issubclass(class_, Enum)
                     or class_str_from_class(class_) in remove_add_braces
                 ):
                     return None
