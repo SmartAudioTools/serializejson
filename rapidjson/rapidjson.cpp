@@ -31,6 +31,7 @@ static inline PyObject* sj_unicode_from_ascii(const char* s, Py_ssize_t size) {
 }
 
 #include "serializejson.h"
+#include "dtoa_repr.h"
 #include "reader.h"
 #include "schema.h"
 #include "stringbuffer.h"
@@ -2545,14 +2546,20 @@ write_buffer_value(WriterT* writer, char code, const char* ptr, unsigned numberM
             writer->RawValue(value < 0 ? "-Infinity" : "Infinity",
                              value < 0 ? 9 : 8);
         } else {
-            // graphie EXACTE de repr() (moteur interne de CPython) : mêmes
-            // octets que le chemin tolist historique
-            char* repr_str = PyOS_double_to_string(value, 'r', 0,
-                                                   Py_DTSF_ADD_DOT_0, nullptr);
-            if (repr_str == nullptr)
-                return false;
-            writer->RawValue(repr_str, strlen(repr_str));
-            PyMem_Free(repr_str);
+            // graphie EXACTE de repr() : Grisu3 en direct, repli sur le
+            // moteur interne de CPython quand l'arrondi n'est pas garanti
+            char repr_buf[40];
+            int repr_len = sjdtoa::ReprDouble(value, repr_buf);
+            if (repr_len > 0) {
+                writer->RawValue(repr_buf, (size_t) repr_len);
+            } else {
+                char* repr_str = PyOS_double_to_string(value, 'r', 0,
+                                                       Py_DTSF_ADD_DOT_0, nullptr);
+                if (repr_str == nullptr)
+                    return false;
+                writer->RawValue(repr_str, strlen(repr_str));
+                PyMem_Free(repr_str);
+            }
         }
         return true;
     }
@@ -2923,17 +2930,22 @@ dumps_internal(
                 writer->RawValue("Infinity", 8);
             }
         } else {
-            // The RJ dtoa() produces "strange" results for particular values, see #101:
-            // écrit la graphie EXACTE de repr() via son moteur interne
-            // (PyOS_double_to_string mode 'r'), sans créer de chaîne Python —
-            // et sans passer par le __repr__ des sous-classes (numpy 2
-            // float64 donnerait "np.float64(0.0)")
-            char* repr_str = PyOS_double_to_string(d, 'r', 0,
-                                                   Py_DTSF_ADD_DOT_0, nullptr);
-            if (repr_str == nullptr)
-                return false;
-            writer->RawValue(repr_str, strlen(repr_str));
-            PyMem_Free(repr_str);
+            // graphie EXACTE de repr(), sans passer par le __repr__ des
+            // sous-classes (numpy 2 float64 donnerait "np.float64(0.0)") :
+            // Grisu3 en direct, repli sur le moteur interne de CPython
+            // quand l'arrondi n'est pas garanti (~0,5 % des valeurs)
+            char repr_buf[40];
+            int repr_len = sjdtoa::ReprDouble(d, repr_buf);
+            if (repr_len > 0) {
+                writer->RawValue(repr_buf, (size_t) repr_len);
+            } else {
+                char* repr_str = PyOS_double_to_string(d, 'r', 0,
+                                                       Py_DTSF_ADD_DOT_0, nullptr);
+                if (repr_str == nullptr)
+                    return false;
+                writer->RawValue(repr_str, strlen(repr_str));
+                PyMem_Free(repr_str);
+            }
         }
     }
 	
@@ -3050,15 +3062,21 @@ dumps_internal(
                             writer->RawValue(value < 0 ? "-Infinity" : "Infinity",
                                              value < 0 ? 9 : 8);
                     } else {
-                        char* repr_str = PyOS_double_to_string(
-                            value, 'r', 0, Py_DTSF_ADD_DOT_0, nullptr);
-                        if (repr_str == nullptr) {
-                            if (pushed_compact)
-                                writer->PopCompact();
-                            return false;
+                        char repr_buf[40];
+                        int repr_len = sjdtoa::ReprDouble(value, repr_buf);
+                        if (repr_len > 0) {
+                            writer->RawValue(repr_buf, (size_t) repr_len);
+                        } else {
+                            char* repr_str = PyOS_double_to_string(
+                                value, 'r', 0, Py_DTSF_ADD_DOT_0, nullptr);
+                            if (repr_str == nullptr) {
+                                if (pushed_compact)
+                                    writer->PopCompact();
+                                return false;
+                            }
+                            writer->RawValue(repr_str, strlen(repr_str));
+                            PyMem_Free(repr_str);
                         }
-                        writer->RawValue(repr_str, strlen(repr_str));
-                        PyMem_Free(repr_str);
                     }
                 }
             }
