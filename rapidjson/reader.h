@@ -169,6 +169,54 @@ SjRawCursor(GenericInsituStringStream<Encoding>& s) { return s.src_; }
 template <typename StreamType>
 RAPIDJSON_FORCEINLINE const char* SjRawCursor(StreamType&) { return nullptr; }
 
+// fork serializejson : flux insitu BORNE - end_ permet les lectures larges
+// (SWAR 8 octets) sans jamais depasser le tampon ; les autres flux rendent
+// nullptr et restent au scan scalaire
+template <typename Encoding>
+struct SjBoundedInsituStream : GenericInsituStringStream<Encoding> {
+    SjBoundedInsituStream(typename Encoding::Ch* src,
+                          const typename Encoding::Ch* end)
+        : GenericInsituStringStream<Encoding>(src), sj_end_(end) {}
+    const typename Encoding::Ch* sj_end_;
+};
+
+// même optimisation de copie locale que le flux insitu de base : le code
+// du parse compte dessus (il relit le DÉBUT d'un nombre via le flux
+// original non avancé — sans ce trait, l'original est le même objet et le
+// jeton relu est du vide)
+template <typename Encoding>
+struct StreamTraits<SjBoundedInsituStream<Encoding> > {
+    enum { copyOptimization = 1 };
+};
+
+template <typename Encoding>
+RAPIDJSON_FORCEINLINE const typename Encoding::Ch*
+SjRawCursor(SjBoundedInsituStream<Encoding>& s) { return s.src_; }
+
+template <typename Encoding>
+RAPIDJSON_FORCEINLINE const typename Encoding::Ch*
+SjRawEnd(SjBoundedInsituStream<Encoding>& s) { return s.sj_end_; }
+template <typename StreamType>
+RAPIDJSON_FORCEINLINE const char* SjRawEnd(StreamType&) { return nullptr; }
+
+// conversion SWAR de 8 chiffres decimaux (petit-boutiste) : rend false si
+// l'un des 8 octets n'est pas un chiffre
+RAPIDJSON_FORCEINLINE bool sj_swar8_digits(const char* p, uint32_t* out) {
+    uint64_t chunk;
+    memcpy(&chunk, p, 8);
+    uint64_t digits = chunk ^ RAPIDJSON_UINT64_C2(0x30303030, 0x30303030);
+    if ((digits | (digits + RAPIDJSON_UINT64_C2(0x06060606, 0x06060606)))
+        & RAPIDJSON_UINT64_C2(0xF0F0F0F0, 0xF0F0F0F0))
+        return false;
+    digits = (digits * 10 + (digits >> 8))
+        & RAPIDJSON_UINT64_C2(0x00FF00FF, 0x00FF00FF);
+    digits = (digits * 100 + (digits >> 16))
+        & RAPIDJSON_UINT64_C2(0x0000FFFF, 0x0000FFFF);
+    digits = (digits * 10000 + (digits >> 32)) & 0xFFFFFFFFu;
+    *out = (uint32_t) digits;
+    return true;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Handler
 
@@ -1524,7 +1572,37 @@ private:
         else if (RAPIDJSON_LIKELY(s.Peek() >= '1' && s.Peek() <= '9')) {
             i = static_cast<unsigned>((kLazyIntDigits ? s.Take() : s.TakePush()) - '0');
 
-            if (minus)
+            // fork serializejson : SWAR - 8 chiffres convertis d'un coup
+            // (flux insitu borne seulement : la lecture de 8 octets est
+            // prouvee dans le tampon). Plafond a 17 chiffres au total :
+            // aucun debordement possible (10^17 < 2^63), les gardes fines
+            // des boucles scalaires reprennent pour la queue
+            if (kLazyIntDigits) {
+                const char* swarEnd =
+                    reinterpret_cast<const char*>(SjRawEnd(copy.s));
+                if (swarEnd != nullptr) {
+                    for (;;) {
+                        const char* swarCur =
+                            reinterpret_cast<const char*>(SjRawCursor(copy.s));
+                        if (significandDigit > 8 || swarCur + 8 > swarEnd)
+                            break;
+                        uint32_t swarVal;
+                        if (!sj_swar8_digits(swarCur, &swarVal))
+                            break;
+                        i64 = (use64bit ? i64 : (uint64_t) i)
+                            * RAPIDJSON_UINT64_C2(0x00000000, 0x05F5E100)
+                            + swarVal;
+                        use64bit = true;
+                        for (int swarK = 0; swarK < 8; swarK++)
+                            s.Take();
+                        significandDigit += 8;
+                    }
+                }
+            }
+
+            if (use64bit)
+                ;   // la suite du nombre est reprise par les boucles 64 bits
+            else if (minus)
                 while (RAPIDJSON_LIKELY(s.Peek() >= '0' && s.Peek() <= '9')) {
                     if (RAPIDJSON_UNLIKELY(i >= 214748364)) { // 2^31 = 2147483648
                         if (RAPIDJSON_LIKELY(i != 214748364 || s.Peek() > '8')) {

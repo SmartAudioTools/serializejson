@@ -3134,7 +3134,11 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
             parseBuffer = jsonStrCopy;
         }
 
-        InsituStringStream ss(parseBuffer);
+        // flux insitu BORNÉ : la fin permet les lectures larges (SWAR) sans
+        // jamais dépasser le tampon (l'entrée bytes/str est suivie d'un NUL,
+        // mais rien n'est garanti au-delà)
+        SjBoundedInsituStream<UTF8<> > ss(parseBuffer,
+                                          parseBuffer + jsonStrLen);
 
         handler.deferB64 = true;
 
