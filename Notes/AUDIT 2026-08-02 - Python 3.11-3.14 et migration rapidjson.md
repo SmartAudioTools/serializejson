@@ -1229,24 +1229,50 @@ en écriture, objets à __slots__ en écriture, objets à __getstate__ en
 (Le load des chaînes à ×2,1 : pickle rend des objets str mémoïsés ; nous
 recréons chaque str depuis l'UTF-8 — voir piste ci-dessous.)
 
-### Deux chantiers restants, spécifiés (choix « le plus sûr » : pas lancés
-### à 23 h passées)
+### Balayage par lots : FAIT dans la même nuit (23 h)
 
-- **Balayage par lots des tableaux homogènes au DÉCODAGE** : dans un
-  tableau JSON, une suite `nombre,nombre,...` pourrait être consommée par
-  une boucle serrée du fork (le flux borné le permet désormais) qui
-  contourne l'aiguillage par valeur ParseValue → handler : construire la
-  liste Python d'un trait, SWAR sur chaque élément. C'est LE levier
-  d'unpickle_list (×1,86) et du load des gros ints (×1,18) ; chirurgie du
-  cœur du reader, à faire reposé.
-- **Dragonbox à l'écriture des flottants** : toujours valable (×2-3 sur la
-  conversion), mais l'écriture float texte restera au-dessus du memcpy
-  binaire de pickle (~8,5 ns/float) même parfaite : priorité derrière le
-  balayage par lots.
-- **Cache/mémoïsation des chaînes au décodage** (le ×2,1 du load chaînes) :
-  généraliser le cache des clés aux VALEURS chaînes courtes répétées —
-  attention à ne pas payer le hachage sur les chaînes toutes distinctes
-  (plafonner comme le cache des clés).
+Les motifs « nombre, » des tableaux sont consommés par une boucle serrée
+sur le tampon borné, sans repasser par ParseValue/ParseNumber : entiers
+(SWAR 8 chiffres, plafond 17) PUIS flottants (mantisse.fraction/exposant,
+conversion Eisel-Lemire directe). Au moindre doute la voie normale reprend
+le jeton entier — erreurs JSON comprises ([01,2], [1,,2] toujours rejetés).
+Gains A/B entrelacés : −26 % gros entiers, −19 % petits, −23 % flottants,
+−18 % charge unpickle_list. Validation : 2 M de mélanges au bit et au TYPE
+près, bords (-0.0, 5e-324, 1E3, 1e+5, 1., e vide).
+
+### Tableau de position après la nuit complète (3.14, PGO, ~23 h 15)
+
+Officiels : pickle ×1,62 · unpickle ×1,88 · pickle_list ×1,17 ·
+unpickle_list **×1,39** (était ×1,86) · pickle_dict ×2,23.
+
+| charge             | dump      | load      |
+|--------------------|-----------|-----------|
+| floats (200 k)     | ×2,4      | ×2,4 (était ×2,8) |
+| gros ints (200 k)  | **×0,36** | **×0,84** |
+| petits ints (200 k)| **×0,41** | **×0,97** |
+| chaînes (20 k)     | **×0,33** | ×2,0      |
+| objets slots (5 k) | **×0,61** | ×1,54     |
+
+LES ENTIERS BATTENT PICKLE DANS LES DEUX SENS. Restent derrière : les
+flottants (structurel : texte contre memcpy binaire — Dragonbox réduirait
+le dump, le load restant est dominé par PyFloat_FromDouble + le scan), les
+chaînes au load (création str depuis UTF-8 contre opcode+alloc), les
+enveloppes des micro-dicts (verbosité du format).
+
+### Chantiers restants, spécifiés (arrêt « le plus sûr » à 23 h 15)
+
+- **Dragonbox à l'écriture des flottants** : ~×2-3 sur la conversion,
+  protocole de validation massive identique à Grisu3/EL. Ne suffira PAS à
+  battre le memcpy binaire de pickle sur les floats.
+- **Cache adaptatif des VALEURS chaînes au décodage** : généraliser le
+  cache des clés avec un interrupteur adaptatif (se couper si les échecs
+  dominent — les chaînes toutes distinctes ne doivent rien payer). Gain
+  réel sur les données répétitives, neutre sur les benchmarks distincts.
+- **Chaînes ASCII au décodage** : la remarque utilisateur du soir (détecter
+  non-ASCII + échappement puis copier tel quel) est DÉJÀ en place aux deux
+  étages : RAPIDJSON_SSE42 balaie les chaînes sans échappement par 16
+  octets, et sj_unicode_from_utf8 fait la copie brute quand tout est ASCII
+  (scan 8 octets). Le ×2 restant est le coût de l'objet str lui-même.
 
 ### Cycle de vie du tampon de sortie : fuite str et OOM (3 août, soir)
 
