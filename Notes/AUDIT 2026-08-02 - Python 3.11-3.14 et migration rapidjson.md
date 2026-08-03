@@ -1420,3 +1420,116 @@ chaud, comportement historique conservé).
 interpréteurs (venvs SmartPython du 26/07), plus diff octet pour octet des sorties
 sérialisées entre versions et entre avant/après chaque commit. Variante numpy activée
 par copie temporaire du test (`use_numpy = True`) — non commitée.*
+
+
+---
+
+## 10. Nuit du 3 au 4/08 (suite) — clôture des points 1 à 9 de la liste d'améliorations
+
+Directive : « finis les points 1, 2, 3, 4, 6, 7, 8, 9 sans t'arrêter » (le 5,
+mode update, reste exclu à ta demande). Chaque point est clos : soit fusionné,
+soit essayé-mesuré-écarté avec les chiffres. Sept commits (f8da97e → cb9b40a).
+
+### Point 1 — fusion des balayages de chaînes (f8da97e) : FAIT
+Découverte en chemin : le scan SSE des chaînes de rapidjson ne s'appliquait
+qu'à `InsituStringStream` EXACT — notre flux borné (classe dérivée) se liait
+au template générique qui NE FAIT RIEN, et chaque caractère repassait par le
+transcodage unitaire. Surcharges dédiées : tête SWAR de 16 octets (les clés et
+petites valeurs se règlent sans la mécanique d'alignement), SSE aligné pour les
+longues, et le même scan accumule le bit non-ascii. Verdict écrit en UNE fois
+chez le handler (`sjHintOut` du flux, un seul store par chaîne — la v1
+reset+salissage coûtait ~3 ns/chaîne de trop) ; le handler fabrique alors le
+str par copie brute sans re-scan. A/B : ascii long −40 %, ascii court −15 %,
+unicode −16 %, objets neutres ; échappements +10 % (mécanique SSE par segment,
+assumé). Piège consigné : la position SWAR d'un « premier octet spécial » est
+exacte (les faux positifs des emprunts n'apparaissent qu'au-dessus du premier
+vrai), c'est ce qui autorise le ctz.
+
+### Point 3 — lot étendu (3d85f18) : FAIT
+Le lot des tableaux consomme aussi `true/false/null` (memcmp borné, « nan »
+échoue au memcmp et garde sa voie) et les chaînes courtes propres (≤ 24 octets,
+SWAR quote/antislash/contrôle/non-ascii, repli voie normale au moindre doute).
+Plafond à 24 octets et pas 48 : au-delà, un pré-scan raté coûte un double
+balayage (mesuré +12 % sur des chaînes de 52). Dispatch chiffres d'abord :
+l'ordre inverse coûtait 4-8 % aux nombres purs. A/B : littéraux −50 %, chaînes
+courtes −18/−20 %, mixte −20 %, nombres neutres. Les chaînes du lot passent par
+le même `handler.String` que la voie normale : datetime/uuid/base64 identiques.
+
+### Point 4 — pré-dimensionnement des listes (3d85f18 puis retiré ed2ddd5) :
+ESSAYÉ, MESURÉ, ÉCARTÉ. Tranche de 64 None épissée en une fois, les valeurs
+volaient leur case (SET_ITEM) au lieu d'append. Mesure : neutre sur les grands
+lots (l'append de CPython est déjà amorti — l'économie incref/decref de la
+valeur est reprise par l'incref/decref des None), et +45 % sur unpickle_list
+(épissure de 64 cases pour des tableaux de 10, rendu de 54). Tous les gains
+du lot venaient du saut de dispatch. Leçon : le banc « 100 k éléments plats »
+ne voit pas le régime « 20 tableaux de 10 » — c'est l'officiel unpickle_list
+qui a crié.
+
+### Point 6 — écriture des flottants (cb9b40a) : FAIT, avec Ryu plutôt que
+Dragonbox (même objectif, algorithme que je maîtrise à l'implémentation près,
+tables 128 bits GÉNÉRÉES en arithmétique exacte — gen_ryu_table.py au
+scratchpad, comme la table Eisel-Lemire). Ryu est TOTAL (jamais d'échec) :
+Grisu3 ET toute la machinerie de repli PyOS (vecteur fallbacks des chunks,
+recollage, trois sites directs) sont retirés — plus aucun scénario ne les
+déclenchait. Validation bit-exacte contre float.__repr__ : 25 M+ de valeurs
+(tous les exposants × motifs de mantisse, subnormaux, puissances de 10,
+décimaux « humains », entiers × 10^n et voisins ULP). A/B : 1 M flottants
+24,1 → 17,0 ms (−30 %, écart vs pickle ×2,7 → ×1,9), 20 k −45 %.
+Note d'implémentation : variante `multipleOfPowerOf2(mv, q-1)` (la borne du
+d2s.c de référence) — validée par la masse, aucun écart.
+
+### Point 7 — itoa vectorisé (essayé, mesuré, ÉCARTÉ)
+SSE2 8-chiffres (schéma mulhi de l'itoa-benchmark) posé dans
+sj_render_int_chunk, validé octet pour octet sur 7 jeux (2 M exhaustifs,
+bornes 10^k, extrêmes, aléatoires par plages). Mesure : < 2 % sur le mur —
+la conversion est déjà parallélisée sur 8 threads, le goulot du dump des gros
+tableaux d'entiers est l'EXTRACTION sous GIL (PyLong_AsLongLong par élément)
+et le recollage. Code retiré. Piste consignée : lecture directe des petits
+PyLong compacts (ob_digit, 3.12+) pour accélérer l'extraction — API privée,
+décision à prendre.
+
+### Point 8 — recettes restantes (16b065a) : FAIT
+- `__getnewargs__`/`__getnewargs_ex__` (reduce hérité d'object) : l'adaptateur
+  rend le 6-uplet de `tuple_from_instance` TEL QUEL — la décomposition (forme
+  __newobj__, état trié/filtré, getters/properties) reste la voie Python,
+  seule l'émission passe par la branche recette C (qui portait déjà __new__,
+  __items__ et l'état à plat). Identité d'octets vérifiée sur 9 familles,
+  doublons et $ref compris. Mesures : getnewargs+état ×1,5, namedtuples ×1,9.
+- builtins à forme chaîne : `type` et `function` passent leur fonction du
+  tableau builtins en recette (tuple[0] déjà str, la branche C l'émet tel
+  quel). Modules NON inclus : leur encodage n'a JAMAIS fonctionné (voir bug 2).
+- registre plugins : array.array reste la seule entrée en recette — les autres
+  (datetime, ndarray, scalaires/dtype numpy) ont une branche C dédiée ou un
+  traitement default() en amont qu'une recette court-circuiterait.
+
+### Deux défauts PRÉEXISTANTS découverts par les tests du point 8
+1. **`__getnewargs_ex__` à arguments positionnels plantait depuis toujours**
+   (`for index, new_arg in new_largs` sans enumerate, tools.py) — CORRIGÉ
+   (16b065a) : le chemin ne pouvait qu'échouer, aucune compatibilité d'octets
+   à préserver.
+2. **L'encodage d'un MODULE n'a jamais fonctionné** :
+   `serializejson_builtins[types.ModuleType] = serializejson_function` (au
+   lieu de serializejson_module, mort juste au-dessus) → AttributeError sur
+   `__module__`. NON corrigé : le « bon » comportement (sérialiser tout
+   l'espace de noms du module ?) est une décision d'API/format qui te revient.
+
+### Points 2 et 9 — déjà faits la veille (cache persistant des valeurs
+chaînes ; SWAR sur la fraction du lot flottant). Point 5 (mode update) exclu.
+
+### Où on en est (PGO 3.14, tour final de la nuit)
+Officiels : pickle ×1,63 · unpickle ×1,65 (était ×1,92 la veille au soir) ·
+pickle_list ×1,27 · unpickle_list ×1,33 · pickle_dict ×2,17.
+Par type (dump/load vs pickle) : gros entiers ×0,49/×0,74 ·
+petits entiers ×0,76/×1,23 · chaînes distinctes ×0,24/×1,56 ·
+chaînes répétitives ×1,49/×3,74 · flottants ×3,9/×2,8 (magnitudes -8..8,
+graphies longues — le memcpy de pickle est le plancher structurel) ·
+littéraux ×3,9/×3,0 (opcodes d'un octet côté pickle, structurel) ·
+objets slots ×0,65/×1,16.
+
+### Prochaines pistes (par rendement estimé)
+1. unpickle/pickle_dict : l'enveloppe des micro-dicts (décision de format, §9).
+2. Extraction des PyLong compacts sans appel (3.12+, API privée) — dump des
+   gros tableaux d'entiers.
+3. Étendre le fast-path valeur d'objet aux chaînes courtes/littéraux
+   (aujourd'hui nombres seulement).
+4. Décodage multi-thread par sous-arbres (free-threaded 3.13+).
