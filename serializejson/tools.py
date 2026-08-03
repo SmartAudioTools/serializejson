@@ -67,23 +67,35 @@ blosc2_compressions = {
     if name != "snappy"  # absent de c-blosc2
 }
 use_blosc2_cpp = False
+# vrai quand la libblosc2 chargée est NOTRE fork déterministe : son
+# multi-thread INTERNE produit alors des octets identiques au mono-thread
+# (patch « commit des blocs dans l'ordre », rapidjson/blosc2_determinisme.patch)
+use_blosc2_fork = False
 try:
-    from importlib.util import find_spec as _find_spec
+    import os as _os
+    import rapidjson as _rapidjson
 
-    _blosc2_spec = _find_spec("blosc2")
-    if _blosc2_spec is not None:
-        import os as _os
-        import rapidjson as _rapidjson
+    _fork_lib = _os.path.join(
+        _os.path.dirname(_rapidjson.__file__), "libblosc2_serializejson.so"
+    )
+    if _os.path.exists(_fork_lib):
+        use_blosc2_cpp = bool(_rapidjson.load_blosc_library(_fork_lib))
+        use_blosc2_fork = use_blosc2_cpp
+    if not use_blosc2_cpp:
+        from importlib.util import find_spec as _find_spec
 
-        use_blosc2_cpp = bool(
-            _rapidjson.load_blosc_library(
-                _os.path.join(
-                    _os.path.dirname(_blosc2_spec.origin), "lib", "libblosc2.so"
+        _blosc2_spec = _find_spec("blosc2")
+        if _blosc2_spec is not None:
+            use_blosc2_cpp = bool(
+                _rapidjson.load_blosc_library(
+                    _os.path.join(
+                        _os.path.dirname(_blosc2_spec.origin), "lib", "libblosc2.so"
+                    )
                 )
             )
-        )
 except Exception:
     use_blosc2_cpp = False
+    use_blosc2_fork = False
 
 
 def blosc_chunks_decompress(frame, as_bytearray=False):
@@ -101,7 +113,15 @@ def blosc_decompress(frame, as_bytearray=False):
     # dispatch sur l'octet de version de la trame : <= 3 -> python-blosc v1,
     # >= 4 -> blosc2 (qui relit aussi les trames v1, mais pas l'inverse)
     if frame[:1] and frame[0] >= 4:
-        import blosc2  # exige la roue python-blosc2 (Python 3.11+)
+        if use_blosc2_cpp:
+            # décompression par notre C (fork ou lib de la roue, via dlsym) :
+            # marche même sans le paquet python-blosc2 (Python 3.10 compris)
+            import rapidjson
+
+            return rapidjson.blosc_decompress_chunks(
+                frame, 1 if as_bytearray else 0
+            )
+        import blosc2  # dernier recours : la roue python-blosc2 (3.11+)
 
         decompressed = blosc2.decompress(frame)
         if as_bytearray:

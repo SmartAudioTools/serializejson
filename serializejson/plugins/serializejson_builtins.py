@@ -8,6 +8,7 @@
         blosc_decompress,
         blosc_chunks_decompress,
         use_blosc2_cpp,
+        use_blosc2_fork,
     )
     from SmartFramework.serialize import serialize_parameters
 except:
@@ -20,6 +21,7 @@ except:
         blosc_decompress,
         blosc_chunks_decompress,
         use_blosc2_cpp,
+        use_blosc2_fork,
     )
     from serializejson import serialize_parameters
 
@@ -99,6 +101,10 @@ def serializejson_bytearray(inst):
                     f"{compression} compression needs the python-blosc2 wheel"
                 )
             nthreads = serialize_parameters.bytes_compression_threads
+            if use_blosc2_fork:
+                # fork déterministe : le multi-thread INTERNE de la lib produit
+                # déjà des octets stables -> trame unique standard
+                nthreads = 1
             compressed = BloscToBase64(
                 inst,
                 1,
@@ -144,6 +150,10 @@ def serializejson_bytes(inst):
                     f"{compression} compression needs the python-blosc2 wheel"
                 )
             nthreads = serialize_parameters.bytes_compression_threads
+            if use_blosc2_fork:
+                # fork déterministe : le multi-thread INTERNE de la lib produit
+                # déjà des octets stables -> trame unique standard
+                nthreads = 1
             compressed = BloscToBase64(
                 inst,
                 1,

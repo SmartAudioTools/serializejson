@@ -22,6 +22,7 @@ else:
             blosc_decompress,
             blosc_chunks_decompress,
             use_blosc2_cpp,
+            use_blosc2_fork,
             authorized_classes,
         )
         from SmartFramework.serialize import serialize_parameters
@@ -35,6 +36,7 @@ else:
             blosc_decompress,
             blosc_chunks_decompress,
             use_blosc2_cpp,
+            use_blosc2_fork,
             authorized_classes,
         )
 
@@ -196,6 +198,10 @@ else:
                             f"{compression} compression needs the python-blosc2 wheel"
                         )
                     nthreads = serialize_parameters.bytes_compression_threads
+                    if use_blosc2_fork:
+                        # fork déterministe : le multi-thread INTERNE de la lib
+                        # produit déjà des octets stables -> trame unique
+                        nthreads = 1
                     payload = BloscToBase64(
                         numpy.ascontiguousarray(data),
                         data.itemsize,

@@ -69,6 +69,34 @@ def test_defaut_blosc2_quand_disponible():
     assert serializejson.loads(dumped) == data
 
 
+def test_fork_deterministe_multithread_interne():
+    # avec le fork libblosc2_serializejson (patch « commit des blocs dans
+    # l'ordre »), le multi-thread INTERNE de la bibliothèque produit des
+    # octets identiques au mono-thread : trame unique standard, pas besoin
+    # du format par morceaux
+    from serializejson.tools import use_blosc2_fork
+
+    if not use_blosc2_fork:
+        pytest.skip("fork libblosc2_serializejson absent")
+    import numpy
+
+    array = numpy.arange(2_000_000, dtype=numpy.float64)
+    sorties = set()
+    for nthreads in (1, 4, 8):
+        sorties.add(
+            serializejson.dumps(
+                array,
+                indent=None,
+                bytes_compression=("blosc2_zstd", 5),
+                bytes_compression_threads=nthreads,
+            )
+        )
+    assert len(sorties) == 1  # mêmes octets à 1, 4 et 8 threads internes
+    dumped = sorties.pop()
+    assert '"blosc2"' in dumped and '"blosc2p"' not in dumped  # trame unique
+    assert numpy.array_equal(serializejson.loads(dumped), array)
+
+
 def test_blosc2_parallele_deterministe():
     # compression parallèle par morceaux ordonnés : les octets produits ne
     # dépendent ni du nombre de threads ni de l'ordonnancement (contextes
@@ -87,7 +115,13 @@ def test_blosc2_parallele_deterministe():
         bytes_compression=("blosc2_zstd", 5),
         bytes_compression_threads=4,
     )
-    assert '"b64_blosc2p"' in dumped
+    from serializejson.tools import use_blosc2_fork
+
+    if use_blosc2_fork:
+        # fork déterministe : multi-thread interne, trame unique standard
+        assert '"b64_blosc2"' in dumped
+    else:
+        assert '"b64_blosc2p"' in dumped
     assert serializejson.loads(dumped) == data
 
 
