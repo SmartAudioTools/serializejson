@@ -174,6 +174,7 @@ try:
 except:
     pass
 import os
+import types
 import warnings
 import io
 import rapidjson
@@ -968,6 +969,16 @@ class Encoder(rapidjson.Encoder):
                     return (None, registry_fn,
                             bool(self.numpy_array_to_list), "array.array")
                 return None
+            # recette builtins à forme chaîne : type / function / module —
+            # leur fonction du tableau builtins rend déjà (nom_str, args,
+            # état), exactement la forme que la branche recette C émet.
+            # Les autres builtins (bytes, bytearray...) gardent leur voie
+            # (branches C dédiées ou déballages particuliers en amont)
+            builtin_fn = serializejson_builtins.get(class_)
+            if builtin_fn is not None:
+                if class_ in (type, types.FunctionType):
+                    return (None, builtin_fn, bool(self.numpy_array_to_list))
+                return None
             method = getattr(class_, "__serializejson__", None)
             if method is not None:
                 if (
@@ -1038,6 +1049,33 @@ class Encoder(rapidjson.Encoder):
                 return (
                     None,
                     _reduce_recipe,
+                    bool(self.numpy_array_to_list),
+                    class_str_from_class(class_),
+                )
+            # recette __getnewargs__/__getnewargs_ex__ (reduce hérité
+            # d'object) : l'adaptateur rend le 6-uplet de tuple_from_instance
+            # tel quel — la décomposition (forme __newobj__, état trié/filtré,
+            # getters/properties) reste celle de la voie Python, seule
+            # l'ÉMISSION passe en C (mêmes règles que _default_one_line)
+            if (
+                (
+                    hasattr(class_, "__getnewargs__")
+                    or hasattr(class_, "__getnewargs_ex__")
+                )
+                and class_.__reduce_ex__ is object.__reduce_ex__
+                and class_.__reduce__ is object.__reduce__
+                and class_ not in dispatch_table
+                and not issubclass(class_, Enum)
+                and class_str_from_class(class_) not in remove_add_braces
+                and self.protocol >= 2
+            ):
+
+                def _getnewargs_recipe(obj, _protocol=self.protocol):
+                    return tuple_from_instance(obj, _protocol)
+
+                return (
+                    None,
+                    _getnewargs_recipe,
                     bool(self.numpy_array_to_list),
                     class_str_from_class(class_),
                 )

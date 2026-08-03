@@ -850,9 +850,10 @@ def tuple_from_reduce(func, args, state=None, listitems=None, dictitems=None, ob
                         )
                     )
             if new_largs:
-                # on met les new_largs dans new_kwargs
+                # on met les new_largs dans new_kwargs (l'enumerate manquait :
+                # cette forme plantait depuis toujours sur des largs positionnels)
                 new_parameters_names = list(signature(class_.__new__).parameters)
-                for index, new_arg in new_largs:
+                for index, new_arg in enumerate(new_largs):
                     new_kwargs[new_parameters_names[index]] = new_arg
             newArgs = new_kwargs
         if not serialize_parameters.strict_pickle:
