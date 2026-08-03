@@ -1089,6 +1089,69 @@ struct PyHandler {
     PyObject* decoderEndArray;
     PyObject* decoderString;
     PyObject* sharedKeys;
+    // cache clé -> str par OCTETS BRUTS (sondage linéaire) : la création
+    // du str et le passage par sharedKeys sont évités dès la deuxième
+    // occurrence d'une clé. Capacité figée : au-delà, les clés inédites
+    // repassent par la voie normale (aucun effet sémantique)
+    static const unsigned kKeyCacheSize = 1024;   // puissance de deux
+    struct KeyCacheSlot {
+        uint64_t hash;
+        PyObject* str;          // référence possédée, utf-8 accessible
+    };
+    KeyCacheSlot keyCache[kKeyCacheSize];
+    unsigned keyCacheCount;
+
+    static uint64_t KeyHash(const char* s, size_t n) {
+        uint64_t h = UINT64_C(0xcbf29ce484222325);   // FNV-1a
+        for (size_t i = 0; i < n; i++)
+            h = (h ^ (unsigned char) s[i]) * UINT64_C(0x100000001b3);
+        return h | 1;           // 0 = case vide
+    }
+
+    // rend une référence FORTE sur le str de la clé, en le fabriquant au
+    // plus une fois par contenu ; nullptr = erreur Python levée
+    PyObject* KeyString(const char* s, size_t n) {
+        uint64_t h = KeyHash(s, n);
+        unsigned i = (unsigned) h & (kKeyCacheSize - 1);
+        for (;;) {
+            KeyCacheSlot& slot = keyCache[i];
+            if (slot.hash == 0)
+                break;
+            if (slot.hash == h) {
+                Py_ssize_t sl;
+                const char* ss = PyUnicode_AsUTF8AndSize(slot.str, &sl);
+                if (ss != nullptr && (size_t) sl == n
+                    && memcmp(ss, s, n) == 0) {
+                    Py_INCREF(slot.str);
+                    return slot.str;
+                }
+                PyErr_Clear();
+            }
+            i = (i + 1) & (kKeyCacheSize - 1);
+        }
+        PyObject* key = sj_unicode_from_utf8(s, n);
+        if (key == nullptr)
+            return nullptr;
+        // 3/4 de remplissage au plus : le sondage reste court
+        if (keyCacheCount < kKeyCacheSize - (kKeyCacheSize / 4)) {
+            KeyCacheSlot& slot = keyCache[i];
+            slot.hash = h;
+            slot.str = key;
+            Py_INCREF(key);
+            keyCacheCount++;
+        }
+        return key;
+    }
+
+    void ReleaseKeyCache() {
+        for (unsigned i = 0; i < kKeyCacheSize; i++)
+            if (keyCache[i].hash != 0) {
+                Py_DECREF(keyCache[i].str);
+                keyCache[i].hash = 0;
+                keyCache[i].str = nullptr;
+            }
+        keyCacheCount = 0;
+    }
     PyObject* root;
     PyObject* objectHook;
     unsigned datetimeMode;
@@ -1209,6 +1272,8 @@ struct PyHandler {
                 Py_INCREF(decoder);
             }
             sharedKeys = PyDict_New();
+            memset(keyCache, 0, sizeof(keyCache));
+            keyCacheCount = 0;
         }
 
     ~PyHandler() {
@@ -1225,6 +1290,7 @@ struct PyHandler {
         Py_CLEAR(decoderEndArray);
         Py_CLEAR(decoderString);
         Py_CLEAR(sharedKeys);
+        ReleaseKeyCache();
         Py_CLEAR(decoderObject);
         Py_CLEAR(decodeClassPlanFn);
         for (auto& entry : decodePlans)
@@ -1465,27 +1531,11 @@ struct PyHandler {
             const HandlerContext& current = stack.back();
 
             if (current.isObject) {
-                PyObject* key = sj_unicode_from_utf8(current.key,
-                                                            (size_t) current.keyLength);
+                PyObject* key = KeyString(current.key,
+                                          (size_t) current.keyLength);
                 if (key == nullptr) {
                     Py_DECREF(value);
                     return false;
-                }
-
-                // internement des cles : rentable quand les memes cles
-                // reviennent (objets, listes de dicts homogenes), pur surcout
-                // quand elles sont toutes distinctes -> plafond au-dela duquel
-                // on cesse d'interner (optimisation sans effet semantique)
-                if (PyDict_GET_SIZE(sharedKeys) < 4096) {
-                    PyObject* shared_key = PyDict_SetDefault(sharedKeys, key, key);
-                    if (shared_key == nullptr) {
-                        Py_DECREF(key);
-                        Py_DECREF(value);
-                        return false;
-                    }
-                    Py_INCREF(shared_key);
-                    Py_DECREF(key);
-                    key = shared_key;
                 }
 
                 int rc;
@@ -1940,22 +1990,12 @@ struct PyHandler {
             HandlerContext& current = stack.back();
 
             if (current.isObject) {
-                PyObject* key = sj_unicode_from_utf8(current.key,
-                                                            (size_t) current.keyLength);
+                PyObject* key = KeyString(current.key,
+                                          (size_t) current.keyLength);
                 if (key == nullptr) {
                     Py_DECREF(replacement);
                     return false;
                 }
-
-                PyObject* shared_key = PyDict_SetDefault(sharedKeys, key, key);
-                if (shared_key == nullptr) {
-                    Py_DECREF(key);
-                    Py_DECREF(replacement);
-                    return false;
-                }
-                Py_INCREF(shared_key);
-                Py_DECREF(key);
-                key = shared_key;
 
                 int rc;
                 if (current.keyValuePairs) {
