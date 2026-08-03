@@ -817,21 +817,15 @@ class Encoder(rapidjson.Encoder):
 
 
         """
-        self._update_serialize_parameters()
-        # chaque append est un dump indépendant : il lui faut son mémo de
-        # doublons ($ref), que dump/dumps initialisent via __call__ mais
-        # qu'append, qui appelle directement rapidjson.Encoder.__call__,
-        # n'initialisait jamais (crash dès qu'un default* était déclenché)
-        self._reset()
-        self._root = obj
         if file is None:
             file = self.file
         if hasattr(self, "fp"):
             fp = _open_for_append(self.fp, self.indent)
         else:
             self.fp = fp = _open_for_append(file, self.indent)
-        rapidjson.Encoder.__call__(self, obj, stream=fp, chunk_size=self.chunk_size)
-        self._clean()
+        # chaque append est un dump indépendant : le protocole du tp_call C
+        # (poussée amortie, mémo des doublons) se rejoue à chaque appel
+        self.__call__(obj, fp=fp)
         _close_for_append(fp, self.indent)
         if close:
             fp.close()
@@ -1124,21 +1118,10 @@ class Encoder(rapidjson.Encoder):
                 dictionnaire.update(state)
         return dictionnaire
 
-    def __call__(self, obj, fp=None, return_bytes=None):
-        if return_bytes is None:
-            return_bytes = self.return_bytes
-        # (le raccourci Python historique pour les listes racines homogènes de
-        # nombres — _onlyOneDimSameTypeNumbers + rapidjson.dumps — est retiré :
-        # la détection C++ single_line_numbers produit les mêmes octets et
-        # emprunte les boucles serrées et la conversion parallèle)
-        self._update_serialize_parameters()
-        self._reset()
-        self._root = obj
-        encoded = rapidjson.Encoder.__call__(
-            self, obj, stream=fp, chunk_size=self.chunk_size
-        )
-        self._clean()
-        return encoded
+    # (pas de __call__ Python : le tp_call C de rapidjson.Encoder exécute
+    # tout le protocole — poussée amortie via _update_serialize_parameters
+    # sur défaut de garde, équivalents C de _reset/_clean, return_bytes par
+    # appel, chunk_size implicite pour les flux)
 
     # attributs volatils re-posés à chaque dump : ils ne participent pas aux
     # paramètres globaux, leur écriture ne doit pas invalider la poussée
@@ -1199,12 +1182,6 @@ class Encoder(rapidjson.Encoder):
         # croire à un doublon (même rôle que le memo de pickle)
         self._already_serialized_keep_alive = []
         # self._already_serialized_id_dic_to_obj_dic = dict()
-
-    def _clean(self):
-        del self._already_serialized
-        del self._already_serialized_keep_alive
-        # del self.dumped_classes
-        # del self._already_serialized_id_dic_to_obj_dic
 
     # @profile
     # ,list_deep = 10):
@@ -1772,115 +1749,69 @@ class Decoder(rapidjson.Decoder):
             return dotdict(inst)
         return inst
 
-    def __call__(self, json, obj=None):
-        """
-        Args:
-            json : file-like, str or bytes (UTF-8) containing the JSON to be decoded
-            obj : object to update (optional)
+    # (pas de __call__ Python : le tp_call C de rapidjson.Decoder exécute le
+    # protocole — garde amortie, attributs volatils, json_startswith_curly,
+    # drapeaux du chemin rapide, queue des doublons. Il ne rappelle le Python
+    # que sur les trois chemins rares ci-dessous.)
 
+    def _push_decode_parameters(self):
+        # poussée des paramètres globaux, sur défaut de la garde amortie
+        # (voir Encoder._update_serialize_parameters) — appelée par le C
+        blosc.set_nthreads(blosc.ncores)
+        serialize_parameters.strict_pickle = self.strict_pickle
+        serialize_parameters.setters = self.setters
+        serialize_parameters.properties = self.properties
+        serialize_parameters._decoder_owner = self
+        serialize_parameters._owner = None
 
-        Returns:
-            a python value
-
-        examples:
-            >>> decoder = Decoder()
-            >>> decoder('"€ 0.50"')
-            '€ 0.50'
-            >>> decoder(b'"\xe2\x82\xac 0.50"')
-            '€ 0.50'
-            >>> decoder(io.StringIO('"€ 0.50"'))
-            '€ 0.50'
-            >>> decoder(io.BytesIO(b'"\xe2\x82\xac 0.50"'))
-            '€ 0.50'
-        """
-        # poussée amortie (voir Encoder._update_serialize_parameters) :
-        # garde par comparaison directe (un __setattr__ ici taxerait les
-        # nombreuses écritures d'attributs faites à chaque appel — mesuré)
-        sp = serialize_parameters
-        if (getattr(sp, "_decoder_owner", None) is not self
-                or sp.strict_pickle != self.strict_pickle
-                or sp.setters is not self.setters
-                or sp.properties is not self.properties):
-            blosc.set_nthreads(blosc.ncores)
-            serialize_parameters.strict_pickle = self.strict_pickle
-            serialize_parameters.setters = self.setters
-            serialize_parameters.properties = self.properties
-            sp._decoder_owner = self
-            sp._owner = None
-        self.converted_numpy_array_from_lists = set()
-        # self._counter = 0
-        self.not_authorized_classes = set()
-        self._updating = False
-        # for duplicates -----------
-        self.root = None
-        if isinstance(json, str):
-            self.json_startswith_curly = json.startswith("{")
-        elif isinstance(json, bytes):
-            self.json_startswith_curly = json.startswith(b"{")
-        else:
-            self.json_startswith_curly = json.read(1) in ("{", b"{")
-            json.seek(0)
-        self.duplicates_to_replace = []
-        # for updating ------------------
-        if obj is None:
-            self._updating = False
-            # le C++ crée les dicts et pose .root lui-même (chemin rapide)
-            self._fast_start_object = True
-            # dicts ordinaires (aucune clé __class__/$ref rencontrée) rendus
-            # par le C++ sans repasser par end_object — possible seulement
-            # quand aucune des transformations Python ne s'applique
-            self._fast_plain_end_object = (
-                not self.dotdict and not self._class_from_attributes_names
-            )
-            loaded = rapidjson.Decoder.__call__(self, json, chunk_size=self.chunk_size)
-            self._fast_start_object = False
-            self._fast_plain_end_object = False
-        else:  # update
-            self._updating = True
-            self.ancestors = deque()
-            self.ancestors.append(None)
-            self.node_has_descendants_to_recreate = set()
-            loaded_dict = rapidjson.Decoder.__call__(
-                self, json, chunk_size=self.chunk_size
-            )
-            loaded = self._exploreToUpdate(obj, loaded_dict)
-        # on restaure les doublons qu'on n'a pas pu restaurer pendant la
-        # deserialisation (references en avant, ou json commencant par une liste
-        # pour lequel root n'est pas connu pendant le parse)
-        duplicates_to_replace = self.duplicates_to_replace
-        if duplicates_to_replace:
-            # cible de chaque marqueur {"$ref": ...}, en suivant les eventuelles
-            # chaines de $ref pointant sur d'autres marqueurs
-            placeholders = {}
-            for placeholder in duplicates_to_replace:
-                referenced = from_name(
-                    placeholder["$ref"], accept_dict_as_object=True, root=loaded
-                )
-                if referenced is placeholder:
-                    raise Exception(
-                        '{"$ref": "%s"} pointing to himself' % placeholder["$ref"]
-                    )
-                placeholders[id(placeholder)] = referenced
-            for id_, referenced in placeholders.items():
-                followed = {id_}
-                while id(referenced) in placeholders:
-                    if id(referenced) in followed:
-                        raise Exception('{"$ref": ...} circular chain of references')
-                    followed.add(id(referenced))
-                    referenced = placeholders[id(referenced)]
-                placeholders[id_] = referenced
-            # puis remplacement de toutes leurs occurrences par UN parcours de
-            # l'arbre charge — deterministe, au lieu de gc.collect() suivi d'un
-            # gc.get_referrers() par marqueur (couteux : tout le tas a chaque fois)
-            _replace_ref_placeholders(loaded, placeholders)
-        # clean ---------------
+    def _call_update(self, json, obj):
+        # mise à jour d'un objet existant — appelée par le C, qui a déjà posé
+        # les attributs volatils et json_startswith_curly
+        self._updating = True
+        self.ancestors = deque()
+        self.ancestors.append(None)
+        self.node_has_descendants_to_recreate = set()
+        loaded_dict = rapidjson.Decoder._decode(
+            self, json, chunk_size=self.chunk_size
+        )
+        loaded = self._exploreToUpdate(obj, loaded_dict)
+        if self.duplicates_to_replace:
+            self._resolve_duplicates(loaded)
         del self.duplicates_to_replace
-        if self._updating:
-            del self.ancestors
-            del self.node_has_descendants_to_recreate
-            self._updating = False
-        if obj is not None:
-            return obj
+        del self.ancestors
+        del self.node_has_descendants_to_recreate
+        self._updating = False
+        return obj
+
+    def _resolve_duplicates(self, loaded):
+        # on restaure les doublons qu'on n'a pas pu restaurer pendant la
+        # deserialisation (references en avant, ou json commencant par une
+        # liste pour lequel root n'est pas connu pendant le parse) — appelée
+        # par le C quand duplicates_to_replace n'est pas vide
+        # cible de chaque marqueur {"$ref": ...}, en suivant les eventuelles
+        # chaines de $ref pointant sur d'autres marqueurs
+        placeholders = {}
+        for placeholder in self.duplicates_to_replace:
+            referenced = from_name(
+                placeholder["$ref"], accept_dict_as_object=True, root=loaded
+            )
+            if referenced is placeholder:
+                raise Exception(
+                    '{"$ref": "%s"} pointing to himself' % placeholder["$ref"]
+                )
+            placeholders[id(placeholder)] = referenced
+        for id_, referenced in placeholders.items():
+            followed = {id_}
+            while id(referenced) in placeholders:
+                if id(referenced) in followed:
+                    raise Exception('{"$ref": ...} circular chain of references')
+                followed.add(id(referenced))
+                referenced = placeholders[id(referenced)]
+            placeholders[id_] = referenced
+        # puis remplacement de toutes leurs occurrences par UN parcours de
+        # l'arbre charge — deterministe, au lieu de gc.collect() suivi d'un
+        # gc.get_referrers() par marqueur (couteux : tout le tas a chaque fois)
+        _replace_ref_placeholders(loaded, placeholders)
         return loaded
 
     def __iter__(self):
@@ -2104,7 +2035,7 @@ class Decoder(rapidjson.Decoder):
 
     def __next__(self):
         try:
-            return rapidjson.Decoder.__call__(
+            return rapidjson.Decoder._decode(
                 self, self.file_iter, chunk_size=self.chunk_size
             )
         except rapidjson.JSONDecodeError as error:
@@ -2114,6 +2045,11 @@ class Decoder(rapidjson.Decoder):
             else:
                 raise
 
+
+# le C prend en charge le protocole des __call__ (poussée amortie, attributs
+# volatils, drapeaux du chemin rapide) : il lui faut les types et le module
+# des paramètres globaux
+rapidjson.register_serializejson(Encoder, Decoder, serialize_parameters)
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # --- INTERNES -----------------------------------------------------------------------------------------------------

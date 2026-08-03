@@ -129,6 +129,33 @@ static PyObject* read_name = nullptr;
 static PyObject* write_name = nullptr;
 static PyObject* encoding_name = nullptr;
 
+// protocole serializejson : types enregistrés par register_serializejson()
+// et module serialize_parameters (paramètres globaux, poussée amortie)
+static PyObject* sj_encoder_type = nullptr;
+static PyObject* sj_decoder_type = nullptr;
+static PyObject* sj_params_module = nullptr;
+static PyObject* owner_name = nullptr;
+static PyObject* decoder_owner_name = nullptr;
+static PyObject* update_parameters_name = nullptr;
+static PyObject* push_decode_parameters_name = nullptr;
+static PyObject* call_update_name = nullptr;
+static PyObject* resolve_duplicates_name = nullptr;
+static PyObject* dumped_classes_name = nullptr;
+static PyObject* already_serialized_name = nullptr;
+static PyObject* keep_alive_name = nullptr;
+static PyObject* root_underscore_name = nullptr;
+static PyObject* chunk_size_name = nullptr;
+static PyObject* converted_numpy_name = nullptr;
+static PyObject* not_authorized_name = nullptr;
+static PyObject* updating_name = nullptr;
+static PyObject* startswith_curly_name = nullptr;
+static PyObject* duplicates_name = nullptr;
+static PyObject* dotdict_name = nullptr;
+static PyObject* class_from_attributes_name = nullptr;
+static PyObject* strict_pickle_name = nullptr;
+static PyObject* setters_name = nullptr;
+static PyObject* properties_name = nullptr;
+
 static PyObject* minus_inf_string_value = nullptr;
 static PyObject* nan_string_value = nullptr;
 static PyObject* plus_inf_string_value = nullptr;
@@ -146,6 +173,32 @@ struct HandlerContext {
     // décodeur l'a certifié (_fast_plain_end_object)
     bool specialKey;
 };
+
+
+// vrai si l'instance est d'un type serializejson enregistré (ou dérivé)
+static inline bool
+sj_is_registered(PyObject* self, PyObject* registered)
+{
+    if (registered == nullptr)
+        return false;
+    if ((PyObject*) Py_TYPE(self) == registered)
+        return true;
+    return PyType_IsSubtype(Py_TYPE(self), (PyTypeObject*) registered);
+}
+
+
+// pose un attribut volatil fraîchement créé (référence volée), en
+// contournant l'éventuel __setattr__ du sous-type : les attributs volatils
+// ne doivent pas invalider la poussée amortie des paramètres globaux
+static int
+sj_set_new_volatile(PyObject* self, PyObject* name, PyObject* value)
+{
+    if (value == nullptr)
+        return -1;
+    int r = PyObject_GenericSetAttr(self, name, value);
+    Py_DECREF(value);
+    return r;
+}
 
 
 enum DatetimeMode {
@@ -266,6 +319,7 @@ static PyObject* do_decode(PyObject* decoder,
                            unsigned numberMode, unsigned datetimeMode,
                            unsigned uuidMode, unsigned parseMode);
 static PyObject* decoder_call(PyObject* self, PyObject* args, PyObject* kwargs);
+static PyObject* decoder_decode_fn(PyObject* self, PyObject* args, PyObject* kwargs);
 static PyObject* decoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs);
 
 
@@ -2732,6 +2786,14 @@ static PyMemberDef decoder_members[] = {
 };
 
 
+static PyMethodDef decoder_methods[] = {
+    {"_decode", (PyCFunction) decoder_decode_fn, METH_VARARGS | METH_KEYWORDS,
+     "Décodage brut, sans le protocole serializejson du __call__ (mise à\n"
+     "jour d'objet, itération sur fichier)."},
+    {nullptr, nullptr, 0, nullptr}
+};
+
+
 static PyTypeObject Decoder_Type = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     "rapidjson.Decoder",                      /* tp_name */
@@ -2760,7 +2822,7 @@ static PyTypeObject Decoder_Type = {
     0,                                        /* tp_weaklistoffset */
     0,                                        /* tp_iter */
     0,                                        /* tp_iternext */
-    0,                                        /* tp_methods */
+    decoder_methods,                          /* tp_methods */
     decoder_members,                          /* tp_members */
     0,                                        /* tp_getset */
     0,                                        /* tp_base */
@@ -2984,22 +3046,9 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
 
 
 static PyObject*
-decoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
+decoder_raw_decode(PyObject* self, PyObject* jsonObject, PyObject* chunkSizeObj)
 {
-    static char const* kwlist[] = {
-        "json",
-        "chunk_size",
-        nullptr
-    };
-    PyObject* jsonObject;
-    PyObject* chunkSizeObj = nullptr;
     size_t chunkSize = 65536;
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$O",
-                                     (char**) kwlist,
-                                     &jsonObject,
-                                     &chunkSizeObj))
-        return nullptr;
 
     if (chunkSizeObj && chunkSizeObj != Py_None) {
         if (PyLong_Check(chunkSizeObj)) {
@@ -3057,6 +3106,211 @@ decoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         Py_DECREF(asUnicode);
 
     return result;
+}
+
+
+// _decode : le décodage brut exposé au Python (voir decoder_methods)
+static PyObject*
+decoder_decode_fn(PyObject* self, PyObject* args, PyObject* kwargs)
+{
+    static char const* kwlist[] = {
+        "json",
+        "chunk_size",
+        nullptr
+    };
+    PyObject* jsonObject;
+    PyObject* chunkSizeObj = nullptr;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|$O",
+                                     (char**) kwlist,
+                                     &jsonObject,
+                                     &chunkSizeObj))
+        return nullptr;
+
+    return decoder_raw_decode(self, jsonObject, chunkSizeObj);
+}
+
+
+// le __call__ du décodeur : pour un Decoder serializejson enregistré, tout
+// le protocole d'appel est fait ici (l'ancien Decoder.__call__ Python) —
+// poussée amortie, attributs volatils, drapeaux du chemin rapide, queue des
+// doublons. Les chemins rares (défaut de garde, mise à jour d'objet,
+// doublons non résolus) rappellent des aides Python.
+static PyObject*
+decoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
+{
+    static char const* kwlist[] = {
+        "json",
+        "obj",
+        "chunk_size",
+        nullptr
+    };
+    PyObject* jsonObject;
+    PyObject* obj = nullptr;
+    PyObject* chunkSizeObj = nullptr;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|O$O",
+                                     (char**) kwlist,
+                                     &jsonObject,
+                                     &obj,
+                                     &chunkSizeObj))
+        return nullptr;
+
+    if (!sj_is_registered(self, sj_decoder_type)) {
+        if (obj != nullptr && obj != Py_None) {
+            PyErr_SetString(PyExc_TypeError,
+                            "obj is only supported by serializejson decoders");
+            return nullptr;
+        }
+        return decoder_raw_decode(self, jsonObject, chunkSizeObj);
+    }
+
+    // garde amortie des paramètres globaux : mêmes comparaisons que
+    // l'ancienne voie Python (identité, jamais d'égalité par valeur : un
+    // défaut à tort ne coûte qu'une repoussée, un succès à tort serait faux)
+    PyObject* ownerObj = PyObject_GetAttr(sj_params_module, decoder_owner_name);
+    if (ownerObj == nullptr)
+        PyErr_Clear();
+    bool pushed = (ownerObj == self);
+    Py_XDECREF(ownerObj);
+    if (pushed) {
+        PyObject* guardNames[3] =
+            {strict_pickle_name, setters_name, properties_name};
+        for (int gi = 0; gi < 3 && pushed; gi++) {
+            PyObject* a = PyObject_GetAttr(sj_params_module, guardNames[gi]);
+            if (a == nullptr)
+                PyErr_Clear();
+            PyObject* b = PyObject_GetAttr(self, guardNames[gi]);
+            if (b == nullptr)
+                PyErr_Clear();
+            pushed = (a != nullptr && a == b);
+            Py_XDECREF(a);
+            Py_XDECREF(b);
+        }
+    }
+    if (!pushed) {
+        PyObject* r =
+            PyObject_CallMethodNoArgs(self, push_decode_parameters_name);
+        if (r == nullptr)
+            return nullptr;
+        Py_DECREF(r);
+    }
+
+    // attributs volatils du chargement
+    if (sj_set_new_volatile(self, converted_numpy_name, PySet_New(nullptr)) < 0
+        || sj_set_new_volatile(self, not_authorized_name,
+                               PySet_New(nullptr)) < 0
+        || PyObject_GenericSetAttr(self, updating_name, Py_False) < 0
+        || PyObject_GenericSetAttr(self, root_attr_name, Py_None) < 0
+        || sj_set_new_volatile(self, duplicates_name, PyList_New(0)) < 0)
+        return nullptr;
+
+    // json_startswith_curly : les hooks Python s'en servent pour savoir si
+    // .root sera connu pendant le parse (résolution immédiate des $ref)
+    bool curly = false;
+    if (PyUnicode_Check(jsonObject)) {
+        curly = PyUnicode_GET_LENGTH(jsonObject) > 0
+            && PyUnicode_READ_CHAR(jsonObject, 0) == '{';
+    } else if (PyBytes_Check(jsonObject)) {
+        curly = PyBytes_GET_SIZE(jsonObject) > 0
+            && PyBytes_AS_STRING(jsonObject)[0] == '{';
+    } else if (PyByteArray_Check(jsonObject)) {
+        curly = PyByteArray_GET_SIZE(jsonObject) > 0
+            && PyByteArray_AS_STRING(jsonObject)[0] == '{';
+    } else {
+        // flux : lit un caractère puis rembobine, comme la voie Python
+        PyObject* one = PyObject_CallMethod(jsonObject, "read", "i", 1);
+        if (one == nullptr)
+            return nullptr;
+        if (PyUnicode_Check(one))
+            curly = PyUnicode_GET_LENGTH(one) == 1
+                && PyUnicode_READ_CHAR(one, 0) == '{';
+        else if (PyBytes_Check(one))
+            curly = PyBytes_GET_SIZE(one) == 1
+                && PyBytes_AS_STRING(one)[0] == '{';
+        Py_DECREF(one);
+        PyObject* rewound = PyObject_CallMethod(jsonObject, "seek", "i", 0);
+        if (rewound == nullptr)
+            return nullptr;
+        Py_DECREF(rewound);
+    }
+    if (PyObject_GenericSetAttr(self, startswith_curly_name,
+                                curly ? Py_True : Py_False) < 0)
+        return nullptr;
+
+    if (obj != nullptr && obj != Py_None) {
+        // mise à jour d'un objet existant (rare) : voie Python entière,
+        // queue des doublons et nettoyage compris
+        return PyObject_CallMethodObjArgs(self, call_update_name,
+                                          jsonObject, obj, nullptr);
+    }
+
+    // chemin rapide : le C crée les dicts (start_object) et rend les dicts
+    // ordinaires sans repasser par end_object quand aucune transformation
+    // Python (dotdict, reconnaissance par attributs) ne s'applique
+    bool fastPlain = true;
+    PyObject* flagAttr = PyObject_GetAttr(self, dotdict_name);
+    if (flagAttr == nullptr)
+        PyErr_Clear();
+    else {
+        if (PyObject_IsTrue(flagAttr) == 1)
+            fastPlain = false;
+        Py_DECREF(flagAttr);
+    }
+    if (fastPlain) {
+        flagAttr = PyObject_GetAttr(self, class_from_attributes_name);
+        if (flagAttr == nullptr)
+            PyErr_Clear();
+        else {
+            if (PyObject_IsTrue(flagAttr) == 1)
+                fastPlain = false;
+            Py_DECREF(flagAttr);
+        }
+    }
+    if (PyObject_GenericSetAttr(self, fast_start_object_name, Py_True) < 0
+        || PyObject_GenericSetAttr(self, fast_plain_end_object_name,
+                                   fastPlain ? Py_True : Py_False) < 0)
+        return nullptr;
+
+    PyObject* loaded = decoder_raw_decode(self, jsonObject, chunkSizeObj);
+
+    // rabaisse les drapeaux même sur échec (une exception ne doit pas les
+    // laisser posés pour l'appel suivant), sans écraser l'exception en cours
+    PyObject* etype = nullptr;
+    PyObject* evalue = nullptr;
+    PyObject* etb = nullptr;
+    if (loaded == nullptr)
+        PyErr_Fetch(&etype, &evalue, &etb);
+    if (PyObject_GenericSetAttr(self, fast_start_object_name, Py_False) < 0)
+        PyErr_Clear();
+    if (PyObject_GenericSetAttr(self, fast_plain_end_object_name,
+                                Py_False) < 0)
+        PyErr_Clear();
+    if (loaded == nullptr) {
+        PyErr_Restore(etype, evalue, etb);
+        return nullptr;
+    }
+
+    // queue des doublons non résolus pendant le parse (rare) : voie Python
+    PyObject* dups = PyObject_GetAttr(self, duplicates_name);
+    if (dups == nullptr)
+        PyErr_Clear();
+    else {
+        if (PyList_CheckExact(dups) && PyList_GET_SIZE(dups) > 0) {
+            PyObject* replaced = PyObject_CallMethodObjArgs(
+                self, resolve_duplicates_name, loaded, nullptr);
+            Py_DECREF(loaded);
+            if (replaced == nullptr) {
+                Py_DECREF(dups);
+                return nullptr;
+            }
+            loaded = replaced;
+        }
+        Py_DECREF(dups);
+        if (PyObject_GenericSetAttr(self, duplicates_name, nullptr) < 0)
+            PyErr_Clear();
+    }
+    return loaded;
 }
 
 
@@ -5553,11 +5807,15 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
 {
     static char const* kwlist[] = {
         "obj",
+        "fp",
+        "return_bytes",
         "stream",
         "chunk_size",
         nullptr
     };
     PyObject* value;
+    PyObject* fp = nullptr;
+    PyObject* returnBytesObj = nullptr;
     PyObject* stream = nullptr;
     PyObject* chunkSizeObj = nullptr;
     size_t chunkSize = 65536;
@@ -5566,14 +5824,57 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     PyObject* defaultListFn = nullptr;
     PyObject* result;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|O$O",
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OO$OO",
                                      (char**) kwlist,
                                      &value,
+                                     &fp,
+                                     &returnBytesObj,
                                      &stream,
                                      &chunkSizeObj))
         return nullptr;
 
     EncoderObject* e = (EncoderObject*) self;
+
+    // protocole serializejson (l'ancien Encoder.__call__ Python) : poussée
+    // amortie des paramètres globaux, remise à zéro des attributs volatils
+    bool sjProtocol = sj_is_registered(self, sj_encoder_type);
+    if (sjProtocol) {
+        PyObject* ownerObj = PyObject_GetAttr(sj_params_module, owner_name);
+        if (ownerObj == nullptr)
+            PyErr_Clear();
+        bool pushed = (ownerObj == self);
+        Py_XDECREF(ownerObj);
+        if (!pushed) {
+            PyObject* r =
+                PyObject_CallMethodNoArgs(self, update_parameters_name);
+            if (r == nullptr)
+                return nullptr;
+            Py_DECREF(r);
+        }
+        // l'équivalent C de _reset : mémo des doublons et classes rencontrées
+        if (sj_set_new_volatile(self, dumped_classes_name,
+                                PySet_New(nullptr)) < 0
+            || sj_set_new_volatile(self, already_serialized_name,
+                                   PyDict_New()) < 0
+            || sj_set_new_volatile(self, keep_alive_name, PyList_New(0)) < 0
+            || PyObject_GenericSetAttr(self, root_underscore_name, value) < 0)
+            return nullptr;
+    }
+
+    // fp est l'alias serializejson de stream (signature historique du
+    // __call__ Python : obj, fp=None, return_bytes=None)
+    if (fp != nullptr && fp != Py_None)
+        stream = fp;
+
+    // return_bytes par appel (dumps()/dumpb()) : prime sur celui du
+    // constructeur
+    bool returnBytes = e->returnBytes;
+    if (returnBytesObj != nullptr && returnBytesObj != Py_None) {
+        int rb = PyObject_IsTrue(returnBytesObj);
+        if (rb < 0)
+            return nullptr;
+        returnBytes = rb ? true : false;
+    }
 
     if (PyObject_HasAttr(self, default_name)) {
         defaultFn = PyObject_GetAttr(self, default_name);
@@ -5618,7 +5919,19 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
             return nullptr;
         }
 
-        if (!accept_chunk_size_arg(chunkSizeObj, chunkSize)) {
+        // chunk_size implicite : l'attribut chunk_size de l'instance (la
+        // voie Python le passait explicitement à chaque appel)
+        PyObject* ownedChunk = nullptr;
+        if (sjProtocol && chunkSizeObj == nullptr) {
+            ownedChunk = PyObject_GetAttr(self, chunk_size_name);
+            if (ownedChunk == nullptr)
+                PyErr_Clear();
+            else
+                chunkSizeObj = ownedChunk;
+        }
+        bool chunkOk = accept_chunk_size_arg(chunkSizeObj, chunkSize);
+        Py_XDECREF(ownedChunk);
+        if (!chunkOk) {
             e->activePathTracker = nullptr;
             Py_XDECREF(defaultFn);
             Py_XDECREF(defaultDictFn);
@@ -5638,7 +5951,7 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
                            &pathTracker,
                            e->ensureAscii, e->writeMode, e->indentChar,
                            e->indentCount, e->numberMode, e->datetimeMode, e->uuidMode,
-                           e->bytesMode, e->iterableMode, e->mappingMode, e->returnBytes,
+                           e->bytesMode, e->iterableMode, e->mappingMode, returnBytes,
                            &e->outputHighWater);
     }
 
@@ -5652,6 +5965,14 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     Py_XDECREF(defaultListFn);
     Py_XDECREF(classPlanFn);
 
+    // l'équivalent C de _clean (sur succès seulement, comme la voie Python)
+    if (sjProtocol && result != nullptr) {
+        if (PyObject_GenericSetAttr(self, already_serialized_name,
+                                    nullptr) < 0)
+            PyErr_Clear();
+        if (PyObject_GenericSetAttr(self, keep_alive_name, nullptr) < 0)
+            PyErr_Clear();
+    }
     return result;
 }
 
@@ -6154,7 +6475,39 @@ blosc_set_nthreads_fn(PyObject* Py_UNUSED(self), PyObject* arg)
 }
 
 
+// enregistre les types serializejson et le module serialize_parameters :
+// à partir de là, les tp_call des Encoder/Decoder de ces types exécutent le
+// protocole d'appel en C (ex-__call__ Python)
+static PyObject*
+register_serializejson_fn(PyObject* Py_UNUSED(module), PyObject* args)
+{
+    PyObject* encoderType;
+    PyObject* decoderType;
+    PyObject* params;
+
+    if (!PyArg_ParseTuple(args, "OOO", &encoderType, &decoderType, &params))
+        return nullptr;
+    if (!PyType_Check(encoderType) || !PyType_Check(decoderType)) {
+        PyErr_SetString(PyExc_TypeError,
+                        "expected (encoder_type, decoder_type,"
+                        " serialize_parameters)");
+        return nullptr;
+    }
+    Py_INCREF(encoderType);
+    Py_XSETREF(sj_encoder_type, encoderType);
+    Py_INCREF(decoderType);
+    Py_XSETREF(sj_decoder_type, decoderType);
+    Py_INCREF(params);
+    Py_XSETREF(sj_params_module, params);
+    Py_RETURN_NONE;
+}
+
+
 static PyMethodDef functions[] = {
+    {"register_serializejson", (PyCFunction) register_serializejson_fn,
+     METH_VARARGS,
+     "Enregistre (Encoder, Decoder, serialize_parameters) : leurs __call__"
+     " passent en C."},
     {"loads", (PyCFunction) loads, METH_VARARGS | METH_KEYWORDS,
      loads_docstring},
     {"load", (PyCFunction) load, METH_VARARGS | METH_KEYWORDS,
@@ -6329,6 +6682,35 @@ module_exec(PyObject* m)
 
     root_attr_name = PyUnicode_InternFromString("root");
     if (root_attr_name == nullptr)
+        return -1;
+
+    owner_name = PyUnicode_InternFromString("_owner");
+    decoder_owner_name = PyUnicode_InternFromString("_decoder_owner");
+    update_parameters_name =
+        PyUnicode_InternFromString("_update_serialize_parameters");
+    push_decode_parameters_name =
+        PyUnicode_InternFromString("_push_decode_parameters");
+    call_update_name = PyUnicode_InternFromString("_call_update");
+    resolve_duplicates_name = PyUnicode_InternFromString("_resolve_duplicates");
+    dumped_classes_name = PyUnicode_InternFromString("dumped_classes");
+    already_serialized_name = PyUnicode_InternFromString("_already_serialized");
+    keep_alive_name =
+        PyUnicode_InternFromString("_already_serialized_keep_alive");
+    root_underscore_name = PyUnicode_InternFromString("_root");
+    chunk_size_name = PyUnicode_InternFromString("chunk_size");
+    converted_numpy_name =
+        PyUnicode_InternFromString("converted_numpy_array_from_lists");
+    not_authorized_name = PyUnicode_InternFromString("not_authorized_classes");
+    updating_name = PyUnicode_InternFromString("_updating");
+    startswith_curly_name = PyUnicode_InternFromString("json_startswith_curly");
+    duplicates_name = PyUnicode_InternFromString("duplicates_to_replace");
+    dotdict_name = PyUnicode_InternFromString("dotdict");
+    class_from_attributes_name =
+        PyUnicode_InternFromString("_class_from_attributes_names");
+    strict_pickle_name = PyUnicode_InternFromString("strict_pickle");
+    setters_name = PyUnicode_InternFromString("setters");
+    properties_name = PyUnicode_InternFromString("properties");
+    if (properties_name == nullptr)
         return -1;
 
     class_key_name = PyUnicode_InternFromString("__class__");
