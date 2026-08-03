@@ -217,18 +217,6 @@ RAPIDJSON_FORCEINLINE void SjStringHintSet(SjBoundedInsituStream<Encoding>& s,
         *s.sjHintOut = v;
 }
 
-// hooks de lot du handler (pré-dimensionnement) : no-op pour les handlers
-// qui ne les définissent pas
-template <typename Handler>
-RAPIDJSON_FORCEINLINE auto SjRunBeginImpl(Handler& h, int)
-    -> decltype(h.SjRunBegin()) { return h.SjRunBegin(); }
-template <typename Handler>
-RAPIDJSON_FORCEINLINE void SjRunBeginImpl(Handler&, long) {}
-template <typename Handler>
-RAPIDJSON_FORCEINLINE auto SjRunEndImpl(Handler& h, int)
-    -> decltype(h.SjRunEnd()) { return h.SjRunEnd(); }
-template <typename Handler>
-RAPIDJSON_FORCEINLINE void SjRunEndImpl(Handler&, long) {}
 template <typename Encoding>
 RAPIDJSON_FORCEINLINE void SjStringHintDirty(SjBoundedInsituStream<Encoding>& s) {
     if (s.sjHintOut)
@@ -1085,7 +1073,6 @@ private:
         if (runEnd == nullptr)
             return 0;
         SizeType emitted = 0;
-        bool begun = false;
         for (;;) {
             const char* start = reinterpret_cast<const char*>(SjRawCursor(is));
             const char* p;
@@ -1125,10 +1112,6 @@ private:
                 break;
             if (p == nullptr || p >= runEnd || (*p != ',' && *p != ']'))
                 break;                      // jeton non simple ou autre fin
-            if (!begun) {
-                SjRunBeginImpl(handler, 0);
-                begun = true;
-            }
             bool ok;
             switch (kind) {
             case 1: ok = handler.Bool(true); break;
@@ -1166,8 +1149,6 @@ private:
                    || c == '\t')
                 is.Take();
         }
-        if (begun)
-            SjRunEndImpl(handler, 0);
         return emitted;
     }
 
