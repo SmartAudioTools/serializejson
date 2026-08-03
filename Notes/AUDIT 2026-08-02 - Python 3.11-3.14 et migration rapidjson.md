@@ -1116,6 +1116,24 @@ Leçon de mesure consignée : sous charge (load 8, autres instances), seules
 les mesures ENTRELACÉES minimum-de-rondes sont interprétables ; un premier
 verdict « tout s'est dégradé » venait entièrement de la charge.
 
+3. **Recette __serializejson__ à l'encodage** (suite de la même nuit) :
+   pour les classes à méthode __serializejson__ (Qt, classes utilisateur),
+   la méthode est appelée par objet — seul Python restant — et l'emballage
+   complet s'écrit en C : mémo $ref, règles exactes de déballage des
+   arguments, SingleLine (single_line_init/new — c'était la divergence
+   attrapée par l'A/B indenté au premier jet), __items__, état à plat,
+   rigueur du __dict__ partagé, dumped_classes. Formes inattendues et
+   registre plugins serializejson_ (array, dtype, function... — il PRIME
+   sur la méthode) : voie Python. 1 000 objets : 1 236 → 264 µs (×4,7),
+   baseline mesurée sur le MÊME build en neutralisant la recette par une
+   sous-classe de class_plan (l'ancien .so était incompatible avec le
+   nouveau class_plan : premier essai de mesure faux, jeté).
+
+   RESTE au chantier des recettes : le registre plugins serializejson_
+   en recette (mêmes formes plus les chaînes d'arguments), et la recette
+   d'encodage déclarative pour __getstate__/__reduce__ (appel par objet,
+   emballage C).
+
 ### Cycle de vie du tampon de sortie : fuite str et OOM (3 août, soir)
 
 Deux défauts trouvés en répondant aux questions sur l'allocation de sortie :
