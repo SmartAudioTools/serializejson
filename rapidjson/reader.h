@@ -23,7 +23,7 @@
 #include "internal/clzll.h"
 #include "internal/meta.h"
 #include "internal/stack.h"
-#include "internal/strtod.h"
+#include "internal/strtod.h"  // (inclut eisel_lemire.h)
 #include <limits>
 #include <string>
 
@@ -904,10 +904,69 @@ private:
                 return emitted;             // vide ou possiblement trop long
             if (*digitsBegin == '0' && digitCount > 1)
                 return emitted;             // 01 : invalide, voie normale
+            if (p >= runEnd)
+                return emitted;
+            bool isDouble = false;
+            double dval = 0.0;
+            if (*p == '.' || *p == 'e' || *p == 'E') {
+                // flottant simple : mantisse totale <= 17 chiffres,
+                // exposant <= 3 chiffres, converti par Eisel-Lemire —
+                // au moindre doute (renoncement, zéro, forme exotique),
+                // la voie normale reprend le jeton entier
+                size_t fracCount = 0;
+                if (*p == '.') {
+                    p++;
+                    const char* fracBegin = p;
+                    while (p < runEnd
+                           && static_cast<unsigned>(*p - '0') <= 9
+                           && digitCount + (size_t)(p - fracBegin) < 17) {
+                        value = value * 10
+                            + static_cast<unsigned>(*p - '0');
+                        p++;
+                    }
+                    fracCount = static_cast<size_t>(p - fracBegin);
+                    if (fracCount == 0
+                        || (p < runEnd
+                            && static_cast<unsigned>(*p - '0') <= 9))
+                        return emitted;     // « 1. » ou trop de chiffres
+                }
+                int expVal = 0;
+                if (p < runEnd && (*p == 'e' || *p == 'E')) {
+                    p++;
+                    bool expNeg = false;
+                    if (p < runEnd && (*p == '+' || *p == '-')) {
+                        expNeg = (*p == '-');
+                        p++;
+                    }
+                    const char* expBegin = p;
+                    while (p < runEnd
+                           && static_cast<unsigned>(*p - '0') <= 9
+                           && p - expBegin < 4) {
+                        expVal = expVal * 10
+                            + static_cast<int>(*p - '0');
+                        p++;
+                    }
+                    if (p == expBegin
+                        || (p < runEnd
+                            && static_cast<unsigned>(*p - '0') <= 9))
+                        return emitted;     // exposant vide ou trop long
+                    if (expNeg)
+                        expVal = -expVal;
+                }
+                if (value == 0)
+                    return emitted;         // 0.0 / -0.0 : voie normale
+                if (!sj_eisel_lemire(value,
+                                     expVal - static_cast<int>(fracCount),
+                                     &dval))
+                    return emitted;         // doute : voie normale
+                isDouble = true;
+            }
             if (p >= runEnd || *p != ',')
-                return emitted;             // flottant, fin, exposant...
-            bool ok = neg ? handler.Int64(-static_cast<int64_t>(value))
-                          : handler.Uint64(value);
+                return emitted;             // pas un « nombre, » complet
+            bool ok = isDouble
+                ? handler.Double(neg ? -dval : dval)
+                : (neg ? handler.Int64(-static_cast<int64_t>(value))
+                       : handler.Uint64(value));
             if (!ok) {
                 *terminate = true;
                 return emitted;
