@@ -62,8 +62,11 @@ if cxx and 'g++' in cxx:
     # -Wno-long-long to pacify old gcc (or Apple's hybrids) that treat "long long" as an
     # error under C++ (see issue #69). C++11 is required since commit
     # https://github.com/Tencent/rapidjson/commit/9965ab37f6cfae3d58a0a6e34c76112866ace0b1
+    # distutils peut perdre les CFLAGS du python (constaté : compilation sans
+    # aucun -O, donc -O0 et rien d'inliné) : imposer l'optimisation ici
     extension_options['extra_compile_args'] = [
-        '-pedantic', '-Wno-long-long', '-std=c++11']
+        '-pedantic', '-Wno-long-long', '-std=c++11',
+        '-O3', '-fno-semantic-interposition']
 
     # Up to Python 3.7, some structures use "char*" instead of "const char*",
     # and ISO C++ forbids assigning string literal constants
