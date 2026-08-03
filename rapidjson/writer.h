@@ -354,23 +354,47 @@ protected:
         bool inArray;       //!< true if in array, otherwise in object
     };
 
-    bool Escape(const Ch* str, SizeType length)  {  
-		// check for escape need 
-		size_t copy_length = length;
-		char c;
-		const char* stop = str + length;
-		//std::cout << "length "<<length;
-		const char* cursor = str;
-		c = *cursor++;
-		while ((cursor <=  stop) && (c != '\\') && (c != '"') && (c != '\t') && (c != '\n') && (c != '\r')) // super long !!!!
-			c = *cursor++;
-			
-		copy_length = cursor-str-1;
-		//std::cout << "copy_length "<<copy_length;
+    // longueur du préfixe SANS caractère à échapper (", \, \t, \n, \r) —
+    // scan vectorisé : 16 caractères par itération, la quasi-totalité des
+    // chaînes ressort en une copie de bloc
+    static SizeType CleanPrefixLength(const Ch* str, SizeType length) {
+        SizeType clean = 0;
+#if defined(__SSE2__)
+        const __m128i quote = _mm_set1_epi8('"');
+        const __m128i backslash = _mm_set1_epi8('\\');
+        const __m128i tabulation = _mm_set1_epi8('\t');
+        const __m128i newline = _mm_set1_epi8('\n');
+        const __m128i carriage = _mm_set1_epi8('\r');
+        while (clean + 16 <= length) {
+            __m128i chunk =
+                _mm_loadu_si128((const __m128i*) (str + clean));
+            __m128i hits = _mm_or_si128(
+                _mm_or_si128(_mm_cmpeq_epi8(chunk, quote),
+                             _mm_cmpeq_epi8(chunk, backslash)),
+                _mm_or_si128(_mm_cmpeq_epi8(chunk, tabulation),
+                             _mm_or_si128(_mm_cmpeq_epi8(chunk, newline),
+                                          _mm_cmpeq_epi8(chunk, carriage))));
+            int mask = _mm_movemask_epi8(hits);
+            if (mask)
+                return clean + (SizeType) __builtin_ctz((unsigned) mask);
+            clean += 16;
+        }
+#endif
+        while (clean < length) {
+            char c = str[clean];
+            if (c == '\\' || c == '"' || c == '\t' || c == '\n' || c == '\r')
+                break;
+            clean++;
+        }
+        return clean;
+    }
+
+    bool Escape(const Ch* str, SizeType length)  {
+        SizeType copy_length = CleanPrefixLength(str, length);
 		if (copy_length>0)
 			os_->RawValue(str,copy_length);
 		if (copy_length < length){
-			//std::cout << "escape " << c;
+			char c = str[copy_length];
 			os_->Reserve(2);
 			*(os_->bufferCursor)++ = '\\';
 			if ((c == '\\')||(c == '"'))

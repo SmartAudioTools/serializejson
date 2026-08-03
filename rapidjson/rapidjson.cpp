@@ -2670,15 +2670,23 @@ dumps_internal(
         return false;                                                   \
     } } while(0)
 
+    // str unicode (exact) — testé en PREMIER : c'est le type le plus fréquent
+    // et il était aiguillé après une douzaine d'autres branches
+    if (PyUnicode_CheckExact(object)) {
+        Py_ssize_t l;
+        const char* s = PyUnicode_AsUTF8AndSize(object, &l);
+        writer->String(s, (SizeType) l);
+    }
+
     // None -------------------------------------
-    if (object == Py_None) {
+    else if (object == Py_None) {
         writer->Null();
-    } 
-	
+    }
+
 	// True, False  -----------------------------
 	else if (PyBool_Check(object)) {
         writer->Bool(object == Py_True);
-    } 
+    }
 	
     // Decimal ----------------------------------
 	else if (numberMode & NM_DECIMAL
