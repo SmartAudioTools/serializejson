@@ -330,6 +330,21 @@ struct PtrMemo {
         }
         return end();
     }
+    // sonde unique : renvoie l'emplacement du couple si présent (found=vrai),
+    // sinon réserve le slot (clé posée, valeur à remplir par l'appelant)
+    Slot* find_or_reserve(PyObject* k, bool* found) {
+        if ((count + 1) * 10 >= slots.size() * 7)
+            rehash(slots.empty() ? 16 : slots.size() * 2);
+        size_t i = hash(k) & mask;
+        while (slots[i].first) {
+            if (slots[i].first == k) { *found = true; return &slots[i]; }
+            i = (i + 1) & mask;
+        }
+        slots[i].first = k;
+        count++;
+        *found = false;
+        return &slots[i];
+    }
     void emplace(PyObject* k, long v) {
         if ((count + 1) * 10 >= slots.size() * 7)
             rehash(slots.empty() ? 16 : slots.size() * 2);
@@ -2752,16 +2767,17 @@ dumps_internal(
 // dans le mémo (référence forte relâchée en fin d'encodage) et continue.
 #define CONTAINER_MEMO_OR_REF()                                         \
     if (pathTracker && pathTracker->memoContainers) {                   \
-        auto memo_it = pathTracker->memo.find(object);                  \
-        if (memo_it != pathTracker->memo.end()) {                       \
+        bool memo_found;                                                \
+        PtrMemo::Slot* memo_slot =                                      \
+            pathTracker->memo.find_or_reserve(object, &memo_found);     \
+        if (memo_found) {                                               \
             std::string ref_ = "{\"$ref\": \"";                         \
-            ref_ += path_tracker_string(pathTracker, memo_it->second);  \
+            ref_ += path_tracker_string(pathTracker, memo_slot->second);\
             ref_ += "\"}";                                              \
             writer->RawValue(ref_.data(), ref_.size());                 \
             return true;                                                \
         }                                                               \
-        pathTracker->memo.emplace(                                      \
-            object, path_tracker_materialize(pathTracker));             \
+        memo_slot->second = path_tracker_materialize(pathTracker);      \
         Py_INCREF(object);                                              \
     }
 
