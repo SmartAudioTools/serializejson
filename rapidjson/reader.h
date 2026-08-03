@@ -869,15 +869,15 @@ private:
             SkipWhitespaceAndComments<parseFlags>(is);
             RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
 
-            // fork serializejson : nombre simple en valeur d'objet, émis
-            // sans repasser par ParseValue/ParseNumber
+            // fork serializejson : valeur simple d'objet (nombre, littéral,
+            // chaîne courte propre), émise sans repasser par ParseValue
             bool sjValueDone = false;
             if ((parseFlags & kParseInsituFlag) != 0
                 && (parseFlags & kParseBigIntsAsStringsFlag) != 0
                 && (parseFlags & kParseNumbersAsStringsFlag) == 0
                 && (parseFlags & kParseCommentsFlag) == 0) {
                 bool sjTerminate = false;
-                sjValueDone = SjObjectNumberValue<parseFlags>(
+                sjValueDone = SjObjectSimpleValue<parseFlags>(
                     is, handler, &sjTerminate);
                 if (RAPIDJSON_UNLIKELY(sjTerminate))
                     RAPIDJSON_PARSE_ERROR(kParseErrorTermination, is.Tell());
@@ -1152,28 +1152,70 @@ private:
         return emitted;
     }
 
-    // même accélération pour UN nombre en position de valeur d'objet :
-    // émis et consommé si simple et suivi de « , » ou « } », sinon rien
+    // même accélération pour UNE valeur simple d'objet (nombre, littéral,
+    // chaîne courte propre) : émise et consommée si suivie de « , » ou
+    // « } », sinon rien — mêmes règles et même handler que le lot des
+    // tableaux (datetime/uuid/hooks identiques)
     template<unsigned parseFlags, typename InputStream, typename Handler>
-    RAPIDJSON_FORCEINLINE bool SjObjectNumberValue(InputStream& is,
+    RAPIDJSON_FORCEINLINE bool SjObjectSimpleValue(InputStream& is,
                                                    Handler& handler,
                                                    bool* terminate) {
         const char* runEnd = reinterpret_cast<const char*>(SjRawEnd(is));
         if (runEnd == nullptr)
             return false;
         const char* start = reinterpret_cast<const char*>(SjRawCursor(is));
-        bool isDouble;
-        bool neg;
-        uint64_t intValue;
-        double dblValue;
-        const char* p = SjScanNumber(start, runEnd, &isDouble, &neg,
-                                     &intValue, &dblValue);
+        const char* p;
+        int kind = 0;   // 0 nombre, 1 true, 2 false, 3 null, 4 chaîne
+        bool isDouble = false;
+        bool neg = false;
+        uint64_t intValue = 0;
+        double dblValue = 0;
+        const char* strEnd = nullptr;
+        int strPure = 0;
+        const Ch first = (start < runEnd) ? *start : Ch('\0');
+        if (RAPIDJSON_LIKELY((first >= '0' && first <= '9') || first == '-')) {
+            p = SjScanNumber(start, runEnd, &isDouble, &neg,
+                             &intValue, &dblValue);
+        } else if (first == '\"') {
+            kind = 4;
+            p = SjScanShortString(start + 1, runEnd, &strEnd, &strPure);
+        } else if (first == 't' || first == 'f' || first == 'n') {
+            if (first == 't' && start + 4 <= runEnd
+                && memcmp(start, "true", 4) == 0) {
+                kind = 1; p = start + 4;
+            } else if (first == 'f' && start + 5 <= runEnd
+                       && memcmp(start, "false", 5) == 0) {
+                kind = 2; p = start + 5;
+            } else if (first == 'n' && start + 4 <= runEnd
+                       && memcmp(start, "null", 4) == 0) {
+                kind = 3; p = start + 4;
+            } else
+                return false;
+            while (p < runEnd && (*p == ' ' || *p == '\n' || *p == '\r'
+                                  || *p == '\t'))
+                p++;
+        } else
+            return false;
         if (p == nullptr || p >= runEnd || (*p != ',' && *p != '}'))
             return false;
-        bool ok = isDouble
-            ? handler.Double(neg ? -dblValue : dblValue)
-            : (neg ? handler.Int64(-static_cast<int64_t>(intValue))
-                   : handler.Uint64(intValue));
+        bool ok;
+        switch (kind) {
+        case 1: ok = handler.Bool(true); break;
+        case 2: ok = handler.Bool(false); break;
+        case 3: ok = handler.Null(); break;
+        case 4:
+            SjStringHintSet(is, strPure);
+            ok = handler.String(start + 1,
+                                static_cast<SizeType>(strEnd - (start + 1)),
+                                false);
+            break;
+        default:
+            ok = isDouble
+                ? handler.Double(neg ? -dblValue : dblValue)
+                : (neg ? handler.Int64(-static_cast<int64_t>(intValue))
+                       : handler.Uint64(intValue));
+            break;
+        }
         if (!ok) {
             *terminate = true;
             return false;
