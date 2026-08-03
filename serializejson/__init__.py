@@ -221,6 +221,7 @@ from .tools import (
     blosc_compressions,
     blosc2_compressions,
     use_blosc2_cpp,
+    use_blosc2_fork,
     serializejson_,
     serializejson_builtins,
     class_has_user_getstate,
@@ -521,7 +522,10 @@ class Encoder(rapidjson.Encoder):
 
             - `int` : number of threads user for the compression
             - `"cpus"`: use as many thread than cpu
-            - `"determinist"`  us one thread with blosc compression for determinist compression eiter as many thread than cpu
+            - `"determinist"` (default): multithreaded ONLY through a
+              deterministic path — the bundled libblosc2 fork (internal
+              multithread with stable bytes) — otherwise one thread. The
+              compressed bytes are identical whatever the thread count.
 
         bytes_size_compression_threshold (int):
             bytes size threshold beyond compression is tried to reduce size of
@@ -632,7 +636,7 @@ class Encoder(rapidjson.Encoder):
         bytes_compression=("blosc2_zstd", 1) if use_blosc2_cpp else ("blosc_zstd", 1),  #
         bytes_compression_diff_dtypes=tuple(),
         bytes_size_compression_threshold=512,
-        bytes_compression_threads=1,
+        bytes_compression_threads="determinist",
         array_use_arrayB64=True,  # le laisser ?
         array_readable_max_size=0,  # 'int32':-1
         numpy_array_use_numpyB64=True,  # le laisser ?
@@ -1132,11 +1136,31 @@ class Encoder(rapidjson.Encoder):
         return encoded
 
     def _update_serialize_parameters(self):
-        blosc.set_nthreads(self.bytes_compression_threads)
+        # résolution des valeurs symboliques :
+        #   "cpus"       -> autant de threads que de coeurs, sans garantie
+        #                    d'octets stables hors fork ;
+        #   "determinist" (défaut) -> multithread UNIQUEMENT quand une voie
+        #                    déterministe existe : le fork libblosc2 livré
+        #                    (multithread interne à octets stables), sinon 1.
+        #                    blosc v1 reste à 1 (son multithread ne garantit
+        #                    pas les octets).
+        threads = self.bytes_compression_threads
+        if threads == "cpus":
+            resolved = os.cpu_count() or 1
+            v1_threads = resolved
+        elif threads == "determinist":
+            resolved = min(8, os.cpu_count() or 1) if use_blosc2_fork else 1
+            v1_threads = 1
+        else:
+            resolved = v1_threads = threads
+        blosc.set_nthreads(v1_threads)
         if use_blosc2_cpp:
-            rapidjson.blosc_set_nthreads(self.bytes_compression_threads)
+            rapidjson.blosc_set_nthreads(resolved)
         serialize_parameters.__dict__.update(self.__dict__)
         serialize_parameters.__dict__.update(self.plugins_parameters)
+        # les plugins lisent la valeur résolue (le "determinist" symbolique
+        # ne doit pas leur parvenir)
+        serialize_parameters.bytes_compression_threads = resolved
 
     def _reset(self):
         self.dumped_classes = set()
