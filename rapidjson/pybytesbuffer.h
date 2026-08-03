@@ -157,7 +157,15 @@ struct PyBytesBuffer { // a revoir c'est quoi la différence entre struc et clas
     bool Empty() const { return bufferCursor == bufferBegin; }    
     char* Reserve(size_t count) {
         if ( bufferCursor + count > bufferEnd ){
-            size_t desiredCapacity = static_cast<size_t>(std::pow(2, std::ceil(std::log((bufferCursor - bufferBegin) + count)/std::log(2))));
+            // croissance par facteur 4 (choix mesuré : moitié moins de
+            // reallocs et trois fois moins de recopies qu'un doublement,
+            // pour une sur-allocation transitoire rendue au Flush final) ;
+            // une grosse réservation (blob base64...) saute directement à
+            // la puissance de deux couvrante
+            size_t needed = GetSize() + count;
+            size_t desiredCapacity = GetCapacity() * 4;
+            if (desiredCapacity < needed)
+                desiredCapacity = static_cast<size_t>(std::pow(2, std::ceil(std::log((double) needed)/std::log(2))));
             if (desiredCapacity < initialCapacity_)
                 desiredCapacity  = initialCapacity_;
             Resize(desiredCapacity);

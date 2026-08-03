@@ -5801,6 +5801,15 @@ static PyTypeObject Encoder_Type = {
      //? PyBytes_FromStringAndSize(buf.GetBuffer(),buf.GetSize()) : nullptr)
      
      
+// haute-eau à décroissance : retient la taille du dump, ou la moitié du
+// niveau précédent si elle est plus grande — après un gros dump isolé, la
+// marge fond de moitié en moitié au lieu de rester (effet cliquet) ou de
+// disparaître d'un coup (alternance gros/petit repayait ses reallocs)
+static inline size_t sj_decayed_high_water(size_t previous, size_t size) {
+    size_t decayed = previous / 2;
+    return size > decayed ? size : decayed;
+}
+
 #define DUMPS_INTERNAL_CALL_WITH_PYBYTESBUFFER           \
     (dumps_internal(&writer,                            \
                     value,                              \
@@ -5814,7 +5823,7 @@ static PyTypeObject Encoder_Type = {
                     bytesMode,                          \
                     iterableMode,                       \
                     mappingMode)                        \
-     ? (buf.Flush(), (outputHighWater ? (void)(*outputHighWater = buf.GetSize()) : (void)0), (returnBytes ? buf.stealPyBytes()         : (buf.maybe_non_ascii            ? PyUnicode_FromEncodedObject(buf.getPyBytes(),"utf-8",errors)            : sj_unicode_from_ascii(buf.GetBuffer(), (Py_ssize_t) buf.GetSize())))): nullptr)
+     ? (buf.Flush(), (outputHighWater ? (void)(*outputHighWater = sj_decayed_high_water(*outputHighWater, buf.GetSize())) : (void)0), (returnBytes ? buf.stealPyBytes()         : (buf.maybe_non_ascii            ? PyUnicode_FromEncodedObject(buf.getPyBytes(),"utf-8",errors)            : sj_unicode_from_ascii(buf.GetBuffer(), (Py_ssize_t) buf.GetSize())))): nullptr)
 
 
 static PyObject*
@@ -5828,10 +5837,13 @@ do_encode(PyObject* value, PyObject* defaultFn,
           size_t* outputHighWater)
 {
     const char *errors;
-    // haute-eau : repart de la taille atteinte au dump precedent de cet
-    // Encoder (une seule allocation en regime etabli, A/B mesure ~10% sur
-    // les listes de nombres) ; 0 -> capacite par defaut
-    PyBytesBuffer buf(outputHighWater ? *outputHighWater : 0);
+    // préallocation : DEUX fois la haute-eau décroissante (règle choisie le
+    // 3/08 : marge de croissance ×2 permanente en régime établi — un dump
+    // qui grossit jusqu'au double ne paie aucun realloc — et sur-allouer
+    // coûte ~300 fois moins cher que sous-allouer, mesuré 15 µs contre
+    // 5 ms sur 90 Mo) ; 0 -> capacité par défaut
+    PyBytesBuffer buf(outputHighWater && *outputHighWater
+                      ? 2 * *outputHighWater : 0);
     // mémoire insuffisante : Resize lève bad_alloc (MemoryError déjà posée
     // par l'allocateur CPython) — avant, le code déréférençait le NULL
     // laissé par _PyBytes_Resize et plantait le processus
