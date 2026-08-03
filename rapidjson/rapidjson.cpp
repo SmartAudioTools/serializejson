@@ -2704,7 +2704,6 @@ dumps_internal(
         }
 
         writer->RawValue(decStr, size);
-        writer->Flush();
         Py_DECREF(decStrObj);
     } 
 	
@@ -2724,6 +2723,50 @@ dumps_internal(
                     return false;
 
                 writer->Uint64(ui);
+            }
+        } else if (PyLong_CheckExact(object)) {
+            // un int EXACT qui tient sur 64 bits s'écrit à l'identique de son
+            // repr() (chiffres décimaux minimaux) : écriture directe, sans
+            // créer de chaîne Python — repr() ne reste nécessaire que pour
+            // les entiers hors gamme 64 bits et les sous-classes (IntEnum...)
+            int overflow;
+            long long i = PyLong_AsLongLongAndOverflow(object, &overflow);
+            if (i == -1 && PyErr_Occurred())
+                return false;
+            if (overflow == 0) {
+                writer->Int64(i);
+            } else if (overflow > 0) {
+                unsigned long long ui = PyLong_AsUnsignedLongLong(object);
+                if (!PyErr_Occurred()) {
+                    writer->Uint64(ui);
+                } else {
+                    PyErr_Clear();  // > 64 bits : repr()
+                    PyObject* intStrObj = PyLong_Type.tp_repr(object);
+                    if (intStrObj == nullptr)
+                        return false;
+                    Py_ssize_t repr_size;
+                    const char* intStr =
+                        PyUnicode_AsUTF8AndSize(intStrObj, &repr_size);
+                    if (intStr == nullptr) {
+                        Py_DECREF(intStrObj);
+                        return false;
+                    }
+                    writer->RawValue(intStr, repr_size);
+                    Py_DECREF(intStrObj);
+                }
+            } else {  // < -2^63 : repr()
+                PyObject* intStrObj = PyLong_Type.tp_repr(object);
+                if (intStrObj == nullptr)
+                    return false;
+                Py_ssize_t repr_size;
+                const char* intStr =
+                    PyUnicode_AsUTF8AndSize(intStrObj, &repr_size);
+                if (intStr == nullptr) {
+                    Py_DECREF(intStrObj);
+                    return false;
+                }
+                writer->RawValue(intStr, repr_size);
+                Py_DECREF(intStrObj);
             }
         } else {
             // Mimic stdlib json: subclasses of int may override __repr__, but we still
@@ -2814,9 +2857,10 @@ dumps_internal(
         // _onlyOneDimSameTypeNumbers : tous les éléments du type EXACT du
         // premier, qui doit être numérique et non complexe)
         bool compact_numbers = false;
+        PyTypeObject* first_type = nullptr;
         if (pathTracker && pathTracker->singleLineNumbers && size > 0) {
             PyObject* first = PyList_GET_ITEM(object, 0);
-            PyTypeObject* first_type = Py_TYPE(first);
+            first_type = Py_TYPE(first);
             if (first_type == &PyFloat_Type || first_type == &PyLong_Type
                 || first_type == &PyBool_Type
                 || (PyNumber_Check(first) && !PyComplex_Check(first))) {
@@ -2837,21 +2881,110 @@ dumps_internal(
 
         writer->StartArray();
 
-        for (Py_ssize_t i = 0; i < size; i++) {
-            if (Py_EnterRecursiveCall(" while JSONifying list object")) {
-                if (pushed_compact)
-                    writer->PopCompact();
-                return false;
+        if (compact_numbers
+            && (first_type == &PyBool_Type || first_type == &PyLong_Type
+                || first_type == &PyFloat_Type)) {
+            // boucle serrée pour les listes homogènes de scalaires : mêmes
+            // écritures que le chemin générique (octets identiques), sans
+            // aiguillage de type, garde de récursion ni chemin par élément
+            if (first_type == &PyBool_Type) {
+                for (Py_ssize_t i = 0; i < size; i++)
+                    writer->Bool(PyList_GET_ITEM(object, i) == Py_True);
+            } else if (first_type == &PyLong_Type) {
+                for (Py_ssize_t i = 0; i < size; i++) {
+                    PyObject* item = PyList_GET_ITEM(object, i);
+                    int overflow;
+                    long long value = PyLong_AsLongLongAndOverflow(item, &overflow);
+                    if (value == -1 && PyErr_Occurred()) {
+                        if (pushed_compact)
+                            writer->PopCompact();
+                        return false;
+                    }
+                    if (overflow == 0) {
+                        writer->Int64(value);
+                    } else {
+                        // hors gamme 64 bits : même écriture que la branche int
+                        unsigned long long uvalue = PyLong_AsUnsignedLongLong(item);
+                        if (!PyErr_Occurred()) {
+                            writer->Uint64(uvalue);
+                        } else {
+                            PyErr_Clear();
+                            PyObject* intStrObj = PyLong_Type.tp_repr(item);
+                            if (intStrObj == nullptr) {
+                                if (pushed_compact)
+                                    writer->PopCompact();
+                                return false;
+                            }
+                            Py_ssize_t repr_size;
+                            const char* intStr =
+                                PyUnicode_AsUTF8AndSize(intStrObj, &repr_size);
+                            if (intStr == nullptr) {
+                                Py_DECREF(intStrObj);
+                                if (pushed_compact)
+                                    writer->PopCompact();
+                                return false;
+                            }
+                            writer->RawValue(intStr, repr_size);
+                            Py_DECREF(intStrObj);
+                        }
+                    }
+                }
+            } else {  // PyFloat_Type : repr() conservé (graphie de Python)
+                for (Py_ssize_t i = 0; i < size; i++) {
+                    PyObject* item = PyList_GET_ITEM(object, i);
+                    double value = PyFloat_AS_DOUBLE(item);
+                    if (IS_NAN(value) || IS_INF(value)) {
+                        if (!(numberMode & NM_NAN)) {
+                            PyErr_SetString(
+                                PyExc_ValueError,
+                                "Out of range float values are not JSON compliant");
+                            if (pushed_compact)
+                                writer->PopCompact();
+                            return false;
+                        }
+                        if (IS_NAN(value))
+                            writer->RawValue("NaN", 3);
+                        else
+                            writer->RawValue(value < 0 ? "-Infinity" : "Infinity",
+                                             value < 0 ? 9 : 8);
+                    } else {
+                        PyObject* reprObj = PyFloat_Type.tp_repr(item);
+                        if (reprObj == nullptr) {
+                            if (pushed_compact)
+                                writer->PopCompact();
+                            return false;
+                        }
+                        Py_ssize_t repr_size;
+                        const char* repr_str =
+                            PyUnicode_AsUTF8AndSize(reprObj, &repr_size);
+                        if (repr_str == nullptr) {
+                            Py_DECREF(reprObj);
+                            if (pushed_compact)
+                                writer->PopCompact();
+                            return false;
+                        }
+                        writer->RawValue(repr_str, repr_size);
+                        Py_DECREF(reprObj);
+                    }
+                }
             }
-            PyObject* item = PyList_GET_ITEM(object, i);
-            PATH_PUSH_INDEX(i);
-            bool r = RECURSE(item);
-            PATH_POP();
-            Py_LeaveRecursiveCall();
-            if (!r) {
-                if (pushed_compact)
-                    writer->PopCompact();
-                return false;
+        } else {
+            for (Py_ssize_t i = 0; i < size; i++) {
+                if (Py_EnterRecursiveCall(" while JSONifying list object")) {
+                    if (pushed_compact)
+                        writer->PopCompact();
+                    return false;
+                }
+                PyObject* item = PyList_GET_ITEM(object, i);
+                PATH_PUSH_INDEX(i);
+                bool r = RECURSE(item);
+                PATH_POP();
+                Py_LeaveRecursiveCall();
+                if (!r) {
+                    if (pushed_compact)
+                        writer->PopCompact();
+                    return false;
+                }
             }
         }
 
@@ -3239,7 +3372,6 @@ dumps_internal(
                     }
                     writer->EndObject();
                     Py_XDECREF(object_dict);
-                    writer->Flush();
                     return PyErr_Occurred() ? false : true;
                 }
                 Py_XDECREF(object_dict);
@@ -3270,9 +3402,12 @@ dumps_internal(
         return false;
     }
 
-    // Catch possible error raised in associated stream operations
-
-    writer->Flush();
+    // Catch possible error raised in associated stream operations.
+    // ⚠ pas de Flush() ici : dumps_internal est appelé pour CHAQUE valeur, et
+    // le Flush de PyBytesBuffer RÉTRÉCIT le buffer à sa taille — chaque valeur
+    // suivante devait alors le ré-agrandir (realloc + copie), rendant
+    // l'encodage QUADRATIQUE sur les longues listes de scalaires. Le Flush
+    // final est fait une seule fois par les macros DUMPS_INTERNAL_CALL*.
     return PyErr_Occurred() ? false : true;
 
 #undef RECURSE
@@ -3978,7 +4113,7 @@ static PyTypeObject Encoder_Type = {
                     bytesMode,                          \
                     iterableMode,                       \
                     mappingMode)                        \
-     ? (returnBytes ? buf.getPyBytes() : PyUnicode_FromEncodedObject(buf.getPyBytes(),"utf-8",errors)): nullptr)
+     ? (buf.Flush(), (returnBytes ? buf.getPyBytes() : PyUnicode_FromEncodedObject(buf.getPyBytes(),"utf-8",errors))): nullptr)
 
 
 static PyObject*
@@ -4019,7 +4154,7 @@ do_encode(PyObject* value, PyObject* defaultFn,
                     bytesMode,                  \
                     iterableMode,               \
                     mappingMode)                \
-     ? Py_INCREF(Py_None), Py_None : nullptr)
+     ? (writer.Flush(), Py_INCREF(Py_None), Py_None) : nullptr)
 
 
 static PyObject*
