@@ -37,7 +37,8 @@ RAPIDJSON_NAMESPACE_BEGIN
 struct PyBytesBuffer { // a revoir c'est quoi la différence entre struc et class
     typedef char Ch; // byte
     
-    PyBytesBuffer(size_t capacity = kDefaultCapacity){        
+    PyBytesBuffer(size_t capacity = kDefaultCapacity){
+        if (capacity == 0) capacity = kDefaultCapacity;        
         initialCapacity_ = capacity;
         bufferBegin = 0;
         bufferCursor = 0;

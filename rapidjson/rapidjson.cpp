@@ -612,7 +612,8 @@ static PyObject* do_encode(PyObject* value, PyObject* defaultFn,
                            unsigned writeMode, char indentChar, unsigned indentCount,
                            unsigned numberMode, unsigned datetimeMode,
                            unsigned uuidMode, unsigned bytesMode,
-                           unsigned iterableMode, unsigned mappingMode, bool returnBytes);
+                           unsigned iterableMode, unsigned mappingMode, bool returnBytes,
+                           size_t* outputHighWater);
 static PyObject* do_stream_encode(PyObject* value, PyObject* stream, size_t chunkSize,
                                   PyObject* defaultFn,
                                   PyObject* defaultDictFn, PyObject* defaultListFn,
@@ -2434,7 +2435,10 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
         ~GCPause() { if (was_enabled) PyGC_Enable(); }
     } gc_pause;
 
-    if (jsonStr != nullptr) {
+    if (jsonStr != nullptr && getenv("SJ_NOCOPY")) {
+        StringStream ss(jsonStr);
+        DECODE(reader, kParseFullPrecisionFlag | kParseBigIntsAsStringsFlag, ss, handler);
+    } else if (jsonStr != nullptr) {
         // insitu sur une COPIE de l'entrée : essayé sans copie (StringStream)
         // le 03/08/2026 à -O0 puis RE-mesuré le même jour en -O3 — REGRESSION
         // dans les deux cas (objets +19%, ints +6% : le dés-échappement des
@@ -4019,6 +4023,8 @@ typedef struct {
     size_t memoHighWater;
     // brouillons réutilisables du multithread numérique (voir SjMtScratch)
     SjMtScratch* mtScratch;
+    // taille de sortie atteinte au dump précédent (capacité initiale du suivant)
+    size_t outputHighWater;
 } EncoderObject;
 
 
@@ -4272,7 +4278,8 @@ dumps(PyObject* self, PyObject* args, PyObject* kwargs)
     return do_encode(value, defaultFn, nullptr, nullptr, nullptr,
                      ensureAscii ? true : false, writeMode, indentChar,
                      indentCount, numberMode, datetimeMode, uuidMode, bytesMode,
-                     iterableMode, mappingMode, returnBytes);
+                     iterableMode, mappingMode, returnBytes,
+                           nullptr);
 }
 
 // dumpb =====================================================================
@@ -4394,7 +4401,7 @@ dumpb(PyObject* self, PyObject* args, PyObject* kwargs)
     return do_encode(value, defaultFn, nullptr, nullptr, nullptr,
                      ensureAscii ? true : false, writeMode, indentChar,
                      indentCount, numberMode, datetimeMode, uuidMode, bytesMode,
-                     iterableMode, mappingMode, true);
+                     iterableMode, mappingMode, true, nullptr);
 }
 
 
@@ -4699,7 +4706,7 @@ static PyTypeObject Encoder_Type = {
                     bytesMode,                          \
                     iterableMode,                       \
                     mappingMode)                        \
-     ? (buf.Flush(), (returnBytes ? buf.getPyBytes()         : (buf.maybe_non_ascii            ? PyUnicode_FromEncodedObject(buf.getPyBytes(),"utf-8",errors)            : sj_unicode_from_ascii(buf.GetBuffer(), (Py_ssize_t) buf.GetSize())))): nullptr)
+     ? (buf.Flush(), (outputHighWater ? (void)(*outputHighWater = buf.GetSize()) : (void)0), (returnBytes ? buf.getPyBytes()         : (buf.maybe_non_ascii            ? PyUnicode_FromEncodedObject(buf.getPyBytes(),"utf-8",errors)            : sj_unicode_from_ascii(buf.GetBuffer(), (Py_ssize_t) buf.GetSize())))): nullptr)
 
 
 static PyObject*
@@ -4709,10 +4716,14 @@ do_encode(PyObject* value, PyObject* defaultFn,
           bool ensureAscii, unsigned writeMode,
           char indentChar, unsigned indentCount, unsigned numberMode,
           unsigned datetimeMode, unsigned uuidMode, unsigned bytesMode,
-          unsigned iterableMode, unsigned mappingMode, bool returnBytes)
+          unsigned iterableMode, unsigned mappingMode, bool returnBytes,
+          size_t* outputHighWater)
 {
     const char *errors;
-    PyBytesBuffer buf;
+    // haute-eau : repart de la taille atteinte au dump precedent de cet
+    // Encoder (une seule allocation en regime etabli, A/B mesure ~10% sur
+    // les listes de nombres) ; 0 -> capacite par defaut
+    PyBytesBuffer buf(outputHighWater ? *outputHighWater : 0);
     if (writeMode == WM_COMPACT) {
             Writer<PyBytesBuffer> writer(buf);
             return DUMPS_INTERNAL_CALL_WITH_PYBYTESBUFFER  ;
@@ -4856,7 +4867,8 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
                            &pathTracker,
                            e->ensureAscii, e->writeMode, e->indentChar,
                            e->indentCount, e->numberMode, e->datetimeMode, e->uuidMode,
-                           e->bytesMode, e->iterableMode, e->mappingMode, e->returnBytes);
+                           e->bytesMode, e->iterableMode, e->mappingMode, e->returnBytes,
+                           &e->outputHighWater);
     }
 
     e->activePathTracker = nullptr;
@@ -4989,6 +5001,7 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
     e->pathNodesHighWater = 0;
     e->memoHighWater = 0;
     e->mtScratch = nullptr;
+    e->outputHighWater = 0;
     e->singleLineNumbers = singleLineNumbers? true : false;
     e->activePathTracker = nullptr;
 
