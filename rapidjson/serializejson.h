@@ -381,6 +381,62 @@ serializejson_b64_decode_table()
 // PyBytes (as_bytearray=0) ou PyByteArray (1). nullptr SANS exception Python
 // si la chaîne n'est pas du base64 propre : l'appelant reprend alors le
 // chemin normal.
+static bool
+sj_b64_decode_groups(const unsigned char* in, size_t groups,
+                     unsigned char* dst, const unsigned char* table)
+{
+    for (size_t group = 0; group < groups; group++) {
+        unsigned a = table[in[0]], b = table[in[1]],
+                 c = table[in[2]], d = table[in[3]];
+        if ((a | b | c | d) >= 64)
+            return false;
+        unsigned v = (a << 18) | (b << 12) | (c << 6) | d;
+        *dst++ = (unsigned char) (v >> 16);
+        *dst++ = (unsigned char) (v >> 8);
+        *dst++ = (unsigned char) v;
+        in += 4;
+    }
+    return true;
+}
+
+#define SJ_B64_DECODE_PARALLEL_GROUPS (1u << 20)  // 4 Mo d'entree par segment... seuil plus bas ci-dessous
+
+static inline bool
+sj_b64_decode_maybe_parallel(const unsigned char* in, size_t groups,
+                             unsigned char* dst, const unsigned char* table)
+{
+    // seuil : ~3 Mo d'entree (comme l'encodage)
+    if (groups < (3u << 20) / 4)
+        return sj_b64_decode_groups(in, groups, dst, table);
+    size_t hw = std::thread::hardware_concurrency();
+    size_t nthreads = hw ? (hw > 8 ? 8 : hw) : 1;
+    if (nthreads < 2)
+        return sj_b64_decode_groups(in, groups, dst, table);
+    // segments fixes de 256k groupes (1 Mo d'entree, 768 Ko de sortie)
+    const size_t seg = 1u << 18;
+    size_t nsegs = (groups + seg - 1) / seg;
+    std::atomic<size_t> next(0);
+    std::atomic<bool> ok(true);
+    auto work = [&]() {
+        for (;;) {
+            size_t s = next.fetch_add(1);
+            if (s >= nsegs || !ok.load(std::memory_order_relaxed))
+                return;
+            size_t begin = s * seg;
+            size_t n = groups - begin < seg ? groups - begin : seg;
+            if (!sj_b64_decode_groups(in + begin * 4, n, dst + begin * 3, table))
+                ok.store(false, std::memory_order_relaxed);
+        }
+    };
+    std::vector<std::thread> pool;
+    for (size_t t = 1; t < nthreads; t++)
+        pool.emplace_back(work);
+    work();
+    for (std::thread& t : pool)
+        t.join();
+    return ok.load();
+}
+
 static PyObject*
 serializejson_b64_decode_to_pyobject(const char* src, size_t length,
                                      int as_bytearray)
@@ -403,19 +459,16 @@ serializejson_b64_decode_to_pyobject(const char* src, size_t length,
         : (unsigned char*) PyBytes_AS_STRING(result);
     size_t full_groups = (length / 4) - (padding ? 1 : 0);
     const unsigned char* in = (const unsigned char*) src;
-    for (size_t group = 0; group < full_groups; group++) {
-        unsigned a = table[in[0]], b = table[in[1]],
-                 c = table[in[2]], d = table[in[3]];
-        if ((a | b | c | d) >= 64) {
-            Py_DECREF(result);
-            return nullptr;
-        }
-        unsigned v = (a << 18) | (b << 12) | (c << 6) | d;
-        *dst++ = (unsigned char) (v >> 16);
-        *dst++ = (unsigned char) (v >> 8);
-        *dst++ = (unsigned char) v;
-        in += 4;
+    // gros payloads : groupes de 4 caracteres decodes en parallele par
+    // segments a frontieres fixes (sortie a 3/4 de l'offset d'entree,
+    // deterministe) ; GIL relache par l'appelant impossible ici (objets
+    // Python crees au-dessus), mais les workers n'en ont pas besoin
+    if (!sj_b64_decode_maybe_parallel(in, full_groups, dst, table)) {
+        Py_DECREF(result);
+        return nullptr;
     }
+    dst += full_groups * 3;
+    in += full_groups * 4;
     if (padding) {
         unsigned a = table[in[0]], b = table[in[1]];
         if (a >= 64 || b >= 64) {
@@ -763,10 +816,14 @@ struct SjDecompressJob {
 };
 
 static void
-sj_decompress_worker(std::vector<SjDecompressJob>* jobs, std::atomic<size_t>* next)
+sj_decompress_worker(std::vector<SjDecompressJob>* jobs, std::atomic<size_t>* next,
+                     int inner_threads)
 {
+    // inner_threads > 1 quand il y a moins de trames que de coeurs (cas
+    // courant : UNE grosse trame compressée par le MT interne du fork) —
+    // la décompression est déterministe par nature, aucune contrainte d'ordre
     blosc2_dparams dparams = BLOSC2_DPARAMS_DEFAULTS;
-    dparams.nthreads = 1;
+    dparams.nthreads = (int16_t) inner_threads;
     blosc2_context* ctx = sj_blosc2_create_dctx(dparams);
     while (true) {
         size_t index = next->fetch_add(1);

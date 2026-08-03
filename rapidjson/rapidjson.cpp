@@ -2436,9 +2436,10 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
 
     if (jsonStr != nullptr) {
         // insitu sur une COPIE de l'entrée : essayé sans copie (StringStream)
-        // le 03/08/2026 — REGRESSION mesurée partout (nombres recopiés
-        // caractère par caractère hors insitu, chaînes dés-échappées vers la
-        // pile) : la copie unique de l'entrée est le bon échange
+        // le 03/08/2026 à -O0 puis RE-mesuré le même jour en -O3 — REGRESSION
+        // dans les deux cas (objets +19%, ints +6% : le dés-échappement des
+        // chaînes vers la pile coûte plus que l'unique memcpy d'entrée) :
+        // la copie unique de l'entrée est le bon échange
         char* jsonStrCopy = (char*) PyMem_Malloc(sizeof(char) * (jsonStrLen+1));
 
         if (jsonStrCopy == nullptr)
@@ -2539,15 +2540,18 @@ decoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         jsonStr = PyUnicode_AsUTF8AndSize(jsonObject, &jsonStrLen);
         if (jsonStr == nullptr)
             return nullptr;
-    } else if (PyBytes_Check(jsonObject) || PyByteArray_Check(jsonObject)) {
-        asUnicode = PyUnicode_FromEncodedObject(jsonObject, "utf-8", nullptr);
-        if (asUnicode == nullptr)
+    } else if (PyBytes_Check(jsonObject)) {
+        // le tampon bytes est déjà de l'utf-8 (exigence JSON) : parse direct,
+        // sans le décoder-recoder via un unicode intermédiaire (deux copies
+        // pleines évitées, mesurées +25 ms sur 72 Mo) ; une séquence utf-8
+        // invalide dans une chaîne est détectée à la création du str
+        char* bytesStr;
+        if (PyBytes_AsStringAndSize(jsonObject, &bytesStr, &jsonStrLen) == -1)
             return nullptr;
-        jsonStr = PyUnicode_AsUTF8AndSize(asUnicode, &jsonStrLen);
-        if (jsonStr == nullptr) {
-            Py_DECREF(asUnicode);
-            return nullptr;
-        }
+        jsonStr = bytesStr;
+    } else if (PyByteArray_Check(jsonObject)) {
+        jsonStr = PyByteArray_AS_STRING(jsonObject);   // NUL-terminé (CPython)
+        jsonStrLen = PyByteArray_GET_SIZE(jsonObject);
     } else if (PyObject_HasAttr(jsonObject, read_name)) {
         jsonStr = nullptr;
         jsonStrLen = 0;
@@ -5311,15 +5315,20 @@ blosc_decompress_chunks_fn(PyObject* Py_UNUSED(self), PyObject* args)
         if (nthreads > 8)
             nthreads = 8;
     }
-    if (nthreads > (int) jobs.size())
+    // moins de trames que de coeurs -> le parallélisme passe à l'intérieur
+    // des trames (MT interne blosc2), sinon une trame par thread
+    int inner_threads = 1;
+    if ((int) jobs.size() < nthreads) {
+        inner_threads = nthreads / (int) jobs.size();
         nthreads = (int) jobs.size();
+    }
     bool failed = false;
     Py_BEGIN_ALLOW_THREADS
     std::atomic<size_t> next(0);
     std::vector<std::thread> threads;
     for (int t = 1; t < nthreads; t++)
-        threads.emplace_back(sj_decompress_worker, &jobs, &next);
-    sj_decompress_worker(&jobs, &next);
+        threads.emplace_back(sj_decompress_worker, &jobs, &next, inner_threads);
+    sj_decompress_worker(&jobs, &next, inner_threads);
     for (std::thread& worker : threads)
         worker.join();
     for (SjDecompressJob& job : jobs)
