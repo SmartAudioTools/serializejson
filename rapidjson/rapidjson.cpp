@@ -1358,9 +1358,22 @@ struct PyHandler {
             }
 
         } else {
-            std::string zstr(str, length);
+            // entier : la grammaire JSON garantit [-]chiffres. Jusqu'à 18
+            // chiffres il tient sûrement sur 64 bits : parse direct, sans
+            // chaîne intermédiaire ni machinerie des grands entiers
+            bool negative = (str[0] == '-');
+            SizeType digits = length - (negative ? 1 : 0);
+            if (digits >= 1 && digits <= 18) {
+                long long parsed = 0;
+                const char* cursor = str + (negative ? 1 : 0);
+                for (SizeType i = 0; i < digits; i++)
+                    parsed = parsed * 10 + (cursor[i] - '0');
+                value = PyLong_FromLongLong(negative ? -parsed : parsed);
+            } else {
+                std::string zstr(str, length);
 
-            value = PyLong_FromString(zstr.c_str(), nullptr, 10);
+                value = PyLong_FromString(zstr.c_str(), nullptr, 10);
+            }
         }
 
         if (value == nullptr) {
@@ -2451,7 +2464,14 @@ write_buffer_value(WriterT* writer, char code, const char* ptr, unsigned numberM
             writer->RawValue(value < 0 ? "-Infinity" : "Infinity",
                              value < 0 ? 9 : 8);
         } else {
-            writer->Double(value);
+            // graphie EXACTE de repr() (moteur interne de CPython) : mêmes
+            // octets que le chemin tolist historique
+            char* repr_str = PyOS_double_to_string(value, 'r', 0,
+                                                   Py_DTSF_ADD_DOT_0, nullptr);
+            if (repr_str == nullptr)
+                return false;
+            writer->RawValue(repr_str, strlen(repr_str));
+            PyMem_Free(repr_str);
         }
         return true;
     }
@@ -2813,26 +2833,18 @@ dumps_internal(
             }
         } else {
             // The RJ dtoa() produces "strange" results for particular values, see #101:
-            // use Python's float repr to emit a raw value instead of writer->Double(d).
-            // Like for int above, use PyFloat_Type.tp_repr and not PyObject_Repr:
-            // subclasses may override __repr__ (numpy 2 float64 gives "np.float64(0.0)")
-
-            PyObject* dr = PyFloat_Type.tp_repr(object);
-
-            if (dr == nullptr)
+            // écrit la graphie EXACTE de repr() via son moteur interne
+            // (PyOS_double_to_string mode 'r'), sans créer de chaîne Python —
+            // et sans passer par le __repr__ des sous-classes (numpy 2
+            // float64 donnerait "np.float64(0.0)")
+            char* repr_str = PyOS_double_to_string(d, 'r', 0,
+                                                   Py_DTSF_ADD_DOT_0, nullptr);
+            if (repr_str == nullptr)
                 return false;
-
-            Py_ssize_t l;
-            const char* rs = PyUnicode_AsUTF8AndSize(dr, &l);
-            if (rs == nullptr) {
-                Py_DECREF(dr);
-                return false;
-            }
-
-            writer->RawValue(rs, l);
-            Py_DECREF(dr);
+            writer->RawValue(repr_str, strlen(repr_str));
+            PyMem_Free(repr_str);
         }
-    } 
+    }
 	
 	// str unicode ---------------------------------------------------------------
 	else if (PyUnicode_Check(object)) {
@@ -2948,23 +2960,15 @@ dumps_internal(
                             writer->RawValue(value < 0 ? "-Infinity" : "Infinity",
                                              value < 0 ? 9 : 8);
                     } else {
-                        PyObject* reprObj = PyFloat_Type.tp_repr(item);
-                        if (reprObj == nullptr) {
-                            if (pushed_compact)
-                                writer->PopCompact();
-                            return false;
-                        }
-                        Py_ssize_t repr_size;
-                        const char* repr_str =
-                            PyUnicode_AsUTF8AndSize(reprObj, &repr_size);
+                        char* repr_str = PyOS_double_to_string(
+                            value, 'r', 0, Py_DTSF_ADD_DOT_0, nullptr);
                         if (repr_str == nullptr) {
-                            Py_DECREF(reprObj);
                             if (pushed_compact)
                                 writer->PopCompact();
                             return false;
                         }
-                        writer->RawValue(repr_str, repr_size);
-                        Py_DECREF(reprObj);
+                        writer->RawValue(repr_str, strlen(repr_str));
+                        PyMem_Free(repr_str);
                     }
                 }
             }
