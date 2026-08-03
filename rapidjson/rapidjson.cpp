@@ -4474,7 +4474,131 @@ load_blosc_library(PyObject* Py_UNUSED(self), PyObject* arg)
     serializejson_blosc1_compress = compress;
     serializejson_blosc1_set_compressor = set_compressor;
     serializejson_blosc2_set_nthreads = set_nthreads;
+
+    // API par contextes pour le parallélisme déterministe : activée seulement
+    // si la version majeure de la bibliothèque correspond aux en-têtes
+    // vendorés (les structures de paramètres passent par valeur)
+    sj_blosc2_create_cctx =
+        (sj_blosc2_create_cctx_t) dlsym(handle, "blosc2_create_cctx");
+    sj_blosc2_create_dctx =
+        (sj_blosc2_create_dctx_t) dlsym(handle, "blosc2_create_dctx");
+    sj_blosc2_compress_ctx =
+        (sj_blosc2_compress_ctx_t) dlsym(handle, "blosc2_compress_ctx");
+    sj_blosc2_decompress_ctx =
+        (sj_blosc2_decompress_ctx_t) dlsym(handle, "blosc2_decompress_ctx");
+    sj_blosc2_free_ctx =
+        (sj_blosc2_free_ctx_t) dlsym(handle, "blosc2_free_ctx");
+    sj_blosc2_compname_to_compcode =
+        (sj_blosc2_compname_to_compcode_t) dlsym(handle, "blosc2_compname_to_compcode");
+    sj_blosc1_cbuffer_sizes =
+        (sj_blosc1_cbuffer_sizes_t) dlsym(handle, "blosc1_cbuffer_sizes");
+    sj_blosc2_get_version_string_t version_fn =
+        (sj_blosc2_get_version_string_t) dlsym(handle, "blosc2_get_version_string");
+    serializejson_blosc2_ctx_ok = false;
+    if (sj_blosc2_create_cctx && sj_blosc2_create_dctx && sj_blosc2_compress_ctx
+        && sj_blosc2_decompress_ctx && sj_blosc2_free_ctx
+        && sj_blosc2_compname_to_compcode && sj_blosc1_cbuffer_sizes
+        && version_fn) {
+        const char* version = version_fn();
+        if (version != nullptr
+            && version[0] == ('0' + BLOSC2_VERSION_MAJOR)
+            && version[1] == '.')
+            serializejson_blosc2_ctx_ok = true;
+    }
+
     Py_RETURN_TRUE;
+}
+
+
+PyDoc_STRVAR(blosc_decompress_chunks_docstring,
+             "blosc_decompress_chunks(data, as_bytearray=0, nthreads=0)\n\n"
+             "Décompresse une concaténation ordonnée de trames blosc"
+             " (compression parallèle déterministe) — en parallèle aussi,"
+             " chaque trame vers sa position finale. nthreads=0 : automatique.");
+
+static PyObject*
+blosc_decompress_chunks_fn(PyObject* Py_UNUSED(self), PyObject* args)
+{
+    Py_buffer view;
+    int as_bytearray = 0;
+    int nthreads = 0;
+    if (!PyArg_ParseTuple(args, "y*|ii", &view, &as_bytearray, &nthreads))
+        return nullptr;
+    if (!serializejson_blosc2_ctx_ok) {
+        PyBuffer_Release(&view);
+        PyErr_SetString(PyExc_RuntimeError,
+                        "blosc2 context API not available");
+        return nullptr;
+    }
+    const char* base = (const char*) view.buf;
+    size_t length = (size_t) view.len;
+    // parcours des trames (chacune connaît ses tailles dans son entête)
+    std::vector<SjDecompressJob> jobs;
+    size_t offset = 0;
+    size_t total = 0;
+    bool valid = true;
+    while (offset < length) {
+        if (length - offset < 16) {
+            valid = false;
+            break;
+        }
+        size_t nbytes = 0, cbytes = 0, blocksize = 0;
+        sj_blosc1_cbuffer_sizes(base + offset, &nbytes, &cbytes, &blocksize);
+        if (cbytes < 16 || offset + cbytes > length) {
+            valid = false;
+            break;
+        }
+        jobs.push_back({base + offset, (int32_t) cbytes, nullptr,
+                        (int32_t) nbytes, 0});
+        total += nbytes;
+        offset += cbytes;
+    }
+    if (!valid || jobs.empty()) {
+        PyBuffer_Release(&view);
+        PyErr_SetString(PyExc_ValueError, "corrupted blosc chunked payload");
+        return nullptr;
+    }
+    PyObject* result = as_bytearray
+        ? PyByteArray_FromStringAndSize(nullptr, (Py_ssize_t) total)
+        : PyBytes_FromStringAndSize(nullptr, (Py_ssize_t) total);
+    if (result == nullptr) {
+        PyBuffer_Release(&view);
+        return nullptr;
+    }
+    char* dest = as_bytearray ? PyByteArray_AS_STRING(result)
+                              : PyBytes_AS_STRING(result);
+    for (SjDecompressJob& job : jobs) {
+        job.dest = dest;
+        dest += job.destsize;
+    }
+    if (nthreads <= 0) {
+        unsigned hardware = std::thread::hardware_concurrency();
+        nthreads = (int) (hardware ? hardware : 1);
+        if (nthreads > 8)
+            nthreads = 8;
+    }
+    if (nthreads > (int) jobs.size())
+        nthreads = (int) jobs.size();
+    bool failed = false;
+    Py_BEGIN_ALLOW_THREADS
+    std::atomic<size_t> next(0);
+    std::vector<std::thread> threads;
+    for (int t = 1; t < nthreads; t++)
+        threads.emplace_back(sj_decompress_worker, &jobs, &next);
+    sj_decompress_worker(&jobs, &next);
+    for (std::thread& worker : threads)
+        worker.join();
+    for (SjDecompressJob& job : jobs)
+        if (job.result != job.destsize)
+            failed = true;
+    Py_END_ALLOW_THREADS
+    PyBuffer_Release(&view);
+    if (failed) {
+        Py_DECREF(result);
+        PyErr_SetString(PyExc_ValueError, "blosc chunked decompression failed");
+        return nullptr;
+    }
+    return result;
 }
 
 
@@ -4506,6 +4630,8 @@ static PyMethodDef functions[] = {
      "Charge libblosc2 (chemin du .so) pour compresser en C via BloscToBase64."},
     {"blosc_set_nthreads", (PyCFunction) blosc_set_nthreads_fn, METH_O,
      "Nombre de threads de la libblosc2 chargée (None si non chargée)."},
+    {"blosc_decompress_chunks", (PyCFunction) blosc_decompress_chunks_fn,
+     METH_VARARGS, blosc_decompress_chunks_docstring},
     {nullptr, nullptr, 0, nullptr} /* sentinel */
 };
 

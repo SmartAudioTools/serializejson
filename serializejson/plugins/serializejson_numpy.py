@@ -20,6 +20,7 @@ else:
             blosc_compressions,
             blosc2_compressions,
             blosc_decompress,
+            blosc_chunks_decompress,
             use_blosc2_cpp,
             authorized_classes,
         )
@@ -32,6 +33,7 @@ else:
             blosc_compressions,
             blosc2_compressions,
             blosc_decompress,
+            blosc_chunks_decompress,
             use_blosc2_cpp,
             authorized_classes,
         )
@@ -85,6 +87,10 @@ else:
                 compression = compression[:-5]
             if compression in ("blosc", "blosc2"):
                 decoded_bytearray = blosc_decompress(
+                    decoded_bytearray, as_bytearray=True
+                )
+            elif compression == "blosc2p":
+                decoded_bytearray = blosc_chunks_decompress(
                     decoded_bytearray, as_bytearray=True
                 )
             else:
@@ -189,15 +195,17 @@ else:
                         raise Exception(
                             f"{compression} compression needs the python-blosc2 wheel"
                         )
+                    nthreads = serialize_parameters.bytes_compression_threads
                     payload = BloscToBase64(
                         numpy.ascontiguousarray(data),
                         data.itemsize,
                         serialize_parameters.bytes_compression_level,
                         1,  # SHUFFLE, comme blosc.compress par défaut
                         blosc2_compression,
+                        nthreads if type(nthreads) is int else 1,
                     )
                     compressed_size = payload.compressed_size
-                    compression = "blosc2"
+                    compression = "blosc2p" if payload.frames > 1 else "blosc2"
                 else:
                     blosc_compression = blosc_compressions.get(compression, None)
                     if blosc_compression:

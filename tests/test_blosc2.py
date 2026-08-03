@@ -69,6 +69,28 @@ def test_defaut_blosc2_quand_disponible():
     assert serializejson.loads(dumped) == data
 
 
+def test_blosc2_parallele_deterministe():
+    # compression parallèle par morceaux ordonnés : les octets produits ne
+    # dépendent ni du nombre de threads ni de l'ordonnancement (contextes
+    # blosc2 mono-thread, morceaux de taille fixe concaténés dans l'ordre)
+    import rapidjson
+
+    data = bytes(range(256)) * 40000  # 10 Mo -> 10 morceaux
+    sorties = {
+        rapidjson.dumps(rapidjson.BloscToBase64(data, 1, 5, 0, "zstd", nthreads))
+        for nthreads in (2, 4, 8)
+    }
+    assert len(sorties) == 1
+    dumped = serializejson.dumps(
+        data,
+        indent=None,
+        bytes_compression=("blosc2_zstd", 5),
+        bytes_compression_threads=4,
+    )
+    assert '"b64_blosc2p"' in dumped
+    assert serializejson.loads(dumped) == data
+
+
 def test_anciens_fichiers_blosc_v1_toujours_lisibles():
     # un fichier écrit avec la compression v1 doit rester lisible
     # même quand blosc2 est disponible (dispatch sur l'octet de version)

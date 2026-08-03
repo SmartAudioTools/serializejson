@@ -3,6 +3,23 @@
 
 #include <Python.h>
 #include <structmember.h>
+#include <thread>
+#include <atomic>
+#include <vector>
+
+// En-têtes blosc2 vendorés (roue python-blosc2) : uniquement pour les TYPES
+// (blosc2_cparams...) — aucune édition de liens, tous les appels passent par
+// les pointeurs résolus par dlsym dans load_blosc_library().
+#include "blosc2_headers/blosc2.h"
+
+// l'en-tête vendoré embarque un print_error statique qui référence
+// blosc2_error_string : on fournit un bouchon local (jamais appelé,
+// tous les vrais appels passent par dlsym)
+extern "C" const char*
+blosc2_error_string(int Py_UNUSED(error_code))
+{
+    return "blosc2 library not linked (serializejson stub)";
+}
 
 
 /////////////
@@ -550,13 +567,171 @@ static serializejson_blosc1_compress_t serializejson_blosc1_compress = nullptr;
 static serializejson_blosc1_set_compressor_t serializejson_blosc1_set_compressor = nullptr;
 static serializejson_blosc2_set_nthreads_t serializejson_blosc2_set_nthreads = nullptr;
 
+// API par contextes de c-blosc2 : chaque contexte est mono-thread, donc
+// PUREMENT DÉTERMINISTE — le parallélisme se fait au-dessus, par morceaux
+// d'entrée de taille FIXE compressés indépendamment par nos threads et
+// concaténés dans l'ordre. Résolue par dlsym ; désactivée si la version
+// majeure de la bibliothèque ne correspond pas aux en-têtes vendorés
+// (structures passées par valeur).
+typedef blosc2_context* (*sj_blosc2_create_cctx_t)(blosc2_cparams);
+typedef blosc2_context* (*sj_blosc2_create_dctx_t)(blosc2_dparams);
+typedef int  (*sj_blosc2_compress_ctx_t)(blosc2_context*, const void*, int32_t,
+                                         void*, int32_t);
+typedef int  (*sj_blosc2_decompress_ctx_t)(blosc2_context*, const void*, int32_t,
+                                           void*, int32_t);
+typedef void (*sj_blosc2_free_ctx_t)(blosc2_context*);
+typedef int  (*sj_blosc2_compname_to_compcode_t)(const char*);
+typedef void (*sj_blosc1_cbuffer_sizes_t)(const void*, size_t*, size_t*, size_t*);
+typedef const char* (*sj_blosc2_get_version_string_t)(void);
+
+static sj_blosc2_create_cctx_t sj_blosc2_create_cctx = nullptr;
+static sj_blosc2_create_dctx_t sj_blosc2_create_dctx = nullptr;
+static sj_blosc2_compress_ctx_t sj_blosc2_compress_ctx = nullptr;
+static sj_blosc2_decompress_ctx_t sj_blosc2_decompress_ctx = nullptr;
+static sj_blosc2_free_ctx_t sj_blosc2_free_ctx = nullptr;
+static sj_blosc2_compname_to_compcode_t sj_blosc2_compname_to_compcode = nullptr;
+static sj_blosc1_cbuffer_sizes_t sj_blosc1_cbuffer_sizes = nullptr;
+static bool serializejson_blosc2_ctx_ok = false;
+
+// taille de morceau FIXE : c'est elle qui garantit le déterminisme, quel que
+// soit le nombre de threads (ne jamais la faire dépendre de la machine)
+#define SERIALIZEJSON_BLOSC_CHUNK (1 << 20)
+
 #define SERIALIZEJSON_BLOSC1_MAX_OVERHEAD 32
+
+
+// --- compression/décompression parallèles DÉTERMINISTES par morceaux -------
+// Morceaux d'entrée de taille fixe, compressés indépendamment par des
+// contextes mono-thread (purs), trames concaténées dans l'ordre : les octets
+// produits ne dépendent ni du nombre de threads ni de l'ordonnancement.
+
+struct SjCompressJob {
+    const char* src;
+    int32_t srcsize;
+    char* dest;
+    int32_t destcap;
+    int result;
+};
+
+static void
+sj_compress_worker(std::vector<SjCompressJob>* jobs, std::atomic<size_t>* next,
+                   blosc2_cparams cparams)
+{
+    blosc2_context* ctx = sj_blosc2_create_cctx(cparams);
+    while (true) {
+        size_t index = next->fetch_add(1);
+        if (index >= jobs->size())
+            break;
+        SjCompressJob& job = (*jobs)[index];
+        job.result = (ctx == nullptr)
+            ? -1000
+            : sj_blosc2_compress_ctx(ctx, job.src, job.srcsize,
+                                     job.dest, job.destcap);
+    }
+    if (ctx != nullptr)
+        sj_blosc2_free_ctx(ctx);
+}
+
+// Retourne un buffer malloc (à libérer par l'appelant), sa taille et le
+// nombre de trames ; nullptr en cas d'échec, sans exception Python.
+static char*
+sj_compress_chunks(const char* src, size_t length, size_t typesize, int clevel,
+                   int shuffle, const char* cname, int nthreads,
+                   size_t* out_size, long* out_frames)
+{
+    int compcode = sj_blosc2_compname_to_compcode(cname);
+    if (compcode < 0)
+        return nullptr;
+    const size_t chunk = SERIALIZEJSON_BLOSC_CHUNK;
+    size_t count = (length + chunk - 1) / chunk;
+    size_t stride = chunk + BLOSC2_MAX_OVERHEAD;
+    char* scratch = (char*) malloc(count * stride);
+    if (scratch == nullptr)
+        return nullptr;
+    std::vector<SjCompressJob> jobs(count);
+    for (size_t i = 0; i < count; i++) {
+        size_t offset = i * chunk;
+        size_t size = (offset + chunk <= length) ? chunk : (length - offset);
+        jobs[i] = {src + offset, (int32_t) size, scratch + i * stride,
+                   (int32_t) stride, 0};
+    }
+    blosc2_cparams cparams = BLOSC2_CPARAMS_DEFAULTS;
+    cparams.compcode = (uint8_t) compcode;
+    cparams.clevel = (uint8_t) clevel;
+    cparams.typesize = (int32_t) typesize;
+    cparams.nthreads = 1;  // c'est LUI qui garantit le déterminisme
+    for (int f = 0; f < BLOSC2_MAX_FILTERS; f++)
+        cparams.filters[f] = BLOSC_NOFILTER;
+    cparams.filters[BLOSC2_MAX_FILTERS - 1] =
+        shuffle ? BLOSC_SHUFFLE : BLOSC_NOFILTER;
+    if (nthreads > (int) count)
+        nthreads = (int) count;
+    std::atomic<size_t> next(0);
+    std::vector<std::thread> threads;
+    for (int t = 1; t < nthreads; t++)
+        threads.emplace_back(sj_compress_worker, &jobs, &next, cparams);
+    sj_compress_worker(&jobs, &next, cparams);
+    for (std::thread& worker : threads)
+        worker.join();
+    size_t total = 0;
+    for (SjCompressJob& job : jobs) {
+        if (job.result <= 0) {
+            free(scratch);
+            return nullptr;
+        }
+        total += (size_t) job.result;
+    }
+    char* out = (char*) malloc(total);
+    if (out == nullptr) {
+        free(scratch);
+        return nullptr;
+    }
+    char* cursor = out;
+    for (SjCompressJob& job : jobs) {
+        memcpy(cursor, job.dest, (size_t) job.result);
+        cursor += job.result;
+    }
+    free(scratch);
+    *out_size = total;
+    *out_frames = (long) count;
+    return out;
+}
+
+
+struct SjDecompressJob {
+    const char* src;
+    int32_t srcsize;
+    char* dest;
+    int32_t destsize;
+    int result;
+};
+
+static void
+sj_decompress_worker(std::vector<SjDecompressJob>* jobs, std::atomic<size_t>* next)
+{
+    blosc2_dparams dparams = BLOSC2_DPARAMS_DEFAULTS;
+    dparams.nthreads = 1;
+    blosc2_context* ctx = sj_blosc2_create_dctx(dparams);
+    while (true) {
+        size_t index = next->fetch_add(1);
+        if (index >= jobs->size())
+            break;
+        SjDecompressJob& job = (*jobs)[index];
+        job.result = (ctx == nullptr)
+            ? -1000
+            : sj_blosc2_decompress_ctx(ctx, job.src, job.srcsize,
+                                       job.dest, job.destsize);
+    }
+    if (ctx != nullptr)
+        sj_blosc2_free_ctx(ctx);
+}
 
 
 typedef struct {
     PyObject_HEAD
     char* data;          // trame compressée, possédée par l'objet (free au dealloc)
     Py_ssize_t size;
+    long frames;         // 1 : trame unique ; > 1 : morceaux concaténés
 } BloscToBase64;
 
 
@@ -578,6 +753,7 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
         "clevel",
         "shuffle",
         "cname",
+        "nthreads",
         nullptr
     };
     PyObject* value = nullptr;
@@ -585,10 +761,11 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
     int clevel = 5;
     int shuffle = 1;
     const char* cname = "blosclz";
+    int nthreads = 1;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|niis", (char**) kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|niisi", (char**) kwlist,
                                      &value, &typesize, &clevel, &shuffle,
-                                     &cname))
+                                     &cname, &nthreads))
         return nullptr;
 
     if (serializejson_blosc1_compress == nullptr) {
@@ -600,6 +777,35 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
     Py_buffer view;
     if (PyObject_GetBuffer(value, &view, PyBUF_CONTIG_RO) != 0)
         return nullptr;
+
+    // compression parallèle DÉTERMINISTE par morceaux : que si plusieurs
+    // morceaux pleins et l'API par contextes disponible ; sinon trame unique
+    if (nthreads > 1 && serializejson_blosc2_ctx_ok
+        && (size_t) view.len > SERIALIZEJSON_BLOSC_CHUNK) {
+        size_t chunked_size = 0;
+        long frames = 0;
+        char* chunked;
+        Py_BEGIN_ALLOW_THREADS
+        chunked = sj_compress_chunks((const char*) view.buf, (size_t) view.len,
+                                     (size_t) typesize, clevel, shuffle, cname,
+                                     nthreads, &chunked_size, &frames);
+        Py_END_ALLOW_THREADS
+        PyBuffer_Release(&view);
+        if (chunked == nullptr) {
+            PyErr_Format(PyExc_ValueError,
+                         "blosc chunked compression failed (%s)", cname);
+            return nullptr;
+        }
+        PyObject* self = type->tp_alloc(type, 0);
+        if (self == nullptr) {
+            free(chunked);
+            return nullptr;
+        }
+        ((BloscToBase64*) self)->data = chunked;
+        ((BloscToBase64*) self)->size = (Py_ssize_t) chunked_size;
+        ((BloscToBase64*) self)->frames = frames;
+        return self;
+    }
 
     if (serializejson_blosc1_set_compressor(cname) < 0) {
         PyBuffer_Release(&view);
@@ -637,6 +843,7 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
     }
     ((BloscToBase64*) self)->data = dest;
     ((BloscToBase64*) self)->size = (Py_ssize_t) compressed_size;
+    ((BloscToBase64*) self)->frames = 1;
 
     return self;
 }
@@ -645,6 +852,9 @@ static PyMemberDef BloscToBase64_members[] = {
     {"compressed_size",
      T_PYSSIZET, offsetof(BloscToBase64, size), READONLY,
      "size of the compressed frame, to compare with the original size"},
+    {"frames",
+     T_LONG, offsetof(BloscToBase64, frames), READONLY,
+     "1: single frame; > 1: ordered chunked frames (deterministic parallel)"},
     {nullptr}  /* Sentinel */
 };
 

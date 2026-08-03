@@ -6,6 +6,7 @@
         blosc_compressions,
         blosc2_compressions,
         blosc_decompress,
+        blosc_chunks_decompress,
         use_blosc2_cpp,
     )
     from SmartFramework.serialize import serialize_parameters
@@ -17,6 +18,7 @@ except:
         blosc_compressions,
         blosc2_compressions,
         blosc_decompress,
+        blosc_chunks_decompress,
         use_blosc2_cpp,
     )
     from serializejson import serialize_parameters
@@ -37,6 +39,8 @@ def bytearrayB64(string, compression=None):
             return string
         if compression in ("b64_blosc", "b64_blosc2"):
             return blosc_decompress(string, as_bytearray=True)
+        if compression == "b64_blosc2p":
+            return blosc_chunks_decompress(string, as_bytearray=True)
         raise Exception(f"unknow {compression} compression")
     if not compression or compression == "ascii":
         return bytearray(
@@ -46,6 +50,8 @@ def bytearrayB64(string, compression=None):
         return b64decode_as_bytearray(string, validate=True)
     elif compression in ("b64_blosc", "b64_blosc2"):
         return blosc_decompress(b64decode(string, validate=True), as_bytearray=True)
+    elif compression == "b64_blosc2p":
+        return blosc_chunks_decompress(string, as_bytearray=True)
     raise Exception(f"unknow {compression} compression")
 
 
@@ -61,6 +67,8 @@ class bytesB64:
                 return string
             if compression in ("b64_blosc", "b64_blosc2"):
                 return blosc_decompress(string)
+            if compression == "b64_blosc2p":
+                return blosc_chunks_decompress(string)
             raise Exception(f"unknow {compression} compression")
         if not compression or compression == "ascii":
             return bytes(string, "ascii")  # A REVOIR : 2 COPIES !!!
@@ -68,6 +76,8 @@ class bytesB64:
             return b64decode(string, validate=True)
         elif compression in ("b64_blosc", "b64_blosc2"):
             return blosc_decompress(b64decode(string, validate=True))
+        elif compression == "b64_blosc2p":
+            return blosc_chunks_decompress(string)
         raise Exception(f"unknow {compression} compression")
 
 
@@ -88,15 +98,18 @@ def serializejson_bytearray(inst):
                 raise Exception(
                     f"{compression} compression needs the python-blosc2 wheel"
                 )
+            nthreads = serialize_parameters.bytes_compression_threads
             compressed = BloscToBase64(
                 inst,
                 1,
                 serialize_parameters.bytes_compression_level,
                 0,  # NOSHUFFLE
                 blosc2_compression,
+                nthreads if type(nthreads) is int else 1,
             )
             if compressed.compressed_size < len(inst):
-                return "bytearray", (compressed, "b64_blosc2"), None
+                label = "b64_blosc2p" if compressed.frames > 1 else "b64_blosc2"
+                return "bytearray", (compressed, label), None
         else:
             blosc_compression = blosc_compressions.get(compression, None)
             if blosc_compression:
@@ -130,15 +143,18 @@ def serializejson_bytes(inst):
                 raise Exception(
                     f"{compression} compression needs the python-blosc2 wheel"
                 )
+            nthreads = serialize_parameters.bytes_compression_threads
             compressed = BloscToBase64(
                 inst,
                 1,
                 serialize_parameters.bytes_compression_level,
                 0,  # NOSHUFFLE
                 blosc2_compression,
+                nthreads if type(nthreads) is int else 1,
             )
             if compressed.compressed_size < len(inst):
-                return ("bytes", None, None, None, None, (compressed, "b64_blosc2"))
+                label = "b64_blosc2p" if compressed.frames > 1 else "b64_blosc2"
+                return ("bytes", None, None, None, None, (compressed, label))
         else:
             blosc_compression = blosc_compressions.get(compression, None)
             if blosc_compression:

@@ -86,6 +86,17 @@ except Exception:
     use_blosc2_cpp = False
 
 
+def blosc_chunks_decompress(frame, as_bytearray=False):
+    # trames blosc concaténées dans l'ordre (compression parallèle
+    # déterministe) : décompression parallèle en C, chaque trame vers sa
+    # position finale
+    import rapidjson
+
+    if type(frame) is str:
+        frame = b64decode(frame, validate=True)
+    return rapidjson.blosc_decompress_chunks(frame, 1 if as_bytearray else 0)
+
+
 def blosc_decompress(frame, as_bytearray=False):
     # dispatch sur l'octet de version de la trame : <= 3 -> python-blosc v1,
     # >= 4 -> blosc2 (qui relit aussi les trames v1, mais pas l'inverse)
