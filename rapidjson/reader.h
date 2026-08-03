@@ -25,6 +25,7 @@
 #include "internal/stack.h"
 #include "internal/strtod.h"
 #include <limits>
+#include <string>
 
 #if defined(RAPIDJSON_SIMD) && defined(_MSC_VER)
 #include <intrin.h>
@@ -155,6 +156,7 @@ enum ParseFlag {
     kParseTrailingCommasFlag = 128, //!< Allow trailing commas at the end of objects and arrays.
     kParseNanAndInfFlag = 256,      //!< Allow parsing NaN, Inf, Infinity, -Inf and -Infinity as doubles.
     kParseEscapedApostropheFlag = 512,  //!< Allow escaped apostrophe in strings.
+    kParseBigIntsAsStringsFlag = 1024,  //!< fork serializejson : parse natif, mais les entiers qui debordent 64 bits sont livres en chaine via RawNumber (exactitude). Requiert kParseFullPrecisionFlag.
     kParseDefaultFlags = RAPIDJSON_PARSE_DEFAULT_FLAGS  //!< Default parse flags. Can be customized by defining RAPIDJSON_PARSE_DEFAULT_FLAGS
 };
 
@@ -1549,6 +1551,7 @@ private:
 
         // Parse 64bit int
         bool useDouble = false;
+        bool sawFracOrExp = false;
         if (use64bit) {
             if (minus)
                 while (RAPIDJSON_LIKELY(s.Peek() >= '0' && s.Peek() <= '9')) {
@@ -1585,6 +1588,7 @@ private:
         int expFrac = 0;
         size_t decimalPosition;
         if (Consume(s, '.')) {
+            sawFracOrExp = true;
             decimalPosition = s.Length();
 
             if (RAPIDJSON_UNLIKELY(!(s.Peek() >= '0' && s.Peek() <= '9')))
@@ -1632,6 +1636,7 @@ private:
         // Parse exp = e [ minus / plus ] 1*DIGIT
         int exp = 0;
         if (Consume(s, 'e') || Consume(s, 'E')) {
+            sawFracOrExp = true;
             if (!useDouble) {
                 d = static_cast<double>(use64bit ? i64 : i);
                 useDouble = true;
@@ -1709,7 +1714,21 @@ private:
            size_t length = s.Length();
            const NumberCharacter* decimal = s.Pop();  // Pop stack no matter if it will be used or not.
 
-           if (useDouble) {
+           if (RAPIDJSON_UNLIKELY((parseFlags & kParseBigIntsAsStringsFlag) != 0
+                                   && useDouble && !sawFracOrExp)) {
+               // fork serializejson : entier trop grand pour 64 bits, livre
+               // en chaine pour une conversion exacte (les chiffres sont sur
+               // la pile grace a kParseFullPrecisionFlag)
+               std::string bigint;
+               bigint.reserve(length + 1);
+               if (minus)
+                   bigint += '-';
+               bigint.append(reinterpret_cast<const char*>(decimal), length);
+               cont = handler.RawNumber(
+                   reinterpret_cast<const typename TargetEncoding::Ch*>(bigint.data()),
+                   static_cast<SizeType>(bigint.size()), true);
+           }
+           else if (useDouble) {
                int p = exp + expFrac;
                if (parseFlags & kParseFullPrecisionFlag)
                    d = internal::StrtodFullPrecision(d, p, decimal, length, decimalPosition, exp);

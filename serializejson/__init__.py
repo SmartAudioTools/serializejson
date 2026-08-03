@@ -1446,7 +1446,15 @@ class Decoder(rapidjson.Decoder):
             parse_mode = rapidjson.PM_COMMENTS
         else:
             parse_mode = rapidjson.PM_NONE
-        self = super().__new__(cls, parse_mode=parse_mode)  # , **argsDict)
+        self = super().__new__(
+            cls,
+            parse_mode=parse_mode,
+            # parse natif des nombres : ints/floats créés directement en C++
+            # (pleine précision, identique à float()) ; seuls les entiers qui
+            # débordent 64 bits repassent par une chaîne (exactitude garantie
+            # par le fork rapidjson, kParseBigIntsAsStringsFlag)
+            number_mode=rapidjson.NM_NATIVE | rapidjson.NM_NAN,
+        )  # , **argsDict)
         self.strict_pickle = strict_pickle
         if strict_pickle:
             setters = False

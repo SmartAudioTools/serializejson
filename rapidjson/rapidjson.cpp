@@ -868,6 +868,7 @@ struct PyHandler {
     }
 
     bool Handle(PyObject* value) {
+
         if (root) {
             const HandlerContext& current = stack.back();
 
@@ -2176,13 +2177,15 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
 
         InsituStringStream ss(jsonStrCopy);
 
-        DECODE(reader, kParseInsituFlag, ss, handler);
+        // pleine precision + grands entiers exacts : sans effet dans les branches
+        // nombres-en-chaines, actifs dans les branches natives (NM_NATIVE)
+        DECODE(reader, kParseInsituFlag | kParseFullPrecisionFlag | kParseBigIntsAsStringsFlag, ss, handler);
 
         PyMem_Free(jsonStrCopy);
     } else {
         PyReadStreamWrapper sw(jsonStream, chunkSize);
 
-        DECODE(reader, kParseNoFlags, sw, handler);
+        DECODE(reader, kParseFullPrecisionFlag | kParseBigIntsAsStringsFlag, sw, handler);
     }
 
     if (reader.HasParseError()) {
