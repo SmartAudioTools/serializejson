@@ -1,7 +1,7 @@
 {\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset2 Symbol;}}
 {\colortbl ;\red155\green0\blue211;\red0\green176\blue80;\red0\green0\blue255;\red255\green0\blue0;\red255\green105\blue180;}
 {\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\li720\sl240\slmult1\lang12\f0\fs22\par
-\pard\sl240\slmult1\b permetre \'e0 RawJSON de prendre des bytes plutot que de l'unicode \par
+\pard\sl240\slmult1\b {\cf5 permetre \'e0 RawJSON de prendre des bytes plutot que de l'unicode}{\cf1  [FAIT historiquement (RawBytes/RawBytesToPutInQuotes dans le fork), et largement d\'e9pass\'e9 : RawBytesToBase64/BloscToBase64 \'e9crivent le binaire sans passer par une cha\'eene du tout]} \par
 \pard\li720\sl240\slmult1\b0 pour l'instant j'ai rajouter RawJSONBYTES car je n'arrivais pas faire que RawJSON accepter des bytes ou des strings\par
 \cf1 => voir si je peut permetre \'e0 RawJSON de prendre des bytes ou strings \par
 \cf0\par
@@ -121,12 +121,12 @@ les echapement devraient se faire directement dans l'encodage en utf-8 ? soit da
 \pard\li2160\sl240\slmult1 WriteString\par
 \pard\li1440\sl240\slmult1 writter. h \par
 \pard\li720\sl240\slmult1\par
-\pard\li2160\sl240\slmult1 583 : ScanWriteUnescapedString : c'est quoi cette horreure qui est appeller \'e0 chaque iteration ? \par
+\pard\li2160\sl240\slmult1 583 : ScanWriteUnescapedString : c'est quoi cette horreure qui est appeller \'e0 chaque iteration ?{\cf1  [\'c9lucid\'e9e et remplac\'e9e : scan d'\'e9chappement vectoris\'e9 SSE2 (CleanPrefixLength) + Escape r\'e9\'e9crit \'97 les blocs propres partent en memcpy]} \par
 \par
 \pard\li720\sl240\slmult1 Je ne connait quasiement rien en C++ et doit proceder par essais + erreure\par
-Je n'ai aps les bons outils pour investiger (j'utiliser notepass++ et , rien pour debuger ,ni profiler directment le code c//) \par
+Je n'ai aps les bons outils pour investiger{\cf1  [R\'c9GL\'c9 en 2026 : gprofng (binutils) profile le C++ dans le bac \'e0 sable \'97 c'est lui qui a r\'e9v\'e9l\'e9 le -O0 cach\'e9 ; batterie 5 versions + goldens octet \'e0 octet comme filet]} (j'utiliser notepass++ et , rien pour debuger ,ni profiler directment le code c//) \par
 \par
-\pard\sl240\slmult1\b RawJSON performance problem => envoy\'e9\par
+\pard\sl240\slmult1\b RawJSON performance problem => envoy\'e9{\cf1  [R\'e9solu depuis dans le fork : RawValue passe par un memcpy direct du flux, et le une-ligne n'utilise plus RawJSON du tout]}\par
 \pard\li720\sl240\slmult1\b0\par
 Hello, \par
 \par
@@ -198,7 +198,7 @@ PrettyWriter<StringBuffer> writer(buf); \cf2 => PrettyWriter<MemoryBuffer > writ
 \cf4 91 : void \ul PutUnsafe\ulnone (Ch c) \{ *stack_.template PushUnsafe<Ch>() = c; \}\par
 \par
 \par
-\pard\li720\sl240\slmult1\cf2\b Ce que j'ai fait sur mon repos dans serializejson : \par
+\pard\li720\sl240\slmult1\cf2\b {\cf5 Ce que j'ai fait sur mon repos dans serializejson :}{\cf1  [R\'e9alisations de 2022, toujours en place \'97 la campagne des 2-3/08/2026 les a prolong\'e9es jusqu'\'e0 d\'e9passer pickle en \'e9criture (voir AUDIT 2026-08-02.md)]} \par
 \pard\li2160\sl240\slmult1\cf4\b0\par
 \pard\li1440\sl240\slmult1\cf0 version fran\'e7aise : \fs8\par
 1) la fonction WriteRawValue  \'e9tait mal optimis\'e9 et les realloc \'e0 chaque d\'e9passement de cappacit\'e9 occupaient 3/4 du temps  \par

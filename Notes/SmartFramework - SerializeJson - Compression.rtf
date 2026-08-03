@@ -5,10 +5,10 @@
 \pard\li720\sl240\slmult1\tx1980\b0 pourquoi blosclz et pas blosc_lz ? parceqeu blosclz est le vrai nom \par
 \b\par
 \pard\sl240\slmult1\tx1980\par
-\pard\li720 rajouter un une compression zip en option sur le json final ? \par
+\pard\li720 rajouter un une compression zip en option sur le json final ?{\cf6  [NON TRAIT\'c9 \'97 noter que les blobs sont d\'e9j\'e0 compress\'e9s individuellement (blosc2_zstd), un zip global n'agirait plus que sur la partie texte]} \par
 \pard\li1440\sl240\slmult0\b0 reduit de plus de 2x ! \cf1\lang1033\b\f1\fs20\par
 \b0 .jsonz : mon  json zip\'e9 ? \par
-faudrait une compression iterative pour pouvoir se faire au fur et \'e0 mesure de l'\'e9critur d'un fichier \par
+faudrait une compression iterative pour pouvoir se faire au fur et \'e0 mesure de l'\'e9critur d'un fichier{\cf6  [NON TRAIT\'c9 \'97 piste toujours ouverte pour la sortie flux]} \par
 \pard\sl240\slmult1\tx1980\cf0\lang12\b\f0\fs22\par
 \pard\sl240\slmult1\cf1\lang1033\f1\fs20\par
 \pard\li720\sl240\slmult1\cf0\lang12\ul\f0\fs22 compressoin d'images \par
@@ -89,7 +89,7 @@ Sad, so it's just a coincidence if blocks + zstd and zstandard are compatible fo
 \pard\sl240\slmult1\par
 \pard\sa200\sl276\slmult1\cf0\lang12\b0\f0\fs22\par
 \pard\li720\sa200\sl276\slmult1\par
-\pard\li720\sl240\slmult1\b utilisation de la d\'e9riv\'e9 avant compression \b0\par
+\pard\li720\sl240\slmult1\b utilisation de la d\'e9riv\'e9 avant compression{\cf6  [NON TRAIT\'c9 pendant la campagne : bytes_compression_diff_dtypes existe (non document\'e9), le choix d'axe et le delta blosc2 restent \'e0 explorer \'97 bonne piste pour l'audio st\'e9r\'e9o]} \b0\par
 \pard\li1440\sl240\slmult1 le choix d'utiliser diff sur tableau avant compression zstd (et cumsum apr\'e8s d\'e9compression) doit faire partis du param\'e8tre du codec ? \par
 blosc_zstd_diff ? ou (blosc_zstd,1,preprocess= "diff")\par
 la d\'e9riv\'e9 dois se faire dans un sens qui a du sens en terme de donn\'e9es \par

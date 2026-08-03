@@ -1,5 +1,5 @@
 {\rtf1\ansi\ansicpg1252\deff0\deflang1036{\fonttbl{\f0\fnil\fcharset0 Calibri;}}
-{\colortbl ;\red0\green0\blue255;\red255\green0\blue0;\red204\green204\blue204;\red0\green0\blue0;\red0\green176\blue80;\red0\green77\blue187;}
+{\colortbl ;\red0\green0\blue255;\red255\green0\blue0;\red204\green204\blue204;\red0\green0\blue0;\red0\green176\blue80;\red0\green77\blue187;\red255\green105\blue180;\red155\green0\blue211;}
 {\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1\lang12\b\f0\fs22 serializePython : \par
 \pard\li720\sl240\slmult1\b0 def pyModuleAsObject(obj, name="obj", indent=0, modules=None):\par
     ....\par
@@ -255,5 +255,5 @@ serializeRepr :  \par
  \'e0 un epoque je permetait la supression de 'set' lors de la compilation ui -> python (dans tinySetProperty()) \cf2\b ce que je ne fait plus ...\par
 \cf0\b0 pour cela il fallait permetre redefinir les propri\'e9t\'e9s herit\'e9e dans la classe , car l'analyse textuelle ne va pas cherchais dans les classe herit\'e9 la pr\'e9sence de propriet\'e9s\par
    #[value = QtCore.pyqtProperty(int, QBaseClasse.value , QBaseClasse.setValue ) ## redefinition d'un propri\'e9t\'e9 herit\'e9 d'une basse classe, que j'utilisais pour supporter suppresion de 'set' pendant la compilation textuelle ui -> python (dans la fonction SmartFramework.designer.__init__.tinySetProperty() ),\b  \cf2 suppression que je ne fait plus...\cf0\par
-}
+\par{\cf8 [Revue du 03/08/2026 : concerne surtout serializePython/serializeInterface, hors p\'e9rim\'e8tre de la campagne serializejson/rapidjson \'97 inchang\'e9]}}
  

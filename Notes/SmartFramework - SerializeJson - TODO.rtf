@@ -1,9 +1,9 @@
 {\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset134 SimSun;}{\f2\fnil\fcharset2 Symbol;}}
 {\colortbl ;\red0\green0\blue255;\red0\green176\blue80;\red255\green0\blue0;\red155\green0\blue211;\red255\green105\blue180;}
-{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\li720\sl240\slmult1\lang12\b\f0\fs22 probl\'e8me test serialization  :  \b0 pas le me resultat avec python 3.7 et 3.8 pour serializejson_blosclz_level9.txt\par
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\li720\sl240\slmult1\lang12\b\f0\fs22 probl\'e8me test serialization  :  \b0 pas le me resultat avec python 3.7 et 3.8{\cf4  [OBSOL\'c8TE : 3.7/3.8 ne sont plus vis\'e9s ; l'identit\'e9 octet \'e0 octet est d\'e9sormais v\'e9rifi\'e9e en continu sur 3.10-3.14, blosc2 compris (fork d\'e9terministe)]} pour serializejson_blosclz_level9.txt\par
 \pard\sl240\slmult1 pas mal de truc chelous affich\'e9s \par
 \par
-verifier tout les isinstance pour \'eatre sur que pas de bug dus \'e0 isinstance(True, int)  -> True \par
+verifier tout les isinstance pour \'eatre sur que pas de bug dus \'e0 isinstance(True, int){\cf4  [NON TRAIT\'c9 \'97 mais les chemins chauds C++ testent les types EXACTS (PyLong_CheckExact...), donc True n'y passe pas pour un int]}  -> True \par
 \par
 pb de remplacement des tab par 4 espace dans spyer pour le jsons\b\par
 serializejson :  \par
@@ -59,7 +59,7 @@ Il est possible de poser des questions  (Ask) ... il y a souvent des r\'e9ponses
 am\'e9liorations rapidjson \par
 \pard\li1440\sl240\slmult1\b0 {\cf5 il faudrait un "default_list" avec  en param\'e8tre le nom de l'attribut qui contient la liste}{\cf4  [FAIT et d\'e9pass\'e9 : hooks default_dict/default_list ajout\'e9s \'e0 l'Encoder, mais la mise en une-ligne est finalement d\'e9cid\'e9e directement dans le C++ (PushCompact), sans double s\'e9rialisation]}  pour pouvoir la mettre en une ligne si __init__, __new__, ou liste de nombres \par
 \pard\li2160\sl240\slmult1\par
-\pard\li720\sl240\slmult1\cf3\b sort_keys :  A VOIR \cf0\par
+\pard\li720\sl240\slmult1\cf3\b sort_keys :  A VOIR{\cf4  [STATU QUO d\'e9lib\'e9r\'e9 (03/08/2026) : tout changement du d\'e9faut change les fichiers produits \'97 consign\'e9 au rapport d'audit, d\'e9cision \'e0 prendre \'e0 froid]} \cf0\par
 \pard\li1440\sl240\slmult1\b0 j'avais mis sort_keys = true pour smartmusic etc..\par
 j'ai remis sort_keys = False pour que les tests passent \par
 faut-il laissait les keys dans leur ordre d'origine si correspond \'e0 self.__dict__ ? \b\par
@@ -69,13 +69,13 @@ faut-il laissait les keys dans leur ordre d'origine si correspond \'e0 self.__di
 BIEN MERDIQUE \par
 \par
 \pard\sa200\sl276\slmult1\par
-permetre d'avoir 2 version de serializejson/rapidjson en // pour pouvoir comparer \par
+permetre d'avoir 2 version de serializejson/rapidjson en // pour pouvoir comparer{\cf4  [Contourn\'e9 : les A/B de la campagne ont \'e9t\'e9 faits par bascule \'e0 variable d'environnement dans un m\'eame build, charge machine consign\'e9e]} \par
 pour timer ecriture dans fichier partir du princip que l'appele \'e0 write ne coute rien (au lieu de passer un IO bytes, passer un objet avec un fonction write qui ne fait que sotrcker et concatener apr\'e8s le chronometrage) \par
 \par
 serialize_numpy.py :             \par
 and serialize_parameters.numpyB64_convert_int64_to_int32_and_align_in_Python_32Bit\par
             ):  # pour pouvoir deserialiser les classifiers en python 32 bit ?\par
-\pard\li720\sl240\slmult1 faut vraiment convertire les int64 en int32 ? \par
+\pard\li720\sl240\slmult1 faut vraiment convertire les int64 en int32 ?{\cf4  [Toujours ouvert \'97 consign\'e9 au rapport (\'a7 id\'e9es \'e9cart\'e9es) : y a-t-il encore un Python 32 bits vivant ?]} \par
 \pard\sl240\slmult1\b serializejson : \b0\par
 \pard\li720\sl240\slmult1 {\cf5 On peut ne traduir en base 64 qu,au moment de la concatenation pour dumps  !}{\cf4  [FAIT en mieux : le base64 s'\'e9crit directement dans le tampon final (jamais d'interm\'e9diaire), la compression est multithread, et au d\'e9codage le remplissage des blobs est diff\'e9r\'e9 et parall\'e8le \'97 l'esprit exact de cette note]}\par
 Voir faire aussi la compression \'e0 ce moment  ?\par
@@ -100,7 +100,7 @@ serializejson  : \par
 comment commiter \par
 \b projet C++  ?\b0\par
 \pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li720\sl240\slmult1 {\cf5 trouver solution pour faire de line profiler en C++  ?}{\cf4  [R\'c9SOLU autrement : gprofng (binutils) marche dans le bac \'e0 sable \'97 c'est lui qui a r\'e9v\'e9l\'e9 la compilation en -O0 et guid\'e9 toute la campagne]} ou avec de prints ? \line Intel\'ae VTune\'99 Profiler ? {\field{\*\fldinst{HYPERLINK "https://www.intel.com/content/www/us/en/developer/tools/oneapi/vtune-profiler.html"}}{\fldrslt{\ul\cf1 https://www.intel.com/content/www/us/en/developer/tools/oneapi/vtune-profiler.html}}}\f0\fs22\line{\field{\*\fldinst{HYPERLINK "https://www.intel.com/content/www/us/en/develop/documentation/vtune-help/top/analyze-performance/code-profiling-scenarios/python-code-analysis.html"}}{\fldrslt{\ul\cf1 https://www.intel.com/content/www/us/en/develop/documentation/vtune-help/top/analyze-performance/code-profiling-scenarios/python-code-analysis.html}}}\f0\fs22\par
-{\pntext\f2\'B7\tab}voir avec quel outil il test compile et  debug rapidjson\par
+{\pntext\f2\'B7\tab}voir avec quel outil il test compile et  debug rapidjson{\cf4  [R\'c9GL\'c9 : gprofng pour le profil, batterie pytest 27 tests x 5 versions + goldens octet \'e0 octet \'e0 chaque commit comme banc de test]}\par
 {\pntext\f2\'B7\tab}voir avec martin si visual studio code mieux que visual studio 2017 \par
 {\pntext\f2\'B7\tab}pouvoir faire du debug , line par line , pour \'eatre sur de l\'e0 o\'f9 il passe \par
 {\pntext\f2\'B7\tab}tester directement rapide-json sans binding python ? \par
@@ -113,7 +113,7 @@ permetre installation compl\'e8te avec compilation rapidjson \par
 \pard\sl240\slmult1\par
 test_serialize_vs_pickle\par
 \pard\li720\sl240\slmult1 1) mieux tester ecriture dans fichiers  : comment     encoded = rapidjson.Encoder.__call__ peut retourner encoded  alors qu'on ecrit dans un fichier! \par
-2) ajouter test sur grosse donn\'e9es \par
+2) ajouter test sur grosse donn\'e9es{\cf4  [FAIT en partie : test_references.py (grosses donn\'e9es), test_blosc2.py, et les bancs de mesure de la campagne]} \par
 \par
 \pard\sl240\slmult1 optimisation \par
 \pard\li720\sl240\slmult1 {\cf5 optimiser ecriture de string}{\cf4  [FAIT : \'d70,22 de pickle en \'e9criture]}\par
