@@ -495,11 +495,17 @@ class Encoder(rapidjson.Encoder):
             Compression for bytes, bytesarray and numpy arrays:
 
             - `None` : no compression, use only base 64.
-            - `str` : compression name ("blosc_zstd", "blosclz", "blosc_lz4", "blosc_lz4hc" or "blosc_zlib") with maximum compression level 9.
+            - `str` : compression name with maximum compression level 9:
+              "blosc2_zstd", "blosc2", "blosc2_lz4", "blosc2_lz4hc" or "blosc2_zlib"
+              (compression done in C without any Python round trip, needs a
+              loadable libblosc2 — the bundled deterministic fork or the
+              python-blosc2 wheel), or the legacy python-blosc ones
+              "blosc_zstd", "blosclz", "blosc_lz4", "blosc_lz4hc", "blosc_zlib".
             - `tuple` : (compression name, compression level) with compression level from 0 (no compression) to 9 (maximum compression)
 
-            By default the "blosc_zstd" compression is used with compression level 1.
-            For the highest compression (but with slower dumping) use "blosc_zstd" with compression level 9
+            By default the "blosc2_zstd" compression is used with compression level 1
+            (falling back to "blosc_zstd" when no libblosc2 is loadable).
+            For the highest compression (but with slower dumping) use "blosc2_zstd" with compression level 9
 
         bytes_compression_diff_dtypes (tuple of dtype)
             tuple of dtype for wich serialize json encode the first element followed by the differences between consecutive elements of an array before the compression.
@@ -507,7 +513,11 @@ class Encoder(rapidjson.Encoder):
 
 
         bytes_compression_threads (int,str):
-            Number of threads user for the compression
+            Number of threads used for the compression.
+            With the bundled deterministic libblosc2 fork, the compressed
+            bytes are IDENTICAL whatever the number of threads; with the
+            official library, serializejson falls back to its own
+            deterministic chunked parallel format ("b64_blosc2p").
 
             - `int` : number of threads user for the compression
             - `"cpus"`: use as many thread than cpu
