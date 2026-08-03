@@ -30,6 +30,8 @@ cases = [
     {("cle%d" % i): i for i in range(30000)},
 ]
 
+import io
+
 for _ in range(3):
     for obj in cases:
         for encoder in (
@@ -37,6 +39,11 @@ for _ in range(3):
             serializejson.Encoder(indent=None),
         ):
             dumped = encoder(obj)
+        # sortie flux : sans elle le chemin PyWriteStreamWrapper serait
+        # compilé comme code froid (mesuré +50 % avant son ajout ici)
+        serializejson.Encoder(return_bytes=True)(obj, fp=io.BytesIO())
         decoder = serializejson.Decoder(authorized_classes=[Point])
         decoder(dumped if isinstance(dumped, str) else dumped.decode())
+        # entrée bytes : chemin direct sans conversion unicode
+        decoder(dumped if isinstance(dumped, bytes) else dumped.encode())
 print("charge PGO exécutée")
