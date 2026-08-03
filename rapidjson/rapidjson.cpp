@@ -364,6 +364,24 @@ struct PtrMemo {
     }
 };
 
+// plan de forme d'un dict : la séquence exacte de ses clés (références
+// fortes) et leurs graphies pré-échappées. Les listes d'enregistrements
+// homogènes re-rencontrent la même séquence de pointeurs de clés : les clés
+// s'écrivent alors en RawValue, sans re-scan ni re-échappement par clé.
+#define SJ_SHAPE_MAX_KEYS 64
+struct DictShape {
+    std::vector<PyObject*> keys;                          // réfs fortes
+    std::vector<std::string> fragments;                   // "clef" prêt à écrire
+    std::vector<std::pair<const char*, size_t>> key_strs; // utf-8 emprunté (vivant via keys)
+    void clear_refs() {
+        for (PyObject* k : keys)
+            Py_DECREF(k);
+        keys.clear();
+        fragments.clear();
+        key_strs.clear();
+    }
+};
+
 struct PathTracker {
     std::vector<PathSegment> segments;
     // pile parallèle à segments : index du PathNode déjà matérialisé pour ce
@@ -392,7 +410,13 @@ struct PathTracker {
     // default() : ses clés sont alors des attributs (".attr" et non "['clef']")
     bool next_dict_is_attrs = false;
 
+    // 4 plans de forme, indexés par profondeur : des dicts imbriqués de
+    // formes différentes ne s'écrasent pas mutuellement le cache
+    DictShape shapes[4];
+
     ~PathTracker() {
+        for (DictShape& s : shapes)
+            s.clear_refs();
         memo.decref_keys();
         for (auto& entry : classPlans)
             Py_DECREF(entry.second);
@@ -3254,12 +3278,110 @@ dumps_internal(
         CALL_CONTAINER_HOOK(defaultDictFn, " while JSONifying dict object")
         writer->StartObject();
 
+        // --- plan de forme : même séquence de clés que le dict précédent à
+        // cette profondeur -> clés écrites en RawValue pré-échappé
+        bool shape_written = false;
+        if (pathTracker && !attrsDict && !(mappingMode & MM_SORT_KEYS)) {
+            DictShape& shape =
+                pathTracker->shapes[pathTracker->segments.size() & 3];
+            size_t dsize = (size_t) PyDict_GET_SIZE(object);
+            if (dsize && dsize == shape.keys.size()) {
+                PyObject* shape_values[SJ_SHAPE_MAX_KEYS];
+                Py_ssize_t spos = 0;
+                PyObject* skey;
+                PyObject* sval;
+                size_t sidx = 0;
+                bool shape_match = true;
+                while (PyDict_Next(object, &spos, &skey, &sval)) {
+                    if (skey != shape.keys[sidx]) {
+                        shape_match = false;
+                        break;
+                    }
+                    shape_values[sidx++] = sval;
+                }
+                if (shape_match) {
+                    for (size_t i = 0; i < dsize; i++) {
+                        writer->RawValue(shape.fragments[i].data(),
+                                         shape.fragments[i].size());
+                        PyObject* shape_item = shape_values[i];
+                        if (PyUnicode_CheckExact(shape_item)) {
+                            Py_ssize_t inline_length;
+                            const char* inline_str = PyUnicode_AsUTF8AndSize(
+                                shape_item, &inline_length);
+                            if (inline_str == nullptr)
+                                return false;
+                            if (!PyUnicode_IS_ASCII(shape_item))
+                                writer->MarkMaybeNonAscii();
+                            writer->String(inline_str,
+                                           (SizeType) inline_length);
+                            continue;
+                        }
+                        PATH_PUSH_KEY(shape.key_strs[i].first,
+                                      shape.key_strs[i].second);
+                        bool r = RECURSE(shape_item);
+                        PATH_POP();
+                        if (!r)
+                            return false;
+                    }
+                    shape_written = true;
+                }
+            }
+            if (!shape_written && dsize && dsize <= SJ_SHAPE_MAX_KEYS) {
+                // (ré)apprend la forme depuis ce dict : clés str ascii sans
+                // caractère à échapper, sinon pas de plan pour cette séquence
+                shape.clear_refs();
+                Py_ssize_t bpos = 0;
+                PyObject* bkey;
+                PyObject* bval;
+                bool learnable = true;
+                while (PyDict_Next(object, &bpos, &bkey, &bval)) {
+                    if (!PyUnicode_CheckExact(bkey)
+                        || !PyUnicode_IS_ASCII(bkey)) {
+                        learnable = false;
+                        break;
+                    }
+                    Py_ssize_t blen;
+                    const char* bstr = PyUnicode_AsUTF8AndSize(bkey, &blen);
+                    if (bstr == nullptr) {
+                        PyErr_Clear();
+                        learnable = false;
+                        break;
+                    }
+                    bool clean = true;
+                    for (Py_ssize_t j = 0; j < blen; j++) {
+                        unsigned char c = (unsigned char) bstr[j];
+                        if (c == '"' || c == '\\' || c < 0x20) {
+                            clean = false;
+                            break;
+                        }
+                    }
+                    if (!clean) {
+                        learnable = false;
+                        break;
+                    }
+                    Py_INCREF(bkey);
+                    shape.keys.push_back(bkey);
+                    std::string frag;
+                    frag.reserve((size_t) blen + 2);
+                    frag += '"';
+                    frag.append(bstr, (size_t) blen);
+                    frag += '"';
+                    shape.fragments.push_back(std::move(frag));
+                    shape.key_strs.push_back({bstr, (size_t) blen});
+                }
+                if (!learnable)
+                    shape.clear_refs();
+            }
+        }
+
         Py_ssize_t pos = 0;
         PyObject* key;
         PyObject* item;
         PyObject* coercedKey = nullptr;
 
-            if (!(mappingMode & MM_SORT_KEYS)) {
+            if (shape_written) {
+            // déjà écrit par le plan de forme
+            } else if (!(mappingMode & MM_SORT_KEYS)) {
             while (PyDict_Next(object, &pos, &key, &item)) {
                 if (mappingMode & MM_COERCE_KEYS_TO_STRINGS) {
                     if (!PyUnicode_Check(key)) {
