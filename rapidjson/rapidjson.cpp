@@ -2154,6 +2154,10 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
     Reader reader;
 
     if (jsonStr != nullptr) {
+        // insitu sur une COPIE de l'entrée : essayé sans copie (StringStream)
+        // le 03/08/2026 — REGRESSION mesurée partout (nombres recopiés
+        // caractère par caractère hors insitu, chaînes dés-échappées vers la
+        // pile) : la copie unique de l'entrée est le bon échange
         char* jsonStrCopy = (char*) PyMem_Malloc(sizeof(char) * (jsonStrLen+1));
 
         if (jsonStrCopy == nullptr)
