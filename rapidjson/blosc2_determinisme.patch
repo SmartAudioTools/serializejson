@@ -1,5 +1,5 @@
 diff --git a/blosc/blosc2.c b/blosc/blosc2.c
-index b8931ac..96fc8d2 100644
+index b8931ac..c3327f9 100644
 --- a/blosc/blosc2.c
 +++ b/blosc/blosc2.c
 @@ -114,6 +114,11 @@ struct blosc_job_group {
@@ -14,7 +14,44 @@ index b8931ac..96fc8d2 100644
  };
  
  struct blosc_job_queue_entry {
-@@ -4879,6 +4884,7 @@ static void t_blosc_do_job(void *ctxt) {
+@@ -4767,24 +4772,36 @@ static void t_blosc_do_job(void *ctxt)
+     if (cbytes < 0) {
+       blosc2_pthread_mutex_lock(&context->count_mutex);
+       context->thread_giveup_code = cbytes;
++      blosc2_pthread_cond_broadcast(&context->commit_cond);
+       blosc2_pthread_mutex_unlock(&context->count_mutex);
+       break;
+     }
+ 
+     if (compress && !memcpyed) {
+       blosc2_pthread_mutex_lock(&context->count_mutex);
++      /* SMARTOS : blocs collés dans l'ordre des indices (déterminisme) */
++      while (context->commit_nblock != nblock_ && context->thread_giveup_code > 0) {
++        blosc2_pthread_cond_wait(&context->commit_cond, &context->count_mutex);
++      }
++      if (context->thread_giveup_code <= 0) {
++        blosc2_pthread_mutex_unlock(&context->count_mutex);
++        break;
++      }
+       ntdest = context->output_bytes;
+       if (!(context->use_dict && context->dict_cdict == NULL)) {
+         _sw32(bstarts + nblock_, (int32_t)ntdest);
+       }
+       if ((cbytes == 0) || (ntdest + cbytes > maxbytes)) {
+         context->thread_giveup_code = 0;
++        blosc2_pthread_cond_broadcast(&context->commit_cond);
+         blosc2_pthread_mutex_unlock(&context->count_mutex);
+         break;
+       }
++      context->commit_nblock = nblock_ + 1;
+       context->thread_nblock++;
+       nblock_ = context->thread_nblock;
+       context->output_bytes += cbytes;
++      blosc2_pthread_cond_broadcast(&context->commit_cond);
+       blosc2_pthread_mutex_unlock(&context->count_mutex);
+       memcpy(dest + ntdest, tmp2, (unsigned int)cbytes);
+     }
+@@ -4879,6 +4896,7 @@ static void t_blosc_do_job(void *ctxt) {
    if (ensure_thread_context_capacity(thcontext, context) < 0) {
      blosc2_pthread_mutex_lock(&job->mutex);
      job->giveup_code = BLOSC2_ERROR_MEMORY_ALLOC;
@@ -22,7 +59,7 @@ index b8931ac..96fc8d2 100644
      blosc2_pthread_mutex_unlock(&job->mutex);
      goto job_done;
    }
-@@ -4969,22 +4975,36 @@ static void t_blosc_do_job(void *ctxt) {
+@@ -4969,22 +4987,36 @@ static void t_blosc_do_job(void *ctxt) {
        if (job->giveup_code > 0) {
          job->giveup_code = cbytes;
        }
@@ -59,7 +96,7 @@ index b8931ac..96fc8d2 100644
        blosc2_pthread_mutex_unlock(&job->mutex);
        memcpy(dest + ntdest, tmp2, (unsigned int)cbytes);
      }
-@@ -5038,6 +5058,7 @@ static void job_group_init(struct blosc_job_group *job, blosc2_context *context)
+@@ -5038,6 +5070,7 @@ static void job_group_init(struct blosc_job_group *job, blosc2_context *context)
    blosc2_pthread_mutex_init(&job->delta_mutex, NULL);
    blosc2_pthread_cond_init(&job->delta_cv, NULL);
    blosc2_pthread_cond_init(&job->completion_cv, NULL);
@@ -67,7 +104,7 @@ index b8931ac..96fc8d2 100644
  }
  
  static void job_group_destroy(struct blosc_job_group *job) {
-@@ -5045,6 +5066,7 @@ static void job_group_destroy(struct blosc_job_group *job) {
+@@ -5045,6 +5078,7 @@ static void job_group_destroy(struct blosc_job_group *job) {
    blosc2_pthread_mutex_destroy(&job->delta_mutex);
    blosc2_pthread_cond_destroy(&job->delta_cv);
    blosc2_pthread_cond_destroy(&job->completion_cv);
@@ -75,3 +112,73 @@ index b8931ac..96fc8d2 100644
  }
  
  static void* shared_pool_worker(void* arg) {
+@@ -5283,6 +5317,7 @@ static int init_threadpool(blosc2_context *context) {
+   int16_t nthreads = context->nthreads;
+ 
+   blosc2_pthread_mutex_init(&context->count_mutex, NULL);
++  blosc2_pthread_cond_init(&context->commit_cond, NULL);
+   blosc2_pthread_mutex_init(&context->delta_mutex, NULL);
+   blosc2_pthread_cond_init(&context->delta_cv, NULL);
+   blosc2_pthread_mutex_init(&context->jobs_mutex, NULL);
+@@ -5293,6 +5328,7 @@ static int init_threadpool(blosc2_context *context) {
+   context->active_workers = 0;
+   context->thread_giveup_code = 1;
+   context->thread_nblock = -1;
++  context->commit_nblock = 0;
+ 
+   context->threads = (blosc2_pthread_t *)my_malloc((size_t)nthreads * sizeof(blosc2_pthread_t));
+   if (context->threads == NULL) {
+@@ -5336,6 +5372,7 @@ oom_threads:
+   blosc2_pthread_cond_destroy(&context->delta_cv);
+   blosc2_pthread_mutex_destroy(&context->delta_mutex);
+   blosc2_pthread_mutex_destroy(&context->count_mutex);
++  blosc2_pthread_cond_destroy(&context->commit_cond);
+   return BLOSC2_ERROR_THREAD_CREATE;
+ }
+ #endif  /* _WIN32 */
+@@ -5345,6 +5382,7 @@ static int init_callback_threads(blosc2_context *context) {
+   int32_t tid;
+ 
+   blosc2_pthread_mutex_init(&context->count_mutex, NULL);
++  blosc2_pthread_cond_init(&context->commit_cond, NULL);
+   blosc2_pthread_mutex_init(&context->delta_mutex, NULL);
+   blosc2_pthread_cond_init(&context->delta_cv, NULL);
+   context->thread_contexts = (struct thread_context *)my_malloc(
+@@ -5366,6 +5404,7 @@ static int release_thread_backend(blosc2_context *context) {
+     my_free(context->thread_contexts);
+     context->thread_contexts = NULL;
+     blosc2_pthread_mutex_destroy(&context->count_mutex);
++  blosc2_pthread_cond_destroy(&context->commit_cond);
+     blosc2_pthread_mutex_destroy(&context->delta_mutex);
+     blosc2_pthread_cond_destroy(&context->delta_cv);
+   }
+@@ -5388,6 +5427,7 @@ static int release_thread_backend(blosc2_context *context) {
+     blosc2_pthread_cond_destroy(&context->delta_cv);
+     blosc2_pthread_mutex_destroy(&context->delta_mutex);
+     blosc2_pthread_mutex_destroy(&context->count_mutex);
++  blosc2_pthread_cond_destroy(&context->commit_cond);
+   }
+ #endif  /* _WIN32 */
+   else if (context->thread_backend == BLOSC_BACKEND_SHARED_POOL && context->thread_pool != NULL) {
+@@ -5441,6 +5481,7 @@ static int parallel_blosc(blosc2_context* context) {
+   context->job = NULL;
+   context->thread_giveup_code = 1;
+   context->thread_nblock = -1;
++  context->commit_nblock = 0;
+ 
+   if (context->thread_backend == BLOSC_BACKEND_CALLBACK) {
+     threads_callback(threads_callback_data, t_blosc_do_job,
+diff --git a/blosc/context.h b/blosc/context.h
+index dbb458f..5077559 100644
+--- a/blosc/context.h
++++ b/blosc/context.h
+@@ -95,6 +95,9 @@ struct blosc2_context_s {
+   int32_t pool_epoch;  /* value of g_destroy_count when pool was attached */
+   struct blosc_job_group *job;
+   blosc2_pthread_mutex_t count_mutex;
++  /* SMARTOS : commit des blocs dans l'ordre (voie barrières/_WIN32) */
++  int32_t commit_nblock;
++  blosc2_pthread_cond_t commit_cond;
+   blosc2_pthread_mutex_t nchunk_mutex;
+   int thread_giveup_code;  /* error code when give up */
+   int dref_not_init;  /* data ref in delta not initialized */
