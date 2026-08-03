@@ -4909,7 +4909,7 @@ dumps_internal(
                 if (plan != Py_None
                     && (!PyTuple_Check(plan)
                         || PyTuple_GET_SIZE(plan) < 2
-                        || PyTuple_GET_SIZE(plan) > 4)) {
+                        || PyTuple_GET_SIZE(plan) > 5)) {
                     Py_DECREF(plan);
                     plan = Py_None;
                     Py_INCREF(Py_None);
@@ -4930,6 +4930,149 @@ dumps_internal(
                 // mémo des doublons : mémorise à la première rencontre,
                 // $ref ensuite — le comportement de default()
                 CONTAINER_MEMO_OR_REF()
+
+                // ----- variante __getstate__ (plan à 5 éléments) : la
+                // méthode rend l'ÉTAT seul ; l'enveloppe est
+                // {"__class__": nom précalculé, état à plat} — jamais de
+                // __init__/__new__, ni getters/properties/tri/filtre (le
+                // chemin Python les réserve aux classes SANS __getstate__)
+                if (PyTuple_GET_SIZE(plan) == 5) {
+                    PyObject* plan_class_str = PyTuple_GET_ITEM(plan, 3);
+                    bool has_setstate =
+                        PyObject_IsTrue(PyTuple_GET_ITEM(plan, 4)) == 1;
+                    PyObject* state_obj = PyObject_CallFunctionObjArgs(
+                        recipe_fn, object, nullptr);
+                    if (state_obj == nullptr)
+                        return false;
+                    // formes déléguées à la voie Python : état 2-tuple
+                    // (fusion __dict__/slots) et dict à clés non-str sans
+                    // __setstate__ (enveloppe dict_non_str_keys)
+                    bool gs_fallback = false;
+                    bool gs_flat = PyDict_CheckExact(state_obj);
+                    if (PyTuple_CheckExact(state_obj)
+                        && PyTuple_GET_SIZE(state_obj) == 2)
+                        gs_fallback = true;
+                    if (gs_flat) {
+                        Py_ssize_t gs_pos = 0;
+                        PyObject* gs_key;
+                        PyObject* gs_val;
+                        while (PyDict_Next(state_obj, &gs_pos,
+                                           &gs_key, &gs_val)) {
+                            if (!PyUnicode_Check(gs_key)) {
+                                if (has_setstate)
+                                    gs_flat = false;   // -> "__state__"
+                                else
+                                    gs_fallback = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (gs_fallback) {
+                        Py_DECREF(state_obj);
+                        // defaultFn rappellera __getstate__ (méthode pure
+                        // par contrat) ; le mémo C déjà posé reste celui
+                        // qui répondra aux prochaines rencontres
+                    } else {
+                        int state_truth = PyObject_IsTrue(state_obj);
+                        if (state_truth < 0) {
+                            Py_DECREF(state_obj);
+                            return false;
+                        }
+                        if (pathTracker->dumpedClasses != nullptr
+                            && PySet_Add(pathTracker->dumpedClasses,
+                                         plan_class_str) < 0)
+                            PyErr_Clear();
+                        bool wrote_ok = true;
+                        bool saved_attrs_style = attrsDict;
+                        attrsDict = true;
+                        writer->StartObject();
+                        writer->Key("__class__", 9);
+                        Py_ssize_t gcls_len;
+                        const char* gcls_str = PyUnicode_AsUTF8AndSize(
+                            plan_class_str, &gcls_len);
+                        if (gcls_str == nullptr) {
+                            Py_DECREF(state_obj);
+                            return false;
+                        }
+                        if (!PyUnicode_IS_ASCII(plan_class_str))
+                            writer->MarkMaybeNonAscii();
+                        writer->String(gcls_str, (SizeType) gcls_len);
+                        if (state_truth == 1 && !gs_flat) {
+                            // état non-dict (ou dict non-str avec
+                            // __setstate__) : "__state__"
+                            writer->Key("__state__", 9);
+                            PATH_PUSH_KEY("__state__", 9)
+                            wrote_ok = RECURSE(state_obj);
+                            PATH_POP()
+                        } else if (state_truth == 1) {
+                            // dict : attributs à plat dans son ordre, avec
+                            // la rigueur du __dict__ réel partagé
+                            PyObject* real_dict =
+                                PyObject_GetAttr(object, dict_dunder_name);
+                            if (real_dict == nullptr)
+                                PyErr_Clear();
+                            bool is_real_dict = (real_dict == state_obj);
+                            Py_XDECREF(real_dict);
+                            bool state_done = false;
+                            if (is_real_dict && pathTracker->memoContainers) {
+                                auto dict_it =
+                                    pathTracker->memo.find(state_obj);
+                                if (dict_it != pathTracker->memo.end()) {
+                                    writer->Key("__dict__", 8);
+                                    std::string ref_ = "{\"$ref\": \"";
+                                    ref_ += path_tracker_string(
+                                        pathTracker, dict_it->second);
+                                    ref_ += "\"}";
+                                    writer->RawValue(ref_.data(),
+                                                     ref_.size());
+                                    state_done = true;
+                                } else {
+                                    long gs_node =
+                                        path_tracker_materialize(pathTracker);
+                                    PathNode node;
+                                    node.parent = (int) gs_node;
+                                    node.kind = PathSegment::ATTR;
+                                    node.key = "__dict__";
+                                    node.index = 0;
+                                    pathTracker->nodes.push_back(
+                                        std::move(node));
+                                    pathTracker->memo.emplace(
+                                        state_obj,
+                                        (long) pathTracker->nodes.size() - 1);
+                                    Py_INCREF(state_obj);
+                                }
+                            }
+                            if (!state_done) {
+                                Py_ssize_t gs_pos = 0;
+                                PyObject* gs_key;
+                                PyObject* gs_val;
+                                while (wrote_ok
+                                       && PyDict_Next(state_obj, &gs_pos,
+                                                      &gs_key, &gs_val)) {
+                                    Py_ssize_t gk_len;
+                                    const char* gk = PyUnicode_AsUTF8AndSize(
+                                        gs_key, &gk_len);
+                                    if (gk == nullptr) {
+                                        wrote_ok = false;
+                                        break;
+                                    }
+                                    if (!PyUnicode_IS_ASCII(gs_key))
+                                        writer->MarkMaybeNonAscii();
+                                    writer->Key(gk, (SizeType) gk_len);
+                                    PATH_PUSH_KEY(gk, gk_len)
+                                    wrote_ok = RECURSE(gs_val);
+                                    PATH_POP()
+                                }
+                            }
+                        }
+                        attrsDict = saved_attrs_style;
+                        Py_DECREF(state_obj);
+                        if (!wrote_ok)
+                            return false;
+                        writer->EndObject();
+                        return PyErr_Occurred() ? false : true;
+                    }
+                } else {
 
                 PyObject* tup = PyObject_CallFunctionObjArgs(
                     recipe_fn, object, nullptr);
@@ -5190,6 +5333,7 @@ dumps_internal(
                 // le mémo C reste le bon, les rencontres suivantes du même
                 // objet y répondront par le même $ref que default()
                 Py_DECREF(tup);
+                }   // fin de la variante tuple (__serializejson__/registre)
             } else if (plan != Py_None) {
                 PyObject* class_name = PyTuple_GET_ITEM(plan, 0);
                 bool filter_underscore =

@@ -976,6 +976,31 @@ class Encoder(rapidjson.Encoder):
                 ):
                     return None
                 return (None, method, bool(self.numpy_array_to_list))
+            # recette __getstate__ : pour une classe au __getstate__
+            # UTILISATEUR et au reduce hérité d'object, l'état vient de la
+            # méthode (appelée par objet) et l'enveloppe s'écrit en C —
+            # ni getters/properties ni tri/filtre ne s'appliquent (le chemin
+            # Python les réserve aux classes SANS __getstate__). Le plan à
+            # 5 éléments porte le nom émis et la présence d'un __setstate__
+            # (état tuple et clés non-str en dépendent)
+            if (
+                class_has_user_getstate(class_)
+                and class_.__reduce_ex__ is object.__reduce_ex__
+                and class_.__reduce__ is object.__reduce__
+                and class_ not in dispatch_table
+                and not hasattr(class_, "__getnewargs__")
+                and not hasattr(class_, "__getnewargs_ex__")
+                and not issubclass(class_, (list, tuple, dict, set, frozenset))
+                and not issubclass(class_, Enum)
+                and self.protocol >= 2
+            ):
+                return (
+                    None,
+                    class_.__getstate__,
+                    bool(self.numpy_array_to_list),
+                    class_str_from_class(class_),
+                    hasattr(class_, "__setstate__"),
+                )
             if not (class_.__flags__ & _TPFLAGS_HEAPTYPE):
                 # types natifs (tuple, dict, bytes...) : chemins dédiés
                 return None
