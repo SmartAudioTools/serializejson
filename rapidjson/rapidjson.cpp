@@ -6,6 +6,10 @@
 // :Copyright: © 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022 Lele Gaifax
 //
 
+// chemins SIMD de rapidjson (saut d'espaces et scan des chaînes sans
+// échappement) — la machine cible compile déjà en -march=native
+#define RAPIDJSON_SSE42
+
 #include <locale.h>
 #include <Python.h>
 #include <datetime.h>
