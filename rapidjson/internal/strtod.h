@@ -17,6 +17,7 @@
 
 #include "ieee754.h"
 #include "biginteger.h"
+#include "../eisel_lemire.h"
 #include "diyfp.h"
 #include "pow10.h"
 #include <climits>
@@ -279,6 +280,30 @@ inline double StrtodFullPrecision(double d, int p, const Ch* decimals, size_t le
     // Any x >= 10^309 is interpreted as +infinity.
     if (dLen + dExp > 309)
         return std::numeric_limits<double>::infinity();
+
+    // fork serializejson : Eisel-Lemire d'abord — produit 128 bits
+    // correctement arrondi (jamais approché : il renonce au moindre doute
+    // et laisse le chemin exact existant conclure). Au-delà de 19 chiffres,
+    // la mantisse est tronquée : on n'accepte que si w et w+1 donnent le
+    // même double (l'encadrement rend la troncature inoffensive)
+    {
+        int taken = dLen < 19 ? dLen : 19;
+        uint64_t w = 0;
+        for (int i = 0; i < taken; i++)
+            w = w * 10u + static_cast<uint64_t>(decimals[i] - Ch('0'));
+        int elExp = dExp + (dLen - taken);
+        double el;
+        if (dLen <= 19) {
+            if (sj_eisel_lemire(w, elExp, &el))
+                return el;
+        } else {
+            double elUp;
+            if (sj_eisel_lemire(w, elExp, &el)
+                && sj_eisel_lemire(w + 1, elExp, &elUp)
+                && el == elUp)
+                return el;
+        }
+    }
 
     if (StrtodDiyFp(decimals, dLen, dExp, &result))
         return result;
