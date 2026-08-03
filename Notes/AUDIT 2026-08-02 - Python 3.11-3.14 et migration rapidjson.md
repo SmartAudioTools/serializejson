@@ -1139,8 +1139,35 @@ verdict « tout s'est dégradé » venait entièrement de la charge.
    et les instances numpy 2 de dtype ont pour type exact une sous-classe
    (dtype[int32]) qui ne matche pas le registre de toute façon.
 
-   RESTE au chantier des recettes : la recette d'encodage déclarative pour
-   __getstate__/__reduce__ (appel par objet, emballage C).
+4. **Recette __getstate__** (même nuit, sur directive) : pour une classe au
+   __getstate__ UTILISATEUR et au reduce hérité d'object, la méthode est
+   appelée par objet et l'enveloppe s'écrit en C — état à plat dans l'ordre
+   du dict (ni getters/properties ni tri/filtre : la voie Python les
+   réserve aux classes SANS __getstate__), rigueur du __dict__ partagé,
+   __state__ pour les états non-dict. Délégué à la voie Python : état
+   2-tuple, clés non-str sans __setstate__. 1 000 objets : 1 802 → 326 µs
+   (×5,5) — PICKLE BATTU (483 µs). Les familles *getstate* des goldens
+   passent par la recette.
+
+   RESTE au chantier des recettes : les classes à __reduce__/__reduce_ex__
+   réimplémenté (l'appel rend (callable, args, ...) : il faudrait résoudre
+   le nom du callable par objet), et __getnewargs__/__getnewargs_ex__.
+
+### Pistes consignées sur les conversions nombre ↔ texte (questions du soir)
+
+- **Écriture des flottants** : remplacer Grisu3 par **Dragonbox** (Junekey
+  Jeon, 2020) — même repr le plus court (unique mathématiquement, donc
+  octets identiques après nos règles de format), 2 à 3 × plus rapide, sans
+  repli. État de l'art adopté par {fmt}/MSVC.
+- **Lecture des flottants** : **Eisel-Lemire** (fast_float, dans GCC 12 et
+  Rust) — 4 à 10 × plus rapide que la voie classique, exact.
+- **Entiers** : déjà proches du plancher (i64toa, tables 2 chiffres en L1 ;
+  borné par le calcul, pas la mémoire). SIMD utile en LOTS : itoa vectorisé
+  dans chaque tranche de la conversion multi-thread existante ; au parsing,
+  validation/découpe SWAR-SIMD par paquets de 8-16 octets (simdjson,
+  fast_float).
+- Le multi-thread des conversions par lots est DÉJÀ en place (campagne du
+  2-3/08) ; un nombre isolé (~40 ns) n'est pas parallélisable.
 
 ### Cycle de vie du tampon de sortie : fuite str et OOM (3 août, soir)
 
