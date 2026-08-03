@@ -917,6 +917,26 @@ d'environnement), 4 manches, charge consignée à chaque passe — plus un A/B
    constructeurs peuvent copier leur charge à l'instanciation (array.array
    le fait), qui arriverait avant le remplissage différé.
 
+### Le mur des blobs, tombé (13 h – 14 h 30, sur ton feu vert)
+
+Le mur « constructeurs copieurs » était contournable en trois étages :
+1. **Instanciation C++ de bytes/bytearray** : leur charge pré-décodée EST
+   l'objet final (le plugin acceptait déjà les charges telles quelles) — plus
+   aucun aller-retour Python par blob.
+2. **Décodage base64 différé-parallèle** : validation SIMD immédiate (repli
+   et erreurs inchangés), objet destination inséré dans l'arbre tout de
+   suite, tampons remplis en parallèle au premier rappel Python ou en fin de
+   parse. Insitu seulement.
+3. **Parse EN PLACE, zéro copie d'entrée** : nouveau drapeau de fork qui
+   supprime les terminateurs nuls (les longueurs suffisent partout chez
+   nous) ; dès lors un gros document sans AUCUN antislash (un memchr) n'a
+   plus besoin de la copie insitu — or elle dominait le décodage des gros
+   blobs (61 % du temps en memcpy au profil).
+
+**30 blobs de 1 Mo : loads 25 → 9,5 ms.** numpy 64 Mo incompressible :
+46 → 40 ms. Reste pour le plein effet numpy : instancier les tableaux en C++
+via l'API C de numpy (dépendance de compilation optionnelle, non faite).
+
 ### Ce qui borne encore, et pourquoi
 
 - **Flottants et entiers scalaires en dumps** : pickle copie 8 octets binaires
