@@ -1038,8 +1038,14 @@ struct PyHandler {
     struct PendingB64 {
         const char* src;
         size_t length;
+        size_t decoded_length;      // taille après décodage base64
         unsigned char* dst;
         PyObject* obj;              // référence forte le temps du différé
+        // étage optionnel : la charge décodée est une trame blosc2 UNIQUE à
+        // décompresser vers dest (objet destination déjà dans l'arbre)
+        unsigned char* dest;
+        size_t destsize;
+        PyObject* destobj;          // référence forte, ou nullptr
     };
     std::vector<PendingB64> pendingB64;
     bool deferB64;
@@ -1155,9 +1161,156 @@ struct PyHandler {
 
     // abandon des différés (chemins d'erreur : l'arbre est jeté avec eux)
     void ReleasePendingB64() {
-        for (PendingB64& job : pendingB64)
+        for (PendingB64& job : pendingB64) {
             Py_DECREF(job.obj);
+            Py_XDECREF(job.destobj);
+        }
         pendingB64.clear();
+    }
+
+    // vrai si mapping est un dict {"__class__": "numpyB64", ...} dont
+    // l'instanciation ne LIRA pas la charge : frombuffer/ndarray ne font
+    // qu'envelopper le tampon. Exclusions : une compression (chaîne au-delà
+    // de l'index 1 des arguments : blosc_decompress lirait), dtype "bool"
+    // (unpackbits lit) — le vidage des différés peut alors être sauté.
+    bool NumpyNoReadDict(PyObject* mapping) {
+        if (!PyDict_CheckExact(mapping))
+            return false;
+        PyObject* cls_value = PyDict_GetItem(mapping, class_key_name);
+        if (cls_value == nullptr || !PyUnicode_CheckExact(cls_value)
+            || PyUnicode_CompareWithASCIIString(cls_value, "numpyB64") != 0)
+            return false;
+        PyObject* ctor_args = PyDict_GetItem(mapping, new_key_name);
+        if (ctor_args == nullptr)
+            ctor_args = PyDict_GetItem(mapping, init_key_name);
+        if (ctor_args == nullptr || !PyList_CheckExact(ctor_args))
+            return false;
+        Py_ssize_t nargs = PyList_GET_SIZE(ctor_args);
+        if (nargs < 2)
+            return false;
+        PyObject* dtype_arg = PyList_GET_ITEM(ctor_args, 1);
+        if (PyUnicode_CheckExact(dtype_arg)
+            && PyUnicode_CompareWithASCIIString(dtype_arg, "bool") == 0)
+            return false;
+        for (Py_ssize_t i = 2; i < nargs; i++)
+            if (PyUnicode_CheckExact(PyList_GET_ITEM(ctor_args, i)))
+                return false;   // étiquette de compression : lecture
+        return true;
+    }
+
+    // tente de convertir le job base64 de la charge de mapping en job
+    // « base64 puis décompression » quand la charge est une trame blosc2
+    // UNIQUE : l'objet destination (décompressé, non rempli) remplace la
+    // charge dans les arguments et l'étiquette est neutralisée — pour
+    // bytes/bytearray elle redevient « b64 », ce qui fait retomber le dict
+    // dans le chemin C++ (aucun Python) ; pour numpyB64 elle devient None
+    // (frombuffer n'y lira rien). Trames multiples, blosc v1, _diff, bool :
+    // voie normale (vidage puis Python).
+    void TryDeferDecompress(PyObject* mapping) {
+        if (!serializejson_blosc2_ctx_ok || !PyDict_CheckExact(mapping)
+            || PyDict_GET_SIZE(mapping) != 2)
+            return;
+        PyObject* cls_value = PyDict_GetItem(mapping, class_key_name);
+        if (cls_value == nullptr || !PyUnicode_CheckExact(cls_value))
+            return;
+        int kind;
+        if (PyUnicode_CompareWithASCIIString(cls_value, "bytes") == 0)
+            kind = 0;
+        else if (PyUnicode_CompareWithASCIIString(cls_value, "bytearray") == 0)
+            kind = 1;
+        else if (PyUnicode_CompareWithASCIIString(cls_value, "numpyB64") == 0)
+            kind = 2;
+        else
+            return;
+        PyObject* ctor_args = PyDict_GetItem(mapping, new_key_name);
+        if (ctor_args == nullptr)
+            ctor_args = PyDict_GetItem(mapping, init_key_name);
+        if (ctor_args == nullptr || !PyList_CheckExact(ctor_args))
+            return;
+        Py_ssize_t nargs = PyList_GET_SIZE(ctor_args);
+        if (nargs < 2)
+            return;
+        PyObject* payload = PyList_GET_ITEM(ctor_args, 0);
+        size_t job_index = pendingB64.size();
+        for (size_t i = 0; i < pendingB64.size(); i++)
+            if (pendingB64[i].obj == payload) {
+                job_index = i;
+                break;
+            }
+        if (job_index == pendingB64.size())
+            return;
+        PendingB64& job = pendingB64[job_index];
+        if (job.destobj != nullptr)
+            return;
+        Py_ssize_t label_index;
+        if (kind == 2) {
+            if (nargs < 3)
+                return;
+            PyObject* dtype_arg = PyList_GET_ITEM(ctor_args, 1);
+            if (PyUnicode_CheckExact(dtype_arg)
+                && PyUnicode_CompareWithASCIIString(dtype_arg, "bool") == 0)
+                return;
+            label_index = -1;
+            for (Py_ssize_t i = 2; i < nargs; i++) {
+                PyObject* item = PyList_GET_ITEM(ctor_args, i);
+                if (PyUnicode_CheckExact(item)) {
+                    if (PyUnicode_CompareWithASCIIString(item, "blosc2") != 0)
+                        return;   // blosc v1, blosc2p, *_diff... : voie normale
+                    label_index = i;
+                    break;
+                }
+            }
+            if (label_index == -1)
+                return;
+        } else {
+            PyObject* label = PyList_GET_ITEM(ctor_args, 1);
+            if (!PyUnicode_CheckExact(label)
+                || PyUnicode_CompareWithASCIIString(label, "b64_blosc2") != 0)
+                return;
+            label_index = 1;
+        }
+        // entête de trame : décode les 32 premiers caractères (24 octets)
+        if (job.length < 32 || job.decoded_length < 16)
+            return;
+        unsigned char header[24];
+        if (!sj_b64_decode_groups((const unsigned char*) job.src, 8, header,
+                                  serializejson_b64_decode_table()))
+            return;
+        if (header[0] < 4)
+            return;                     // trame blosc v1 : voie Python
+        size_t nbytes = 0, cbytes = 0, blocksize = 0;
+        sj_blosc1_cbuffer_sizes((const char*) header, &nbytes, &cbytes,
+                                &blocksize);
+        if (cbytes < 16 || cbytes != job.decoded_length)
+            return;                     // trames multiples (blosc2p) : voie normale
+        PyObject* dest = (kind == 0)
+            ? PyBytes_FromStringAndSize(nullptr, (Py_ssize_t) nbytes)
+            : PyByteArray_FromStringAndSize(nullptr, (Py_ssize_t) nbytes);
+        if (dest == nullptr) {
+            PyErr_Clear();
+            return;
+        }
+        Py_INCREF(dest);                // référence du job (destobj)
+        Py_INCREF(dest);                // référence donnée à la liste
+        PyList_SetItem(ctor_args, 0, dest);   // décrémente l'ancienne charge
+        if (kind == 2) {
+            Py_INCREF(Py_None);
+            PyList_SetItem(ctor_args, label_index, Py_None);
+        } else {
+            PyObject* b64_label = PyUnicode_InternFromString("b64");
+            if (b64_label == nullptr) {
+                PyErr_Clear();
+                b64_label = Py_None;
+                Py_INCREF(Py_None);
+            }
+            PyList_SetItem(ctor_args, label_index, b64_label);
+        }
+        job.dest = (kind == 0)
+            ? (unsigned char*) PyBytes_AS_STRING(dest)
+            : (unsigned char*) PyByteArray_AS_STRING(dest);
+        job.destsize = nbytes;
+        job.destobj = dest;
+        Py_DECREF(dest);                // compense le double INCREF ci-dessus
     }
 
     // remplit tous les tampons différés (en parallèle au-delà d'un job) ;
@@ -1168,36 +1321,62 @@ struct PyHandler {
         const unsigned char* table = serializejson_b64_decode_table();
         bool ok = true;
         size_t count = pendingB64.size();
-        if (count == 1) {
-            PendingB64& job = pendingB64[0];
-            ok = sj_b64_decode_into(job.src, job.length, job.dst, table);
-        } else {
+        {
             std::atomic<size_t> next(0);
             std::atomic<bool> good(true);
             std::vector<PendingB64>* jobs = &pendingB64;
-            auto work = [jobs, &next, &good, table]() {
+            size_t hw0 = std::thread::hardware_concurrency();
+            size_t budget = hw0 ? (hw0 > 8 ? 8 : hw0) : 1;
+            // moins de jobs que de coeurs : le parallélisme passe DANS le
+            // dctx (MT interne blosc2), sinon un job par thread
+            int inner_threads = (count < budget)
+                ? (int) (budget / count) : 1;
+            auto work = [jobs, &next, &good, table, inner_threads]() {
+                blosc2_context* dctx = nullptr;   // créé au premier besoin
                 for (;;) {
                     size_t i = next.fetch_add(1);
                     if (i >= jobs->size())
-                        return;
+                        break;
                     PendingB64& job = (*jobs)[i];
                     if (!sj_b64_decode_into(job.src, job.length, job.dst,
-                                            table))
+                                            table)) {
                         good.store(false, std::memory_order_relaxed);
+                        continue;
+                    }
+                    if (job.destobj != nullptr) {
+                        if (dctx == nullptr) {
+                            blosc2_dparams dparams = BLOSC2_DPARAMS_DEFAULTS;
+                            dparams.nthreads = (int16_t) inner_threads;
+                            dctx = sj_blosc2_create_dctx(dparams);
+                        }
+                        int written = (dctx == nullptr) ? -1
+                            : sj_blosc2_decompress_ctx(
+                                  dctx, job.dst,
+                                  (int32_t) job.decoded_length,
+                                  job.dest, (int32_t) job.destsize);
+                        if (written != (int) job.destsize)
+                            good.store(false, std::memory_order_relaxed);
+                    }
                 }
+                if (dctx != nullptr)
+                    sj_blosc2_free_ctx(dctx);
             };
             size_t hw = std::thread::hardware_concurrency();
             size_t nthreads = hw ? (hw > 8 ? 8 : hw) : 1;
             if (nthreads > count)
                 nthreads = count;
-            Py_BEGIN_ALLOW_THREADS
-            std::vector<std::thread> pool;
-            for (size_t t = 1; t < nthreads; t++)
-                pool.emplace_back(work);
-            work();
-            for (std::thread& t : pool)
-                t.join();
-            Py_END_ALLOW_THREADS
+            if (nthreads <= 1) {
+                work();
+            } else {
+                Py_BEGIN_ALLOW_THREADS
+                std::vector<std::thread> pool;
+                for (size_t t = 1; t < nthreads; t++)
+                    pool.emplace_back(work);
+                work();
+                for (std::thread& t : pool)
+                    t.join();
+                Py_END_ALLOW_THREADS
+            }
             ok = good.load();
         }
         ReleasePendingB64();
@@ -1369,6 +1548,9 @@ struct PyHandler {
         bool plainDict = !ctx.specialKey && !ctx.keyValuePairs;
         stack.pop_back();
 
+        if (!pendingB64.empty() && fastPlainEndObject)
+            TryDeferDecompress(mapping);
+
         // dict ordinaire (aucune clé __class__/$ref) et décodeur ayant
         // certifié qu'aucune transformation Python ne s'applique : le dict
         // est déjà inséré dans son parent (Handle au StartObject), rien à faire
@@ -1402,10 +1584,8 @@ struct PyHandler {
                 if (plan_it != decodePlans.end()) {
                     plan = plan_it->second;
                 } else {
-                    if (!pendingB64.empty() && !FlushPendingB64()) {
-                        Py_DECREF(mapping);
-                        return false;
-                    }
+                    // pas de vidage ici : decode_class_plan ne consulte que
+                    // les registres de classes, jamais les charges
                     plan = PyObject_CallFunctionObjArgs(decodeClassPlanFn,
                                                         class_value, nullptr);
                     if (plan == nullptr) {
@@ -1486,7 +1666,8 @@ struct PyHandler {
                 return true;
             }
 
-            if (!pendingB64.empty() && !FlushPendingB64()) {
+            if (!pendingB64.empty() && !NumpyNoReadDict(mapping)
+                && !FlushPendingB64()) {
                 Py_DECREF(mapping);
                 return false;
             }
@@ -2087,7 +2268,9 @@ struct PyHandler {
                                                   PyBytes_AS_STRING(dest);
                                         Py_INCREF(dest);
                                         pendingB64.push_back(
-                                            {str, (size_t) length, dst, dest});
+                                            {str, (size_t) length, out_length,
+                                             dst, dest,
+                                             nullptr, 0, nullptr});
                                         return Handle(dest);
                                     }
                                 } else {
