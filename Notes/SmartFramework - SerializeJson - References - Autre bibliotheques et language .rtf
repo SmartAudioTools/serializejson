@@ -1,0 +1,93 @@
+{\rtf1\ansi\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}}
+{\colortbl ;\red0\green0\blue255;\red255\green0\blue0;\red0\green176\blue80;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\li720\sl240\slmult1\lang12\ul\b\f0\fs22 sources \par
+\par
+\pard\li1440\sl240\slmult1\par
+\par
+javascript\par
+\pard\li2160\sl240\slmult1\ulnone\b0{\field{\*\fldinst{HYPERLINK "https://tools.ietf.org/html/draft-pbryan-zyp-json-ref-03"}}{\fldrslt{\ul\cf1 https://tools.ietf.org/html/draft-pbryan-zyp-json-ref-03}}}\ul\b\f0\fs22\par
+\pard\li2880\sl240\slmult1\ulnone\b0 This specification defines a JSON [RFC4627] structure which allows a JSON value to reference another value in a JSON document.  This provides the basis for transclusion in JSON: the use of a target resource as an effective substitute for the reference.\par
+\{ "$ref": "{\field{\*\fldinst{HYPERLINK "http://example.com/example.json#/foo/bar"}}{\fldrslt{\ul\cf1 http://example.com/example.json#/foo/bar}}}\f0\fs22 " \}\par
+The "$ref" string value contains a URI [{\field{\*\fldinst{HYPERLINK "https://tools.ietf.org/html/rfc3986"}}{\fldrslt{\ul\cf1 https://tools.ietf.org/html/rfc3986}}}\f0\fs22 ], which identifies the location of the JSON value being referenced. \ul\b\par
+\pard\li2160\sl240\slmult1\par
+\ulnone\b0{\field{\*\fldinst{HYPERLINK "https://github.com/douglascrockford/JSON-js"}}{\fldrslt{\ul\cf1 https://github.com/douglascrockford/JSON-js}}}\ul\f0\fs22  \line\pard\li2880\sl240\slmult1\ulnone (mec qui a invent\'e9 le JSON)\par
+cycle.js: This file contains two functions, JSON.decycle and JSON.retrocycle,\par
+which make it possible to encode cyclical structures and dags in JSON, and to\par
+then recover them. This is a capability that is not provided by ES5. JSONPath\par
+is used to represent the links. [{\field{\*\fldinst{HYPERLINK "http://GOESSNER.net/articles/JsonPath/"}}{\fldrslt{\ul\cf1 http://GOESSNER.net/articles/JsonPath/}}}\f0\fs22 ]\ul\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://github.com/douglascrockford/JSON-js/blob/master/cycle.js"}}{\fldrslt{\ul\cf1 https://github.com/douglascrockford/JSON-js/blob/master/cycle.js}}}\ul\f0\fs22\par
+\ulnone\{"$ref":"$"\}\par
+{\field{\*\fldinst{HYPERLINK "https://www.npmjs.com/package/json-cycle"}}{\fldrslt{\ul\cf1 https://www.npmjs.com/package/json-cycle}}}\ul\f0\fs22\par
+\par
+\pard\li2160\sl240\slmult1\ulnone{\field{\*\fldinst{HYPERLINK "http://GOESSNER.net/articles/JsonPath/"}}{\fldrslt{\ul\cf1 http://GOESSNER.net/articles/JsonPath/}}}\ul\f0\fs22\par
+\pard\li2880\sl240\slmult1\ulnone $\tab the root object\par
+. or [] \tab child operator \ul\par
+\pard\li2160\sl240\slmult1\par
+\pard\li2160\sl240\slmult1\tx3960\ulnone{\field{\*\fldinst{HYPERLINK "https://www.sitepen.com/blog/json-referencing-in-dojo"}}{\fldrslt{\ul\cf1 https://www.sitepen.com/blog/json-referencing-in-dojo}}}\ul\f0\fs22  \par
+\pard\li2880\sl240\slmult1\tx3960\ulnone SUPER INTERESSANT , solution pour r\'e9f\'e9rence circulaire, mais aussi donn\'e9es externes etc..\par
+\par
+Id-Based Referencing : \par
+\pard\li3600\sl240\slmult1\tx3960 (si l'objet \'e0 d\'e9j\'e0 un identifiant "id" et qu'on n'a pas \'e0 en cr\'e9er un ) \par
+"id": "1" ou "nom" \par
+"$ref": "1" ou "nom" \par
+\cf2 - ne marche pas pour les tableaux \cf0\par
+\pard\li2880\sl240\slmult1\tx3960 Path-Based Referencing :\par
+\pard\li3600\sl240\slmult1\tx3960 # the root \par
+ .property and [\lquote property\rquote ] syntax are used to denote property values\par
+#mother au lieu de #.mother ? \par
+\pard\li2880\sl240\slmult1\tx3960 Combined Path/Id Referencing\par
+\pard\li3600\sl240\slmult1\tx3960 "1.child1" ou "nom.child1"\par
+Combined path/id referencing can be very valuable in situations where not all objects have ids. In particular, it is impossible to give keyed properties (and consequently ids) to arrays with JSON, so combining path/id referencing can be essential in referencing arrays and values in arrays when id referencing is necessary (inter-message referencing).\par
+\pard\li2880\sl240\slmult1\tx3960 Inter-Message Referencing\par
+Lazy Referencing\par
+JSON Referencing + Relative URLs\par
+\pard\li3600\sl240\slmult1\tx3960\cf3 truc pour referencer des fichier externes ! \cf0\par
+\pard\li2160\sl240\slmult1\tx3960{\field{\*\fldinst{HYPERLINK "https://json-ld.org/"}}{\fldrslt{\ul\cf1 https://json-ld.org/}}}\ul\f0\fs22\par
+\par
+\pard\li2160\sl240\slmult1\ulnone{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/14962018/detecting-and-fixing-circular-references-in-javascript"}}{\fldrslt{\ul\cf1 https://stackoverflow.com/questions/14962018/detecting-and-fixing-circular-references-in-javascript}}}\ul\b\f0\fs22\par
+\ulnone\b0{\field{\*\fldinst{HYPERLINK "https://github.com/WebReflection/circular-json/#circularjson"}}{\fldrslt{\ul\cf1 https://github.com/WebReflection/circular-json/#circularjson}}}\ul\f0\fs22\par
+\pard\li2880\sl240\slmult1\ulnone utilise juste des strings avec ~ pour designer le root .......  \par
+-> interdit d'avoir des values string commencant par ~ !? \ul\b\par
+\pard\li2160\sl240\slmult1\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/11616630/how-can-i-print-a-circular-structure-in-a-json-like-format"}}{\fldrslt{\ul\cf1 https://stackoverflow.com/questions/11616630/how-can-i-print-a-circular-structure-in-a-json-like-format}}}\ul\f0\fs22\par
+\pard\li1440\sl240\slmult1 java\par
+\pard\li2160\sl240\slmult1\ulnone\b0{\field{\*\fldinst{HYPERLINK "https://www.baeldung.com/jackson-bidirectional-relationships-and-infinite-recursion"}}{\fldrslt{\ul\cf1 https://www.baeldung.com/jackson-bidirectional-relationships-and-infinite-recursion}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://esdiscuss.org/topic/consider-extending-json-grammar-to-support-objects-with-circular-reference"}}{\fldrslt{\ul\cf1 https://esdiscuss.org/topic/consider-extending-json-grammar-to-support-objects-with-circular-reference}}}\ul\b\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/17393812/json-and-java-circular-reference"}}{\fldrslt{\ul\cf1 https://stackoverflow.com/questions/17393812/json-and-java-circular-reference}}}\ul\f0\fs22\par
+\pard\li1440\sl240\slmult1\par
+c#  \par
+\pard\li2160\sl240\slmult1\ulnone\b0{\field{\*\fldinst{HYPERLINK "https://johnnycode.com/2012/04/10/serializing-circular-references-with-json-net-and-entity-framework/"}}{\fldrslt{\ul\cf1 https://johnnycode.com/2012/04/10/serializing-circular-references-with-json-net-and-entity-framework/}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/21686499/how-to-restore-circular-references-e-g-id-from-json-net-serialized-json"}}{\fldrslt{\ul\cf1 https://stackoverflow.com/questions/21686499/how-to-restore-circular-references-e-g-id-from-json-net-serialized-json}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/25853407/json-net-not-respecting-preservereferenceshandling-on-deserialization"}}{\fldrslt{\ul\cf1 https://stackoverflow.com/questions/25853407/json-net-not-respecting-preservereferenceshandling-on-deserialization}}}\ul\b\f0\fs22\par
+\pard\li1440\sl240\slmult1\par
+\par
+\pard\li1440\sl240\slmult1\tx3240\ulnone\b0{\field{\*\fldinst{HYPERLINK "https://pypi.org/project/jsonref/"}}{\fldrslt{\ul\cf1 https://pypi.org/project/jsonref/}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://json-schema.org/understanding-json-schema/structuring.html"}}{\fldrslt{\ul\cf1 https://json-schema.org/understanding-json-schema/structuring.html}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://tech.signavio.com/2017/json-type-information"}}{\fldrslt{\ul\cf1 https://tech.signavio.com/2017/json-type-information}}}\f0\fs22\par
+\pard\li1440\sl240\slmult1{\field{\*\fldinst{HYPERLINK "http://mandubian.com/2013/01/13/JSON-Coast-to-Coast/"}}{\fldrslt{\ul\cf1 http://mandubian.com/2013/01/13/JSON-Coast-to-Coast/}}}\ul\b\f0\fs22\par
+\ulnone\b0{\field{\*\fldinst{HYPERLINK "https://github.com/python-rapidjson/python-rapidjson/issues/16"}}{\fldrslt{\ul\cf1 https://github.com/python-rapidjson/python-rapidjson/issues/16}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://github.com/python-rapidjson/python-rapidjson/pull/6"}}{\fldrslt{\ul\cf1 https://github.com/python-rapidjson/python-rapidjson/pull/6}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/14249115/serializing-output-to-json-valueerror-circular-reference-detected"}}{\fldrslt{\ul\cf1 https://stackoverflow.com/questions/14249115/serializing-output-to-json-valueerror-circular-reference-detected}}}\f0\fs22\line{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/59198919/best-practice-how-to-store-oop-structure-with-cross-references-to-json"}}{\fldrslt{\ul\cf1 https://stackoverflow.com/questions/59198919/best-practice-how-to-store-oop-structure-with-cross-references-to-json}}}\ul\f0\fs22     (n'existe plus... snif)\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://www.npmjs.com/package/flatted"}}{\fldrslt{\ul\cf1 https://www.npmjs.com/package/flatted}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://tools.ietf.org/html/draft-pbryan-zyp-json-ref-03"}}{\fldrslt{\ul\cf1 https://tools.ietf.org/html/draft-pbryan-zyp-json-ref-03}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://goessner.net/articles/JsonPath/"}}{\fldrslt{\ul\cf1 https://goessner.net/articles/JsonPath/}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/4001474/standard-way-of-referencing-an-object-by-identity-for-eg-circular-references"}}{\fldrslt{\ul\cf1 https://stackoverflow.com/questions/4001474/standard-way-of-referencing-an-object-by-identity-for-eg-circular-references}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://github.com/douglascrockford/JSON-js/blob/master/cycle.js"}}{\fldrslt{\ul\cf1 https://github.com/douglascrockford/JSON-js/blob/master/cycle.js}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://groups.google.com/g/json-schema/c/lftABvH5KkA"}}{\fldrslt{\ul\cf1 https://groups.google.com/g/json-schema/c/lftABvH5KkA}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://github.com/xk/JASON"}}{\fldrslt{\ul\cf1 https://github.com/xk/JASON}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Errors/Cyclic_object_value"}}{\fldrslt{\ul\cf1 https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Errors/Cyclic_object_value}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://github.com/douglascrockford/JSON-js/blob/master/cycle.js"}}{\fldrslt{\ul\cf1 https://github.com/douglascrockford/JSON-js/blob/master/cycle.js}}}\ul\f0\fs22\par
+\par
+\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://blogs.oracle.com/sundararajan/a-convention-for-circular-reference-handling-with-json"}}{\fldrslt{\ul\cf1 https://blogs.oracle.com/sundararajan/a-convention-for-circular-reference-handling-with-json}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://web.archive.org/web/20160327150632/http://www.jspon.org/"}}{\fldrslt{\ul\cf1 https://web.archive.org/web/20160327150632/http://www.jspon.org/}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://json-reference.thephpleague.com/circular-references"}}{\fldrslt{\ul\cf1 https://json-reference.thephpleague.com/circular-references}}}\ul\f0\fs22\par
+\par
+\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/36716367/store-a-js-object-with-circular-structures-on-local-storage-and-obtain-circular/58823793#58823793"}}{\fldrslt{\ul\cf1 https://stackoverflow.com/questions/36716367/store-a-js-object-with-circular-structures-on-local-storage-and-obtain-circular/58823793#58823793}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/9382167/serializing-object-that-contains-cyclic-object-value/58810961#58810961"}}{\fldrslt{\ul\cf1 https://stackoverflow.com/questions/9382167/serializing-object-that-contains-cyclic-object-value/58810961#58810961}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/2010892/storing-objects-in-html5-localstorage?noredirect=1&lq=1"}}{\fldrslt{\ul\cf1 https://stackoverflow.com/questions/2010892/storing-objects-in-html5-localstorage?noredirect=1&lq=1}}}\ul\f0\fs22\par
+\ulnone{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/23117470/passing-an-object-with-circular-references-from-server-to-client-side-javascript/58810202#58810202"}}{\fldrslt{\ul\cf1 https://stackoverflow.com/questions/23117470/passing-an-object-with-circular-references-from-server-to-client-side-javascript/58810202#58810202}}}\ul\f0\fs22\par
+\pard\sa200\sl276\slmult1\ulnone\par
+}
+ 

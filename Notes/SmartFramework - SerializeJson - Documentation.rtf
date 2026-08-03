@@ -1,0 +1,129 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset0 Arial;}{\f2\fnil\fcharset2 Symbol;}}
+{\colortbl ;\red0\green176\blue80;\red255\green0\blue0;\red0\green0\blue255;\red155\green0\blue211;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\li720\sl240\slmult1\lang12\f0\fs22\par
+\pard\sl240\slmult1\b TODO \par
+\pard\li720\sl240\slmult1\b0 def jsonpath(obj):\par
+\pard\li1440\sl240\slmult1     """return the json path of loaded object"""\par
+    return id_to_path.get(id(obj), None)\par
+\'e7a apparait pas dans la doc comme une fonction, juste dans explication du param\'e8tre _jsonpath \par
+\pard\li720\sl240\slmult1\par
+def clear(self, close=False): pas doccument\'e9 , sert \'e0 quoi ?\par
+\par
+dump(self, obj, file=None, \ul close=True\ulnone ): pas doccument\'e9 , sert \'e0 quoi le close?  pour serialize sous forme de ligne pour les blobs? \par
+\par
+\pard\sl240\slmult1\tx1980\b\par
+\pard\li1440\sl240\slmult1\tx1980\par
+\pard\li720\sl240\slmult1\tx1980\par
+\par
+\pard\sl240\slmult1\tx1980\par
+\pard\sa200\sl276\slmult1 DONE --------------\b0\par
+\pard\li720\sl240\slmult1 //documenter add_jsonpath \par
+//documentation des dotdict \par
+//documentation unauthorized_classes_as_dict\par
+\par
+\pard\sl240\slmult1\tx1980\b\par
+\pard\li720\sl240\slmult1\tx1980\b0\par
+\b Documenter Plugins :\par
+\pard\li2160\sl240\slmult1\tx1980\par
+\pard\li1440\sl240\slmult1\tx1980 STEP 2) une fois que l'objet et pickalisbale, si le rendu en json est trop verbeux / pas lissible : \par
+\par
+\pard\li2160\sl240\slmult1\tx1980\b0 on va eviter de modifie la fa\'e7on dont pickle serialize l'objet \par
+\pard\li1440\sl240\slmult1\tx1980\b\par
+\pard\li2160\sl240\slmult1\tx1980 si on peut modifier le code de l'objet : ajouter methode __serializejson__\par
+\pard\li2880\sl240\slmult1\tx1980\b0 (attention a essayer de ne pas rendre d\'e9pendant plugin avec un __setstate__) \par
+\cf1 => toutes les classes h\'e9ritant de ce objet b\'e9nificieront \'e9galement de ces m\'e9thodes \par
+\cf0\b\par
+\pard\li2160\sl240\slmult1\tx1980 sinon tenter d'ajouter dynamiquemnet methode __serializejson__ \'e0 \ul la classe \ulnone de l'objet  \b0\par
+\pard\li2880\sl240\slmult1\tx1980 import Module\par
+def  serializejson_ObjectClass():\par
+    return .....\par
+Module.ObjectClass.__reduce_serializejson__ = __serializejson__\b\par
+\cf1\b0 => toutes les classes h\'e9ritant de ce objet b\'e9nificieront \'e9galement de ce __reduce__  \par
+\pard\li3600\sl240\slmult1\tx1980\cf2\par
+\pard\li2160\sl240\slmult1\tx1980\cf0\b si enregistrer fonction dans \cf1 serializejson.\cf0 dispatch_table:\par
+\pard\li2880\sl240\slmult1\tx1980\b0 Import Module\par
+import serializejson\par
+def  __reduce_serializejson__ ():\par
+    return .....\par
+\cf1 serializejson.\cf0 dispatch_table[ObjectClass] = __reduce_serializejson__\par
+\pard\li2160\sl240\slmult1\tx1980\cf2 => toutes les classes h\'e9ritant de ce objet NE BENEFICIERON PAS de ce __reduce\cf0\par
+\par
+\b\par
+\pard\li720\sa200\sl276\slmult1\b0\par
+\b Dire que dans __reduce__ il faut faire appele \'e0 un __gestate__ de facon explicite pour permetre sous -de sous classer et redefiir le __gestate__ : pas sur que ce soit ue bonne id\'e9e, il faut mieux carr\'e9ment recoder __reduce__ \b0\par
+\pard\li720\sl240\slmult1\tx1980\cf1\b documenter que    \b0\par
+\pard\li1440\sl240\slmult1\tx1980  def __getstate__(self):\par
+        return None\par
+n'emp\'e8che pas de serialize les clef pour une sous-classe !!!!\cf0\b\par
+\pard\sl240\slmult1\tx1980\par
+\pard\li720\sa200\sl276\slmult1 documenter d\'e9pendance \'e0 apply : {\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/54802258/pickling-keyword-arguments-in-python-3"}}{\fldrslt{\ul\cf3 https://stackoverflow.com/questions/54802258/pickling-keyword-arguments-in-python-3}}}\b0\f0\fs22\par
+\par
+\pard\li720\sl240\slmult1\tx1980\b Si pas serializable : \b0\line\pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li1440\sl240\slmult1\tx1980 commencer par essayer d'avoir  des ojects pickalisable  \par
+\pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li1800\sl240\slmult1\tx1980 si peu modifier code de l'object : ecrire m\'e9thode pour pickle\par
+{\pntext\f2\'B7\tab}si pas possible ecrier un plugin reduce_module.py.\line Attention les sub-class n'h\'e9riterons pas ! \line par contre on peut utilise ce meme reduce dans les nouvelles sous-classe qu'on cr\'e9era \par
+\pard\li720\sl240\slmult1\tx1980\b Si plus probl\'e8me de mise en forme :\b0\par
+\pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li1800\sl240\slmult1\tx1980 recoder m\'e9thode serializejson permetant meilleur mise en forme ( )\par
+{\pntext\f2\'B7\tab}si pas possible : coder des serializejson_module.py . \par
+{\pntext\f2\'B7\tab}Attention les sub-class n'h\'e9riterons pas ! \par
+\pard\li720\sl240\slmult1\tx1980\b documentation de attributes_filter et le mettre \'e0 "None" par default \par
+\par
+\pard\li1440\sl240\slmult1\tx1980\cf1\b0 => permetre de mettre plusieurs filters pour filner en meme temps les element commencant par "_" et par "rules \par
+\strike => documenter qu'il faut mieux le laisser \'e0 None pour avoir m\'eame comportemetn que pickle\strike0\par
+=> documenter que serialziejson est beaucoup plus pratique pour voir ce qui se passer et debuger une serialization , meme si on compte retourner sur picle : hm mauvaise id\'e9e , encourage \'e0 ne pas acheter de license \cf0\par
+\cf1 => documenter dans serialize json que attributes_filter peut \'eatre utilis\'e9 pour filter momentanement des attribut s le temps d'identifier d'ou vient le probl\'e8me avant de reconder les methodes pour pickle ou de coder un plugin \par
+=> documenter dans serializejson qu'idelement ce filter dois et^re mis \'e0 None pour conserver retrocompatibilit\'e9 avec pickle, mais qu'on peut s'en servir pour filter avec diff\'e9rents niveau de severit\'e9 : \par
+None : serialize tout ce que sauve pickle \par
+"_"  ; serializer que les attribut expos\'e9 \cf0\par
+\pard\sa200\sl276\slmult1\par
+\par
+\pard\li1440\sl240\slmult1\tx1980\b STEP 1) si l'objet n'est pas  pickalisable , ou ne contient pas l'information n\'e9cessaire \'e0 une restauration \par
+\par
+\pard\li2160\sl240\slmult1\tx1980\cf1\b0 on rend l'obejt serializable => permetra de revenir \'e0 pickle si necessaire \par
+\pard\li1440\sl240\slmult1\tx1980\cf0\b\par
+\pard\li2160\sl240\slmult1\tx1980 si on peut modifier le code de l'objet : ajouter methodes pour pickle \par
+\pard\li2880\sl240\slmult1\tx1980\b0 (attention a essayer de ne pas rendre d\'e9pendant plugin avec un __setstate__) \par
+\cf1 => toutes les classes h\'e9ritant de ce objet b\'e9nificieront \'e9galement de ces m\'e9thodes \par
+=> \cf0\b\par
+\par
+\pard\li2160\sl240\slmult1\tx1980 sinon tenter d'ajouter dynamiquemnet des methode pour pickle \'e0 \ul la classe \ulnone de l'objet  \b0\par
+\pard\li2880\sl240\slmult1\tx1980 import Module\par
+def reduce_ObjectClass():\par
+    return .....\par
+Module.ObjectClass.__reduce__ = reduce_ObjectClass\b\par
+\cf1\b0 => toutes les classes h\'e9ritant de ce objet b\'e9nificieront \'e9galement de ce __reduce__  \par
+\cf2 => il ne faudra pas oublier de systematiquemnet importer serializejson ou le plugin\par
+\pard\li3600\sl240\slmult1\tx1980\par
+\pard\li2160\sl240\slmult1\tx1980\cf0\b si enregistrer fonction __reduce__(ou __reduce_ex__) dans copyreg.dispatch_table:\par
+\pard\li2880\sl240\slmult1\tx1980\b0 Import Module\par
+import copyreg \par
+def reduce_ObjectClass ():\par
+    return .....\par
+copyreg.dispatch_table[ObjectClass] = reduce_ObjectClass\par
+\cf2\par
+\pard\li2160\sa200\sl276\slmult1 => toutes les classes h\'e9ritant de ce objet NE BENEFICIERON PAS de ce __reduce__\cf0\par
+\pard\li2880\sl240\slmult1\tx1980\b\par
+\pard\li720\sl240\slmult1\tx1980 documenter mieux quand y'a de __slots___ \par
+\pard\li1440\sl240\slmult1\tx1980\b0 dire que les datas obtenues avec serializejson sont robustes \'e0 la transformation d'attributs en slots  dans le code contrairement \'e0 pickle\par
+\pard\li720\sl240\slmult1\tx1980\b Documenter tables pour quand on ne peut recoder methodes \par
+\pard\li1440\sl240\slmult1\tx1980\b0 // __reduce_ex__ & __reduce__ => copyreg.dispatch_table\par
+__gestate__table : inutile ? \par
+// __serializejson__  => serializejson_  et serializejson_builtins ( ne sera pas utili\'e9 par pickle ) \par
+// class_from_class_str_dict \line\pard\li2160\sl240\slmult1\tx1980 =>  permet traduction de la class lors de la d\'e9serialisation (ATTENTION ; pas pris en compte par serializePython! mais j'ai r\'e9ussi \'e0 m'en sorte avec des encoders custom pour les bytes et bytearray  et des\cf4\b  \ul import as dans serializeRepr\cf0\ulnone\b0 ) \par
+\cf1 => permetrai de virer  "numpyB64, arrayB64, bytesB64, bytearrayB64 ! \par
+\cf2 en fait j'en ai besoin pour serialiezPython qui ne peut faire de traduction \'e0 la lecture . \par
+\pard\li1440\sl240\slmult1\tx1980\cf0  __setstate__ table : \par
+\pard\li2160\sl240\slmult1\tx1980 ne sera pas utilis\'e9 par pickle : hm... \par
+\pard\li720\sl240\slmult1\tx1980 j'\'e9tait partis sur le fait que tout devait \'eatre explicite dans le json.. \b\par
+reconnaissance d'objet \par
+\b0\par
+\pard\li1440\sl240\slmult1\tx1980 coder une reconnaissance de key ? hm .. peut se faire dans l'objet parent\par
+\par
+les keys doicent un un sur-ensemble des attrijbut qui existe par d\'e9fault ? \par
+les keys doivent \'eatre un sous-ensemble des attribut qui peuvent potentiellemnt exister pour cette classe ? \par
+\f1\fs20 quand il y a reconnaissance d'une classe :\par
+\pard\li2160\sl240\slmult1\tx1980 il faut appeller le __init__ ??? hm..il faut laisser d\'e9cided l'utisatuer classe par classe ?\par
+il faut appelelr le __setstate__ ? \f0\fs22\par
+\pard\li1440\sl240\slmult1\tx1980 avoir un __setstate__ sp\'e9cial reconnaissance json ? \par
+\pard\sa200\sl276\slmult1\par
+}
+ 

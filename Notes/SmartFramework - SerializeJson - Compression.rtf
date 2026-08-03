@@ -1,0 +1,118 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fswiss\fprq2\fcharset0 Arial;}}
+{\colortbl ;\red0\green0\blue0;\red0\green176\blue80;\red0\green0\blue255;\red255\green0\blue0;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1\lang12\b\f0\fs22 Compression \par
+\pard\sl240\slmult1\tx1980\par
+\pard\li720\sl240\slmult1\tx1980\b0 pourquoi blosclz et pas blosc_lz ? parceqeu blosclz est le vrai nom \par
+\b\par
+\pard\sl240\slmult1\tx1980\par
+\pard\li720 rajouter un une compression zip en option sur le json final ? \par
+\pard\li1440\sl240\slmult0\b0 reduit de plus de 2x ! \cf1\lang1033\b\f1\fs20\par
+\b0 .jsonz : mon  json zip\'e9 ? \par
+faudrait une compression iterative pour pouvoir se faire au fur et \'e0 mesure de l'\'e9critur d'un fichier \par
+\pard\sl240\slmult1\tx1980\cf0\lang12\b\f0\fs22\par
+\pard\sl240\slmult1\cf1\lang1033\f1\fs20\par
+\pard\li720\sl240\slmult1\cf0\lang12\ul\f0\fs22 compressoin d'images \par
+\pard\li1440\sl240\slmult1\par
+\cf2 blosc2 ?  \par
+\pard\li2160\sl240\slmult1\ulnone\b0 y'a un nouveau filtre "delta" avec blosc2 !!!\par
+le faire du cot\'e9 C++ pour eviter d'avoir \'e0 faire des copies lors de passage pythons <-> C++\cf0\b\par
+\pard\li1440\sl240\slmult1\par
+avec numpy.diff + blosc ? \par
+\pard\li2160\sl240\slmult1\b0 j'ai laiss\'e9 impl\'e9mentation sans la documenter \i\par
+bytes_compression_diff_dtypes (tuple of dtype)\par
+tuple of dtype for wich serialize json encode the first element followed by the differences between consecutive elements of an array before the compression. A cumulative sum will be used for the decompression\i0\par
+\par
+faudrait pouvoir determiner axe pour diff ..hors si on ne pr\'e9cise diff qu'en fonction du type, \par
+on aura pas forcemnet le nombre de dimension suffisantes  \par
+tester compression selon plusieurs direction et garder la meilleur ? \par
+devrait permetre de se rapprocher d'une compression png pour les images ? \par
+\pard\li1440\sl240\slmult1\ul\b\par
+alternative \'e0 blosc ? \ulnone\par
+\pard\li2160\sl240\slmult1\b0\par
+se restraindre aux compressiosn propos\'e9es par blosc ou en permetre d'autres pour les images ?\par
+{\field{\*\fldinst{HYPERLINK "http://imagecompression.info/"}}{\fldrslt{\ul\cf3 http://imagecompression.info/}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "http://imagecompression.info/gralic/LPCB.html"}}{\fldrslt{\ul\cf3 http://imagecompression.info/gralic/LPCB.html}}}\f0\fs22\par
+sans perte en compressant la deriv\'e9 avec blosc j'arrive quasiment \'e0 la meme compression qu'avec du png...\par
+\cf2\ul\b\par
+\pard\li1440\sl240\slmult1\cf0\par
+\pard\li720\sl240\slmult1\par
+blosc \par
+\pard\li1440\sl240\slmult1\tx3060\cf4\ulnone - pas compatible avec zstandard \'e0 cause header diff\'e9rent () \cf0\b0\par
+\pard\li2160\sl240\slmult1\tx3060 -> pas top pour la p\'e9r\'e9nit\'e9 des datas\par
+-> si on d\'e9cide alors de compression avec zstandard pour continuer \'e0 avoir quelque choses de deterministe meme si nthreads > 1, blosc n'arrive pas \'e0 lire le header...\par
+\pard\li1440\sl240\slmult1\tx3060 - \cf4\b pas deterministe si nb thread > 1\cf0\b0  pendant la compression (serialize pas toujours de la meme fa\'e7on si donn\'e9es d\'e9passent une certaine taille (il d\'e9coupe en plusieurs CPU si d\'e9passe cette taille ? )) \par
+\pard\li2160\sl240\slmult1\tx3060\cf4 => pause probl\'e8me pour versionner json...\par
+\cf0 -> pour l'instant je suis partis  sur set_nbtread(1) .. pas top ... \par
+{\field{\*\fldinst{HYPERLINK "https://github.com/Blosc/python-blosc/issues/236"}}{\fldrslt{\ul\cf3 https://github.com/Blosc/python-blosc/issues/236}}}\f0\fs22\par
+\fs16 Hi, I'm developing [serializejson](https://smartaudiotools.github.io/serializejson), a python library for fast serialization and deserialization of complex Python objects in [JSON](http://json.org) highly compatible with [pickle](https://docs.python.org/3/library/pickle.html)\par
+I use blosc in order to compress binary data before encoding in Base64 for json serialisation.\par
+I need to have always the same json when I serialize same data for comparison, checking and versioning of jsons.\par
+Sadly, when multi-threaded , the blosc compression is not determinist for big data, forcing me to use only one thread for compression and losing blosc's advantage over other libraries when compressing. \par
+for example, following code give an AssertionError when nb_thread > 1\par
+    import blosc\par
+    datas = bytes(range(256)) * 1200\par
+    nb_thread  = 2\par
+    blosc.set_nthreads(nb_thread)\par
+    for i in range(20):\par
+        compressed_blosc_1 = blosc.compress(datas , 1, cname="zstd", clevel=1)\par
+        compressed_blosc_2 = blosc.compress(datas , 1, cname="zstd", clevel=1)\par
+        assert compressed_blosc_1 == compressed_blosc_2\par
+Is there a possibility of using blosc in multi-tread while maintaining deterministic behavior?\par
+Otherwise i would like to use the  [python-zstandard](https://github.com/indygreg/python-zstandard) libray for compression wich is determinist even in multi-thread. Sadly your blosc library wich is much faster than python-zstandard for decompression is not able to decompress data compressed with python-zstandard library beacause of  unrecognised header. \par
+Is there an option to recognize or ignore the header of the data compressed with the python-zstandard library if we pass the name of the compression to blosc.decompress ? \par
+More generally, is it possible to have data compressed with blosc that does not use specific blosc headers, to have data that can still be readable in 10 years even if blosc is no longer maintained?\par
+--------------------\par
+Hi. Unfortunately it is not possible. Blosc achieves efficient paralellism by letting the first thread that ends its part of the compression to write first in the output buffer, then the next thread to finish will write after that, and so on so forth; this is the way we can save precious copy time. \cf4 As there is no guarantee on the order of the sequence of completing times for every thread, it is essentially impossible to guarantee an order (except for the trivial case that you use 1 single thread, as you found out already).\par
+\cf0\par
+Regarding compatibility with zstandard, unfortunately the answer is negative again. Blosc is all about speed, and it makes a number of choices for compressing/decompressing that makes it difficult (if not impossible) to read other formats in order to decompress them faster than the original implementation. At any rate, my guess is that it is going to be difficult for any codec to decompress faster than zstandard when it is required to use zstandard own format.\par
+\par
+Regarding your last question, well, the Blosc format is completely open (see {\field{\*\fldinst{HYPERLINK "https://github.com/Blosc/c-blosc/blob/master/README_CHUNK_FORMAT.rst"}}{\fldrslt{\ul\cf3 https://github.com/Blosc/c-blosc/blob/master/README_CHUNK_FORMAT.rst}}}\f0\fs16 ) so the idea is that, even if Blosc is going to be unmaintained in 10 years, anybody could produce a reader (even a writer!) for the format. In any case, the Blosc team is confident that happy users will provide resources for, hopefully, at least 10 more years.\par
+----------------\par
+Hello , \par
+Thank for your response . \par
+I was speaking about python blosc with cname = zstd and python-zstandard library compatibility . \par
+From my tests (beside) , for bytes len  between 32 and 8193,   python blosc compression with cname = "zstd" and nb_thread = 1 differ from python-zstandard  library only by adding a header of 24 bytes .\par
+I did'nt investigate much more but my guess was that it could be possible to compress with python-zstandard library wich is deterministe in multithread and to decompress with blosc (wich is 4x faster than python-zstandard library for zstandard compressed data), given to blosc.decompress the codec name "zstd" (information that is no longer in the lost header)\par
+    import blosc\par
+    import zstandard\par
+    import numpy\par
+    blosc.set_nthreads(1)\par
+    for size in range(32,8193,1):    \par
+        inst = numpy.random.randint(0,10,size)\par
+        compressed_zstd_blosc = blosc.compress(inst, 1, cname="zstd", clevel=1)\par
+        compressed_zstandard = zstandard.ZstdCompressor(level=1, threads=1).compress(inst)\par
+        assert compressed_zstd_blosc[24:] == compressed_zstandard\par
+ --------------------\fs22\par
+\fs16 Yes, I know what you was speaking about ;-). Actually, there are a lot of things that differ in the why that blosc+zstd and plain zstd store the output. For one thing, I see that \ul you are directing blosc to use the shuffle filter\ulnone , and I don't think python-zstandard activates this. Then, \ul blosc tends to split the inputs in smaller pieces\ulnone , and then again, this is not something that python-zstandard does. Really, \ul even if blosc and zstd both use the same codec internally, a lot is changing on how the output is created.\ulnone\par
+------------\par
+Sad, so it's just a coincidence if blocks + zstd and zstandard are compatible for random bytes of length between 32 and 8193 ? I don't necessary want to use the shuffle filter . Maybe I should split my bytes into blocks of 8192 elements to keep this compatibility between blosc+zstd and standard ? \cf1\lang1033\b\f1\fs20\par
+\pard\sl240\slmult1\par
+\pard\sa200\sl276\slmult1\cf0\lang12\b0\f0\fs22\par
+\pard\li720\sa200\sl276\slmult1\par
+\pard\li720\sl240\slmult1\b utilisation de la d\'e9riv\'e9 avant compression \b0\par
+\pard\li1440\sl240\slmult1 le choix d'utiliser diff sur tableau avant compression zstd (et cumsum apr\'e8s d\'e9compression) doit faire partis du param\'e8tre du codec ? \par
+blosc_zstd_diff ? ou (blosc_zstd,1,preprocess= "diff")\par
+la d\'e9riv\'e9 dois se faire dans un sens qui a du sens en terme de donn\'e9es \par
+la compression blosc doit se faire dans le mem sans que la d\'e9riv\'e9e ? \par
+par exemple pour du son Zstd va pouvoir detecter des paternes dans l'erreure ? \par
+le choix doit se faire au niveau du __getstate__ de l'objet qui contient le array ? \par
+la diff\'e9renciation va garder un vecteur intact (le 1ier dans le sens de la diff\'e9renciation) \par
+ce vecteur peut \'e0 son tour \'eatre dif\'e9renci\'e9 \par
+mouais , on ne gagnera quasiment rien sur image \par
+par contre beaucou sur audio st\'e9r\'e9o ? \par
+Audio:\par
+\pard\li2160\sl240\slmult1 [1L 1R]\par
+[2L 2R]\par
+[3L 3R]\par
+diff : \par
+[ | | ]\par
+[ v v ]\par
+compression \par
+[-> ]\par
+[-> ]\par
+?\par
+\pard\li1440\sl240\slmult1 Image N& VB \par
+Image Couleur ? \par
+\pard\li720\sa200\sl276\slmult1\par
+}
+ 

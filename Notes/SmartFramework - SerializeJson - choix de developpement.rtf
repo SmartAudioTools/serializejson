@@ -1,0 +1,127 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset0 Courier New;}{\f2\fnil\fcharset2 Symbol;}}
+{\colortbl ;\red0\green176\blue80;\red255\green0\blue0;\red102\green102\blue102;\red0\green77\blue187;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1\lang12\b\f0\fs22 Properties/getters/setters parameters\par
+\pard\li720\sl240\slmult1 Encoder \par
+\pard\li1440\sl240\slmult1 properties : \b0 j'ai choisit de ne pas l'activer par defautl pour pousser \'e0 coder methodes __reduce__, __getstate__ ou __serializejson__ \b  \par
+getters: \b0 j'ai choisit de ne pas l'activer par defautl pour pousser \'e0 coder methodes __reduce__, __getstate__ ou __serializejson__ \b  \par
+\par
+\pard\li720\sl240\slmult1 Decoder\par
+\tab propertis \par
+\pard\li2160\sl240\slmult1\b0 True :   j'ai choisit de ne pas l'activer par defaut\par
+\pard\li2880\sl240\slmult1 + evite des surprises d'object mal d\'e9cod\'e9 de fa\'e7on silencieuse...\par
+- vite couteux car il va explorer les properties  pour tous les objects\par
+- dangereux ? \par
+\pard\li2160\sl240\slmult1 False : \par
+\pard\li2880\sl240\slmult1 heu... on ne peut alors compter que sur __setstat__ que je souhaite eviter d'uiliser pour ne pas peter l'updating avec serializePython\par
+\pard\li2160\sl240\slmult1 None: \par
+\tab ca parait pas mal \b\par
+\pard\li720\sl240\slmult1\tab setters  \b0 j'ai choisit de ne pas l'activer par defaut pour eviter de suprise d'objet mal d\'e9cod\'e9 de fa\'e7on silencieuse \par
+\pard\li2160\sl240\slmult1 faut-il activer ? \par
+essayer de se passer d'avoir \'e0 coder methodes __setstate__ pour ne pas foutre en l'air update avec serializePyhton\par
+virer extra_setters en fournissant tous les setters ? \par
+setters_with_defaults pourquoi "with_defaults"?\b\par
+\pard\sl240\slmult1\par
+\par
+\par
+\par
+separation disposition graphique / reste des donn\'e9es \b0\par
+\pard\li720\sl240\slmult1\b fichier ini \b0\par
+\pard\li1440\sl240\slmult1 j'ai fait le choix de s\'e9parer la disposition grapique (dans fichier .ini) des donn\'e9es qui on un impact sur la logique\par
+je sauve la disposition des dock avec \par
+\f1     def closeEvent(self, event):\par
+        # Sauvegardes position des Docks\par
+        settings = QSettings("%s/SmartFaceEditUI_%s.ini"%(os.path.dirname(__file__),os.environ['COMPUTERNAME']), QSettings.IniFormat)\par
+        settings.setValue("geometry", self.saveGeometry()) # Saves the current geometry and state for top-level widgets.\par
+        settings.setValue("windowState", self.saveState()) # Saves the current state of this mainwindow's toolbars and dockwidgets. This includes the corner settings which can be set with setCorner(). The version number is stored as part of the data.\par
+        QtWidgets.QMainWindow.closeEvent(self, event)\f0\par
+\pard\sl240\slmult1\b\par
+valeures par d\'e9fault \par
+\pard\li720\sl240\slmult1 pour recupere les valeures par d\'e9faut :\par
+\pard\li1440\sl240\slmult1\b0 option 1) fournir un dictionnaire \'e0 __getstate__\par
+option 2)  cr\'e9er un objet de la meme classe et voir les valeures par defaut ? \par
+\cf1 -> Je suis partis l\'e0 desssus si on ne fournit pas de dictionnaire \cf2  mais un peu merdique ....\par
+\cf0 option 2) les stoker dans la classe ? \par
+option 3) les reucperer dans parma\'e8tre __init__ \b\par
+\pard\li720\sl240\slmult1 dump :\par
+\pard\li1440\sl240\slmult1 on ne suprimera des valeures que si y'a appel au __init__ \par
+ajouter un param\'e8tre \'e0 la serialization ? \b0\par
+\pard\li2160\sl240\slmult1 j'avais ajout\'e9 un param\'e8tre remove_default_values \par
+par contre il y avait  un souci , j'enl\'e8vai les valeures par d\'e9fault meme si y'a pas eu de __init__.. \par
+\cf1 => du coup j'ai vir\'e9 l'option \par
+\pard\li720\sl240\slmult1\cf0\b load : \par
+\tab\par
+\pard\li1800\sl240\slmult1\b0\par
+\pard\sl240\slmult1\b\par
+\par
+heritage plugins ?  \par
+\pard\li720\sl240\slmult1\b0 j'ai d\'e9cid\'e9 de ne pas le faire car !a risque d'etre dangereux , si on a r\'e9impl\'e9ment\'e9 reduce il ne le vera pas ...\par
+serpent peut se permetre de le faire car il n'y a qu'une methode \par
+\par
+voir si on arrive \'e0 serializer objects heritants de bytes, bytearray etc \par
+-> oui \'e7a marche !!! je ne sais pas trop comment mais le __reduce_ex__ a \'e9t\'e9 automatiquement r\'e9impl\'e9ment\'e9 ! \par
+pour objects h\'e9ritant il faudrait rajouter un reduc \'e0 la main qui va faire appel au plugin ? \par
+ou faire que les plugin supportent l'heritage en explorant les classes de base ? \par
+(comme fait serpent)\b\par
+\pard\sl240\slmult1\tx1980\par
+API ?  \b0\par
+\pard\li360\sl240\slmult1\tx1980 Option 1: \par
+\pard\li1080\sl240\slmult1\tx1980 dums\par
+dumps\par
+dumpb\par
+loads \par
+\strike loadb? inutile \strike0\par
+\pard\li360\sl240\slmult1\tx1980 Otion 2 :  Mauvaise id\'e9e \par
+\pard\li1080\sl240\slmult1\tx1980 dump_str \cf2 : fichier text ou str? \par
+\cf0 dump_bytes\cf2 : fichier binaire ou bytes? \cf0\par
+dumps_as_pickle \par
+dump \par
+dump_as_pickle\par
+load_str  \cf2 : fichier text ou str? \par
+\cf0 load_bytes \cf2 : fichier binaire ou bytes? \par
+\cf0\par
+\cf1 + permetrai \'e0 l'utilisateru de choisir de faire choix au moment de l'import .. \par
+\cf2 - mouais super merdique si copier /coller d'un code \'e0 l'autre\cf0\b\par
+\par
+\pard\sl240\slmult1\tx1980 Pourquoi j'ai commenc\'e9 \'e0 utiliser recement __new__ en plus de  __init__ ?\par
+\pard\li720\sl240\slmult1\tx1980\b0 __init__ pas sufisant ?  \par
+comment pickle r\'e9agit quand on a un getnewargs et un reduce disant d'appeller le init ?  \par
+\par
+\par
+\pard\sl240\slmult1\tx1980\b pourquoi j'utiliser mon propre format de tuple_from_instance ? quelles diff\'e9rences % __reduce_ex__ ? \par
+\pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li720\sl240\slmult1\tx1980\b0 format reduce\b\line\pard\li360\sl240\slmult1\tx1980\line\pard\li1080\sl240\slmult1\tx1980\b0 format si __reduce_ex__ h\'e9rit\'e9 : \par
+\pard\li1800\sl240\slmult1\tx1980 copyreg.\cf1\b __newobj_ex__ \cf0\b0 , (Ma_Class,new_args,new_kwargs), state,listitems, dictitems\par
+copyreg.\cf1\b __newobj__\cf0\b0  ,(Ma_Class,new_arg1,new_arg2..)), state,listItems, dictItems\par
+copyreg.\cf1\b __newobj__\cf0\b0  ,(Ma_Class,),state,listItems, dictItems\par
+\pard\li1080\sl240\slmult1\tx1980\par
+sinon si __reduce__ h\'e9rit\'e9 (ENCORE POSSIBLE ? ) \par
+\par
+\pard\li1800\sl240\slmult1\tx1980 copyreg._reconstructor,(Ma_Class,Ma_class_Base,\cf2 newargs et init arg pour classe de base ?),\cf3 state,\strike listItems,dictItems ? \strike0 (state,listItems,dictItems  sont optionels)\cf0\par
+\pard\li1080\sl240\slmult1\tx1980\par
+format classic si  __reduce_ex__ ou __reduce__ r\'e9impl\'e9ment\'e9 (MAIS PAS OBLIGATOIR) \line\pard\li1800\sl240\slmult1\tx1980 class/function, ->  \par
+initArgs(tuple or list,\cf2\strike dict\cf0\strike0 ), \cf2 => attention va aussi appller le __new__ s'il existe ? \cf0\par
+state(dict or every else),\par
+listitems (list)\par
+dictitems (dict)\par
+\par
+apply,\par
+(class/function, None, init_KwArgs, \cf2 => attention va aussi appller le __new__ s'il existe ? \cf0\par
+state(dict or every else),\par
+listitems (list)\par
+dictitems (dict)\line\pard\li360\sl240\slmult1\tx1980\b\par
+\pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li720\sl240\slmult1\tx1980\b0 mon format "tuple" :\b\line\pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li1080\sl240\slmult1\tx1980\b0 constructor(\cf1 class_str\cf0 /class/function ),\b\line\b0 initArgs(tuple, \cf1 list\cf0  or \cf1 dict\cf0 ) , \cf2 => attention va aussi appller le __new__ s'il existe ? \cf0\b\line\b0 state(dict or every else ) , => pas de serparation __dict__,__slots__ \cf2\b\line\cf4\b0 listitems (list?)\cf0\b\line\cf4\b0 dictitems (dict?) \cf0   \b\line\b0 newArgs(tuple, list or \cf1 dict\cf0 ) , \cf2 => utile ?  permet au moins d'etre moin ambig\'fc \cf0\b\par
+\pard\li720\sl240\slmult1\tx1980\par
+\cf2\b0\par
+\cf0\b\par
+j'ai fait uen tentative d'uniformisation plugin pickle/serializejson : \par
+\pard\li1440\sl240\slmult1\tx1980\cf2\b0 pb 1 : on ne peut plus retourner "numpy.array"  mais numpy.array qui devient numpy.core.multiarray.array\par
+pb 2 : on a un seul fichier reduce_module .py  dans lequel import de serializejons > dependance \'e0 serializejson\par
+pb 3 : oblige \'e0 syntaxe hyper lourde de reduce pour methodes __serializejson__ pour pas grand chose \par
+car si on code __serializejson__ c'est justemetn qeu le comportement par defautl de pickl ne convien pas et qu'on ne souhaite pas le modidier -> on reviendra pas \'e0 pickle pour cette partie de code \par
+=> je suis revenu \'e0 un truc s\'e9par\'e9\par
+\pard\li720\sl240\slmult1\tx1980\par
+\cf0\b\line\pard\sl240\slmult1\tx1980\par
+pourquoi j'utilis\'e9 un dictionnaire avec des classStr au lieu de class_  comme keys pour tuple_from_module_class_str ?\par
+\pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li720\sl240\slmult1\tx1980\b0 pour eviter d'avoir \'e0 importer toutes les bibioth\'e8sques correspondant aux plugins ? \line a priori oui (\'e0 verifier dans documentation \line => je suis revenu la dessus pour agir plus eviter de lire deux dictionnaire class-> classStr -> tuple_from_xxx\b\line\line\b0  \b\par
+\pard\li720\sl240\slmult1\b0\par
+}
+ 

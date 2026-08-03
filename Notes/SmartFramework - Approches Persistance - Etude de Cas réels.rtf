@@ -1,0 +1,165 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}}
+{\colortbl ;\red255\green0\blue0;\red0\green176\blue80;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1\lang12\b\f0\fs22 Etude de cas r\'e9els\par
+\par
+\pard\li720\sl240\slmult1 SmartFaceEditUI\par
+\par
+\pard\li1440\sl240\slmult0\b0 j'ai abandonn\'e9e l'id\'e9e de faire quelque chose de modulaire en connectant des objets dans QtDesinger, pour tout mettre dans une seul grosse classe FaceEditorUI qui g\'e8re un peu tout et qui rentre un peu en concurance avec le widget g\'e9n\'e9ral...\par
+cet objet a une interface graphique , mais pourait ne pas en avoir \par
+cet objet recup\'e8re touches claviers, les drag'n'drop ..\par
+\pard\li1440\sl240\slmult1\b\par
+\pard\li1440\sl240\slmult0 Python : \b0\par
+\pard\li2160\sl240\slmult0\b fichier de donn\'e9es python : \b0\par
+\pard\li2880\sl240\slmult0 parameters.py : differents paths\par
+FaceEditorConstants.py  : constantes toutes en majuscules dans : , import\'e9 dans "FaceEditorUI.py" et "iris.py"\par
+pointNameWayPositions.py : parametre definissant des param\'e8re par defaut, des noms etc... trop proche d'une certaint forme de donn\'e9e pour le garder dans code du script qui doit contineur si possible que de la logique  \par
+\par
+\pard\li2160\sl240\slmult0\b code python \b0\par
+\pard\li2880\sl240\slmult0 valeurs par defaut pour arguments de fonctions, ou None pour codage en dur plus loin dans la fonction.\par
+parametres sous formes d'attributs cod\'e9 en dur , commencant _ pour \'eatre sur de pas \'eatre sauvegard\'e9 et donc ne pas \'eatre restaure par serialisation. parfois nettoy\'e9 dans clean ? \par
+\par
+def clean(self)\par
+\par
+\par
+\pard\li2160\sl240\slmult0\b fichier json deserialis\'e9 et pars\'e9 dans setPath \b0\par
+\pard\li2880\sl240\slmult0 je voulais eviter d'avoir \'e0 parser un fichier . mais j'y ai \'e9t\'e9 contraint car : \par
+1) ma deserialisation d'application ne prend pas de json ? \par
+2) pour mettre en forme certaines donn\'e9e, afin de pouvoir afficher le resultat de differents fichier de tracking simultan\'e9ment. \par
+\par
+\pard\li1440\sl240\slmult1\b\par
+\par
+Qt Designer \par
+\pard\li2160\sl240\slmult1\b0 Dans Qt desinger un certain nombre de boutons/ number ont une valeur, different de celle par defaut, cod\'e9es en dur sous forme de propri\'e9t\'e9 dans fichier ui  (QtDesigner)\par
+\par
+\pard\fi-1440\li5040\sl240\slmult1\tx4320\b QtDesigner \tab\tab code python gener\'e9\b0\par
+\pard\fi-1440\li4320\sl240\slmult1\tx4320 (non serializable car objets Qt => \cf1 du coup oblig\'e9 d'initialis\'e9 en dur avec les meme valeures les attribut correspondant de FaceEditorUI ?\cf0  )\par
+      boucl\'e9 sur FaceEditor , ou il est stock\'e9 et serializ\'e9 sous forme d'attribut :  \par
+\pard\fi-1440\li5040\sl240\slmult1\tx4320 remove shake  \tab [v]\tab self.removeShakeButton.setChecked(True)\par
+\par
+\pard\fi-1440\li4320\sl240\slmult1\tx4320       avec sortie connect\'e9 sur slot correspondant \'e0 une attribut avec "_" de FaceEditor , pour eviter desyncrhonisation entre attribut interne \'e0 FaceEditor et etat bouton \par
+\pard\fi-1440\li5040\sl240\slmult1\tx5760 inpaint \tab [v]\tab self.inPaintButton.setChecked(True)\par
+lock iris radius \tab [v] \tab self.lockIrisRadiusButton.setChecked(True) -> FaceEditor._lockedIrisRadius\par
+smoth  \tab [v]\tab self.smothButton.setChecked(True)\tab\par
+search zone  \tab [v]\tab self.searchZoneButton.setChecked(True)\par
+potentials \tab [v]\tab self.potentialsButton.setChecked(True)    \par
+\pard\fi-1440\li5040\sl240\slmult1\tx4320\par
+\pard\fi-1440\li4320\sl240\slmult1\tx4320 (non serializ\'e9s)\par
+\pard\fi-1440\li5040\sl240\slmult1\tx5760 contrast : \tab 5 \tab self.contrast = FlonumUI(self.horizontalLayoutWidget_2,syncSave=False,minimum=1.0,repeat=False,maximum=10.0,value=5.0)\par
+speed\tab 1 \tab self.speed = FlonumUI(self.gridLayoutWidget_3,minimum=-10.0,maximum=10.0,value=1.0)\par
+\pard\fi-1440\li5040\sl240\slmult1\tx4320\par
+\pard\fi-1440\li4320\sl240\slmult1\tx4320 (serializ\'e9) \par
+\pard\fi-1440\li5040\sl240\slmult1\tx5760 lineWidth\tab 0\tab self.lineWidth = FlonumUI(self.horizontalLayoutWidget_2,syncSave=False,minimum=0.0,repeat=False,maximum=10.0,value=0.0)\par
+sigma\tab 4\tab self.sigmaContrast = FlonumUI(self.gridLayoutWidget_3,repeat=False,syncName="",maximum=10.0,value=4.0,minimum=1.0,syncSave=False)\par
+\par
+media size :\tab 11 \tab self.whiteMedianSize = NumberUI(self.gridLayoutWidget_2,syncSave=False,minimum=3,repeat=False,maximum=500,value=11)\par
+max size  \tab 5 \tab self.whiteMaxSize = NumberUI(self.gridLayoutWidget_2,syncSave=False,repeat=False,maximum=500,value=5)\par
+median-> max\tab 10\tab self.whiteMedianMax = NumberUI(self.gridLayoutWidget_2,syncSave=False,repeat=False,maximum=100,value=10)\par
+whiteDistanceMax 10\tab self.whiteDistanceMax = NumberUI(self.gridLayoutWidget_2,syncSave=False,repeat=False,maximum=500,value=10)\par
+whiteSumMin\tab 30\tab self.whiteSumMin = NumberUI(self.gridLayoutWidget_2,syncSave=False,repeat=False,maximum=500,value=30)\par
+whiteSumMinAtDistanceMax 99 self.whiteSumMinAtDistanceMax = NumberUI(self.gridLayoutWidget_2,syncSave=False,repeat=False,maximum=500,value=99)\par
+whiteMedianMaxThreshold 17\tab self.whiteMedianMaxThreshold = NumberUI(self.gridLayoutWidget_2,syncSave=False,repeat=False,maximum=500,value=17)\par
+\pard\li2160\sl240\slmult1\par
+Dans Qt desinger un certaint nombre d'objet sont coch\'e9s serializ\'e9 : \par
+\pard\li2880\sl240\slmult1\par
+self.sigmaContrast.setSerialize(True)\par
+self.luminosity.setSerialize(True)\par
+\par
+self.lineWidth.setSerialize(True)\par
+self.ShowEyesButton.setSerialize(True)\par
+self.whiteDistanceMax.setSerialize(True)\par
+self.whiteSumMin.setSerialize(True)\par
+self.whiteMedianSize.setSerialize(True)\par
+self.whiteMaxSize.setSerialize(True)\par
+self.whiteSumMinAtDistanceMax.setSerialize(True)\par
+self.whiteMedianMax.setSerialize(True)\par
+self.whiteMedianMaxThreshold.setSerialize(True)\par
+\pard\li2160\sl240\slmult1\par
+Dans Qt designer un certain nombre d'objet UI sont branch\'e9e sur une sortie de faceEditorUI \par
+\par
+\pard\li2880\sl240\slmult1 pour affichage : \par
+\pard\li3600\sl240\slmult1 self.faceeditorui.outAnalyzePercent[int].connect(self.analyzeModelProgressBar.setValue)\par
+self.faceeditorui.outAnalyzePotentialWhiteMarkersPercent[int].connect(self.analyzeWhiteProgressBar.setValue)\par
+self.faceeditorui.outAnalyzeShakePercent[int].connect(self.analyzeShakeProgressBar.setValue)\par
+self.faceeditorui.outTrackPointsPercent[int].connect(self.whiteTrackingProgressBar.setValue)\par
+self.faceeditorui.outVideoBufferingPercent[int].connect(self.videoBufferingPercent.setValue)\par
+self.faceeditorui.outVideoName[unicode].connect(self.setWindowTitle)\par
+self.faceeditorui.outEditingTime[QtCore.QTime].connect(self.timeEdit.setTime)\par
+self.faceeditorui.outFrameNumber[int].connect(self.frameNumber.setValue)\par
+\pard\li2880\sl240\slmult1\par
+\cf1 pour recupere une touche de clavier car j'ai pas resolu truc pour avoir captation globale d'un racourcit clavier . \cf0\par
+\pard\li3600\sl240\slmult1 self.faceeditorui.outDecStep.connect(self.menuui_2.nextItem)\par
+self.faceeditorui.outIncStep.connect(self.menuui_2.prevItem)\par
+self.faceeditorui.outSave.connect(self.serializeinterface.save)\par
+\pard\li4320\sl240\slmult1\par
+\pard\li2880\sl240\slmult1\cf2 pour restaurer valeur autrement qu'avec deserialisation ?\cf0\par
+\pard\li3600\sl240\slmult1 self.faceeditorui.outRemoveShake[bool].connect(self.removeShakeButton.setChecked)\par
+self.faceeditorui.outContrast[float].connect(self.contrast.setValue)\par
+self.faceeditorui.outOptimiseEyeCenterWithNeighbors[bool].connect(self.useEyesCornersButton.setChecked)\par
+self.faceeditorui.outNeutralFrontFrame[unicode].connect(self.folder_3.setText)\par
+self.faceeditorui.outNeutralSamePositionFrame[unicode].connect(self.folder_2.setText)\par
+\par
+\pard\li2880\sl240\slmult1 pour parameter interfaces graphiques : \par
+\pard\li3600\sl240\slmult1 self.faceeditorui.outFrameCountLessOne[int].connect(self.frameNumber.setMaximum)\par
+self.faceeditorui.outFrameCountLessOne[int].connect(self.intsliderui.setMaximum)\par
+self.faceeditorui.outResultStateColor[object].connect(self.resultselectorui.inStateColor)\par
+\par
+\pard\li2880\sl240\slmult1 pour communiquer avec serializeinterface\par
+\pard\li3600\sl240\slmult1 self.faceeditorui.outDefaultSavePath[unicode].connect(self.serializeinterface.setFileName)\par
+self.faceeditorui.outLoad[unicode].connect(self.serializeinterface.load)\par
+\par
+\par
+\pard\li2160\sl240\slmult1\par
+\par
+\par
+\pard\li1440\sl240\slmult1\b Serialisation Application ? \par
+\pard\li2160\sl240\slmult1\b0 serialisation/deserialisation automatique dans \'e0 la fermeture/ouverture de l'application \par
+serialisation dans un fichier specifique quand "save"\par
+\par
+\pard\li2160\sl240\slmult0 serialisation de l'application dans "smartFaceEditSarialized.dat"\par
+- y'a des pbs pour limite de m\'e9moire .... \par
+\cf2\b certains widgets sont serialis\'e9s : quelsont les limites ?\par
+d'autre sont boucl\'e9s  sur le mega-objet serialized (FaceEditorUI) : \b0\par
+\pard\li2880\sl240\slmult0\cf0\par
+\pard\li2160\sl240\slmult1 convient pour  stocker les param\'e8tre actueles , mais pas adpat\'e9 pour sauvegarder des parametres par defauts , car je vais pouvoir \'eatre de temps en temps amen\'e9 \'e0 suprimer le fichier serializ\'e9 pour netoyer toutes les donn\'e9es internes , afin d'\'eatre sur que rien d'incompatible avec nouveau code ne traine ? a moins d'avoir un fichier defautl.dat qui ne vas jamais \'eatre modifi\'e9 ? revoir codage de serializeInterface. \par
+\pard\li1440\sl240\slmult1\b\par
+Sync ? \par
+\pard\li2160\sl240\slmult1\b0 je n'ai utilis\'e9 aucun Sync \par
+\pard\li2160\sl240\slmult0 j'ai pr\'e9f\'e9r\'e9 cod\'e9 en dur les connections dans QtDesigner, car au final pas eu besoin de synchroniser des varibles \'e0 plusieurs endroits\par
+j'ai juste \'e0 envoyer valeure \'e0 FaceEditorUI \par
+\pard\li2160\sl240\slmult1 de plus tous les objet n'ont pas forcement de version smartFramework qui permet de facielemnt mettre un nom ?\par
+\pard\li1440\sl240\slmult1\par
+ \par
+\par
+\par
+\par
+\par
+\b drag'n'drop \b0\par
+\pard\li2160\sl240\slmult1 lorsque l'on glisse une nouvelle video ou un fichier faisant reference \'e0 une nouvelle video , on lance un clean() \par
+or dans clean(self) un certaint nombre de setXxxx avec des valeur par defaut cod\'e9 en dur.\par
+le cleant n'effectue pas de deserialisation de l'etat de l'application, pour atteindre les bouton concern\'e9s oblig\'e9 de sortir un signal connect\'e9 \'e0 l'entr\'e9e de ses boutons externets.\par
+\par
+\pard\li2880\sl240\slmult1 self.setContrast(5.)\tab\tab\tab\tab => self.outContrast.emit(value)\par
+self.setRemoveShake(True)\tab\tab\tab => self.outRemoveShake.emit(b)\par
+self.setOptimiseEyeCenterWithNeighbors(False) => self.outOptimiseEyeCenterWithNeighbors.emit(b)\par
+\par
+\pard\li2160\sl240\slmult1\par
+l'emit n'etant envoy\'e9 que si la valeur \'e0 changer (pour eviter bouclage ?) les boutons externes ne sont pas inform\'e9s de leur \'e9tat si la valeur n'a pas chang\'e9.  \par
+pour les activer par defaut j'ai mis checked [v] en dur dans QtDesigner pour : \par
+\pard\li2880\sl240\slmult1 remove shake \par
+inpaint\par
+lock iris radius \par
+smoth \par
+search zone \par
+\pard\li2160\sl240\slmult1 potentials\par
+   \par
+\pard\sl240\slmult1\b\par
+\par
+\b0\par
+\pard\li2880\sl240\slmult0\par
+\pard\li2160\sl240\slmult0\par
+\par
+\pard\li2880\sl240\slmult0\par
+\par
+\pard\li2880\sa200\sl276\slmult0\par
+}
+ 

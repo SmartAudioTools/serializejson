@@ -1,0 +1,259 @@
+{\rtf1\ansi\ansicpg1252\deff0\deflang1036{\fonttbl{\f0\fnil\fcharset0 Calibri;}}
+{\colortbl ;\red0\green0\blue255;\red255\green0\blue0;\red204\green204\blue204;\red0\green0\blue0;\red0\green176\blue80;\red0\green77\blue187;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1\lang12\b\f0\fs22 serializePython : \par
+\pard\li720\sl240\slmult1\b0 def pyModuleAsObject(obj, name="obj", indent=0, modules=None):\par
+    ....\par
+    if False :#obj in sys.modules.values():\par
+\par
+\par
+\par
+\pard\fi-1080\li2520\sl240\slmult1\par
+\pard\sl240\slmult1\par
+\par
+optimiseation serializeRepr : tout passer avec des listes de string qu'on concatene \'e0 la fin ? \par
+\lang1036\par
+\par
+putain le dileme entre  truc_machin et trucMachin commence serieusemetn \'e0 poser probl\'e8me notement dans SerializeInterface\par
+\par
+\par
+probl\'e8me pour la reconnaissance des attribut \'e0 transformer en propri\'e9t\'e9 lors de la compilation ?\par
+\par
+\par
+\b\par
+\par
+Am\'e9liorations \lang12\par
+\pard\li720\sl240\slmult1\par
+utiliser __qualname__ ?\par
+\par
+permetre serialization  de : \b0\par
+\pard\li1440\sl240\slmult1 dataclass? \par
+dataframe? \par
+\pard\li720\sl240\slmult1\b\par
+test_serialize.py \par
+\pard\li1440\sl240\slmult1\b0 ajouter :\par
+/object avec __slot__ \par
+/object avec __slot__ herit\'e9s \par
+/objects pyqt\par
+tests avec serialzieParameters : filtre , setAttributs, etc..\par
+\pard\li720\sl240\slmult1\b\par
+\par
+serializeInterface : \par
+\pard\li1440\sl240\slmult1 calcul du hash pour eviter de r\'e9ecrire le fichier si aucune modifications ?\par
+\pard\li2160\sl240\slmult1\b0 (dumps et loads au lieu de dump et load) \par
+oui pour calculer le hash et eviter de resauvegarder fichier si aucune modifications . \par
+non si gros fichier .. faudrait pouvoir recuperer le hash lors de d\'e9serialisation. \par
+\b avec hash : \par
+\pard\li2880\sl240\slmult1\b0 pour l'instant passe par une string intermediaire\par
+j'ai essaye en calculant hash sur tuple form\'e9 des listes, le probl\'e8me c'est que les lignes ne sont pas bien split\'e9es \'e0 la serialisation . \b\par
+\b0\par
+faudrait un calcul du hash iteratif . le code source est l\'e0 {\field{\*\fldinst{HYPERLINK "https://github.com/python/cpython/blob/3.7/Objects/unicodeobject.c"}}{\fldrslt{\ul\cf1 https://github.com/python/cpython/blob/3.7/Objects/unicodeobject.c}}}\f0\fs22\par
+\pard\li2160\sl240\slmult1\b avec hashlib : \par
+\pard\li2880\sl240\slmult1\b0{\field{\*\fldinst{HYPERLINK "https://docs.python.org/fr/3/library/hashlib.html#hash-algorithms"}}{\fldrslt{\ul\cf1 https://docs.python.org/fr/3/library/hashlib.html#hash-algorithms}}}\f0\fs22\par
+les fonctions pour le calcul iteratif existe d\'e9j\'e0 : \par
+update() et digest() \par
+seulement plus couteux \'e0 priori et ne fonctionne que sur des bytes...\par
+\pard\li1440\sl240\slmult1\par
+\pard\li720\sl240\slmult1\b serializePython:  \par
+\pard\li1440\sl240\slmult1\cf2 fichier .dat  : je n'ai pas interet \'e0 les ouvrire en binaire ??? pour povuoir faire du from base 64 sans  decodage et r\'e9ancodage en utf-8  ??\cf0\b0\par
+voir si il ne fait pas plein de recopier de string si on met splitLines = Fals\par
+\par
+\pard\li720\sl240\slmult1\b serializeTxt : \par
+\pard\li1440\sa200\sl276\slmult1\b0 vraiement besoin ? c'est les meme fonctions que writeLines (avec argument path et obj invers\'e9) et readLines \par
+\pard\li720\lang1036\b PyQt \par
+\pard\li1440 recr\'e9ation totale d'objets PyQt  ?\par
+\pard\li2160\b0 pour l'instant ma d\'e9srialisation se content de restaures les atribut des objet PyQt . \par
+si on tien \'e0 recr\'e9er objet PyQt , on peut refaire appel au init de l'objet racine ? \par
+faire des methodes createConnextion et Reinit ?\par
+\pard\li1440\sl240\slmult1\lang12\b serializeQt.py : \par
+\pard\li2160\sl240\slmult1\b0 tuple_from_QPen\par
+\pard\li2880\sl240\slmult1 __init__ (self)\par
+__init__ (self, Qt.PenStyle)\par
+\ul __init__ (self, QBrush brush, float width, Qt.PenStyle style = \ulnone Qt.SolidLine, Qt.PenCapStyle cap = Qt.SquareCap, Qt.PenJoinStyle join = Qt.BevelJoin)\par
+__init__ (self, QPen pen)\par
+__init__ (self, QVariant variant)\par
+\pard\li2160\sl240\slmult1\par
+\par
+tuple_from_QBrush\par
+\pard\li2880\sl240\slmult1 __init__ (self)\par
+__init__ (self, Qt.BrushStyle bs)\par
+\ul __init__ (self, QColor color, Qt.BrushStyle style = Qt.SolidPattern)\par
+\ulnone __init__ (self, QColor color, QPixmap pixmap)\par
+__init__ (self, QPixmap pixmap)\par
+__init__ (self, QImage image)\par
+__init__ (self, QGradient gradient)\par
+__init__ (self, QBrush brush)\par
+__init__ (self, QVariant variant)\b\par
+\pard\li1440\cf2\par
+\cf0\lang1036\b0\par
+\pard\b Probl\'e8mes\par
+\par
+\pard\li720 Presets et restauration \'e0 l'ouverture de l'application\par
+\pard\li1440\b0 si autoSave desactiv\'e9 , mettre un bouton [save] explicite pour les preste? mettre un fenetre qui demande si on veut sauver ? \par
+\cf3 // faut que le saveLastWhenQuit ne sauve pas le fichier pas le fichier par defatu si on n'a pas selectionn\'e9 de preset ? \cf0\par
+\par
+\b O\'f9 sauver l'etat de serializePreset ???\b0\par
+\pard\li2880\par
+\pard\li2160\b ne stocker que le nom du dernier preset selectionn\'e9 ? \b0\par
+\pard\li2880 ne permetra pas de restaurer snapshot de l'application au moemnt ou on l'a quit\'e9 si y'a pas de \cf4 sauvegarde automatique des preset ( saveLastWhenQuit = False)\cf0\par
+mieux si on ne veut pas de sauvegarde automatique ? \par
+\par
+\b utiliser un sync ? \b0\par
+\tab merdique ? \par
+\pard\li3600 + pourait permet d'enregistrer tous les preset selectionn\'e9 dans un seul fichier . \par
+\par
+\b\par
+\pard\li2880 rajouter un serializeInterface ?\b0\par
+\pard\li3600 ? jsute pour enregister nom du preset selectionn\'e9 ? \par
++ pourait eventuellemnet enregistrer leur ordre ! \par
+remarque on peut rajouter un serializeInterface sur toute l'application , qui ave un filtre bien choisit va sauvegarder tout les presetInterface. \par
+dans ce cas il faut ajouter un filtre positif et non un filtre n\'e9gatif comme '_' . le elemnt devront tout de meme \'eatre explor\'e9s\par
+\pard\li4320 rajotuer un attribut au objet qui permet de choisir par quel serialiseur il sera serializ\'e9? \par
+\pard\li2880\par
+\pard\li2160\b enregistrement avec le meme serialiseur que pour le preset :\b0\par
+\pard\li2880 dans le fichier par default "monPatch.dat" ? \par
+eviter de reloader si meme contenu que fichier par defaut ?\par
+pas de probl\'e8me de boucle ? \par
+\pard\li3600 1) mis attribut "antiFeeback" dans fileSelector pour decider si on empeche de renovyer nom du fichier si on rentre un setFile avec le meme nom\par
+\pard\li4320  , dans la methode , je test que  fileName != self.fileSelected, pour eviter de reselectionner en boucle le meme fichier . poura potientielleent cr\'e9er des probl\'e8me si on souhaite r\'e9envoyer le meme nom avec le fileSelector pour r\'e9initialiser des choses par exemple . \par
+\pard\li3600 2) dans serializeInterface mis un flag pour desactiver le slot load pendant deserialization \par
+\pard\li2880 dans un fichier avec un nom special  ?  contenu dans le dossier avec preset ?  nom reserv\'e9 ?  fichier cach\'e9 ?\par
+evtier de sauvegarder en double, fichier defaut et fichier du preset ?  il ne serialisze qu'une seul fois , prend juste plus de place sur le disque et permet de s'assurer d'avoir derni\'e8re version si pas saugard\'e9 preset ?\par
+\par
+\pard\li2160\b permettre de mettre une liste d'objets (mes presetInterface) dans seraialize interface?\b0  merdique pour tiny serialize ? \par
+\pard\li1440\b\par
+\pard\li720 Probl\'e8me limite m\'e9moire avec serializePython :\par
+\pard\li1440\cf5\b0 solution 1 ) passer \'e0 python 64 bits \par
+solution 2) atomiser deserialisation avec 1 exec  par instruction ? \par
+solution 3) coder la serialisation /deserialisation d'application en Json : En cour \par
+\cf0\par
+\pard\li720\b probl\'e8me du au clauses Try \b0 : \par
+\pard\li1440 ne permet pas de voir erreures dans appels de fonction pour serialiser => virer clauses Try dans la s\'e9rialisation\b\par
+\par
+\b0\par
+\pard\fi-180\li900\par
+\b setAttribut : True vs False \par
+\pard\fi-180\li1620\b0\par
+\pard\li1440\b la deserialisation doit faire appel \'e0 setXxxx ?\b0\par
+\pard\li2160 a priori doit faire appelle \'e0 un setter s'il existe, d'une facon ou d'une autre (setXxxx, propertie ,  __setstate__ ) \par
+car s'il a \'e9t\'e9 cod\'e9 , c'est qu'il y a certaines chose \'e0 faire qu'un simple self.__dict__["xxx"] = value \par
+\cf6 + permet de rafraichir UI \par
++ permet d'effectuer des traitements, de mettre en place des choses (par ex interface I/O) , \par
+- risque de d\'e9clancher r\'e9action en chaine en sortant signal ? (si le setter envoie signal) \par
+- ne se comportera plus comme pickle\par
+=> on peut cr\'e9er propri\'e9t\'e9 avec un setter avec autre nom que setAttribut , et dans ce setter on peut juste mettre \'e0 jour UI sans envoyer signal !!!\cf2\b\par
+\pard\li1440\cf0\par
+permet de choisir  ? \par
+\pard\li2160 param\'e8tre generaux dans SmartFramework/serialize/parameters.py \b0\par
+\pard\li1440\par
+\pard\li2880\cf6\b A REVOIR \b0\par
+# dit si doit tenter d'appeler setter pour la restauration des attributs.\par
+\pard\fi-2160\li5040 # False :  \tab + conforme au comportement de pickle (si on n'utiliser pas de filtre "_")\tab\par
+# True  :  \tab + permet d'effectuer des traitements, de mettre en place des choses (par ex interface I/O) , \par
+#             \tab +  permet de rafraichir UI \par
+#             \tab - risque de d\'e9clancher r\'e9action en chaine en sortant signal ? (si le setter envoie signal) \par
+#             \tab - pas meme comportement que pickle  \par
+#\par
+# pickle  : \tab True : INCOMPATIBLE PICKLE, pickle par defaut ne fera jamais appele au seter. Recoder __setstate__ pour le faire  \par
+# serializePython: \tab True : appel en dur de setAttribut \'e0 la serialisation \tab    / False :  le fera de toute facon si c'est une propri\'e9t\'e9e...=> INCOMPATIBLE PICKLE\par
+# serializeJson : \tab True : appel dynamique de setAttribut \'e0 la deserialisation / False : pas d'appel du setter \par
+# serialiseRepr \tab A REVOIR ET TESTER  \par
+\pard\li2880\tab\par
+\trowd\trgaph30\trleft2930\trrh278\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5095\clvertalc\cellx8016\clvertalb\cellx11100\clvertalb\cellx14770\clvertalc\cellx16905\clvertalb\cellx19574\clvertalb\cellx22206\pard\intbl\cf0\b setAttributs\cell\pard\intbl\qc False\cell\b0\cell\cell\b True\cell\b0\cell\cell\row\trowd\trgaph30\trleft2930\trrh257\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5095\clvertalb\cellx8016\clvertalb\cellx11100\clvertalb\cellx14770\clvertalb\cellx16905\clvertalb\cellx19574\clvertalb\cellx22206\pard\intbl\b\cell attribut\cell setAttribut\cell propertie\cell attribut\cell setAttribut\cell propertie\cell\row\trowd\trgaph30\trleft2930\trrh1022\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\cellx5095\cellx8016\cellx11100\cellx14770\cellx16905\cellx19574\cellx22206\pard\intbl pickle\cell\cf2 Tous \line -> recoder __getstate__ ?\cell\cf0\b0 non\cell\cf5 non?\cf0\cell tous\cell\cf2\b Non \line -> recoder __setstate__?\line VA DEGEULASSER FICHIERS \line JSON ET PYTHON?\cf0\cell\cf2 Non ?\line  -> recoder __setstate__?\line VA DEGEULASSER FICHIERS\line JSON ET PYTHON?\cell\row\trowd\trgaph30\trleft2930\trrh774\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\cellx5095\cellx8016\cellx11100\cellx14770\cellx16905\cellx19574\cellx22206\pard\intbl\cf0 serializeJson\cell\b0 Filtre "_" \cell non\cell\cf5 non?\cf0\cell si pas de setter\cell oui \line (dynamique \'e0 la deserialisation)\line\cf5 Pas trop degeulasse ?\cf0\cell oui \line (dynamique \'e0 la deserialisation \line\cf2 Si setter "setAttribut")\cf0\cell\row\trowd\trgaph30\trleft2930\trrh257\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\cellx5095\cellx8016\cellx11100\cellx14770\cellx16905\cellx19574\cellx22206\pard\intbl\b serializeRepr\cell\b0 Filtre "_" \cell\cf5 non?\cf0\cell\cf5 non?\cf0\cell\cf5 A TESTER \cf0\cell\cf5 A TESTER \cf0\cell\cf5 A TESTER \cell\row\trowd\trgaph30\trleft2930\trrh774\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\cellx5095\cellx8016\cellx11100\cellx14770\cellx16905\cellx19574\cellx22206\pard\intbl\cf0\b serializePython\cell\b0 Filtre "_" \cell\cf2\b oui si propertie \line definie avec appel de setAttribut\cf0\line Non sinon\cell\cf2 Oui\line -> appeller en dur __dict__['attribut'] ?\cf0\cell\b0 si pas de setter\cell oui \line (en dur \'e0 la serialisation) \cell\cf2\b oui \line (appel setter en dur)\cf0\cell\row\pard\li5760\cf6\b0\par
+\pard\li2160\cf2\b\par
+\cf5  \cf2 faudrait peut \'eatre laisser le choix au niveau de chaque objet ?\par
+\pard\li2880\cf5\b0 rajouter un attribhut permetant de choisir au cas par cas dans QtDesigner ? \par
+\cf0 __setstate__\tab\tab si on souhaite avoir un comportement cibl\'e9 pour une classe (ne paremtra pas de choisir dans QtDesigner..l)\par
+\pard\li1440\b\par
+\par
+compatilibit\'e9 pickle ?\par
+\cf5\par
+\pard\li2160\cf2\b0 vraiment utile d'assurer m\'eame comportement que pickle, si de toute fa\'e7on on ne l'utilise car pas possible de s\'e9rialiser objets PyQt  ?\par
+\pard\li1440\cf5\b\par
+\pard\li2160\b0  on devra coder __setstate__ ou __reduce__() (pour executer __init__) ? \par
+\pard\li2880 qui sont les seules choses permetant d'executer du code avec pickle ?  \par
+on peut avoir une methode __setstate__ generique ? \tab\tab\par
+va pas degeulaser mes fichiers serialis\'e9s json et python ? on peut detecter que le setter est herit\'e9 et se content de restaurer setter pour le pas le mettr en dur ?  \par
+est-ce vraiment utile d'avoir compatibilit\'e9 pickle ?  l'important c'est de pouvoir serialisze les objet qui on une interface pour pickle , pas d'utilsier pickle\par
+\par
+\pard\li2160 on devra coder __getState__ pour filter les "_" ? \cf0\par
+\pard\li2160\tx1530\cf4\par
+prendre habitude de systematiquemnt codes ces deux methodes ? \par
+possible d'ajouter dynamiquement  ces methodes \'e0 toutes mes classes / instances ?\par
+possible d'ajouter ces methdoe par heritage ? \par
+\pard\li2880\tx1530 heritage simple our multiple d'une classe ou elles ont \'e9t\'e9 implement\'e9s  ? \par
+risque pas d'en oublier ? \cf0\par
+\pard\fi-180\li1620\par
+\par
+\pard\li1440\b setXxx , sortie de signaux et feeadback lors de restauration ? \par
+\pard\li2160\cf5\b0 solution ?\par
+\pard\li2880 1) va autoriser setter \'e0 envoyer signaux , pour faire de la mise \'e0 jour d'affichage , mettre au courant d'autre widget .  \par
+2) on va generaliser la comparaison par rapport \'e0 la valeur pr\'e9cedante pour \'eatre sur de ne pas cr\'e9er de feedback .\par
+5) pour les objet pour lesquel on devra vraiment pouvoir choisir \'e0 Partir de QtDesigner si la deserialisation doit emetre quelque chose :  rajouter propri\'e9t\'e9 qui fera ... ???\par
+\par
+\par
+3) on va utiliser serializeParameters.setAttributs = True , par defaut , meme si incompatible pickle , pour eviter d'avoir \'e0 cr\'e9er systematiquement propertie ? ou __setState__ ?\par
+4) pour les objet pour lequels on devra vraiment distinger entr\'e9e chaude et froide , soit on utilisera inXxxx et setXxx , ou alors setXxx et coldXxxxx ?\par
+\par
+\cf0\par
+\pard\li1440\tab Questions \par
+\pard\li2880 setXxxx peut sortir signaux ? \par
+\pard\li3600 + peut \'eatre utilser d'emetre des signaux s'ils servent \'e0 mettre \'e0 jour de l'affichage \par
++ meme comportement que Qt le setXxxx sort quelque chose en g\'e9n\'e9ral...\par
+- ne permet pas d'avoir convention de nommage de methode claire : inXxxx emet et setXxx n'emeter rien \par
+- en max/msp le set ne sorti rien en gen\'e9ral (corresponda \'e0 entr\'e9e froide) \par
+pourquoi serait-il genant de sortir signal ?  . peut cr\'e9er de probl\'e8me de feeback ? vraiment ? \par
+\pard\li2880\par
+deserialisation doit sortir signaux ? \par
+\pard\li3600 La restauration des attributs doit-elle redeclancher des signaux ? \par
+on choisira dans __setstate__ ?\par
+pourquoi serait-il genant de sortir signal ?  . peut cr\'e9er de probl\'e8me de feeback ? vraiment ? \par
+\pard\fi-180\li1620\par
+\pard\b\par
+\pard\li1440\lang12 pb d'ordre d'initialisation des attribut (ex : Webcam )\par
+\pard\li2160\b0 dans mon fichier s\'e9rialis\'e9 , \par
+\par
+webcam2ui.setAutoExposure(False)\par
+webcam2ui.setAutoGain(False)\par
+webcam2ui.setAutoWhiteBalance(False)\par
+webcam2ui.autostart = False\par
+webcam2ui.cleyeMode = 4\par
+webcam2ui.setDevice(u'SmartCam')\par
+\par
+\par
+\cf2 Je ne control pas l'ordre d'initialisation !!!!!!! Je pensais faire appel au init et sp\'e9cifier le device au __init__ mais je peux pas car c'est un objet PyQt !!!!\par
+\par
+=> solution 1  : stocker les valeures souhait\'e9es pour rendre le truc insensible \'e0 l'ordre d'initialisation ? \par
+=> solution 2 : modifier mon serlialiser pour prendre des order DIct pour state .. \par
+\pard\li2880 et faire un __getstate__ qui le generer dans le bon ordre :  \par
+- merdique car ne marchera \tab qu'avec ma serialisation python ?  \par
+\pard\li2160\cf5\b => solution 3 : coder un __setstate__ qui initialise dans le bon ordre . \cf0\lang1036\par
+\pard\par
+\par
+\pard\li1440 properties ?\par
+\pard\li2160\b0 serialization :\par
+\pard\li2880 les properties ne sont pas visibles dans __dict__ , meme pour les objets Qt\par
+en general leur valeure sont stock\'e9es dans un attribut du meme nom exactement ou pr\'e9c\'e9d\'e9 de "_"\par
+\pard\li3600 on choisirat "_" si on ne souhaite pas que le serializer de SmartFramework le serialise par defaut (filtre les attributs commencant par "_" par defaut) \par
+on choisira le meme non si on souhaite serializer par defaut \par
+\pard\li2880 si on n'utiliser pas d'attribut sous-jacent , on peut r\'e9implement\'e9 __getstate__()\par
+\par
+\pard\li2160 la restauration :\par
+\pard\li2880 serializePython : fera appel au setter (pour l'instant , car execute obj.propertie = .... ou obj.setPropertie ) \tab a moins de recoder __setstate__\par
+serializePickle   : ne fera pas appel au setter ( restaurera sous obj.__dict__['propertie'] = ....) a moins de recoder __setstate__\par
+serializeJson  : \par
+serializeRepr :  \par
+\par
+\par
+\pard\li2160 remarque ; \par
+\pard\li2880 pendant la compilation ui -> python , je concerve l'utilisation du setter \par
+ \'e0 un epoque je permetait la supression de 'set' lors de la compilation ui -> python (dans tinySetProperty()) \cf2\b ce que je ne fait plus ...\par
+\cf0\b0 pour cela il fallait permetre redefinir les propri\'e9t\'e9s herit\'e9e dans la classe , car l'analyse textuelle ne va pas cherchais dans les classe herit\'e9 la pr\'e9sence de propriet\'e9s\par
+   #[value = QtCore.pyqtProperty(int, QBaseClasse.value , QBaseClasse.setValue ) ## redefinition d'un propri\'e9t\'e9 herit\'e9 d'une basse classe, que j'utilisais pour supporter suppresion de 'set' pendant la compilation textuelle ui -> python (dans la fonction SmartFramework.designer.__init__.tinySetProperty() ),\b  \cf2 suppression que je ne fait plus...\cf0\par
+}
+ 

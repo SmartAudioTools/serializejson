@@ -1,0 +1,226 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset134 SimSun;}{\f2\fnil\fcharset2 Symbol;}}
+{\colortbl ;\red0\green0\blue255;\red0\green176\blue80;\red255\green0\blue0;\red155\green0\blue211;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\li720\sl240\slmult1\lang12\b\f0\fs22 probl\'e8me test serialization  :  \b0 pas le me resultat avec python 3.7 et 3.8 pour serializejson_blosclz_level9.txt\par
+\pard\sl240\slmult1 pas mal de truc chelous affich\'e9s \par
+\par
+verifier tout les isinstance pour \'eatre sur que pas de bug dus \'e0 isinstance(True, int)  -> True \par
+\par
+pb de remplacement des tab par 4 espace dans spyer pour le jsons\b\par
+serializejson :  \par
+\pard\li720\sl240\slmult1 accelerer deserialisation pour pouvoir utiliser le json comme format de video \par
+\pard\li1440\sl240\slmult1\b0 acceler la lecture de fichiers ? {\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/30294146/fastest-way-to-process-a-large-file"}}{\fldrslt{\ul\cf1 https://stackoverflow.com/questions/30294146/fastest-way-to-process-a-large-file}}}\b\f0\fs22\par
+\pard\li720\sl240\slmult1\par
+pb compilation Gcc\par
+\pard\li1440\sl240\slmult1\b0 voir pourquoi serializejson run failed sur github : installer et compiler avec gcc en local \par
+\pard\li720\sl240\slmult1\b Enum \b0\par
+\pard\li1440\sl240\slmult1 ne va pas comme c'est acutellement  ?\~\par
+est-ce que pour les enum on ne ferait pas ce que j'ai fait pour pyqt pour faciliter lecture du json  ?  ou on serialize la string ? \'e7a n'empechera pas au code de marcher et \'e0 mypy de marcher ? \par
+\pard\li720\sl240\slmult1\b commentaires :\par
+\pard\li1440\sl240\slmult1\b0 est-ce qu'on ne rajoutereai pas un champ __comment__ ?\par
+est-ce qu'on ne permetrait pas de concerver commentaire lors d'une deseriaizatio -> re-serialisation ? avec des weakref?\par
+\pard\li720\sl240\slmult1\b\par
+authorized_classes \line\pard\li1440\sl240\slmult1\b0 voir o\'f9 on d\'e9finir les authorized_classes \par
+permetre des d'autorizer des classe avec des   "*" ? merdique pas du tout s\'e9curis\'e9 \line avoir un truc qui check toutes les classe qui vont devoir \'eatre d\'e9serialis\'e9e , et verifie si elle sont autorize\'e9  poru pouvoir g\'e9n\'e9rer une lise de classes qui n'ont pas \'e9t\'e9 autoriz\'e9s.\b\par
+\pard\li720\sl240\slmult1\b0   \tab\par
+\par
+\par
+\b $ref \par
+\pard\li1440\sl240\slmult1\b0 serializejson :  voir probl\'e8me de $ref pour .ro \par
+\par
+\pard\li720\sl240\slmult1 numpy array : cf numpy array vide en gardant readable pour petit tableaux \par
+\par
+\pard\li1440\sl240\slmult1\par
+\pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li1080\sl240\slmult1 voir dans code de martin si on ne doit appeller aucun __init__ de ses objets , car serializejon ne vas pas les appeller si pas d\'e9fini de __reduc__\par
+{\pntext\f2\'B7\tab}frame["image"] etc ..dans script d'\'e9valuation de martin . probl\'e8me du au fait qu'on a pas mis __class__ dans les json pour export pour IM -> passer en dotdict ? va pas ralentir ? \par
+{\pntext\f2\'B7\tab}voir pour ne plus sierialize classes en commencant par __main__ ? \par
+{\pntext\f2\'B7\tab}nb thread par defaut pour truc deterministe pas claire \par
+\pard\li720\sl240\slmult1\par
+\par
+\par
+\b reformatJson : \par
+\pard\li1440\sl240\slmult1\b0 reloud de devoir mettre autorized_classes \'e0 chaque fois...  mais dangereux de le d\'e9sactiver . \par
+on peut utiliser unauthorized_classes_as_dict = True et dotdict = Trur,\par
+pour que serialization single_line_list_numbers marche  (elle ne marche pas sur les elemetn d'un dictionnaire pur)\par
+\cf2 => id\'e9alament faudrait que single_line_list_numbers marche pour des element d'un dictionnaire . \par
+\pard\li720\sl240\slmult1\cf0\par
+\b single_line_list_numbers \par
+\pard\li1440\sl240\slmult1\b0 ne marche pas sur les key de dictionnaire, mais que sur les attributs d'un objet \par
+ne marche par sur liste de listes d'element du meme type. \par
+\cf2 => faudrait un default_list pour pouvoir gere \'e7a  ?\par
+\par
+\pard\li720\sl240\slmult1\cf0\b ajout\'e9 un param\'e8tre single_line_new. \par
+\pard\li1440\sl240\slmult1\b0 j'ai h\'e9sit\'e9 \'e0 utilis\'e9 le m\'eame single_line_init , mais j'ai renonc\'e9 car introduisait une ambiguit\'e9 \cf3\par
+\cf2\par
+\pard\li720\sl240\slmult1\cf0\b\par
+faire de la pub : \par
+\pard\li1440\sl240\slmult1\b0 Hacker News, super lu et utilis\'e9 par plein de dev et de startupper : {\field{\*\fldinst{HYPERLINK "https://news.ycombinator.com/"}}{\fldrslt{\ul\cf1 https://news.ycombinator.com/}}}\f0\fs22\par
+Il est possible de poser des questions  (Ask) ... il y a souvent des r\'e9ponses, mais rarement plein de r\'e9ponses... Il est aussi possible de montrer son projet, m\'eame quand il n'est pas 200% fini (Show), avec des r\'e9actions dans les comments... Il y a une certaine bienveillance... Peut-\'eatre que cela pourrait permettre \'e0 la fois de faire connaitre un peu plus votre travail, et d'avoir des feedback sur le produit, ou sur le model \'e9conomique...\par
+\pard\li720\sl240\slmult1\b\par
+am\'e9liorations rapidjson \par
+\pard\li1440\sl240\slmult1\b0 il faudrait un "default_list" avec  en param\'e8tre le nom de l'attribut qui contient la liste  pour pouvoir la mettre en une ligne si __init__, __new__, ou liste de nombres \par
+\pard\li2160\sl240\slmult1\par
+\pard\li720\sl240\slmult1\cf3\b sort_keys :  A VOIR \cf0\par
+\pard\li1440\sl240\slmult1\b0 j'avais mis sort_keys = true pour smartmusic etc..\par
+j'ai remis sort_keys = False pour que les tests passent \par
+faut-il laissait les keys dans leur ordre d'origine si correspond \'e0 self.__dict__ ? \b\par
+\par
+\pard\li720\sl240\slmult1  liste h\'e9t\'e9rog\'e8ne -> numpy.array\b0\par
+\pard\li1440\sl240\slmult1 ajout\'e9 une option numpy_array_from_heterogenous_list pour pouvoir transformer en numpy array une liste h\'e9t\'e9rog\'e8ne de int et float , quand li un mod\'e8le \par
+BIEN MERDIQUE \par
+\par
+\pard\sa200\sl276\slmult1\par
+permetre d'avoir 2 version de serializejson/rapidjson en // pour pouvoir comparer \par
+pour timer ecriture dans fichier partir du princip que l'appele \'e0 write ne coute rien (au lieu de passer un IO bytes, passer un objet avec un fonction write qui ne fait que sotrcker et concatener apr\'e8s le chronometrage) \par
+\par
+serialize_numpy.py :             \par
+and serialize_parameters.numpyB64_convert_int64_to_int32_and_align_in_Python_32Bit\par
+            ):  # pour pouvoir deserialiser les classifiers en python 32 bit ?\par
+\pard\li720\sl240\slmult1 faut vraiment convertire les int64 en int32 ? \par
+\pard\sl240\slmult1\b serializejson : \b0\par
+\pard\li720\sl240\slmult1 On peut ne traduir en base 64 qu,au moment de la concatenation pour dumps  !\par
+Voir faire aussi la compression \'e0 ce moment  ?\par
+Sinon serialiser tout ce qui est petit dans un buffeur en stoquant les poiteur des truc \'e0 inserer  ?\par
+(Pointeur source, taille source, offset d'insertion )\par
+Puis tout compresser et transformer en b64 lors du concatenage  ?\par
+En faisant ca on consomme un minimum de m\'e9moire\par
+Si blosc transforme en base 64 \'e7a sera multithreade.\par
+On peut aussi commencer \'e0 compresser dans d'autres trheads. Puis quand toutes les dimensions sont connues. Construire peupler le bytes en mulhithread ?\par
+Tout \'e7a c'est pour dumps.\par
+Pour truc dans fichier il est possible que l'\'e9criture sur le disc soit le goulot d'\'e9tranglement. On met les bout de jsons (sans les bytes et grosses strings) dans des buffeurs\f1\'a3\'ac\f0 sans tout ce qui est long \'e0 transformer. On envoit dans un deque des tuples ( *source \f1\'a3\'ac\f0  taille source, type de traitement \'e0 faire sur source, taille destination si on la connait, sinon taille max) .un pool de threas lit ce deque\f1\'a3\'ac\f0  font les transformations et les envoie a un thread qui les r\'e9organise dans le bon ordre.et les envoit \'e0 l'\'e9criture\par
+Faudrait voir si l'\'e9criture est bloquante. Etb si elle ne les pas qui g\'e8re le pool.\par
+\par
+\par
+\pard\sl240\slmult1\par
+serializejson  : \par
+\pard\li720\sl240\slmult1 // r\'e9ussir \'e0 envoyer sur test.pypi ({\field{\*\fldinst{HYPERLINK "https://twine.readthedocs.io/en/latest/#twine-check"}}{\fldrslt{\ul\cf1 https://twine.readthedocs.io/en/latest/#twine-check}}}\f0\fs22 )\par
+\pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li1080\sl240\slmult1 accelerer  la s\'e9rialisation et d\'e9serialisetaion de bytes en eviter de checker les echappements\cf4\b  <- j'attend reponse du gars sur RawJSON , pour ensuite lui demander si on ne pourrait pas permetre \'e0 RawJson de prendre des listes,des bytes et des listes de bytes (permetrai d'eviter une recopie juste pour ajouter des " quand serialize vers un fichier)\par
+\cf0\b0{\pntext\f2\'B7\tab}passer \'e0 blosc2? \par
+\pard\sl240\slmult1 am\'e9liorer la compression avec delta ?  de facon automatique  en testant diff\'e9rent param\'e8tre sur chaque nouvelle element d'un shape et type donn\'e9 ? et resterstant toutes les 20 occurences?\par
+\par
+comment commiter \par
+\b projet C++  ?\b0\par
+\pard{\pntext\f2\'B7\tab}{\*\pn\pnlvlblt\pnf2\pnindent0{\pntxtb\'B7}}\fi-360\li720\sl240\slmult1 trouver solution pour faire de line profiler en C++  ? ou avec de prints ? \line Intel\'ae VTune\'99 Profiler ? {\field{\*\fldinst{HYPERLINK "https://www.intel.com/content/www/us/en/developer/tools/oneapi/vtune-profiler.html"}}{\fldrslt{\ul\cf1 https://www.intel.com/content/www/us/en/developer/tools/oneapi/vtune-profiler.html}}}\f0\fs22\line{\field{\*\fldinst{HYPERLINK "https://www.intel.com/content/www/us/en/develop/documentation/vtune-help/top/analyze-performance/code-profiling-scenarios/python-code-analysis.html"}}{\fldrslt{\ul\cf1 https://www.intel.com/content/www/us/en/develop/documentation/vtune-help/top/analyze-performance/code-profiling-scenarios/python-code-analysis.html}}}\f0\fs22\par
+{\pntext\f2\'B7\tab}voir avec quel outil il test compile et  debug rapidjson\par
+{\pntext\f2\'B7\tab}voir avec martin si visual studio code mieux que visual studio 2017 \par
+{\pntext\f2\'B7\tab}pouvoir faire du debug , line par line , pour \'eatre sur de l\'e0 o\'f9 il passe \par
+{\pntext\f2\'B7\tab}tester directement rapide-json sans binding python ? \par
+\pard\sl240\slmult1\par
+\par
+installatino : \par
+\pard\li720\sl240\slmult1 voir pour n'avoir qu'un seul repo -> vierer serializejson de SmartFramework ? \par
+permetre installation compl\'e8te avec compilation rapidjson \par
+\par
+\pard\sl240\slmult1\par
+test_serialize_vs_pickle\par
+\pard\li720\sl240\slmult1 1) mieux tester ecriture dans fichiers  : comment     encoded = rapidjson.Encoder.__call__ peut retourner encoded  alors qu'on ecrit dans un fichier! \par
+2) ajouter test sur grosse donn\'e9es \par
+\par
+\pard\sl240\slmult1 optimisation \par
+\pard\li720\sl240\slmult1 optimiser ecriture de string\par
+\pard\li1440\sl240\slmult1\par
+\cf3 bizarre j'ai perdu en performances sur     bytes_str1 = rapidjson.dumps(str1, ensure_ascii=False, return_bytes = True)# \ul 32 msec \ulnone (646 msec before optimisations)\par
+ou alors j'avais juste mal not\'e9 ? \par
+\cf0\par
+\par
+{\field{\*\fldinst{HYPERLINK "https://github.com/python/cpython/blob/main/Objects/unicodeobject.c"}}{\fldrslt{\ul\cf1 https://github.com/python/cpython/blob/main/Objects/unicodeobject.c}}}\f0\fs22\par
+PyUnicode_AsUTF8AndSize\par
+\pard\li2160\sl240\slmult1 retourne un pointeur vers version utf_8 si a d\'e9j\'e0 \'e9t\'e9 encod\'e9 \par
+sinon il remplit avec unicode_fill_utf8\fs16\par
+\par
+const char *\par
+PyUnicode_AsUTF8AndSize(PyObject *unicode, Py_ssize_t *psize)\par
+\{\par
+    if (!PyUnicode_Check(unicode)) \{\par
+        PyErr_BadArgument();\par
+        return NULL;\par
+    \}\par
+\par
+    if (\ul PyUnicode_UTF8(unicode)\ulnone  == NULL) \{\par
+        if (\ul unicode_fill_utf8(unicode\ulnone ) == -1) \{\par
+            return NULL;\par
+        \}\par
+    \}\par
+\par
+    if (psize)\par
+        *psize = PyUnicode_UTF8_LENGTH(unicode);\par
+    return PyUnicode_UTF8(unicode);\par
+\}\par
+\par
+\par
+\fs22 PyUnicode_UTF8(unicode)\par
+\pard\li2880\sl240\slmult1 retourne un pointeur vers version utf_8 si a d\'e9j\'e0 \'e9t\'e9 encod\'e9 ou simple ASCII \par
+\fs16 #define PyUnicode_UTF8(op)                              \\\par
+    (assert(_PyUnicode_CHECK(op)),                      \\\par
+     PyUnicode_IS_COMPACT_ASCII(op) ?                   \\\par
+         \ul ((char*)(_PyASCIIObject_CAST(op) + 1\ulnone )) :       \\\par
+         \ul _PyUnicode_UTF8(op))\ulnone\par
+\par
+#define _PyUnicode_UTF8(op)                             \\\par
+    \ul (_PyCompactUnicodeObject_CAST\ulnone (op)->utf8)\par
+\par
+\fs22 _PyCompactUnicodeObject_CAST\par
+\par
+\pard\li2160\sl240\slmult1 unicode_fill_utf8\par
+\pard\li2880\sl240\slmult1\fs16\par
+static int\par
+unicode_fill_utf8(PyObject *unicode)\par
+\{\par
+    /* the string cannot be ASCII, or PyUnicode_UTF8() would be set */\par
+    assert(!PyUnicode_IS_ASCII(unicode));\par
+\par
+    int kind = PyUnicode_KIND(unicode);\par
+    const void *data = PyUnicode_DATA(unicode);\par
+    Py_ssize_t size = PyUnicode_GET_LENGTH(unicode);\par
+\par
+    _PyBytesWriter writer;\par
+    char *end;\par
+\par
+    switch (kind) \{\par
+    default:\par
+        Py_UNREACHABLE();\par
+    case PyUnicode_1BYTE_KIND:\par
+        end = \ul ucs1lib_utf8_encoder\ulnone (&writer, unicode, data, size,\par
+                                   _Py_ERROR_STRICT, NULL);\par
+        break;\par
+    case PyUnicode_2BYTE_KIND:\par
+        end = \ul ucs2lib_utf8_encoder\ulnone (&writer, unicode, data, size,\par
+                                   _Py_ERROR_STRICT, NULL);\par
+        break;\par
+    case PyUnicode_4BYTE_KIND:\par
+        end = \ul ucs4lib_utf8_encoder\ulnone (&writer, unicode, data, size,\par
+                                   _Py_ERROR_STRICT, NULL);\par
+        break;\par
+    \}\par
+    if (end == NULL) \{\par
+        _PyBytesWriter_Dealloc(&writer);\par
+        return -1;\par
+    \}\par
+\par
+    const char *start = writer.use_small_buffer ? writer.small_buffer :\par
+                    PyBytes_AS_STRING(writer.buffer);\par
+    Py_ssize_t len = end - start;\par
+\par
+    char *cache = PyObject_Malloc(len + 1);\par
+    if (cache == NULL) \{\par
+        _PyBytesWriter_Dealloc(&writer);\par
+        PyErr_NoMemory();\par
+        return -1;\par
+    \}\par
+    _PyUnicode_UTF8(unicode) = cache;\par
+    _PyUnicode_UTF8_LENGTH(unicode) = len;\par
+    memcpy(cache, start, len);\par
+    cache[len] = '\\0';\par
+    _PyBytesWriter_Dealloc(&writer);\par
+    return 0;\par
+\}\par
+\pard\li1440\sl240\slmult1\fs22 ucs2lib_utf8_encoder\par
+\par
+\pard\li720\sl240\slmult1 voir pour eviter de passer par une serialisation sp\'e9ciale pour du one_line ? \par
+\par
+\par
+\par
+\par
+\pard\sl240\slmult1\par
+\pard\sa200\sl276\slmult1\par
+}
+ 

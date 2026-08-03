@@ -1,0 +1,8 @@
+# Fichier genere automatiquement a partir de .hgignore par
+# Commun/scripts/sync_hgignore_to_ignore.py - NE PAS EDITER A LA MAIN, modifier .hgignore
+# puis relancer ce script.
+
+# use glob syntax.
+.hg_new
+.hg_old
+__pycache__

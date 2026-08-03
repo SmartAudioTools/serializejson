@@ -1,0 +1,253 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset2 Symbol;}}
+{\colortbl ;\red0\green176\blue80;\red255\green0\blue0;\red0\green0\blue255;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1\lang12\f0\fs22 setstate est un faux update , il met \'e0 jour\'e9 l'objet au sens qui'l preserve l'id , mais pas ces attribut qu'il ecrase . \par
+\b\par
+updater un objet c'est quoi ? \par
+\pard\li720\sl240\slmult1\b0 c'est ne pas recr\'e9er un objet, mais le r\'e9cuperer et mettre jour ses attributs \par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li1080\sl240\slmult1 en les ecrasant ceux qui ne sont pas mutables/updatable \par
+{\pntext\f1\'B7\tab}et en updatant ceux qui sont mutable/updatable ? \par
+\pard\li720\sl240\slmult1 => c'est donc necessairement recurseif de la racine vers les feuille ? \par
+\par
+l'utilisation de __setstate__ ne devrait pas cr\'e9er une coupure irremediable notament pour serializePython\par
+le fait de ne pas utiliser __setstate__ permet juste de s'assurer d'avoir un correspondance entre les key et attributs, et donc une facon standard de recuperer les attributs \'e0 partir du parent pour le mettre \'e0 jour ? \par
+\par
+def update(object, state_description) : \par
+\tab for attribut_name, attribut_state_description in state_description  : \par
+\tab\tab attribut_old_value = object.get_attribut(attribut_name)\line\tab\tab if not updatable(attribut) \par
+\tab\tab\tab attribut_new_value = create_and_update(attribut_state_description)\par
+\tab\tab\tab object.set_attribut(attribut_name(attribut_new_value ))\par
+\tab\tab else : \par
+\tab\tab\tab update(attribut_old_value,attribut_state_description)\par
+\par
+def create_and_update(state_description)\par
+\par
+\par
+si dans __setstate__ on accepte une state description \par
+\par
+\tab\par
+\cf1 On ne peut pas udpate en commancant par updater les feuilles ? A VOIR !!! il faut au moins connetre chemin jusque la feuille . et avoir l'object correspondant s'il existe . \par
+(attention penser au cas ou il n'y a pas de root fournit \'e0 updatier , mais qu'on a jsute des objet dans des attribut sont cr\'e9e dans un init qu'on veut updater pour preserver connections)\par
+\par
+\par
+avec serializePython, on a \'e0 tout moment le chemin complet et donc la possibilite de recuper l'object pr\'e9-existant, qu'on r\'e9evalue \'e0 chauqe ligne d'ailleur de fa\'e7on asser peut efficace ! \par
+(on pourrait utilsier un objet temporaire) \par
+avec serializePYthon , on pourrait inverser l'ordre des lignes ?\par
+\par
+\par
+\cf0\par
+\par
+\par
+\pard\sl240\slmult1\b\par
+pb conflit __init__ vs state \par
+\pard\li720\sl240\slmult1\b0 si on fait appele \'e0 __init__ difficile de faire resorer state derir\'e8er  sans peter des truc fait dans le init  d\'fb \'e0 l'\'e9crasemetn des attributs meme sans __setstate__ !\par
+ \b\par
+\cf2\par
+\pard\sl240\slmult1\par
+eviter autant que faire ce peut d'utiliser __setstate__ pour ne pas peter udpate avec serializePython tant que j'aurais aps r\'e9gl\'e9 TOUT les probl\'e8me d'update avec json  et que je ne pourrais pas me passer definitiement de serializePython\cf1\par
+\par
+utiliser une methode __setstate__() ou __update__ (pour marquer clairement difference avec pickle ?)  qui acccepe,tt des objet obect non reconstruit sous forme de dictionnaire avec key __class__ ? ou d'aobjet "NotReconstructed" avec toutes les infos permetant reconstruciton ou update \par
+\par
+\par
+permetre de serialiser / deserialisaer application pyqt\cf2\ul\fs28\par
+\cf0\ulnone\b0\fs22\par
+\b recherches internet \par
+\pard\li720\sl240\slmult1\b0 update existing object deserialization s\par
+{\field{\*\fldinst{HYPERLINK "https://www.logicbig.com/tutorials/misc/jackson/reader-for-updating.html"}}{\fldrslt{\ul\cf3 https://www.logicbig.com/tutorials/misc/jackson/reader-for-updating.html}}}\cf2\ul\f0\fs28\par
+\cf0\ulnone{\field{\*\fldinst{HYPERLINK "https://www.xspdf.com/resolution/53588973.html"}}{\fldrslt{\ul\cf3 https://www.xspdf.com/resolution/53588973.html}}}\cf2\ul\b\f0\fs28\par
+\pard\sl240\slmult1\par
+objets cr\'e9es dans __init__ ecras\'e9s par le state !!!! => EMPECHE SERIALIZATION D'APPLICATIONS !!!\ulnone\fs22\par
+\pard\li720\sl240\slmult1\cf0\par
+Le probl\'e8me va-t-il se pose, vais-je restaurer des application sans utiliser update? \par
+\par
+Probl\'e8me : \par
+\pard\li1440\sl240\slmult1\b0 pour la plupart des objets pyqt il faut faire appel au init \par
+mais du coup o\'f9 on va sauver son \'e9tat ? dans state ? => \cf2 il va recr\'e9er et \'e9craser l'attribut !!\par
+on souhaite restaurer l'etats des attribut updatable cr\'e9es dans le __init__ , mais pas les r\'e9cr\'e9er en  les \'e9crasant ! \par
+-> va peter des connections\par
+-> va peter appartenance \'e0 un layout \par
+-> va peter tout code dans le __init__ qui se sert des ces objetc ?!\par
+\pard\li720\sl240\slmult1\par
+\cf0\b comment on g\'e8re \'e7a avec serializePython ? \par
+\pard\li1440\sl240\slmult1 j'utiliser le param\'e8tre dumps(obj, \ul create_QWidget =  False\ulnone ) \b0\par
+\pard\li2160\sl240\slmult1 -> permet d'\'e9viter de recr\'e9er TOUS les QWIdgets : \par
+\pard\fi-180\li2340\sl240\slmult1\cf2 - on ne fait pas la distinction entre ceux qui ont \'e9t\'e9 cr\'e9er via __init__ et ceux cr\'e9e manuellement , qu'il faudrait restaurer... => on n'en recr\'e9er aucun ! \par
+\cf0 - ne marche qu'avec les QWidget , alors qu'id\'e9lameent il faudrait le faire avec tous les attributs qui existent d\'e9j\'e0 apr\'e8s appel du __init__?\par
+\par
+\pard\li1440\sl240\slmult1\b comment \'e7a se fait que c'est aussi simple ?! \b0\par
+\pard\li2160\sl240\slmult1 les objets sont cr\'e9er \'e0 l'allez de l'exploration en profondeur : tron->branche->feuilles\tab\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li2520\sl240\slmult1 l'objet est cr\'e9er avant la restauration des ses attributs \par
+{\pntext\f1\'B7\tab}l'object existe donc d\'e9j\'e0 lors de la restauration de ses attribut\par
+{\pntext\f1\'B7\tab}le chemin vers l'objet est complement connu lors de la restauration de ses attributs qui peuvent donc \'eatre restaur\'e9  sur place . \par
+\pard\li1440\sl240\slmult1\par
+\pard\fi-270\li1710\sl240\slmult1\cf2\b ATTENTION PAS FORCEMENT SOLUTION A TRANSPOSER EN JSON : pas dis que \'e7a marche si y'a des attribut recr\'e9es dans instance()  ou  __setstate__ !?\par
+\pard\li1800\sl240\slmult1\cf0 si not isInstance(obj) -> reprObject -> \cf2\b0 reprInstance \par
+ecrit tout dans une seule instruction : \par
+\cf0 avec instance(...) if state or listitems or dictitems , \par
+avec __new__ si pas de initargs \par
+avec __init__ (sous la forme MaClass(...)) sinon \par
+\pard\li2880\sl240\slmult1\b\par
+\pard\li2160\sl240\slmult1\cf2\b0\par
+\pard\li720\sl240\slmult1\cf0\b comme on peut  g\'e8rer \'e7a avec pickle ? \par
+\pard\li1440\sl240\slmult1\b0 pickle ne le g\'e8re pas par d\'e9faut mais on peut gerer \'e7a dans __setstate__ ? \par
+\cf2\b solution en bidouillant m\'e9thodes \par
+\pard\li2160\sl240\slmult1 __init__ ? \par
+\pard\li2880\sl240\slmult1\b0 ajouter un argument au __init__ pour dire qu'il recr\'e9e \'e0 partir d'une serialisaton  \par
+sortir tou ce qui n'est pas de la restauratio npure d'attributs \par
+\pard\li3600\sl240\slmult1 sortir la creation de Qobject ? \par
+sortir les connexion \par
+\pard\li2880\sl240\slmult1 ajouter une methode __post_setstate__() , qui cr\'e9e connections etc une fois que les attributs ont \'e9t\'e9 restaur\'e9 (ne sera pas appel\'e9 avec pickle...) \par
+\pard\li2160\sl240\slmult1\par
+\cf1\b __setstate__ ?\par
+\pard\li2880\sl240\slmult1\cf0\b0 Non :\cf2\b  __setstate__ is Evil !? \par
+\pard\li3600\sl240\slmult1\cf0\b0 il faut absolutment eviter d'utiliser __setstate__ pour un objet updatable ou pouvant avoir des descendant updatable ?!\par
+car avec serializePython il va casser la notation sous forme de chemein complet pour encapsuler les descendant dans l'appeller de __setstate__()\par
+=> on ne pourra pas updater les descendant? \par
+\par
+en fait le probl\'e8me avec __setstate__ c'est que : \par
+1. il a besoin en argument d'un dictionnaire state avec des values qui sont \'e0 priori des objects d\'e9j\'e0 recr\'e9e . \par
+-> probl\'e8matique pour update recursif .\par
+-> serait envisageable si __setstate__ aceptait en values des dictionnaire json ou des objet "ToExplore"\b\par
+\pard\li2880\sl240\slmult1\cf2\b0 Oui : \par
+on eviter d'appelelr le __init__ et on appelle le __init__ de la calsse de base et  recopie tout ce qu'il y a dans le __init__ apr\'e8s avoir restaure state \par
+\par
+\pard\li720\sl240\slmult1\cf0\b comment gerer \'e7a avec serializejson ? \par
+\pard\li1080\sl240\slmult1 option 0 : deserializer completement dans un grand dictionnaire et l'explorer  (comme jsonpickle?) \par
+\par
+option 1 : se rapprocher du fonctionnent de pickle et serializePython  : \par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li2160\sl240\slmult1\b0 faudrait avoir la main sur un dictionnaire \ul d\'e8s que\ulnone  __init__ ou __new__ ou l'absence de ceux ci est connue \line => permetrait de recr\'e9e l'objet avant de restaurer ces attributs \line methode  "construct" ?\line\cf2\ul - ne marcherchera pas si __class__ implicite  avec recognized_classes ! \cf0\ulnone\par
+{\pntext\f1\'B7\tab}faudrait que lors de la restauration des valeures des attributs avoir acc\'e8s \'e0 l'objet concern\'e9 (ou au moins au dictionnaire pour povour retrouver l'objet) et au nom de l'attribut  \line => permetrait de restaurer sur place \par
+\pard\li1080\sl240\slmult1\b option 2 : \par
+\pard\li1800\sl240\slmult1\b0 utiliser methode technique d\'e9j\'e0 utilis\'e9 pour l'update eme si on ne fournit pas d'objet root ? \par
+- vraie usine \'e0 gaz \par
+- risque d'\'eate merdique poru les $ref \par
+\pard\sl240\slmult1\b\par
+\b0\par
+\pard\sl240\slmult1\tx1980\b Probl\'e8me d'update : \par
+\pard\li720\sl240\slmult1\tx1980\b0 on a 3 cat\'e9gories d'object non_updatable, upatable et recursively_updatable\par
+\b non_updatatable :\b0  on peut les recrer \par
+\b updatable :\b0  on essaye de mettre \'e0 jour l'existant \line\pard\li1440\sl240\slmult1\tx1980 via __setstate__ ? \par
+\cf2 ATTENTION : la pr\'e9sence de __setstate__ va peter l'updating recursif pour la s\'e9rialisation serializePython !!!!!!!!!!!!!!!!!!\cf0\par
+on ne peut pas compter aveuglemenet pour les __setstate__ pour faire les udpates ...\par
+en g\'e9n\'e9ral ont \'e9t\'e9 cod\'e9 pour pickler et partent du principe que l'objet est vi\'e8rge \par
+- ils attendent dans le state des objects contstruit.. on ne peut updater de fa\'e7on recursive avec un __setstate__ pas cod\'e9 pour . \line - ils ne supriment g\'e9n\'e9ralement  pas les clefs qui sont dans le __dict__/__slots__ qui ne sont pas dans le state \par
+\pard\li2160\sl240\slmult1\tx1980 soit parcqu'on a pu rajouter entre temps\par
+soit parceque la sauvegarde c'est faite apr\'e8s une supressions d'attributs (mouais)\line\pard\li2160\sl240\slmult1 => cr\'e9er un objet m\'e9tant \'e7a en \'e9vidance \line\pard\li1440\sl240\slmult1\tx1980 - ils ne supriment pas les propri\'e9t\'e9 manquante dans le state   \par
+\cf1\b => on peut le mettre \'e0 jour via __setstate__ si : \par
+\b0 . l'objet n'a pas \'e0 \'eatre restaur\'e9 de facon recursive ? ou si __setstate__ sais gerer les objet pas encore recr\'e9er (dans un tuple "to_recreate" ? ) \par
+. s'occupe de netoyer le __dict__ , __slot__\par
+. restaurer les properties / setters\cf0\line\par
+\pard\li720\sl240\slmult1\tx1980\b recursively_updatable :\b0  \par
+\pard\li1440\sl240\slmult1\tx1980 on essaye de mettre \'e0 jour l'objet existant et ces attributs recursivement  \par
+en g\'e9n\'e9ral on ne peut pas appeler le  __setstate__, car il attend  dans le state des objects contstruit.. \par
+\par
+si l'objet n'a pas de __setstate__ : \par
+\pard\li2160\sl240\slmult1\tx1980 option 1 : laisser serializejson g\'e9rer  en d\'e9clarant les settes \par
+\strike option 2 : coder un __setate__ capable de gerer des objects non reconstruits (sous forme de named tuple ? dictionnaire json? ) \par
+\strike0 option 3 : coder un __update__ capable de gerer des objects non reconstruits (sous forme de named tuple ? dictionnaire json? ) \par
+\par
+\pard\li1440\sl240\slmult1\tx1980 si l'objet a d\'e9j\'e0 un __setstate__ : \par
+\pard\li2160\sl240\slmult1\tx1980\cf2 ATTENTION : la pr\'e9sence de __setstate__ va peter l'updating recursif pour la s\'e9rialisation serializePython !!!!!!!!!!!!!!!!!!\par
+il faut bypasser \par
+\strike option 1 : bypasser le __setstate __ et laisser serialziejson gerer ? mouais si y'a un __setstate__ c'est que y'a des traitement particuliers \'e0 faire \par
+\strike0 ooptin 2 : coder et appeller__update__ (en plugin ou methode ) \par
+\pard\li1440\sl240\slmult1\tx1980\cf0\par
+\pard\li720\sl240\slmult1\tx1980 2) coder un __udpate__ generique \par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li1080\sl240\slmult1\tx1980 doccumenter le fait qu'il faut sauvegarder TOUTES les propri\'e9t\'e9 significative et ne pas se contenter de sauvegarder les attribut qui ont des valeures diff\'e9rentes des valeurs par d\'e9fautl ? sinon avoir un argument default_value (ou qui permet de lire un attribut de classe avec valeurs par d\'e9fault) , qui pemet de completer le state lors d'un update pour eviter de laisser un attribut avec une mauvaise valeur car absent du state = > \cf1\b voir avec l'updating \cf0\b0\par
+\pard\sl240\slmult1\cf2\ul\b\fs28\par
+\cf0\ulnone\b0\fs22\par
+\par
+\ul\b Update d'un objet pr\'e9-existant  et isPyQt\ulnone\par
+\pard\li1440\sl240\slmult1\b0\par
+\pard\sl240\slmult1\b\par
+\pard\li720\sl240\slmult1\ul voir ce qui emp\'e8che serialization de presets en json \par
+\par
+\ulnone\par
+\par
+Avec serializePython et Pickle  :\par
+\pard\li1440\sl240\slmult1 pour l'instant pour les object PyQt :\par
+\pard\li2160\sl240\slmult1\b0 dans objects.tupleFromInstance : \par
+\pard\li2880\sl240\slmult1 . il sauvegarde le state , en filtrant "parent" et "_"\par
+.  ne pas recrer l'objet (pas de __reduce__  ou None pour initargs dans le tuple )  \par
+\pard\li2160\sl240\slmult1 dans serializePython /serializeTiny /serialiszeAsModule\par
+\pard\li2880\sl240\slmult1 . n'enregistre pas code pour cr\'e9er l'objet au moment de la serialisation\par
+. met setXXX pour les attribut qui ont un setter si on a activ\'e9 l'option setAttributs = True dans seriliazeParameters.py (y'en a partout dans les .dat)\par
+\pard\li2160\sl240\slmult1\par
+\pard\li1440\sl240\slmult1\b comment r\'e9hydrater avec Pickle ?\par
+\pard\li2160\sl240\slmult1\b0 termes de recheche : pickle restore in place update\par
+\strike{\field{\*\fldinst{HYPERLINK "https://bytes.com/topic/python/answers/31634-update-pickle"}}{\fldrslt{\ul\cf3 https://bytes.com/topic/python/answers/31634-update-pickle}}}\f0\fs22\par
+\strike0{\field{\*\fldinst{HYPERLINK "https://web.archive.org/web/20150914064702/https://bytes.com/topic/python/answers/31634-update-pickle"}}{\fldrslt{\ul\cf3 https://web.archive.org/web/20150914064702/https://bytes.com/topic/python/answers/31634-update-pickle}}}\f0\fs22\par
+utiliser "parent" qu'on aura pas vir\'e9 ? \par
+utilser "name" qu'on aura pas vir\'e9 ? \par
+\b\par
+\pard\li720\sl240\slmult1 option 1  : on ajoute (ou garde) des infos au moment de la serialization \par
+\pard\li1440\sl240\slmult1\b0 parent \par
+name\par
+dans ce cas il faut r\'e9soude le probl\'e8me des r\'e9f\'e9rences circulaire et \'e7a revient au m\'eame ? \b\par
+\pard\li2160\sl240\slmult1\par
+\pard\li720\sl240\slmult1 Option 2 : "Tout au moment de la d\'e9serialisation" : \par
+\par
+\pard\li1440\sl240\slmult1\b0 on ne touche pas au json (__class__, __init__ , et variable ) et on fait tout au moment de la r\'e9hydratation , pour pouvoir choisir entre load ou update\par
+\par
+\b API :\b0  il faut fournir l'objet racine \'e0 loads \par
+\pard\li720\sl240\slmult1\b\par
+\pard\li1440\sl240\slmult1 ordre d'exploration de l'arbre : \b0\par
+\pard\li2160\sl240\slmult1 rapidjson explore en profondeur . \par
+\pard\fi-180\li2340\sl240\slmult1 1) il construit des elements vides \'e0 l'allez. \line on peut y avoir acc\'e8s pour les dictionnaire si on les construits nous m\'eame avec la methode\ul  begin_object\ulnone .\line begin_object  ne nous fournit aucune infos tout ce qu'on peut faire dans c'est  : \par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\li2340\sl240\slmult1 compter les appels\par
+{\pntext\f1\'B7\tab}enregistrer l'identifiant du dictionnaire qu'on retourne \par
+{\pntext\f1\'B7\tab}eventuellemnt fournir autre choses qu'un dictionnaire (merdique ) \par
+\pard\fi-180\li2340\sl240\slmult1\par
+2)puis quand il est arriv\'e9 au bout de la premi\'e8re branche , il peuple en commancant par les 1eres feuilles.\line puis remontant 1er branches pour aller sur feuilles suivante \b\par
+\b0\par
+3) une fois un dictionaire peupl\'e9 , il le retourne \'e0 end_objet . \line quand rapidjson appelle \ul end_object \ulnone (ou objet hook) les value du dictionnaire on d\'e9j\'e0 \'e9t\'e9 reconstruits et le parent pas encore, sauf si : \par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\li2340\sl240\slmult1 pr\'e9 existant et qu'on fait un update ou\par
+{\pntext\f1\'B7\tab}on a cr\'e9e un dictionnaire vide dans start_object correspondant au parent si juste un dictionnaire ou au __dict__ du parent \par
+\pard\fi-180\li2340\sl240\slmult1  \b\par
+\pard\li1440\sl240\slmult1 approche 1 : \par
+\pard\li2160\sl240\slmult1\b0 on essaye de faire en sorte que start_object retrourne directement le __dict__ de  l'objet \'e0 hydrater ?\par
+- quasiment aucun moyen de savoir avec juste start_object sur quel object on est.  Le start objet ne recoit aucunes infos . \par
+- on ne pourra pas suprimer les keys qui ne sont pas dans la sauvegarde \par
+(on pourrait commencer par cleaner tous les attributs , mais pas s\'fbr que ce soit une bonne id\'e9e) \par
+\par
+\pard\li1440\sl240\slmult1\b approche 2 :   \par
+\pard\li2160\sl240\slmult1\b0 on deserialize tout le dictionnaire sans hook et on travaille sur le dictionnaire deserialis\'e9  (ce que fait jsonpickle)\b\par
+\b0 1) deserialize tout le dictionnaire sans faire aucune restauration\par
+2) puis updater l'objet en explorant \'e0 la fois l'objet et le dictionnaire .\par
+-> cod\'e9e dans "serializeJson_update.py" \par
+pb1)  \'e0 priori risque d'\'eatre tr\'e8s lent s'ils faut explorer tout les objets \'e0 la recherche de dictionnaire contenant un "__class__"\par
+pb2) s\'fbr de restaurer les elements dans le bon ordre en commencant par les feuilles ? \par
+\par
+\b approche 2,  optimisation 1  : \par
+\pard\li2880\sl240\slmult1\b0 optimisation de l'approche 2\par
+. en faisant d\'e9j\'e0 quelques restauration pendans la deserialization du json avec rapidjons , si par exemple la classe n'est pas updatable et aucun des sous-elements ne contient de classe qui soit updatables \par
+. en evitant d'explorer les dictionnaire qu'on a enregistr\'e9e commme ne contenant pas de sous-elements ou on a laiss\'e9 des __class__\par
+\pard\li2160\sl240\slmult1\par
+\b approche 2, optimisation 2 : \par
+\pard\li2880\sl240\slmult1\b0 pour chaque objet qu'on aura pas r\'e9hydtat\'e9 au moment de la deserilaisation du json en dictionnaire , on va essayer d'enregistrer le parent et si possible le nom du champ du dictionnaire ou l'index de la liste  pour pouvoir allez directement dessus . \par
+\ul il faudrait une methode  start_list pour savoir si une liste est \'e0 explorer plus tard . \par
+\pard\li2160\sl240\slmult1\ulnone\par
+\par
+def __call__():\par
+\pard\li2880\sl240\slmult1 self.root = None\par
+...\par
+self._updating = True\par
+self.ancestors = deque()\par
+ # on y append les id des dictionnaire dans start_object et les retire dans end_object. du coup le dernier element contient le dictionnaire "parent"\par
+self.ancestors.append(None)\par
+self.node_has_descendants_to_recreate = set()\par
+loaded_dict = rapidjson.Decoder.__call__(self, json, chunk_size=self.chunk_size)\par
+loaded = self._exploreToUpdate(obj, loaded_dict)\par
+...\par
+\par
+\par
+\pard\li1440\sl240\slmult1\b __setstate__  ?????\par
+setXXXX ???\par
+\b0\par
+\pard\li720\sl240\slmult1\par
+\pard\li1440\sl240\slmult1\par
+\pard\li720\sl240\slmult1\par
+\pard\li1440\sl240\slmult1\par
+\pard\li720\sl240\slmult1\b  \par
+\pard\sa200\sl276\slmult1\b0\par
+}
+ 

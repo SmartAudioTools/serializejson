@@ -1,0 +1,278 @@
+{\rtf1\ansi\ansicpg1252\deff0\deflang1036{\fonttbl{\f0\fnil\fcharset0 Calibri;}}
+{\colortbl ;\red0\green0\blue0;\red192\green192\blue192;\red255\green0\blue0;\red0\green176\blue80;\red165\green165\blue165;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\cf1\b\f0\fs22 Presentation\par
+\pard\li720\cf0\b0 le module SmartFramework.serialize permet  la serialisation/deserialisation  en cours d'execution d'objet , d'une partie de l'application ou m\'eame de l'application totale  ( valeurs des attributs de touts tes objets et widgets) , il est alors tr\'e8s facile de sauvegarder / restaurer automatiqument l'etat d'un application pour reprendre un travail en cour .\par
+\par
+recursivit\'e9e \par
+\pard\li1440 + l'objet ou l'application est par d\'e9faut s\'e9rialis\'e9 et d\'e9serialis\'e9 enti\'e8rement \par
++/- sauve meme les objet qui n'ont jamais \'e9t\'e9 modifi\'e9s \par
+\tab + bien si on veut \'eatre sur de retrouver meme etat \par
+\pard\li2160 - moins bien si on veut prendre en compte nouveaux param\'e8tre par defauts? \par
+\pard\li1440 +/- on atteint tout les objet avec un exporation recursive \par
+\tab + tout automatique \par
+\pard\li2160 - Il faut pr\'e8cisser explicitement quelles attribut ne seront pas serialis\'e9s (soit dans QtDesigner en d\'e9cochant [ ]serialize soit en prefixant nom d'un attribut par "_"\par
+\pard\li720 nomage\par
+\pard\li1440 + on enregistre les donn\'e9e sous leur nom qualifi\'e9 naturel (de leur emplacement : nom et l'arboressance utlis\'e9e poru sauver objet celle naturelle )\par
+- on peut perde une partie  si on change la structure de l'application\par
+- on peut sauvegarder plusierus fois meme donn\'e9e si donn\'e9e partag\'e9e \par
+- on peut avoir probl\'e8me de r\'e9f\'e9rence circulaire ? (on peut cr\'e9er un liste d'identifiants d'objets d\'e9j\'e0 ou en cours de serialisation !)\par
+- fichier de param\'e8tre un peu degeux, si veut permet edition textuelle \'e0 un utilisateur \par
+\pard\li720 simplicit\'e9 \par
+\pard\li1440 + utilise les m\'eame methodes que pour pickle\par
++ marche \'e0 priori sans avoir quasiment rien \'e0 coder sur tous les objets\par
+- demande \'e0 ce que chaque objet soit bien cod\'e9 ...\par
+\pard\li720 presets : \par
+\pard\li1440 + peut s\'e9lectionner, nommer et sauvegarder des presets  facilement dans diff\'e9rents fichiers grace \'e0 mon widget pyqt  "SerializePresetUI"\i\par
+\par
+\pard\li720 perso : je l'utiliser quand il y un nombre important de param\'e8tres, ou pour serialis\'e9 des donn\'e9es / travail en cour \cf1\b\i0\par
+\par
+\par
+\par
+\pard\cf0 Dans Qt Designer \par
+\pard\li720\cf1 SerializePresetUI\par
+\cf0\b0\par
+\pard\li1440 combine un fileSelectorUI et un SerializeInterface dans un m\'eame objet \b\par
+\par
+Ui \tab\par
+\pard\li2160\b0 . permet de renomer fichiers en double clickant\par
+. click sur nom vide -> save as , dans le nouveau nom qu'on va rentrer \par
+. click sur nom existant -> save l'actuel , et restaure le nouveau \par
+\par
+\pard\li1440\b parametres / propri\'e9t\'e9s \b0\par
+\par
+\pard\fi-720\li2880 parametrant le file selector \par
+\par
+\pard\fi-720\li3600 nombreFiles \tab\tab\tab nombre de preset \'e0 afficher \tab\tab 4\par
+dossierFiles\tab\tab\tab dossier ou stocker presets \tab\tab 'serializePresets'\par
+extension \tab\tab\tab extension des presets\tab\tab\tab 'dat'\par
+\par
+\pard\fi-720\li2880 parametrant le SerializeInterface \par
+\par
+\pard\fi-2880\li5760\tx4320 object    \tab\cf2 string\cf0\tab chemin de l'objet \'e0 serialiser % serializeInterface \par
+fileName \tab\cf2 string\tab\cf0 fichier de sauvegarde \par
+saveWhenLastWindowClosed\cf2 T/F\tab\cf0 doit sauver automatiquement quand quite l'application ?\cf2\par
+\cf0 loadWhenOpen\tab\cf2 True/False\tab\cf0 doit loader automatiquement  quand ouvre l'application ?\par
+format\tab\cf2 'python','tiny'\cf0\tab format du fichier de sauvegarde\par
+setAttributs \tab\cf2 True/False\cf0\tab doit utiliser la notation obj.a = 3 ou obj.setA(3) ?\par
+filtre \tab\cf2 sring\tab\cf0 ne serialize pas les attributs commencant pas cette chaine de caract\'e8re\par
+\par
+\pard\li2160 propri\'e9t\'e9s h\'e9rit\'e9es de SyncObjectUi \par
+\pard\li2880 syncModule\tab\tab parameters\par
+syncName \tab\tab serializePresetSelected\par
+syncSave\tab\tab [v]\par
+serialize \tab\tab [ ]\par
+\par
+\pard\li1440\b Sauvegarde de lui meme :\par
+\pard\li2160\b0 pour pouvoir se restaurer la selection du preset doit \'eatre sauv\'e9e dans un fichier unique \par
+\par
+solution 1 : (par default)\par
+\par
+\pard\li2880 syncModule\tab\tab parameters\par
+syncName \tab\tab serializePresetSelected\par
+syncSave\tab\tab [v]\par
+serialize \tab\tab [ ]\par
+\par
+en quitant : \par
+\pard\li3600 le fileName va \'eatre stock\'e9 dans la variable serializePresetSelected, dans le fichier \cf3 synced.dat (bizarre devrait etre dans parameters ? ) en fait y'a un probleme dans le fichier SerializePresetUIDI.pyw qui n'est pas mise \'e0 jour lors de la compilation de SerializePresetUI -> Qt designer , car il estime \'e0 tor que tous les argument ont d\'e9j\'e0 \'e9t\'e9 mis en propri\'e9t\'e9 ...?! \cf0\par
+\pard\li2880 en ouvrant : \par
+\pard\li3600 la restauration automatique de serializePresetSelected   va restaure fileNames \par
+et donc restaurer la serialisation associ\'e9e . \par
+\par
+\pard\li2160 solution 2 : \par
+\pard\li2880 syncSave\tab [ ]\par
+serialise \tab [v]\par
+\cf3\b A TESTER\cf0\b0\par
+\par
+se serialize lui meme ( ) et faire une copie de la serialisation dans un fichier default (celui qui est automatiquemnet charg\'e9)\par
+\par
+\cf1\b\par
+\pard\li720\cf0 SerializeInterface\tab\cf2\b0 (self, parent=None, object = 'self.parent',fileName= 'serialized.dat' , saveWhenLastWindowClosed = True, loadWhenOpen = True, format = 'tiny', setAttributs = False, filtre = ''):\par
+\par
+\pard\li1440\cf0 Interface PyQt  permetant la serialisation d'objets (PyQt ou de Donn\'e9es)  \par
+\par
+\b parametres \b0\par
+\pard\fi-2880\li5040\tx3600 object    \tab\cf2 string\cf0\tab chemin de l'objet \'e0 serialiser % serializeInterface \par
+fileName \tab\cf2 string\tab\cf0 fichier de sauvegarde par defaut \par
+saveDefaultWhenLastWindowClosed\cf2 T/F\tab\cf0 doit sauver automatiquement le fichier par defaut  quand quite l'application ? le fichier par defaut \'e9tant le fileName sauvegard\'e9 juste apr\'e8s la creation de l'application  (par un singleShot) , soit selui fournit dans QtDesigner ou en param\'e8tre du __init__ . \cf2\par
+\cf0 loadDefalutWhenOpen \tab\cf2 True/False\tab\cf0 doit loader automatiquementn le fichier par defaut  quand ouvre l'application ?\par
+format\tab\cf2 'python','tiny'\cf0\tab format du fichier de sauvegarde\par
+setAttributs \tab\cf2 True/False\cf0\tab doit utiliser la notation obj.a = 3 ou obj.setA(3) ?\par
+filtre \tab\cf2 sring\tab\cf0 ne serialize pas les attributs commencant pas cette chaine de caract\'e8re\par
+roundFloat\tab\tab 0 si pas d'arrondi , entier correspondant au nombre de chiffres apr\'e8s la virgule sinon (permet de preserver m\'e9moire et  eviter plantage de python)\par
+space \tab\cf2 True/False\cf1\tab dit si met des espace lors de la serialisation (Flase permet de conserver de la memoire et donc d'eviter de planter si gros fichier, mais mois lisible)\cf0\par
+\par
+\pard\li1440\b slots :\par
+\pard\fi-2880\li5040\cf1\b0 setFileName\tab fileName\tab stocke le nom du fichier sous lequel sera sauv\'e9 l'\cf0 objet \cf1 (permet se sauvegard\'e9 different etat sous diff\'e9erents fichiers pour un meme \cf0 objet\cf1 )\par
+\pard\fi-2880\li5040\tx3600 save\tab  \cf2\i fileName\i0\tab\cf0 sauvegarde l'objet dans fichier (stock\'e9 ou pass\'e9 en argument)\par
+\cf1 load\tab\cf2\i fileName\tab\cf0\i0 deserialise les donnes contenu dans fichier dans un nouvel objet si l'objet n'\'e9tait pas un objet PyQt\line\pard\fi-2880\li5040 ou sur place en ecrasant les attribut pour un objet PyQt (permet de preserver connetions etc) remarque cette deuxi\'e8me forme de d\'e9serialisation n'est possible qu'au format python\par
+\pard\li2160\cf2 saveLastAndLoad  \i fileName\i0\tab sauvegarde le coll actuel dans fichier (stock\'e9), en recharge un a partir du fichier (pass\'e9 en argument ou stock\'e9) \line\tab\tab\tab\tab on evtiera de l'utiliser  peut poser probl\'e8me si des chose externe comme l'etat d'un fileSelector doit changer entre les deux'''\i\par
+\pard\li1440\cf0\b\i0 signaux \par
+\pard\li2160\b0 loaded \tab\tab\tab\tab signal quand le load est fini \cf2 (permet par exemple au SyncModule d'envoyer la mise \'e0 jour \'e0 tout les objet connect\'e9s \'e0 ses SyncData) \cf0\par
+\b\par
+\pard\li720 Selection des objets \'e0 serializer: \par
+\pard\fi-720\li2160 serialisation d'un sous-patch ?  \b0 oui en choisissant le nom qualifi\'e9 du sous-patch dans serializeInterface\par
+\pard\li1440\b serialiser que certains objets ?  \b0 oui en d\'e9cochant [ ] serializable pour les autres  \par
+\pard\fi-720\li2160\cf3\b peut etre prochainement en les connectant \'e0 l'objet save ... comme dans max... mouais . on leur envoit un signal "accepte la prochaine serialisation"  PAS FAIT !!!\par
+\par
+\par
+\pard\cf0 Dans le fichier "serializeParameters.py" :   param\'e8tres  globaux  \par
+\cf1\par
+\pard\fi-3060\li3780\tx3600\b0 # -*- coding: utf-8 -*-\par
+# noms de fichiers ----------------------------\par
+\par
+forceRelativePath  = False\tab # \cf0 force noms de fichier en chemin relatif\cf1\par
+forceAbsolutPath   = False\tab # \cf0 force noms de fichier en chemin absolut\cf1\par
+\par
+# serialisation de tableaux numpy -------------\par
+readableArray      = True\tab # force \'e0  encoder le tableau sous forme de liste lisible , et donc d'utiliser numpy.array au lieur du construcuteur numpy.ndarray\par
+\par
+# comportement differents de pickle ? ---------\par
+\par
+makeImports       = True \tab # dit si doit rajouter ligner d'imports au debut du fichier serialis\'e9.\par
+\par
+filtre                   = False     \tab # dit si doit filtrer les attribut commencant par la chaine stocke dans filtre.\par
+\par
+setAttributs       = False      \tab # dit si doit tenter d'appeler setter pour la restauration des attributs.\par
+                               \tab # pickle ne le fait pas \par
+                                \tab # plus sur de ne pas le faire , pour eviter feedback \'e0 la restauration ? \par
+                                \tab # avec serializePython/serializeTiny , le fera de toute facon si c'est une propri\'e9t\'e9e...\par
+                                \tab # le plus sur est de le laisser \'e0 False et d'implementer __setstate__ ou de mettre en propriet\'e9 (si on est sur d'utilise serializePython/serializeTiny )\par
+\pard\fi-2340\li3780\cf3\b # IL faudra mettre True ou cr\'e9er des propri\'e9t\'e9 pour pouvoir appeller setter, si doit mettre \'e0 jour l'interface graphique, sinon elle ne risque pas d'\'eatre au courant avec une simple assignation d'attribut..\par
+\cf1\b0\par
+\pard\fi-3060\li3780 newStyleAsOldStyle = True       # dit si doit se comporter avec les objets newstyle comme avec les oldstyle \par
+                                \tab # c'est \'e0 dire ne pas obliger \'e0 coder __reduce__() si on souhatire utiliser __initargs__() \par
+                                \tab # si True , ne se comportera pas comme pickle sur  les objets mal cod\'e9s pour pickle(__initargs__() sans __reduce__() ou ___reduce__ mal cod\'e9\par
+# arondi des floats --------------------------\par
+roundFloat      = 0\tab # 0 si pas d'arrondi , entier correspondant au nombre de chiffres apr\'e8s la virgule sinon (permet de preserver m\'e9moire et  eviter plantage de python)\par
+\par
+# cosmetique ----------------------------------\par
+\par
+reprDictAsObjectOn = False     # permet de representer les dictionnaire plutot sour la forme 'dict(key1 = 1, key2 = 5)' , sert un peu \'e0 rien ?\par
+space              = True      \tab # dit si met des espace lors de la serialisation (Flase permet de conserver de la memoire et donc d'eviter de planter si gros fichier, mais mois lisible)\b\par
+\par
+\par
+\cf0\par
+\par
+\pard objets PyQt \par
+\pard\li720 A implementer ? \par
+\par
+\pard\fi-1170\li2610\cf4 # Propri\'e9t\'e9 serialize : permet de rajouter une propri\'e9t\'e9 dans QtDesinger,  permet de cocher si l'objet doit \'eatre serialis\'e9 , sans avoir \'e0 ajouter un prefixe "_" au nom de l'objet .   \par
+\pard\li1440\cf1 def setSerialize(self,value):                \par
+\pard\li2160\b0 self._serialize = value\par
+\pard\li1440\b def getSerialize(self):\par
+\pard\li2160\b0 return self._serialize\par
+\pard\li1440\b serialize = QtCore.pyqtProperty\b0 (bool, getSerialize, setSerialize) \par
+\par
+\cf4\b # Methodes compatibes Pickle \par
+\cf0 def __getstate__(self) ?  \par
+\pard\li2160\cf4 # Eventuellemnt \par
+\cf0\b0 #  si on souhaite avoir autre comportement que celui par defaut qui est de serialize self.__dict__. (sans les attribut commencant par '_' si on l'a defini comme filtre)\par
+# (par exemple si on ne veut sauver que certains attributs )\par
+# Rem : self.__dict__ ne contient que les attributs defini dans python .  les objet qt n'en on pas .. donc pas de risque de serialiser obet Qt (?)\b\par
+\b0 if self._serialize : \par
+\pard\li2880 return \{'value':  self.value\}   \}    \par
+## retourne l'etat de la classe sous forme d'un objet qui sera lui meme serialise (dictionnaire ou autre) \par
+## Si __setstate__() n'est pas disponible , l'objet retourne devra etre un dictionnaire \par
+##(les elements seront restaures comme etant des attributs), sinon l'objet peut etre n'importe quel objet serialisable \par
+\pard\li2160 else : \par
+\pard\li2880 pass                             ## permet de ne pas restaure l'etat de l'objet apres l'__init__()   \b\par
+\b0\par
+\pard\li1440\b def __setstate__(self,state) :   \b0\par
+\pard\li2160 # A eviter  \par
+## utilse que si on souhaite avoir autre comportement que celui par defaut qui conssite a restauration des attribut (evenuellemnet avec setter si c'est une propri\'e9t\'e9 ou si setAttributs = True  dans fichier "serializeParameters.py" )\par
+## prend en parametre l'objet decrivant l'etat de la classe et replace l'instance dans l'etat dans lequel elle etait avant la serialisation. \par
+## peut eventuellement executer du code d'initialisation (notament si __getinitargs__ n'a pas ete definit \par
+## (Rem : Si __getstate__() n'est pas disponible, c'est __dict__ qui aura ete directement serialise)\par
+self.__dict__.update(state)  \tab ## comportement par defaut \par
+pass       \tab\tab\tab ##  si on veut eviter de restaurer etat , meme si on l'a enregistr\'e9\par
+\cf3\b\par
+\pard\li1440\cf5 def __getinitargs__(self)?\tab\par
+\pard\li2160\cf3 NON \par
+\cf5\b0 genant pour les attribut d'un patch. car va ecraser les attribut cr\'e9er lors de l'initialisation avec de nouveaux objet. et perdre les connextion \par
+a moin que l'objet n'ai pas \'e9t\'e9 cr\'e9er dans le __init__() du patch (rajout\'e9 apr\'e9s dynamiquement) dans ce cas si il faut le cr\'e9er ....\par
+\par
+\pard\li1440\b def __reduce___(self) ? \cf0\par
+\pard\li2160\cf3 NON\par
+\cf5\b0 genant de la meme facon que getinitargs => oblige d'executer l'__ini__() \'e0 la restauration .... => va ecraser les attribut cr\'e9er lors de l'initialisation avec de nouveaux objet. et perdre les connextion\cf0\b\par
+\b0\par
+\cf1\par
+\pard\li720\cf0\b Serialisation uniqument des donn\'e9es internes, sans sauvegarde de la structure des connexions\par
+\par
+\pard\li1440 l'appel de __init__ de l'objet principal , sera fait par l'utilisateur  \par
+\pard\fi-720\li2880\b0 l'appel du fichier ne fait restaure  les etat \par
+l'utilisateur doit recr\'e9er l'application lui meme avant ... \par
+=> permet de ne pas ecraser les connexions \line\pard\li2160 => permet de loader differents fichier sans recreer application \'e0 chaque fois \tab\par
+\pard\fi-720\li2880\cf2 sinon il faut rajouter du code qui recrerer juste le widget principal,  pour pemetre execution en standalone ... autant de fichier auto-executable \b\par
+\cf0\par
+\pard\li1440 serializePython et SerialieTiny ne vont : \par
+\pard\li2160\b0 - ni sauver les les connexion , qui ne sont de toute facon pas stock\'e9e dans __dict__ \par
+- ni demander de recr\'e9er les objet PyQt avec contstructeur ou new \par
+   -> pour eviter d'ecraser les attribut cr\'e9er lors de l'initialisation avec de nouveaux objet et perdre les connextion \par
+   -> du coup on ne va meme pas generer la chaine de caract\'e8re qui permet de reconstruire  les objects PyQt (contrairement a ce que fait serializePython pour des objets non PyQt)\par
+   -> par contre on restaure leur etat \par
+\pard\li2250 - mais tout de meme continuer les explorer \'e0 la recherche d'attributs non PyQt \par
+\cf2 - eviter reference circulaire en evitant de :\par
+\pard\li2970 - serialiser 'parent' si par malheur il se retrouve dans le __dict__ (pas exemple apr\'e9s un self.__dict__.update(locals()) ) ou addArgs(locals())\par
+\pard\li2160 - eviter de faire appel \'e0 ReprObject si dictionaire susseptible de contenir des Pyqt objects ? \cf0\par
+\par
+\pard\li1440\b pour cela on suppose que : \par
+\pard\li2160\b0 - l'appel de __init__ de l'objet principal , va s'occuper de recr\'e9er tous ces objet pyqt et ces connexion (sans forcemnet restaure leur etat )\par
+- aucun objet PyQt et aucune connexion n'a \'e9t\'e9 rajout\'e9 dans l'application \par
+- si on veut rajouter des Objet PyQt et des connexion ca se fera dans QtDesigner , qui s'occuper lui meme de serialiser en XML , puis mon compilateur en code Python (notement en ajoutant objet et connexion dans les __init__)\par
+ \par
+\pard\fi-720\li2160\b limitation\b0 s\par
+\pard\li2160\tx2160 - il faut avoir la structure de l'aplication cod\'e9e en dur .... on ne peut donc pas la changer dynamiquement ....\par
+  => il faut faire appel au __init__() pour recr\'e9er les connexion \par
+\cf3\b   => incompatible avec pickle,serializeJson et serializeRepr\par
+\cf0\b0\par
+\par
+\cf1     \cf3\b\par
+\par
+\pard\li720\tx2160\cf0 The following PyQt classes may be pickled.\par
+\pard\li720\tx2160\tx2160\b0\par
+\pard\li1440    * QByteArray\par
+    * QChar\par
+    * QColor\par
+    * QDate\par
+    * QDateTime\par
+    * QKeySequence\par
+    * QLatin1Char\par
+    * QLatin1String\par
+    * QLine\par
+    * QLineF\par
+    * QMatrix\par
+    * QPoint\par
+    * QPointF\par
+    * QPolygon\par
+    * QRect\par
+    * QRectF\par
+    * QSize\par
+    * QSizeF\par
+    * QString\par
+    * QTime\par
+\par
+\par
+\pard\li720\tx2160\b Property\b0\par
+\pard\li1440\tx2160 PyQt4.QtCore.pyqtProperty(type[, fget=None[, fset=None[, freset=None[, fdel=None[, doc=None[, designable=True[, scriptable=True[, stored=True[, user=False[, constant=False[, final=False[, notify=None]]]]]]]]]]]])\'b6\par
+\par
+    \par
+Create a property that behaves as both a Python property and a Qt property.\par
+Parameters:\tab\par
+ * type\tab the type of the property. It is either a Python type object or a string that is the name of a C++ type.\par
+ * fget\tab the optional callable used to get the value of the property.\par
+ * fset\tab the optional callable used to set the value of the property.\par
+ * freset\tab the optional callable used to reset the value of the property to its default value. It is ignored by Python\par
+ * fdel\tab the optional callable used to delete the property. It is ignored by Qt.\par
+ * doc\tab the optional docstring of the property. It is ignored by Qt.\par
+ * designable\tab optionally sets the Qt DESIGNABLE flag. It is ignored by Python\par
+\b  * scriptable\tab optionally sets the Qt SCRIPTABLE flag. It is ignored by Python\par
+ * stored\tab optionally sets the Qt STORED flag. It is ignored by Python\par
+\b0  * user\tab optionally sets the Qt USER flag. It is ignored by Python\par
+ * constant\tab optionally sets the Qt CONSTANT flag. It is ignored by Python\par
+ * final\tab optionally sets the Qt FINAL flag. It is ignored by Python\par
+ * notify\tab the optional unbound notify signal. It is ignored by Python\par
+\par
+\cf1\b\par
+\cf0\b0\par
+}
+ 

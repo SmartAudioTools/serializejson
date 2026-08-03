@@ -4,6 +4,7 @@ LICENSE
 MANIFEST.in
 QtCreator_instructions.txt
 README.rst
+rapidjson.cpp
 requirements-test.txt
 requirements.txt
 setup.cfg

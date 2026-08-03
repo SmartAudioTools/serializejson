@@ -1,0 +1,253 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fswiss\fprq2\fcharset0 Arial;}{\f1\fswiss\fcharset0 Arial;}}
+{\colortbl ;\red0\green0\blue0;\red165\green165\blue165;\red255\green0\blue0;\red192\green192\blue192;\red0\green0\blue255;\red0\green176\blue80;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\cf1\lang1036\b\f0\fs20 serializeJson \par
+\pard\li720 caracteristiques\par
+\pard\fi-270\li1710\b0 + \cf0\f1 tr\'e9s proche du python ,   (Correspond quasiment \'e0 des dictionnaires python !!!!!!!)\cf1\f0\par
+\cf0\f1 + tr\'e9s simple \'e0 lire \cf1\f0\par
++ pas d'execution de code => plus de securit\'e9 \par
++ permet de sauver n'importe quel instance d'objet au format Json (ou dictionnaire python) avec les m\'eame methodes et fonctions que  pickle.\line en cr\'e9ant une copie du dictionnaire __dict__ (dictionnaire d'attributs de l'objets) ou celui retourn\'e9 par __getstate__() ,en ajoutant les champs :\line __class__ \tab module.classe de l'objet\line __init__ \tab argument pass\'e9s au __init__() , si absent l'objet sera cr\'e9er sans faire appel \'e0 __init__() (comme pour pickle)\line __state__\tab si etat n'est pas un dictionnaire  \par
++ compatible avec les methode d'objet pour pickle (__getinitargs__(), __getstate__(), __setstate__(),__reduce__())\par
+\cf0\f1 + utilis\'e9 par MaxMSP !!!! \par
+- pour l'instant ne permet pas la restauration de l'\'e9tat d'objets existant \cf1\f0 ( PyQt par exemple) cf ci-dessous\cf0\f1\par
+- transforme les tuples en liste (on s'en fou un peu )\par
+\par
+\pard\li720\b difference avec Python : \par
+\pard\fi-2880\li4320\tx3600 Python\tab\tab Json \cf1\b0\f0\par
+\cf0\f1 instance \b\tab  \b0 <->\b\tab\b0 dict \tab avec champ \cf1\f0 __class__ , __init__ ,__state__ \cf0\f1 (meme syntaxe que les dictionnaire python)\par
+dict \tab  <->  \tab dict\cf2\tab (s'appelle "object" en javascript)\cf0\par
+\cf3\i namedtuple \tab   ->  \tab dict \i0\par
+\cf0 liste\tab <->\tab list\cf2\tab  (s'appeller "array" en javascript )\cf0\par
+\cf3\i tuple\tab   ->\tab list\cf2\i0\tab  (s'appeller "array" en javascript )\cf0\par
+string\tab <-> \tab sting ascii\par
+unicode\tab <-> \tab string ascii (avec encodage escape \\uXXXX) \par
+int, long, float\tab <->\tab number  (\cf3 tronqu\'e9 \'e0 18 caract\'e8res\cf0 )\par
+inf\tab <->\tab Infinity\par
+nan \tab <-> \tab NaN\par
+True \tab <-> \tab true\par
+False\tab <->\tab false\par
+None\tab <->\tab null\par
+\pard\fi-1440\li2880\tx2160  \line\pard\cf1\f0\par
+\pard\fi-720\li1440\cf0\b\f1 serialisation\tab ( \f0 modelisation pickle )\par
+\pard\li1440 un seul objet \par
+\pard\fi-1440\li3600\cf1\b0 dumps(obj) \tab\cf0\f1 s\'e9rialise l\rquote objet et retourne une cha\'eene de caract\'e8res avec l\rquote objet. \cf4\f0\par
+\cf1 dump(obj,f)\tab\cf0\f1 sauvegarde dans fichier (filename, file ou objet  proposant la m\'e9thode write() ) l\rquote objet pass\'e9 en param\'e8tre.\tab\cf4\f0 '''\par
+\cf0\f1 loads(string)  \tab retourne l \rquote objet \'e0 partir d\rquote une cha\'eene de caract\'e8res repr\'e9sentant l\rquote objet s\'e9rialis\'e9. \tab\cf4\f0\par
+\cf1 load(f)\tab\tab\cf0\f1 retourne un objet depuis fichier (filename, file ou objet proposant la m\'e9thode read()) \cf1\f0\tab\par
+\cf4\par
+rem : on utilise la bibliotheque JSON, problemes : tuple-> listes  \cf1\par
+\cf4 rem:on utilise la bibliotheque simpleJSON, qui sait reconnaitre les string qui n'ont pas besoin d'\'eatre unicode str ->unicode->str\cf1\par
+\par
+\pard\li1440\b plusieurs objets\par
+\pard\li2160\b0 Si on veut seriliazer plusieurs objet , il faut les mettre dans un objet qui les contiendra , par exemple un module  ( peut \'eatre cr\'e9er avec new.module('nomBidon'))\par
+\par
+\pard\li1440\b pyqt objets\par
+\pard\fi-720\li2880\b0 impossible pour l'instant de restaurer objet existant ( PyQt par exemple)\par
+le probl\'e8me c'est de passer l'objet ...\tab  ne sais pas comment le passer \'e0 la ligne "    return simplejson.loads(string, object_hook = simplejsonLoadDict)"\par
+car il faut pouvoir le propager .... \par
+or la il a l'air de cronstruir d'abord les feuilles , avant de remonter pour construire branche , puis tronc , \par
+l'autre solution serait de recr\'e9er tout le dictionnaire et de recopier les elements dans objet pyqt existant ?\par
+\cf0\b\f1\par
+\pard\fi-2160\li2880 format fichier data : \cf5\b0\f0\par
+\cf0\{\par
+\pard\fi-1440\li2880    "__class__": "maClasse", \par
+    \cf4 initialisation ---------------\cf0\par
+    "__init__": [],\par
+    \cf4 ou \cf0\par
+    "__init__": [\par
+        "parametre", \par
+        "savedArg2"\par
+    ], \par
+    \cf4 ou \cf0\par
+    Rien\par
+    \cf4 Etat ---------------------------\par
+\cf0     "attributInstance1": "parametre", \par
+    "attributInstance2": "defaut2"\par
+    \cf4 ou  (si __setstate__() ne prend pas de dictionnaire ): \cf0\par
+    "__state__": "stateSaved"\par
+    \cf4 ou  \par
+\cf0     Rien\tab\par
+\}\cf1\par
+\cf0\b\f1\par
+\b0\par
+\pard\cf1\b serializeJsonlab:\par
+\pard\li720\b0 serialisation compatible avec la biblioth\'e8que JSONlab de Matlab pour interface JSON . \par
+\par
+\par
+tr\'e8s proche de \f0 serializeJson, sauf que l'on fait des converstion implicites pour les numpy.array , afin de simplifier le fichier json  (et sa lecture)\par
+lors de la serialisation :\par
+\pard\li1440 par d\'e9faut les numpy.array sont serialis\'e9 comme les liste sous la forme \cf0 [ 1, 2, 3] \cf1   au lieu de \cf0\{  "__class__": "numpy.array",    "__initArgs__": [ [ 1, 2, 3],"int32"]\}\par
+on pert donc de l'information sur le type d'objet , et rajoute une ambiguit\'e9e, mais permet \cf1 de simplifier le fichier json .\cf0\par
+\pard\li720 lors de la d\'e9serialisation:\par
+\pard\li1440  par d\'e9faut  on tente de d\'e9serialiser les listes en numpy.array, si le type de donn\'e9e est int ou float de dim < 3 \par
+\pard\li720\cf3 => lors du processus de serialisation / deserialisation on risque donc de transformer des liste d'entier et de float en tableau numpy ...  \par
+\cf1\f1\par
+\cf0\b difference avec Python : \par
+\pard\fi-2880\li4320\tx3600 Python\tab\tab Jsonlab\par
+\b0 instance \b\tab  \b0 <->\b\tab\b0 dict \tab avec champ \cf1\f0 __class__ , __initArgs__ ,__state__ \cf0\f1 (meme syntaxe que les dictionnaire python)\par
+dict \tab  <->  \tab dict \cf2\tab (s'appelle "object" en javascript)\cf0\par
+\cf3\i namedtuple \tab   ->  \tab\i0 dict \cf2\tab (s'appelle "object" en javascript)\cf3\i\par
+tuple\tab   ->\tab list \cf2\i0\tab  (s'appeller "array" en javascript )\cf3\i\tab\i0\par
+\cf0 list\tab   ->\tab list\cf2\tab  (s'appeller "array" en javascript )\cf6\par
+\cf0 list \tab <- \tab list \tab\cf6 (si loads(string,listAsArray = False))\cf0\tab  \par
+\cf6 numpy.array\tab <- \tab list \tab (si loads(string,listAsArray = True), par defaut, \ul et que int ou float de dim < 3)\par
+\ulnone numpy.array\tab   -> \tab list \tab (si dumps(obj,arrayAsList = True), par defaut)\par
+\pard\fi-2160\li4320 <-> \tab\cf0 dict \tab (si dumps(obj,arrayAsList = False) ou dim > 2)\tab\par
+\pard\fi-2880\li7200\tx3600 avec champs :\par
+_ArrayType_\par
+_ArraySize_\par
+_ArrayData_\par
+\pard\fi-2880\li4320\tx3600 string\tab <-> \tab sting ascii\par
+unicode\tab <-> \tab string ascii (avec encodage escape \\uXXXX) \par
+int, long, float\tab <->\tab number  (\cf3 tronqu\'e9 \'e0 18 caract\'e8res\cf0 )\par
+inf , -inf\tab <->\tab\cf3 "_Inf_" , "-_Inf_"\cf0\par
+nan \tab <-> \tab\cf3 '"_NaN_"'\cf0\par
+True \tab <-> \tab true\par
+False\tab <->\tab false\par
+None\tab <->\tab null\par
+\par
+\par
+\par
+\cf1\b\par
+\par
+\pard\li720 d\'e9serialisation : \par
+\pard\li1440\b0 'structuretype'  semble \'eatre un attribut rajout\'e9 par image metrics\par
+il ne sais pas ou trouver les classes des objets matlab ..... comment il fait avec pickle ? il regarde dans module appellant pickle.dumps ... mais peut etre pas l'ideal si utilise mon objet \b\par
+\par
+\par
+\cf0\b0\par
+\par
+\pard\cf1\b\f0 serializeRepr\par
+\par
+\pard\li720\cf0\f1 caracteristique \par
+\pard\fi-270\li1710\b0 + retourne un objet sous la forme d'une seul instruction (pas forcement une seul ligne !)  pour pouvoir \'eatre mis dans une liste par ex:         \par
++ pas de nomage de l'objet   => je peux sauver comme pickle des objet seul .... sans les nomer \par
+\cf1\f0 + compatible avec les methode d'objet pour pickle (__getinitargs__(), __getstate__(), __setstate__(),__reduce__())\par
++ n'utilise qu'au minimium repr() => pas de probl\'e8me pour les liste,set et dictionnaires d'objets. \par
+\cf3\b\f1 - ne gere pas automatiquement imports modules : doit sauver apr\'e9 serialisation et repasser \'e0 la d\'e9serialisation la liste de modules \'e0 importer \cf0\b0\par
+\par
+\pard\li720\b serialisation \par
+\pard\li1440 un seul objet \tab ( \f0 modelisation pickle )\par
+\pard\fi-2880\li5040\b0\f1 dumps(obj\cf4 , modules = None\cf0 )\tab s\'e9rialise l\rquote objet, retourne une cha\'eene de caract\'e8res avec l\rquote objet. Et update la liste de module a importer, pass\'e9e en argument !\par
+dump(obj,f\cf4 , modules = None\cf0 )\tab sauvegarde dans fichier (filename, file ou objet proposant la m\'e9thode write() ) l\rquote objet pass\'e9 en param\'e8tre. Et update la liste de module a importer, pass\'e9e en argument !\par
+loads(string\cf4 , modules=[]\cf0 ) \tab retourne l \rquote objet \'e0 partir d\rquote une cha\'eene de caract\'e8res repr\'e9sentant l\rquote objet s\'e9rialis\'e9. Apr\'e9s avoir fait imports des noms de modules se trouvant dans la liste modules, pass\'e9e en argument ! \par
+load(f\cf4 , modules=[]\cf0 ) \tab\tab retourne un objet depuis fichier (filename, file ou objet proposant la m\'e9thode read()) . Apr\'e9s avoir fait imports des noms de modules se trouvant dans la liste modules, pass\'e9e en argument ! \par
+eval(string) \tab\tab\tab retourne l \rquote objet \'e0 partir d\rquote une cha\'eene de caract\'e8res repr\'e9sentant l\rquote objet s\'e9rialis\'e9. Sans imports (il faut les avoir fait avant avant dans le module , en general le cas si meme module qui a sauv\'e9 !!)\par
+\pard\li1440\b plusieurs objets \par
+\pard\li2160\cf1\b0\f0 Si on veut seriliazer plusieurs objet , il faut les mettre dans un objet qui les contiendra , par exemple un module  ( peut \'eatre cr\'e9er avec new.module('nomBidon'))\par
+\cf0\b\f1\par
+\pard\li1440 objets PyQt : \par
+\pard\fi-720\li2880\b0\'e0 l'aire d'etre le meme prbl\'e8me qu'avec json pour restaure objet existant : \par
+\cf1\f0 car il faut pouvoir le propager .... \par
+or la il a l'air de cronstruir d'abord les feuilles , avant de remonter pour construire branche , puis tronc , \cf0\b\f1\par
+\b0\par
+\par
+\pard\li720\b format fichier data : \par
+\b0\par
+\pard\li1440 # sans etat avec appel du constructeur \tab (def __getstate__(self) : pass\tab et \tab def __getinitargs__(self) : returne () ou (...,....) )\par
+MaClasse('parametre', 'savedArg2'),\tab\par
+MaClasse()\tab\tab\tab\tab # restaure avec parametre par defaut \par
+\par
+# sans etat ni appel du constructeur  \tab (def __getstate__(self) : pass \tab et \tab pas de __getinitargs__())\par
+MaClasse.__new__(MaClasse)\tab\tab # ne fait pas appel \'e0 __init__ pour objet newstyle\par
+new.instance(MaClasse)\tab\tab # ne fait pas appel \'e0 __init__ pour objet oldstyle\par
+\par
+\par
+# juste restauration dictionnaire  \par
+instance(\tab\tab\tab\tab\par
+    MaClasse,\par
+    attributInstance1 = 'parametre',\par
+    attributInstance2 = 'defaut2'\par
+)\par
+\par
+# juste restauration etat\par
+instance(\par
+    MaClasse,\tab\par
+    __state__  =  'stateSaved'\par
+)\par
+\par
+# avec parametres d'initialisation et restauration dictionnaire   \par
+instance(\par
+    MaClasse('parametre', 'savedArg2'),\tab\par
+    attributInstance1 = 'parametre',\par
+    attributInstance2 = 'defaut2'\par
+)\par
+\par
+# avec parametres d'initialisation et restauration etat\par
+instance(\par
+    MaClasse('parametre', 'savedArg2'),\tab\par
+    __state__  =  'stateSaved'\par
+)\par
+\par
+\cf4\b\par
+\par
+\cf1\f0\par
+\par
+\pard\cf0\f1 serializePython \par
+\pard\li720 caracteristique \par
+\pard\li1440\b0 + gen\'e8re module python \par
++ peut s'auto executer (pas besoin forment de load)\par
++ plusieurs instruction \par
++ gestion des imports  (mis au debut de la string)\par
+- nomage des objets (on est oblig\'e9 de nomer \'e0 partir du moment ou on a plusieurs instruction, par defaut le nom est 'obj' )\par
+- utilisation de pickleRepr pour les objects contenus dans des liste, dictionnaires, tuples. (oblig\'e9 pour permetre cr\'e9ation d'un object en une seul instruction)\par
+- probl\'e8me de s\'e9curit\'e9 du \'e0 l'execution de code\par
++ comme on les nomme , on peut mettre plusieurs objet cote \'e0 cote dans le fichier , en les ecrivant les uns apr\'e9s les autres !!! \par
+\par
+\par
+\par
+\pard\li720\b serialisation\par
+\pard\li1440 un seul objet \tab ( \f0 modelisation pickle )\par
+\pard\li2160\b0\f1 dumps(obj\cf4 ,name = 'obj'\cf1 )\cf0\tab\tab s\'e9rialise l\rquote objet et retourne une cha\'eene de caract\'e8res avec l\rquote objet. \par
+dump(obj,f\cf4 ,name = 'obj'\cf1 )\cf0\tab\tab sauvegarde dans fichier (filename, file ou objet proposant la m\'e9thode write() ) l\rquote objet pass\'e9 en param\'e8tre.\par
+loads(string\cf4 ,name = 'obj'\cf1 )\cf0\tab retourne l \rquote objet \'e0 partir d\rquote une cha\'eene de caract\'e8res repr\'e9sentant l\rquote objet s\'e9rialis\'e9. \par
+load(f\cf4 ,name = 'obj'\cf1 )\cf0\tab\tab retourne un objet depuis fichier (filename, file ou objet proposant la m\'e9thode read()) \cf1\f0\tab\par
+\par
+\pard\li1440\b plusieurs objets\par
+\pard\li2160\b0 Si on veut seriliazer plusieurs objet , il faut soit :\par
+1) les mettre dans un objet qui les contiendra , par exemple un module  ( peut \'eatre cr\'e9er avec new.module('nomBidon'))\par
+\cf0\f1 2) les serialize sous des noms diff\'e9rents,  dans meme fichier, sans le fermer. Ceci est rendu possible grace au fait  que les objets son toujours nomm\'e9s , \par
+\par
+\pard\li1440\b objets PyQt : \par
+\pard\li2160\b0 3) comportemetn sp\'e9ciala avec objets PyQt :\par
+\pard\li2880 au moemnet de la serialisation d'objet PyQT , ne cr\'e9e pas les chaines de caract\'e8res permetant de recrer les objet pyqt (appel au constructeur ou new.)\par
+leur creation doit \'eatre fait en amont \par
+\pard\li2160 4 ) rajout\'e9 possibilit\'e9 de passer un objet existant \'e0 load et loads \par
+\pard\li2880 par contre pour l'instant  ne prend pas garde \'e0 ne pas utiliser constructeur pour l'instant si il a \'e9t\'e9 serialis\'e9 (pas le cas pour objets PyQt)\par
+\par
+\pard\li720\b format fichier data : \par
+\par
+\pard\li1440\b0 import MaClasse\par
+import new\par
+\pard\fi-1440\li2880\cf4\f0 initialisation ---------------\cf0\par
+\pard\li1440\cf4 avec init :\cf0\f1\par
+obj = MaClasse()\par
+\cf4\f0 ou\cf0\f1\par
+obj = MaClasse('parametre', 'savedArg2')\par
+\cf4\f0 sans init :\cf0\f1\par
+obj = new.instance(MaClasse)\par
+\cf4\f0 ou\cf0\f1\par
+obj = MaClasseNewStyle.__new__(MaClasseNewStyle)\par
+\pard\fi-1440\li2880\cf4\f0 Etat ---------------------------\par
+\pard\li1440\cf0\f1 obj.attributInstance1 = 'attribut1'\par
+obj.attributInstance2 = 'attribut2'\par
+\cf4\f0 ou\par
+\cf0\f1 obj.setAttribut('attribut')\tab # si on a mis la variable global setAttributs = True dans le module serializePython (ne se comporte pas comme pickle?)\par
+\cf4\f0 ou\cf0\f1\par
+obj.__setstate__('stateSaved')\par
+\cf4\f0 ou\cf0\f1\par
+obj.__setstate__(\{"attributInstance1" : 'parametre', "attributInstance2" : 'defaut2'\})\par
+\par
+\par
+\cf4\b t1=\{1,2\};t2=loadjson(savejson('',t1)); t1 == t2\par
+\par
+\pard\cf1 serializeTiny :\par
+\pard\li720\cf0 caracteristique \cf1\par
+\pard\li1440\b0 => se rapproche d'un hack de serializePython .\par
++ pemet de coder appel \'e0 __setstate__ et eventuellement set Attribut en Dur aussi pour objet root \par
+- il faut toujours mettre une ligne bien identifiable pour la creation de l'objet \par
+- le rendrant dans certain cas inexecutable car appel de fonction qui n'existe pas .  (__setstate__ et setAttribut)\cf3\b\par
+\par
+\par
+\cf1\par
+}
+ 

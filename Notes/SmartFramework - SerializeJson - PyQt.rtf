@@ -1,0 +1,152 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset2 Symbol;}}
+{\colortbl ;\red255\green0\blue0;\red0\green0\blue255;\red0\green176\blue80;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1\lang12\f0\fs22\par
+\b En Qt les children/parents ne correspondent pas forcement au tree des attributs !! \par
+\pard\li720\sl240\slmult1\b0 le tree des attributs est bidirectionnel \par
+parent<-> children se connaissent mutuellment \par
+un objet n'a qu'un seul parent \par
+un children storkc son parent , et s'enregistre au pr\'e8s de son parent \b\par
+\pard\sl240\slmult1\par
+_get_path \par
+\tab rame pour SmartTimeUI, particuli\'e8rement lent ... \par
+\par
+__getstate__\par
+\pard\li720\sl240\slmult1\b0\strike Pas de gestion de  getters = \{("x","y",None):"getXYZ"\}  quand utilsier keep = [...]: \cf1\strike0 j'ai supprim\'e9 l'option \cf0\par
+\strike pas de gestion de getters  = list or tuple \strike0 : \cf1 j'ai supprim\'e9 l'option \par
+\cf0\strike pas de gestion de extra_getters \b\strike0\par
+\pard\sl240\slmult1\par
+envoyer demandande de modification pour hoockmanager \par
+\pard\li720\sl240\slmult1\b0   def __init__(self):\par
+    '''Initializes an instance by setting up an empty set of handlers.'''\par
+    self.mouse_funcs = \{\}\par
+    self.keyboard_funcs = \{\}\par
+\par
+    self.mouse_hook = False\par
+    \ul self.keyboard_hook = False\ulnone\par
+\pard\sl240\slmult1\b\par
+\pard\sl240\slmult1\tx1980\par
+serialization de connections PyQt \par
+\pard\li720\sl240\slmult1\tx1980 sources\par
+\pard\li1440\sl240\slmult1\tx1980\b0{\field{\*\fldinst{HYPERLINK "https://www.google.fr/search?biw=1440&bih=757&ei=dHrbX8WSJIetUqadspAK&q=pyqt+list+connected+signals&oq=pyqt+list+sign&gs_lcp=CgZwc3ktYWIQAxgBMgYIABAWEB4yBggAEBYQHjIGCAAQFhAeMgYIABAWEB46BQgAEM0COgIIADoECAAQQzoECAAQCjoICAAQFhAKEB5QmqsFWNC4BWDBywVoAHAAeACAAVuIAeAFkgECMTGYAQCgAQGqAQdnd3Mtd2l6uAEDwAEB&sclient=psy-ab"}}{\fldrslt{\ul\cf2 https://www.google.fr/search?biw=1440&bih=757&ei=dHrbX8WSJIetUqadspAK&q=pyqt+list+connected+signals&oq=pyqt+list+sign&gs_lcp=CgZwc3ktYWIQAxgBMgYIABAWEB4yBggAEBYQHjIGCAAQFhAeMgYIABAWEB46BQgAEM0COgIIADoECAAQQzoECAAQCjoICAAQFhAKEB5QmqsFWNC4BWDBywVoAHAAeACAAVuIAeAFkgECMTGYAQCgAQGqAQdnd3Mtd2l6uAEDwAEB&sclient=psy-ab}}}\f0\fs22\par
+\par
+{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/8166571/how-to-find-if-a-signal-is-connected-to-anything"}}{\fldrslt{\ul\cf2 https://stackoverflow.com/questions/8166571/how-to-find-if-a-signal-is-connected-to-anything}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/2755694/determine-signals-connected-to-a-given-slot-in-qt"}}{\fldrslt{\ul\cf2 https://stackoverflow.com/questions/2755694/determine-signals-connected-to-a-given-slot-in-qt}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/14899855/searching-all-connected-signals-to-pyqt4-object"}}{\fldrslt{\ul\cf2 https://stackoverflow.com/questions/14899855/searching-all-connected-signals-to-pyqt4-object}}}\f0\fs22\line\pard\li1440\sl240\slmult1{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/28258875/how-to-obtain-the-set-of-all-signals-for-a-given-widget"}}{\fldrslt{\ul\cf2 https://stackoverflow.com/questions/28258875/how-to-obtain-the-set-of-all-signals-for-a-given-widget}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/22622434/given-a-pyqtboundsignal-how-to-determine-the-slot"}}{\fldrslt{\ul\cf2 https://stackoverflow.com/questions/22622434/given-a-pyqtboundsignal-how-to-determine-the-slot}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/32075541/get-function-linked-to-the-qpushbutton-clicked-connect-signal"}}{\fldrslt{\ul\cf2 https://stackoverflow.com/questions/32075541/get-function-linked-to-the-qpushbutton-clicked-connect-signal}}}\f0\fs22\par
+\pard\sl240\slmult1\b\par
+\pard\li720\sl240\slmult1 A) recuperer infos sur connections : \par
+\pard\li1440\sl240\slmult1\par
+solution int\'e9gr\'e9 \'e0 PyQt ? \par
+\tab mon_object.receivers(signal) : \par
+\pard\li2880\sl240\slmult1\b0 renvoit un entier correspon au nombre de slot connect\'e9 au signal ,\cf1  mais au ne donne aucune infos sur ces slots \par
+\cf0  (ex : widget.checkbox1.receivers(widget.checkbox1.stateChanged))\b\par
+\pard\li1440\sl240\slmult1\par
+\tab ne marche qu'en mode debug : \par
+\pard\li3600\sl240\slmult1 widget.dumpObjectInfo()\par
+\pard\li1440\sl240\slmult1\par
+solution Baptiste :   enregister infos sur signaux -> slots au moment de la connection \par
+\pard\li2160\sl240\slmult1\b0 en hackant  QtCore.pyqtBoundSignal.connect\par
+(cf serializejson_PyQt5_PySide2.py -> new_connect)\par
+permet de connaitre les connections cr\'e9es avec la methode connect . \par
+=> permet de connaitre toutes les connections? \par
+\pard\li1440\sl240\slmult1\b\par
+\pard\li720\sl240\slmult1 B) serialization : \par
+\pard\li1440\sl240\slmult1 Ou stocker les infos et sous quelle forme ? \par
+\pard\li2160\sl240\slmult1 dans anc\'e8tre commun au sens pyqt  ? (via .parent())\cf1\b0\par
+\pard\fi-360\li3240\sl240\slmult1\cf3 C'est ce que je fait pour l'instant en enregistrant infos dans un champ "~connections" \cf1\par
+- \tab il n'y a pas forcemetn d'anc\'e8tre commun \line cas tr\'e8s particulier de deux checkbox dans une liste sans widget qui les contient tout les deux \par
+-\tab l'anc\'e8tre commun ne va pas forcement \'eatre serializ\'e9 avant les deux objets , si au meme niveau dans la hierarchie json \line\cf3 -> il faut remonter plus loin que premier parent commun (ex si dans un layer ) \par
+\cf1 - \tab attribut "~connections"  invasif\par
+\pard\fi-360\li3600\sl240\slmult1 -> eviter \cf0 d'enregistrer connection  dans ~connections  si cr\'e9er \'e0 partir d'un __init__, pour n'enregistrer que celle cr\'e9es \'e0 la main.\par
+-> eviter de cr\'e9er en vrais ~connections ? \par
+-> stocker id plus que objects ? \cf3\b\par
+\pard\li2880\sl240\slmult1\cf1\par
+\pard\li2160\sl240\slmult1\cf0 dans anc\'e8tre commun au sens json ? \par
+\pard\li2880\sl240\slmult1\cf1 - peut \'eatre une liste ! \'e0 laquelle on ne pourra rajouter un attribut ~connexions \par
+\par
+\pard\li2160\sl240\slmult1\cf0 dans objet serializ\'e9 en dernier  avec chemin vers le premier \par
+\par
+dans les 2 objets  (objet contenatn le signal et objet contenant le slot) \par
+\pard\li2880\sl240\slmult1\b0 en sotckan un meme id ?\par
++ peut \'eatre fait en dehors de serializejson \par
+\cf1 le probl\'e8me c'est que j'ai du mal \'e0 acceder \'e0 l'objet qui contien ~signals ou ~slots \cf0\par
+\pard\li2160\sl240\slmult1\b un truc avec avec referecne id \'e0 la dojo ? \par
+\b0\par
+\pard\li720\sl240\slmult1\par
+\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li1080\sl240\slmult1 ajouter option "qt_connections" = True/False pour dumps \par
+\pard\li1440\sl240\slmult1\b\par
+\pard\li720\sl240\slmult1\par
+\pard\sl240\slmult1 pb de valeur par default : \tab\par
+\pard\li720\sl240\slmult1\b0 les valeurs par defautl sont \'e9valu\'e9e pour un objet qui est cach\'e9...\par
+hidden\par
+geometry \b\par
+\pard\sl240\slmult1\par
+\pard\li1440\sl240\slmult1\b0\par
+\pard\li720\sl240\slmult1\b //remove_default_values => keep_default_value\par
+\pard\li1440\sl240\slmult1\b0 __getstate__ ne garde pas les attribut pourant dans add ou keep , si remove_default_values True et valeur par d\'e9faut \par
+-> pose probl\'e8me pour checkbox dont il ne garde pas l'\'e9tat si pas check\'e9 , et foutra la merde pour une restore de l'etat .\par
+comment gerer ce param\'e8tre "remove_default_values" ?\par
+rajouter un "keep_even_default_value"  et "add_even_default_value" ?  \par
+\strike ne pas filter ce qui est dans keep et add ?  ne marche pas avec propriet\'e9 et setters\strike0\par
+\pard\li720\sl240\slmult1\b geometry  : \par
+\pard\li1440\sl240\slmult1\b0 faut il la sauver dans le json ? \par
+faut il regarder si dans un layer ? \par
+faut-il rajotuer une option \'e0 serializejson via plugin ? \b\par
+\pard\sl240\slmult1\par
+\pard\li720\sl240\slmult1\b0\par
+\par
+\pard\sl240\slmult1\b\par
+\par
+/qtpy.QtGui.QIcon : \par
+\b0\tab ajouter une methode de comparaison  pour ne aps le serializer ? \par
+\pard\li720\sl240\slmult1{\field{\*\fldinst{HYPERLINK "https://forum.qt.io/topic/15305/how-can-i-compare-2-icons/4"}}{\fldrslt{\ul\cf2 https://forum.qt.io/topic/15305/how-can-i-compare-2-icons/4}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://forum.qt.io/topic/58739/solved-compare-qicons"}}{\fldrslt{\ul\cf2 https://forum.qt.io/topic/58739/solved-compare-qicons}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://forum.qt.io/topic/29218/check-for-icon-of-qpushbutton-in-if-case/4"}}{\fldrslt{\ul\cf2 https://forum.qt.io/topic/29218/check-for-icon-of-qpushbutton-in-if-case/4}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://forum.qt.io/topic/58739/solved-compare-qicons/5"}}{\fldrslt{\ul\cf2 https://forum.qt.io/topic/58739/solved-compare-qicons/5}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://www.qtcentre.org/threads/13537-do-we-can-t-compare-QIcon-or-QPixmap"}}{\fldrslt{\ul\cf2 https://www.qtcentre.org/threads/13537-do-we-can-t-compare-QIcon-or-QPixmap}}}\f0\fs22\par
+\par
+j'ai cod\'e9 une premi\'e8re version  : \par
+\par
+\par
+    def QIcon__eq__(self, other):\par
+        availableSizes = self.availableSizes() \par
+        if availableSizes != other.availableSizes():\par
+            return False \par
+        elif not availableSizes :\par
+            return True \par
+        else : # meme availableSizes\par
+            return False \cf1 # il faudrait comparer plus en profondeur   \cf0\par
+    QtGui.QIcon.__eq__ = QIcon__eq__\par
+        \par
+\strike\par
+\pard\sl240\slmult1\b\strike0 image_conversion : \par
+\pard\li720\sl240\slmult1 QImage_format_bits : \par
+\pard\li1440\sl240\slmult1\b0 ajouter \par
+    #QImage.Format_Grayscale16 : 16,\par
+    #QImage.Format_RGBX64: 64,\par
+    #QImage.Format_RGBA64: 64,\par
+    #QImage.Format_RGBA64_Premultiplied: 64,\par
+    #QImage.Format_BGR888 : 24\par
+si la version de qt le permet \par
+\pard\sl240\slmult1\b\par
+\pard\li720\sl240\slmult1 QImage_to_bytes_width_height_format\par
+\pard\li1440\sl240\slmult1\b0 //tester avec image vide\b\par
+\b0 voir si on peut eviter un copie en utilant \par
+bytearray \par
+ memoryview\par
+\par
+\pard\li720\sl240\slmult1\b QImage_to_compressed_bytes\b0\par
+\pard\li1440\sl240\slmult1 voir si on peut eviter un copie en utilant bytearray , ou memview?\par
+\pard\li720\sl240\slmult1\b QImage_to_numpy\par
+\pard\li1440\sl240\slmult1\cf1\b0 eviter de faire convertsion qimage.convertToFormat(QImage.Format.Format_RGB32) si possible \par
+array = numpy.frombuffer(ptr, numpy.uint8).reshape((height, width, 4)) pas toujours le bon \par
+\cf3 mettre au moin un warning \cf1\par
+\cf0 la necessit\'e9 de garder une r\'e9f\'e9rence n'est pas claire \par
+\pard\li720\sl240\slmult1\b numpy_to_QImage\par
+\pard\li1440\sl240\slmult1\b0 voir si devrait pas utiliser Format_Grayscale8 (ne marchait pas en OPenGL? ) \par
+voir pour suporter tous les format de QImage ? \cf3 mettre au moin un warning \par
+\pard\sl240\slmult1\cf0\par
+}
+ 

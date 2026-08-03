@@ -1,0 +1,214 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset2 Symbol;}}
+{\colortbl ;\red0\green176\blue80;\red255\green0\blue0;\red0\green0\blue255;\red155\green0\blue211;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1\lang12\ul\b\f0\fs22 Optimisation \par
+\par
+\pard\li720\sl240\slmult1\cf1\ulnone\b0 d\'e9sactivation du garbage collector (comme serpent)\cf0\ul\b\par
+\pard\sl240\slmult1\ulnone\par
+\pard\li720\sl240\slmult1 def _onlyOneDimNumbers(list_or_tuple)  -> passer en cython ? \par
+def _json_object_file_iterator -> passer en cython ? \par
+\pard\li1440\sl240\slmult1\par
+\pard\li2160\sl240\slmult1\par
+\pard\li720\sl240\slmult1\ul array_to_list et array_from_list\par
+\pard\li1440\sl240\slmult1\ulnone array_from_list : \par
+\pard\fi-1080\li3240\sl240\slmult1\cf2 probl\'e8me:\tab les __init__  de certains objets peuvent etre convertis en tableau numpy, si un ou plusieur float ou int . \par
+\par
+\cf0 solution 1 ) \par
+\pard\fi-1080\li3960\sl240\slmult1\b0 eviter de convertir en numpy si correspond \'e0 un champ "__init__" ,\par
+pb rapide json ne donne pas d'infos l\'e0 dessus . \par
+-> il faudrait que end_object puisse nous fournir le nom du champ \cf2\b\par
+\pard\li2160\sl240\slmult1\cf0 solution 2) \par
+\pard\li2880\sl240\slmult1\b0 re-dispatcher avec inst = classe(*__init__) dans object.py/def instance\par
+pb il ne faut pas redispatcher si c'est un numpy array qui est le seul argument du init et pour lequel on a suprim\'e9 les []  dans serilaizeJson.ppy / def dict_from_instance\par
+si len(initArgs) == 1 et "__class__" in initArgs[0]\par
+\par
+solution 3\par
+\par
+\pard\li720\sl240\slmult1\par
+\pard\li2160\sl240\slmult1\par
+\pard\li720\sl240\slmult1\ul\b liste d'objets: \ulnone\par
+\pard\li1440\sl240\slmult1 dump_iter = append ?\par
+\pard\li2160\sl240\slmult1\b0 voir pour ne pas fermer le fichier \'e0 chaque fois ? \par
+\b\par
+\pard\li1440\sl240\slmult1 load_iter :  \cf1\b0\par
+\pard\li2160\sl240\slmult1\cf0\b solution  1 \b0 : se baser sur des readline avec le json format\'e9 comme \'e7a : \par
+\pard\li2880\sl240\slmult1 [\par
+elt1_sur_1_ligne \par
+,\par
+elt2_sur_1_ligne \par
+]\par
+\pard\li2160\sl240\slmult1\b solution 2 : \b0 truc robuste \'e0 un reformatage du json : \par
+\pard\li2880\sl240\slmult1 faire un truc qui compte dans un objet IObytes intermediaire  les "\{[]\}\par
+si commence par " charche le prochain " sans \\\par
+si commence par \{ compte les \{ et les\}  sans \\\par
+si commmence par \par
+\cf1 => je suis partis l\'e0 dessus \par
+1) faut mettre en place truc pour profiler  (par exemple avec un fichier de blobs)\par
+2) faut que je porte le code en Cython\par
+\pard\li2160\sl240\slmult1\cf0\b solution 3 : \b0  utiliser le raw_decode de la bibliotheque standard ?\par
+\pard\li2880\sl240\slmult1 le plus simple pour l'instant mais \'e0 priori \par
+ou regarder comment il a \'e9t\'e9 cod\'e9 ? \par
+{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/27907633/how-to-extract-multiple-json-objects-from-one-file"}}{\fldrslt{\ul\cf3 https://stackoverflow.com/questions/27907633/how-to-extract-multiple-json-objects-from-one-file}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/8730119/retrieving-json-objects-from-a-text-file-using-python"}}{\fldrslt{\ul\cf3 https://stackoverflow.com/questions/8730119/retrieving-json-objects-from-a-text-file-using-python}}}\f0\fs22\par
+\pard\li2160\sl240\slmult1\par
+\pard\li1440\sl240\slmult1\b\par
+\par
+\par
+\par
+\pard\li720\sl240\slmult1 serializeRepr ; eviter de faire un repr() sr des encodedB64 y'a rien \'e0 escpater \par
+\pard\li1440\sl240\slmult1 je n'utilseir plus d'objets encodedB64, plus de moyen de detecter qu'un string correspond \'e0 de la base 64 au moement de la serializer\par
+\b0 def reprEncodedB64(obj, indent=0, modules=None, splitLines=False):\par
+    #return repr(obj.encoded_bytes)\par
+    return f"b'\{bytes.decode(obj.encoded_bytes)\}'" \par
+j'ai pas encore timer pour savoir si c'est mieux \par
+\b\par
+\pard\li720\sl240\slmult1 tester et recuperer  un element dans un dictionnaire\par
+\pard\li1440\sl240\slmult1\b0 test pour chaque taille de dictionnaire timing si key dans dictionnaire , si pas dedans  ->  on peur alors ponderer les deux par la probabilit\'e9 que dedans ou non . \par
+\pard\li720\sl240\slmult1\b\par
+\par
+\pard\li1440\sl240\slmult1\b0 if key in dictionnary\par
+    elt = dictionnary[key]\par
+    ...\par
+\par
+elt = dictionnary.get(key,None)\par
+if elt is not None : \par
+    ....\par
+\par
+try : \par
+    elt = dictionnary[key]\par
+except : \par
+    pass \par
+else : \par
+   ....\b\par
+\par
+\pard\li720\sl240\slmult1 lire truc sur protocol buffeur et memoryview, ctype , pointer etc..\par
+\pard\li1440\sl240\slmult1\b0{\field{\*\fldinst{HYPERLINK "https://julien.danjou.info/high-performance-in-python-with-zero-copy-and-the-buffer-protocol/"}}{\fldrslt{\ul\cf3 https://julien.danjou.info/high-performance-in-python-with-zero-copy-and-the-buffer-protocol/}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://eli.thegreenplace.net/2011/11/28/less-copies-in-python-with-the-buffer-protocol-and-memoryviews"}}{\fldrslt{\ul\cf3 https://eli.thegreenplace.net/2011/11/28/less-copies-in-python-with-the-buffer-protocol-and-memoryviews}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://docs.python.org/fr/3.9/c-api/buffer.html#bufferobjects"}}{\fldrslt{\ul\cf3 https://docs.python.org/fr/3.9/c-api/buffer.html#bufferobjects}}}\b\f0\fs22\par
+\b0{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/47689778/how-do-you-go-from-a-sip-voidptr-qimage-constbits-to-a-ctypes-void-or-char-p"}}{\fldrslt{\ul\cf3 https://stackoverflow.com/questions/47689778/how-do-you-go-from-a-sip-voidptr-qimage-constbits-to-a-ctypes-void-or-char-p}}}\b\f0\fs22\par
+\par
+\pard\li720\sl240\slmult1\par
+\par
+\pard\sl240\slmult1\tx1980\par
+\pard\li720\sl240\slmult1\tx1980 serializejson\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li1440\sl240\slmult1\tx1980\b0 plutot utiliser des fonctions avec caching ? \par
+{\pntext\f1\'B7\tab}pour la recher de setter = stocker pour caque classe les setter qui existent (dans meme dictionnaire que pour le reste?)\par
+{\pntext\f1\'B7\tab}avoir un seul dictionnaire pour class_ -> tuple_from_xxx , qui se construit au fur est \'e0 mesure avec des values None , pour les object pour lequel on a pas de tuple_from_xx\par
+{\pntext\f1\'B7\tab}plutot que de passer par class_ -> class_str -> tuple_from_xx\par
+\pard\li360\sl240\slmult1\b\par
+\par
+\tab Serialization bytes\par
+\pard\li720\sl240\slmult1\par
+\tab Compression : \par
+\pard\li2160\sl240\slmult1\b0 utiliser blosc pour toutes les compressions ? \par
+\pard\li720\sl240\slmult1\b\tab\tab\b0{\field{\*\fldinst{HYPERLINK "https://quixdb.github.io/squash-benchmark/unstable/"}}{\fldrslt{\ul\cf3 https://quixdb.github.io/squash-benchmark/unstable/}}}\b\f0\fs22\tab\tab\par
+\pard\li2160\sl240\slmult1\b0\par
+si la memoire est le plsu important : zstd level 9 \par
+si la viettes de compression est importante : zstd level 1\par
+si la vitess n'est toujorus pas suffisant lz4 level 9 , mais on compresse pas beaucoup et pas di qu'on ne perde pas ce qu'on a gagn\'e9  tout en temps de transfer \par
+\b\par
+\pard\li1440\sl240\slmult1 Ecriture et lecture de fichier json non-bloquante ? \par
+\pard\li2160\sl240\slmult1\b0 permetrait de compresser pendant qu'il ecrit sur le disc sans ralentir \par
+alors qu'en bloquant on additionne les temps , en non-bloquant c'est le temp du maillon le plus faible . \b\par
+\b0{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/9259380/how-to-write-to-a-file-using-non-blocking-io"}}{\fldrslt{\ul\cf3 https://stackoverflow.com/questions/9259380/how-to-write-to-a-file-using-non-blocking-io}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/319132/asynchronous-file-writing-possible-in-python"}}{\fldrslt{\ul\cf3 https://stackoverflow.com/questions/319132/asynchronous-file-writing-possible-in-python}}}\b\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://github.com/kata198/python-nonblock"}}{\fldrslt{\ul\cf3 https://github.com/kata198/python-nonblock}}}\f0\fs22\par
+\pard\li720\sl240\slmult1\par
+\tab Encodage\par
+\pard\li2160\sl240\slmult1 avec exemble code minimal \par
+\pard\li2880\sl240\slmult1\b0 #@profile\par
+def test_json_encode_bytes_b64():\par
+    bytes_ = b'A'*9000000                            # 1.7 msec       \par
+    bytes_b64 = pybase64.b64encode(bytes_)           # 3.3 msec (time of a copy)\par
+    str_ = bytes.decode(bytes_b64)                   # 3.5 msec (time of a copy)\par
+    \par
+    json_str_manual = f'"\{str_\}"'                    # 3.5 msec (time of a copy)\par
+    json_str_rapidjson = rapidjson.dumps(str_,ensure_ascii = False)   # 32 msec with rapidjson (9 x time of a copy !) due to escaping \\t \\n \\r " and \\ ? not need to escape ther is only b64 characters\par
+    json_str_rawjson = rapidjson.dumps(rapidjson.RawJSON(json_str_manual),ensure_ascii = False)# 40 msec (11 x time of a copy !) ther is no characters to escape ! \par
+    \par
+    json_bytes_manual = b'"%b"'%str_.encode("utf-8")  # 8  msec (time of 2 copy)\par
+    bytesIO = io.BytesIO()\par
+    rapidjson.dump(str_,bytesIO,ensure_ascii = False)   # 76 msec with rapidjson (29 x time of a copy !) due to escaping \\t \\n \\r " and \\ ?\par
+    bytesIO.seek(0)\par
+    json_bytes_rapidjson = bytesIO.read()\par
+    \par
+    assert json_str_manual == json_str_rapidjson\par
+    assert json_str_manual == json_str_rawjson\par
+    assert json_bytes_manual == json_bytes_rapidjson\par
+\pard\li2160\sl240\slmult1\b\par
+avec serializejson.Encoder().dumps\par
+\pard\li2520\sl240\slmult1\b0 obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)\par
+28.68018099979963  ms pour  base64.b64encode\par
+2.7662739998959296  ms pour  bytes -> bytearray\par
+3.7687750000259257  ms pour  bytes_encoded -> bytearray\par
+3.7108769997757918  ms pour  pybase64._pybase64.b64encode \par
+78.81728000029398  ms pour  SmartFramework.serialize.serializeJson.dumps\par
+=> 4.7%  (3.7108769997757918   / 78.81728000029398  ) du temps est pass\'e9 sur pybase64 \par
+\pard\li3240\sl240\slmult1\cf1 pybase64._pybase64.b64encode prend 36 % plus de temps que la copy de bytes_ ( pour 30% de taille en plus )  et moins que la copie de bytes_encoded \par
+=> le decodage en lui meme ne prend pas plus de temps qu'une copie d'un bytes de la taille final. \par
+peut \'eatre est-il possible de ne faire la converstion en bytes 64 que lors de la cr\'e9ation de la string (ou bytes) contenant le json total , en reservant une place , pour eviter une copie \cf0\par
+\pard\li2520\sl240\slmult1 => 95.3 % sur le reste  soit dans des checks, copies et conversion ascii  utf-8 <-> str  <-> str with \\n escaped  (json)\par
+\par
+\par
+sur 39.7  ms = 100 % du temps ,  une partie est pass\'e9e: \par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li2880\sl240\slmult1 en dehors de default (convestions bytes <-> utf-8 ?)  32.85 ms (39.7 ms -6.85 ms) =\cf2  \b 83 % du temps global\cf0\line\cf2\b0 dont 32 ms juste \'e0 convertir la string b64 en json !!!!  (\cf0 json_str_rapidjson = rapidjson.dumps(str_,ensure_ascii = False)   # 32 msec )\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li3240\sl240\slmult1\cf2 juste pour rajouter des putain de ""  et checher si doit remplacer les \\n \\r \\t ??!!!\cf0\line\cf4\b => y'a un problyme pour serialize des string dont on sait qu'elle ne continent pas de  \\n \\r \\t \cf0\b0\par
+\cf2{\pntext\f1\'B7\tab}quanf je fait des test utiliser RawJson n'am\'e9liore rien ! il utilise 38 msec pour laisser la string inchang\'e9e !!!! \cf0\line\cf2 (\cf0 json_str_rawjson = rapidjson.dumps(rapidjson.RawJSON(json_str_manual),ensure_ascii = False)# 40 msec )\line\cf4\b =>y'a un gros problme avec RawJson qui prend beaucoup trop de temps ! alors qu'il ne devrait y avoir basiquement q'une copie !!!! \cf0\b0\par
+\pard\li2880\sl240\slmult1\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li2880\sl240\slmult1 dans def default(self, inst) 6.85 ms = \cf1\b 17 %  du temps global\par
+\pard\li3240\sl240\slmult1\cf0\b0 L462  return bytes.decode(inst.val)# inst.val.decode("ascii")  # 3.625 ms= \cf1\b 52% du temps dans default \par
+\cf0\b0 L488  dic = self._dict_from_instance(inst) # 3.272ms = \cf1\b 47 % du temps dans default \b0 (correspond \'e0 l'encoding en b64 avec pybase64)\par
+\cf0\tab def ._dict_from_instance\par
+\tab\tab L548 classe, initArgs, state = tupleFromInstance(inst) # 97.5 %du temps dans _dict_from_instance\par
+\tab\tab\tab def tupleFromInstance (tools.py)\par
+\tab\tab\tab\tab L290 return tuple_from_module_class_str[classStr](inst)\par
+\tab\tab\tab\tab\tab def tuple_from_bytes (builtins.py)\par
+\tab\tab\tab\tab\tab\tab return (b64decode, (encodedB64(inst),), None) # 99.8 % du temps def tuple_from_bytes (\par
+\tab\tab\tab\tab\tab\tab\tab class encodedB64(bytes):\par
+\tab\tab\tab\tab\tab\tab\tab         return super().__new__(cls, b64encode(val)) # 100% du temps dan encodedB64\cf2\b\par
+\pard\li2160\sl240\slmult1\cf0 VERDICT dumps bytes : \par
+\pard\li2880\sl240\slmult1 rapidjson : \par
+\pard\li3600\sl240\slmult1 RawJSON : \b0 y'a un probl\'e8me de p\'e9rformance : 12x plus long qu'une copie , alors que ne fait que \'e7a (pas de checks si ensure_ascii = False)\par
+\pard\li4320\sl240\slmult1 import rapidjson \par
+@profile\par
+def test_rawjson():\par
+    str_ = 'A'*12000000                 # 2.6 msec   \par
+    str_copy = str_+"."                 # 3.5 msec for a copy \par
+    json = rapidjson.dumps(str_, ensure_ascii= False) # 32 msec  (9x time of a copy ! maybe time for checking for \\t \\n \\r \\ escaping  ?)    \par
+    json_with_rawjson = rapidjson.dumps(rapidjson.RawJSON(json), ensure_ascii= False) # 40 msec  (12x time of a copy fo,r juste coping json string as it !?)\par
+    assert (json == json_with_rawjson)\par
+test_rawjson()\par
+\pard\li3600\sl240\slmult1\b RawStr : \par
+\b0\tab permtrai de fournir une string en demandant de ne faire aucun check  et \'e0 ce que rapidjson mette les "" contrairement \'e0 RawJSON \par
+\par
+\pard\li2880\sl240\slmult1\b pybase64 : \par
+\pard\li3600\sl240\slmult1\b0 faudrait pouvoir encoder directemetn dans une string et si possible en ajoutant "" \cf2\b\par
+\cf0\b0 pybase64.b64encode_to_str(bytes_) => eviterai un .decode("ascii") (le cout d'une copie) \par
+pybase64.b64encode_to_str_with_double_quotes(bytes_) => eviterait une deuxi\'e8me copie pour rajouter juste les doubles quotes si on veut utilsier RawJson une fois qu'il aura \'e9t\'e9 optimis\'e9 dans \par
+\pard\li1440\sl240\slmult1\b Decoding  :\par
+\pard\li2160\sl240\slmult1\tx3060\cf2 pour l'instant d'apr\'e8s les courbes donn\'e9e par test_serialize_vs_pickle beaucoup trop long.....   decodage des escape + decodage utf-8 + ....\par
+\par
+\par
+\par
+\b0\par
+\pard\li720\sl240\slmult1\cf0\b Optimisation nump.array \par
+\par
+\tab Encoding :\par
+\tab\tab dans les cas avec transformation en liste ( avec .tolist())\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li3240\sl240\slmult1\cf2\b0 il checke de facon inutile liste avec type homog\'e8ne \par
+{\pntext\f1\'B7\tab}il n'utilise rapidjson.NM_NAN pas alors que pourrais l'utiliser si c'\'e9tait des int ou bool  (pas de NaN)\cf0\par
+\cf2{\pntext\f1\'B7\tab}s'il \cf0\par
+\pard\li2880\sl240\slmult1\b\par
+\pard\li720\sl240\slmult1\tab\tab dans le cas de transfomation en bytes 64 \tab\tab\par
+\pard\li2880\sl240\slmult1 si  single_line_init = True  (True par defaut ) fait appel \'e0 RawJSON pour serialisation sur une ligne ( \par
+\pard\li3600\sl240\slmult1\cf2\b0 L'appel \'e0 RAWjson double le temps de serialisation de ce qui est dedans !!!??? \par
+car la serializesation d'un RawJSON est aussi longue qu'une serialisation normal alors que devrait \'eatre juste une recopie \par
+=> eviter d'y faire appel si on serialize d\'e9j\'e0 sur une ligne \cf0\b\par
+\pard\li2880\sl240\slmult1 pybase64 \par
+\tab . coder ce qu'il faut pour pemetre de recr\'e9er directement bytearray \'e0 partir d'une string en base 64 . \par
+\pard\li4320\sl240\slmult1\b0 l\'e0 y'a peut \'eatre un encodage str-> bytes  dans b64decode avant le d\'e9codage (\'e0 tester )\par
+puis il y a une recopie lors de la convertions bytes -> bytearray , pour avoir un numpy array mutable \b\par
+\pard\li1440\sl240\slmult1 Decoding :\par
+\pard\sl240\slmult1\b0\par
+\pard\sa200\sl276\slmult1\par
+}
+ 

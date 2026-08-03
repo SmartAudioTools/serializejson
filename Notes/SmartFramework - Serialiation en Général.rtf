@@ -1,0 +1,111 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset2 Symbol;}}
+{\colortbl ;\red0\green0\blue0;\red255\green0\blue0;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1\tx1980\lang12\b\f0\fs22 SERIALISATION EN GENERALE \par
+\pard\li720\sl240\slmult1\tx1980 sauvegarde: \par
+\pard\li1440\sl240\slmult1\tx1980\b0 un certain nombre de methodes 'getters"vont chercher l'infos et la stocker \par
+un getter peut retourne une valeur (dont tuple et dictionnaire)  \ul ou plusieurs valeures \ulnone (nomm\'e9es sous forme d'un dictionnaire qu'on dispatchera  ou non nomm\'e9e sous forme de tuple) \par
+ils sont appel\'e9 dans un certain ordre et pas jusqu'au bout \par
+__serialiazejson__ : recup\'e8re toutes les infos , en faisant si possible appel aux methodes ci dessous pour permetre de prendre en compte methodes red\'e9finies dans les class heritantes \par
+__reduce_ex__: recup\'e8re un tuple qui peut \'eatre soit : \par
+\pard\fi-1440\li3600\sl240\slmult1 __class__,__init__,state,listitems, dictitems\par
+__class__,__init__,self.__gestate__(),listitems, dictitems\par
+__obj_ex_ ....\par
+\pard\fi-1440\li2880\sl240\slmult1 __reduce__ :  \tab recup\'e8re un tuple qu'on interpr\'e8te comme __class__,__init__,state,listitems, dictitems\par
+\pard\fi-1440\li2880\sl240\slmult1\tx1980\cf1 __getnewargs__ : recup\'e8re un tuple correspondant args du constructeur , qu'on va nommer "__new__" dans serializejson \par
+__getnewargs_ex__ : recup\'e8re un tuple et un dicionnaire  correspondant args et kwargs du constructeur , qu'on va nommer "__new__" dans serializejson \par
+\pard\li1440\sl240\slmult1\tx1980 __gestate__ : \par
+\pard\li2160\sl240\slmult1\tx1980 si d\'e9finit \par
+\pard\li2520\sl240\slmult1\tx1980 si pas de pr\'e9sence de __setstate__  __ : \b doit r\'e9cup\'e8rer "state"\par
+\pard\li3240\sl240\slmult1\tx1980\b0 un tuple de deux dictionnaire de valeures nomm\'e9es (__slots__ et __dict__)\par
+ou un dictionnaire de valeure nomm\'e9e corespondans \'e0 des noms d'attributs et leurs valeurs .\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li3960\sl240\slmult1\tx1980 dans serializejson on le deplace et dispatch dans la racine du dictionnaire definissant objet \cf2 (attention on peut \'e9craser __class__, __init__ , __new__,__state__,__items__ etc ?!) \cf1\line qu'on garde en "state" dans pickle ? \par
+\pard\li2520\sl240\slmult1\tx1980 si pr\'e9sence de __setstate : \b doit r\'e9cuper un objet quelconque "state"\b0\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li3960\sl240\slmult1\tx1980 si dictionnaire, en g\'e9n\'e9ral \ul par convention\ulnone  on va retourner des noms d'attributs et leurs valeurs . Dans serializejson  on se permet donc de le deplacer et dispatcher dans la racine du dictionnaire definissant objet dans serializejson ?\line\cf2 (attention on peut \'e9craser __class__, __init__ , __new__,__state__,__items__ etc ?!) \cf1\par
+{\pntext\f1\'B7\tab}qu'on gardera tel quel en "__state__" sinon pour appeller le __setstate__, \par
+\pard\li2160\sl240\slmult1\tx1980\cf0 sinon  "gestate" g\'e9n\'e9rique : \par
+\pard\li3240\sl240\slmult1\tx1980\cf1 (None/__dict__,__slots__)\par
+ou \par
+__dict__ \cf0\par
+\pard\li1440\sl240\slmult1\tx1980 autres_getters (propri\'e9t\'e9 , methodes, membre etc) :\par
+\pard\li2160\sl240\slmult1\tx1980 pickle ne fait rien \'e0 ce niveau l\'e0 ...\par
+serializejson :\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li3240\sl240\slmult1\tx1980 on peut coder en dur dans une methode ou un pluigin  __gestate__ \par
+{\pntext\f1\'B7\tab}mais on pourrait aussi d\'e9finir :  un dictionnaire : \par
+\pard\li3600\sl240\slmult1\tx1980 getters = \{\par
+getter1  : savec_name1 ou (saved_name1,saved_name2,saved_name3) ou un truc pour dire de dispatcher ?  \par
+...\par
+\}\par
+\par
+et dans __gestate__ g\'e9n\'e9rique (ou methode )\par
+for getter , destination in getters.items() :\par
+\tab if type(destination) is str : \par
+\tab\tab state[destination] =  self.getattr(getter)()\line\tab elif type(destination) is tuple : \par
+\tab\tab for name, value in zip(destination, self.getattr(getter)()): \par
+\tab\tab\tab state[name] =  value \par
+\par
+\pard\li2880\sl240\slmult1\tx1980\par
+\pard\fi-1440\li2880\sl240\slmult1\b en gros il faut pour la serialization d'une classe pouvoir d\'e9fenir : \par
+\pard\fi-1440\li3600\sl240\slmult1\b0 . le __getstate__ cod\'e9 en dur \cf2 ou g\'e9n\'e9r\'e9 \'e0 partir d'info ci dessous , \cf0 qu'on assigne \'e0 une methode ou \'e0 un plugin, \cf2\par
+. le __serializejson__ cod\'e9 en dur ou g\'e9n\'e9r\'e9 \'e0 partir d'info ci dessous , \cf0 qu'on assigne \'e0 une methode ou \'e0 un plugin, \cf2\par
+\cf0 ou: \par
+. les attributs/slots \par
+\pard\fi-1440\li4320\sl240\slmult1 qu'on prendre exculisivemnet \par
+qu'on exclue  (filtre(s)? , noms explicites) \par
+qu'on ajoute malgr\'e9 filtrage \par
+qu'on renome ? \par
+\pard\fi-1440\li3600\sl240\slmult1 . les getters (explicitemetn ou g\'e9n\'e9r\'e9 automatiquement)\par
+\pard\li2880\sl240\slmult1\tx1980 getters = \{\par
+\pard\li3600\sl240\slmult1\tx1980 getter1  : savec_name1 ou (saved_name1,saved_name2,saved_name3) ou un truc pour dire de dispatcher ?  \par
+...\par
+\}\par
+\par
+\pard\fi-1440\li3600\sl240\slmult1 . les valeurs par d\'e9faut des nom sauv\'e9 pour ne pas les mettre si meme valeure ? \cf2 dangereux s'ils changent par la suite... \cf0\par
+\par
+\par
+\pard\fi-1440\li2880\sl240\slmult1\par
+\pard\li1440\sl240\slmult1\tx1980\par
+\par
+\pard\li720\sl240\slmult1\tx1980\par
+\b Objet serializ\'e9 : \par
+\pard\li1440\sl240\slmult1\tx1980\b0\{\par
+\pard\li2160\sl240\slmult1\tx1980 attribut / settter_ou_methode : value/args \line .....\par
+\pard\li1440\sl240\slmult1\tx1980\}\par
+\pard\li720\sl240\slmult1\tx1980\b\par
+\par
+restauration : \par
+\pard\li1440\sl240\slmult1\tx1980 approche : "donn\'e9es qui d\'e9clanchent" \par
+\pard\li2160\sl240\slmult1\tx1980\b0 les donn\'e9es vont se mettre l\'e0 ou elle doivent (et dans l'ordre ou elle sont fournie ..)\par
+il faut un setattr universel qui puisse appeller / setter tout \par
+. attribut dans dict \par
+. slot \par
+. propertie \par
+. methode \par
+soit il assigne : self.key = value \par
+soit il appel : self.key(value)\par
+il se passe quoi si on fait un self.methode = value  ? il l'ecrase \par
+\par
+\pard\li1440\sl240\slmult1\tx1980\b approche : "setter qui r\'e9clament des donn\'e9es " \par
+\pard\li2160\sl240\slmult1\tx1980\b0 il faut miexu demander aux setter de r\'e9cupere les infos dont ils ont besoin (dans les infos qu'on leur fournis) \par
++ permet \'e0 un setter de reclamer plusieurs donn\'e9es \par
++ permet de r\'e9gler le probl\'e8me d'ordre de d\'e9serialisation \par
++ permet de determiner une valeur par default si un donn\'e9e est absente\par
++ permt d'ignorer une donn\'e9e non attendue\par
++ securis\'e9 : une donn\'e9e non  attendue ne d\'e9clanche rien \par
+\par
+pickle : \par
+\pard\li2880\sl240\slmult1\tx1980 1) le constructeur r\'e9cup\'e8re le callabel + arguments callalbel\par
+2) restauratoin de l'etat \par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li3600\sl240\slmult1\tx1980 par __setstate__ \par
+{\pntext\f1\'B7\tab}un setstate g\'e9n\'e9rique  : \cf2 attention il restaur tout en mode ""donn\'e9es qui d\'e9clanchent" (cf si dessus) , ne demander aucun check ,et n'efface pas les donn\'e9e qui ne sont pas dans le state.\cf0\par
+\pard\li2880\sl240\slmult1\tx1980 3) restauraton de items ? svoir avec pickle dans quel ordre sont restaur\'e9 state et items . \cf2\par
+\pard\li2160\sl240\slmult1\tx1980\cf0\par
+serializejson\par
+\pard\li2880\sl240\slmult1\tx1980 1) le constructeur /initializeur  "r\'e9cup\'e8re"(on lui donne)  infos dont il a besoin contenues dans les __class__, __init__,__new__ \par
+\pard\fi-720\li3600\sl240\slmult1\tx1980 2) __setstate__ : avec serializejson peut reclamer __state__(comme pickler)  ou les key:value diff\'e9rents de class__, __init__ , __new__,__state__,__items__ \line (il fait quoi s'il y a les deux ? ) \cf2\par
+\pard\li2160\sl240\slmult1\tx1980\cf0\par
+\pard\sl240\slmult1\tx1980\b De quoi on a donc besoin ? \par
+\pard\li1440\sl240\slmult1\tx1980\b0\par
+definir un namedTuple ou une dictionnaire(avec element accecible via nom qualifi\'e9) dnas la calsse, contenant les argument par defaut du init et le state par defaut ? \par
+\pard\sa200\sl276\slmult1\par
+}
+ 

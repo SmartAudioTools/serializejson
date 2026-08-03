@@ -1,0 +1,1149 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset0 Courier New;}{\f2\fswiss\fcharset0 Arial;}{\f3\fnil\fcharset0 Arial;}{\f4\fswiss\fprq2\fcharset0 Arial;}{\f5\fnil\fcharset2 Symbol;}}
+{\colortbl ;\red255\green0\blue0;\red0\green0\blue0;\red0\green0\blue255;\red0\green176\blue80;\red165\green165\blue165;\red0\green77\blue187;\red155\green0\blue211;\red192\green192\blue192;\red204\green204\blue204;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\li720\sl240\slmult1\lang12\b\f0\fs22\par
+\cf1 revoir commentaire sur \par
+\pard\li1440\sl240\slmult1\cf2\b0 properties = \{\}              # properties for loaded classes. keys are string corresponding to the qualified name, values are True or dictionnary of \{"attribut" : "setAttribut" \}\par
+setters = \{\}                 # setters for loaded classes. keys are string corresponding to the qualified name, values are True or dictionnary of \{"attribut" : "setAttribut" \}\par
+\par
+\pard\li720\sl240\slmult1\cf0\b\par
+Enums PyQt: \b0\par
+\pard\li1440\sl240\slmult1 cf pourquoi serializePython arrive \'e0 "correctement" encoder les enum PyQt5.sip._unpickle_enum('PyQt5.QtGui','Capitalization',0) et pas seriazlizeJons : tout simplemnt \'e0 cause rapidjson consid\'e8re que c'et une entier ?! \par
+etn si c'etat pas le cas serit tout de meme seiralizable ? \par
+dumps : je rajoute dynamaiquement des methodes pour ne pas surchager serializejson_ en plugins \par
+loads : j'utilsier un dictionnaire "enums" pour eviter d'avoir \'e0 surcharger le cash de class_from_class_str(et donc ralentir pour tout le monde) \par
+=> il reste \'e0 demander \'e0 rapideJson d'appeller default pour les entier qui ne sotn pas des int\par
+\pard\sl240\slmult1\b\par
+\tab //1) resoudre probl\'e8me obj.setLayout(None) : \par
+\pard\li1440\sl240\slmult1\b0 utiliser remove_default_value avec default_values = \{"layout":None\par
+\cf1 => marche mais un peu d\'e9geux si on veut activer option\cf0\par
+\pard\li720\sl240\slmult1\b Attention si on ne filtre pas les attributs : \b0\par
+\pard\li1440\sl240\slmult1 la version _e peut \'eatre restor\'e9e avant le self.set_e(e) ou self.e = e (prori\'e9t\'e9) qui pourran ne pas faire d'action car le _e a d\'e9j\'e0 la bonne valeure.. \par
+\'e0 priori je fait ce qu'il faut pour ne pas mettre _e dans le state: \par
+ \par
+dans tuple_from_reduce \par
+                            for key in class_properties:\par
+                                if '_'+key in state : \par
+                                    del(state['_'+key ])     \par
+dans __gestate__ : \par
+and not (check_prop_getters and  (key in state_slots or (key.startswith("_") and key[1:] in state_slots)))\par
+and not (check_prop_getters and  (key in state_slots or (key.startswith("_") and key[1:] in state_slots)))\par
+\pard\li720\sl240\slmult1\tx1980\b\par
+\par
+setters / properties / attribut acc\'e9cible via dir(object) qui sont ni dans __slots__ ni dans __dicts__\par
+\pard\li1080\sl240\slmult1\tx1980\par
+\par
+\par
+\pard\li1440\sl240\slmult1\tx1980\b0 2) coder un __reduce__ / __serializejson__ g\'e9n\'e9raique avec option pour \b\par
+\pard{\pntext\f5\'B7\tab}{\*\pn\pnlvlblt\pnf5\pnindent0{\pntxtb\'B7}}\fi-360\li2160\sl240\slmult1\tx1980\b0 recuperer membres (ex : rapidjson.Encoder) correspondant  \'e0 des argument du init et les ajouter au __init__ ? (ne peuvent pas \'eatre modifi\'e9 donc ne peuvent pas \'eatre pass\'e9 au __setstate__)\b\line\b0 hm... faut peut \'eatre mieux cod\'e9 plugin dans ce cas..\b\par
+\b0{\pntext\f5\'B7\tab}faire appel au __gestate__ generrique ? \par
+{\pntext\f5\'B7\tab}tente de transformer des elements retourner par gestate en arguments du __init__ ? => attention on ne pourra pas updater \par
+\pard\li1080\sl240\slmult1\tx1980\b\par
+\par
+loads\par
+\pard\li1800\sl240\slmult1\tx1980\b0 1) coder un def __setstate__(obj,state) g\'e9n\'e9rique qui :\par
+\pard{\pntext\f5\'B7\tab}{\*\pn\pnlvlblt\pnf5\pnindent0{\pntxtb\'B7}}\fi-360\li2520\sl240\slmult1\tx1980 //bas\'e9 sur celui de pickle.py\par
+\pard\li2520\sl240\slmult1\tx1980     def load_build(self):\par
+        stack = self.stack\par
+        state = stack.pop()\par
+        inst = stack[-1]\par
+        setstate = getattr(inst, "__setstate__", None)\par
+        if setstate is not None:\par
+            setstate(state)\par
+            return\par
+        slotstate = None\par
+        if isinstance(state, tuple) and len(state) == 2:\par
+            state, slotstate = state\par
+        if state:\par
+            inst_dict = inst.__dict__\par
+            intern = sys.intern\par
+            for k, v in state.items():\par
+                if type(k) is str:\par
+                    inst_dict[\cf1 intern(k)\cf0 ] = v\par
+                else:\par
+                    inst_dict[k] = v\par
+        if slotstate:\par
+            for k, v in slotstate.items():\par
+                setattr(inst, k, v)\par
+    dispatch[BUILD[0]] = load_build\par
+\par
+force \'e0 interner les attribut, mais en vrai pyton le fait d\'e9j\'e0 par defaut  ? (apparament non ...) si peut correpondre au nom d'un attribut (ascii , _ , lettre ou nombre et commancant pas par un nombre ? )\par
+{\field{\*\fldinst{HYPERLINK "http://guilload.com/python-string-interning/"}}{\fldrslt{\ul\cf3 http://guilload.com/python-string-interning/}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://docs.python.org/3/library/sys.html#sys.intern"}}{\fldrslt{\ul\cf3 https://docs.python.org/3/library/sys.html#sys.intern}}}\f0\fs22\par
+{\field{\*\fldinst{HYPERLINK "https://medium.com/@daniel.tooke/will-python-intern-my-string-94ea9efc18b2"}}{\fldrslt{\ul\cf3 https://medium.com/@daniel.tooke/will-python-intern-my-string-94ea9efc18b2}}}\f0\fs22\par
+\pard\li1800\sl240\slmult1\tx1980\par
+\pard{\pntext\f5\'B7\tab}{\*\pn\pnlvlblt\pnf5\pnindent0{\pntxtb\'B7}}\fi-360\li2520\sl240\slmult1\tx1980 // detect si on lui envoit un tuple avec deux dictionnaire __dict__, __slot__ ? \par
+{\pntext\f5\'B7\tab}//il ne faut pas bidouille class_str_from_class, ca fout la merde sur les import pour serializeRepr\par
+{\pntext\f5\'B7\tab}//VIRER TOUT LES HASMETHODE car si on ajoute dynamiquemnet des fonction c'est peut \'eatre plsu des mehodes\par
+{\pntext\f5\'B7\tab}// accepte argument setters qui est un bool ou un dictionnaire  \{"attribut1_name" : "setter1_name",...\}\par
+{\pntext\f5\'B7\tab}//cr\'e9e et stock automatiquemtn ce dictionnaire si on n'a pas encore rencontr\'e9 d'objet de ce type \par
+{\pntext\f5\'B7\tab}// revoir option set_attributes de serializejson.Encoder  , peut \'eatre False,None,True ? \par
+{\pntext\f5\'B7\tab}//renomer set_attributes  -> call_setters\par
+{\pntext\f5\'B7\tab}//diffuser les modifs dans serializePython et serializeRepr\par
+{\pntext\f5\'B7\tab}//attention dans ma recherche de setter j'ai pas fait appel \'e0 MRO , hors  une classe peut avoir plusieur classes de base..\par
+{\pntext\f5\'B7\tab}coder ce qu'il faut pour pouvori update (pas de facon r\'e9cursive) \par
+\pard\li1440\sl240\slmult1\tx1980\par
+\pard\li720\sl240\slmult1\tx1980\par
+\pard\li360\sl240\slmult1\tx1980\b\par
+\par
+PB strict_pickle :\b0  \par
+\pard\li720\sl240\slmult1\tx1980 strict pickle ne devrait pas toucher aux autres parm\'e8tres de serialize_parameters, pour petre \'e0 des __setstate__ ou __getstate__ de r\'e9cuperer ces param\'e8tres avec une biblioth\'e8que parametrizable_pickle ? hm.. risque de bien ralentir et je ne vais jamais coder cette bibiotheque \b\par
+\pard\sl240\slmult1\tx1980 dump\par
+\pard\li720\sl240\slmult1\tx1980\b0 1) coder un __gestate__ generique avec option pour sauver :\par
+\pard{\pntext\f5\'B7\tab}{\*\pn\pnlvlblt\pnf5\pnindent0{\pntxtb\'B7}}\fi-360\li1080\sl240\slmult1\tx1980 //accepter une liste  d'attributs \'e0 sauver ou \'e0 ajouter ou suprimer par rapport \'e0 la sauvegarder par d\'e9faut \par
+\pard\li1440\sl240\slmult1\tx1980 def getstate(obj, list/dict : keep , list/dict : add , list : remove, str : filter, bool : properties, bool : splitted_slots, bool: getter_setter )\par
+\strike si save ou add sont des dictionnaire : on sauve \{"attribut1_name" : "getter_name",...\} ?\par
+\strike0 faire appel \'e0 get_attr pour pouvoir mettre dans save et add, des attribut qui ne sont referenc\'e9 nul part (uniquemnt dans set_attr et get_attr)s\par
+\pard{\pntext\f5\'B7\tab}{\*\pn\pnlvlblt\pnf5\pnindent0{\pntxtb\'B7}}\fi-360\li1080\sl240\slmult1\tx1980 // les propri\'e9t\'e9s python avec getter ET setter (ca sert \'e0 rien de sauver si on ne peut restaurer, sans avoir  \'e0 utilsier le hack d\'e9geulases  self.__dict__["prop"]\line def get_properties_name(obj)\line     return [ key for key, value in obj.__class__.__dict__.items()if type(value) is property ]\par
+\cf1{\pntext\f5\'B7\tab}//les attribut  m\'eame filtr\'e9 par  _ avec setter  (dont propi\'e9t\'e9 avec juste setter ?) \par
+\cf0{\pntext\f5\'B7\tab}//les pseudos propri\'e9t\'e9 (ex  PyQt5 , ou rien ne permet vraiement de les distinguer de m\'e9hodes ) \line y'a un getX et setX ,\line Y'a un X et et setX , \line y'a un isX et setX \par
+{\pntext\f5\'B7\tab}//les sauver dans un champs sp\'e9cial pour faciliter la d\'e9s\'e9rialisation ? je ne l'ai pas fait pour permetre \'e0 un attribut de devenir une propriet\'e9 . \par
+{\pntext\f5\'B7\tab}//avoir un truc qui permet de ne renvoyer que ce qui est diff\'e9rent des valuers par d\'e9fault ?  \line Dangereux pour update car ne vas pas rester \'e0 leur valuer par defaut les attributs skip\'e9s ... \line mais en meme temps c'est un peu ce qu'on fait d\'e9j\'e0 et ce que beaucoup risquent de faire ? \par
+\strike{\pntext\f5\'B7\tab}//le mettre sous forme d'option \'e0 serializejson.Encoder , pouvant \'eatre une liste de classes. \cf1\strike0 mauvaise id\'e9e \cf0\line\pard\li720\sl240\slmult1\par
+\pard\sl240\slmult1\b\par
+pb fusion __dict__,__slot__\par
+\pard\li720\sl240\slmult1\par
+\b0             if type(state) is tuple : \par
+                # ATTENTION en vrais rien ne nous dit qu'on a pas voulu retourne un autre tuple de longeur deux, si c'est le cas on a cod\'e9 \par
+                if  not class_has_method(class_,"__getstate__") or not  class_has_method(class_,"__setstate__") :\par
+                    __dict__,state = state                \par
+                    if __dict__ : \par
+                        state.update(__dict__) # fusionne slots et __dict__ dans un seul dictionnaire\par
+\par
+\pard\li1440\sl240\slmult1 on se base sur presence simultan\'e9e de __gestate__et __setstate__  pour se dire que le tuple ne correspond pas forcemetn \'e0 __dict__ , slots et qu'on doit le pr\'e9server.\par
+\b mais le reduce peut tout a fait envoyer un state qui doit etre interpr\'e9t\'e9 diff\'e9remetn ?  en fait non car si on est dans cette partie de code c'est qu'on a pas recod\'e9 le reduce \par
+\pard\li720\sl240\slmult1\par
+\par
+est-ce qu'on devrait pas maintenir __slots__ s\'e9par\'e9 pour ne pas avoir \'e0 activer properties dans loads ? \par
+\pard\sl240\slmult1\par
+QImage : \par
+\pard\li720\sl240\slmult1 format avec compression (png) \par
+\pard\li1440\sl240\slmult1\par
+json  -> QImages \par
+\pard\li2160\sl240\slmult1 option 1 ) utilisation methode statique "fromData" qui retourn un QImage\par
+\pard\li2880\sl240\slmult1\b0 return QtGui.QImage.fromData, (ba,"png")\par
+pb : class_str_from_class n'arrive pas \'e0 transformer QtGui.QImage.fromData en string \par
+fromData.__module__ est None  => je n'ai aps trouv\'e9 de solution , rien \'e0 partir de la fonction fromData ne permet de savoir qu'elle est une methode de QImage , ni \'e0 quel module elle appartient -> du partir sur de la string\cf1\par
+\cf0 // pb: class_from_class_str n'arrive pas \'e0 transformer "qtpy.QtGui.QImage.fromData" en objet car il split au mauvais endroit => j'ai regl\'e9 en autorizant un nom qualifi\'e9 de longeur 2 dans le module \cf1\par
+\pard\li2160\sl240\slmult1\cf0\b option 2) utiliser methode QImage::loadFromData(const QByteArray &data, const char *format = nullptr) comme un setter \par
+\pard\li2880\sl240\slmult1\cf1\b0 pb : setter n'accepetent pour l'instant un et un seul argument .\par
+faudrait pouvoir en passer deux...\par
+\cf4 => recoder serialize.tools.__setstate__ , pour prendre setters avec plusieurs arguements \cf1\par
+\pard\sl240\slmult1\cf0\b\par
+revoir \par
+\b0                 if not class_has_method(class_,"__getstate__") :\par
+                    # le __reduce_ex__ a d\'e9j\'e0 recup\'e9ra les slots et attributs du __dict__ \tab\par
+\tab il se peut qeu __reduce__ ou __reduce_ex__ aient \'e9t\'e9 r\'e9impl\'e9ment\'e9s , en utilisatn __newobj__ ou __newobj_ex__ ?\line et donc qu'on ne veuille pas ajouter les properties et les getters ? \b\par
+\par
+revoir \par
+\b0                                 try:\par
+                                    state[key] = _getattribute(getter_name)()\par
+                                except TypeError : \par
+                                    pass\par
+\par
+\tab\tab n'arrive pas \'e0 regler le pb avec inspect qui n'arrive pas \'e0 parser arguement du getter \cf5\par
+///verifier que \par
+                                #if key in state : \par
+                                #    del(state[key])\par
+et \par
+                                #i#f key in state : \par
+                                ##    del(state[key])    \par
+pas utiles et qu'on peut aussi les vierer des __gestate__\par
+\b\par
+                            for key,getter_name in class_getters.items():\par
+                                #i#f key in state : \par
+                                ##    del(state[key])    \cf0\par
+\par
+\cf5\par
+setters  permetre d'etre un liste classes\strike   ou un dictionnaire ?  \par
+\strike0 propertis : permetre d'\'eatre une liste de classe \par
+\par
+            properties = serialize_parameters.properties\par
+            if isinstance(properties,(list,tuple,set)):\par
+                properties = \strike properties.get(class_,False) \strike0      class_ in properties\par
+            __setstate__(inst,__state__,setters = setters, properties  = properties\par
+\par
+remove_default_values : permetre d'\'eatre une liste de classes ? \cf0\par
+documenter \par
+\pard\li720\sl240\slmult1\tx1980\par
+utiliser un codec pour  serialziation des bytes, bytearray , array et numpy \par
+\pard\li1440\sl240\slmult1\tx1980\b0 que j'aurais enregistr\'e9 et rester avec syntaxe sans  numpyB64, arrayB64, bytesB64, bytearrayB64 \par
+{\field{\*\fldinst{HYPERLINK "https://docs.python.org/3/library/codecs.html"}}{\fldrslt{\ul\cf3 https://docs.python.org/3/library/codecs.html}}}\b\f0\fs22\par
+\pard\li1440\sl240\slmult1\tx1980\tx5760\cf4 utilisera    ascii, b64, b64_blosc , b64_ztandard\par
+\par
+\cf0\b0 bytes : \par
+\pard\li2160\sl240\slmult1\tx1980\tx5760 utilssation des coded b64 et b64_blosc marchent bien \par
+par contre on est oblig\'e9 d'enregister "ascii" \par
+\pard\li1440\sl240\slmult1\tx1980\tx5760\par
+bytearray : l'utilsieration de codec ralente 2x ( string -> bytes -> bytearray)\par
+\tab -> il faut faire un decoder custom (pour l'instant marche reviendra des\cf4\b\par
+\tab\par
+=> j'ai rajoute \'e9une table "builder_class" qui permet d'appeler un builder personalis\'e9 \par
+\cf1 PB : ne marche pas avec serializePython quand il ne fait pas appel \'e0 instance , car se contente de faire un \'e9val ... \cf4 pour l'instant l'utilisetion des codecs sauvent la mise \par
+\par
+\cf2 array : \par
+\pard\li2160\sl240\slmult1\tx1980\tx5760\b0 je passe pas un bytes intermediare car\par
+-  rend la syntaxe ambigue\par
+ - fait planter serializeRepr\par
+-  de tout fa\'e7on pa possibel de ne pas passer par copie intermerdiare \par
+(\cf0{\field{\*\fldinst{HYPERLINK "https://bugs.python.org/issue40440"}}{\fldrslt{\ul\cf3 https://bugs.python.org/issue40440}}}\cf2\f0\fs22 ) \par
+\par
+\pard\li1440\sl240\slmult1\tx1980\tx5760\b Numpy.ndarray : \cf4 numpyB64 est bien pratique et trop ambigue d'utilsier d'autres arguments pour numpy.ndarray \cf2\par
+\pard\li2160\sl240\slmult1\tx1980\tx5760 numpy.array\par
+\pard\li2880\sl240\slmult1\tx1980\tx5760\b0  numpy.array(object, \cf4 dtype\cf2 =None, *, copy=True, order='K', subok=False, ndmin=0)\par
+\pard\fi-720\li3600\sl240\slmult1\tx5760\cf6 object\cf2\tab array_like\line An array, any object exposing the array interface, an object whose __array__ method returns an array, or any (nested) sequence.\par
+\cf4 dtype\cf2\tab data-type, optional\line The desired data-type for the array. If not given, then the type will be determined as the minimum type required to hold the objects in the sequence.\par
+copy\tab bool, optional\line\cf1 If true (default), then the object is copied.\cf2  Otherwise, a copy will only be made if __array__ returns a copy, if obj is a nested sequence, or if a copy is needed to satisfy any of the other requirements (dtype, order, etc.).\par
+\cf4 order\cf2\tab\{\lquote K\rquote , \lquote A\rquote , \lquote C\rquote , \lquote F\rquote\}, optional\line Specify the memory layout of the array. If object is not an array, the newly created array will be in C order (row major) unless \lquote F\rquote  is specified, in which case it will be in Fortran order (column major). If object is an array the following holds.\par
+\pard\fi-720\li4320\sl240\slmult1\tx4860 order\tab no copy\tab copy=True\par
+\lquote K\rquote\tab unchanged\tab F & C order preserved, otherwise most similar order\par
+\lquote A\rquote\tab unchanged\tab F order if input is F and not C, otherwise C order\par
+\lquote C\rquote\tab C order\tab C order\par
+\lquote F\rquote\tab F order\tab F order\par
+\pard\fi-720\li4320\sl240\slmult1\tx4860\tx5220\par
+\pard\li3600\sl240\slmult1\tx4860\tx5220 When copy=False and a copy is made for other reasons, the result is the same as if copy=True, with some exceptions for A, see the Notes section. The default order is \lquote K\rquote .\par
+\pard\fi-720\li3600\sl240\slmult1\tx5760 subok\tab bool, optional\line If True, then sub-classes will be passed-through, otherwise the returned array will be forced to be a base-class array (default).\par
+ndmin\tab int, optional\line Specifies the minimum number of dimensions that the resulting array should have. Ones will be pre-pended to the shape as needed to meet this requirement.\par
+\par
+\pard\li2160\sl240\slmult1\tx1980\tx5760\cf0\b class numpy.ndarray\b0 (shape, dtype=float, buffer=None, offset=0, strides=None, order=None)[source]\par
+\pard\li2880\sl240\slmult1\tx5760 (for the __new__ method; see Notes below)\par
+\pard\fi-720\li3600\sl240\slmult1\tx5760\cf6 shape\cf0\tab tuple of ints\par
+\tab Shape of created array.\par
+\cf4 dtype\cf0\tab data-type, optional\par
+\tab Any object that can be interpreted as a numpy data type.\par
+\cf6 buffer\cf0\tab object exposing buffer interface, optional\par
+\tab Used to fill the array with data.\par
+offset\tab int, optional\par
+\tab Offset of array data in buffer.\par
+strides\tab tuple of ints, optional\par
+\tab Strides of data in memory.\par
+\cf4 order\cf0\tab\{\lquote C\rquote , \lquote F\rquote\}, optional\par
+\tab Row-major (C-style) or column-major (Fortran-style) order.\par
+\pard{\pntext\f5\'B7\tab}{\*\pn\pnlvlblt\pnf5\pnindent0{\pntxtb\'B7}}\fi-360\li1800\sl240\slmult1\tx1980\b\par
+{\pntext\f5\'B7\tab}\par
+\b0{\pntext\f5\'B7\tab}def _dumps(obj, \ul protocol\ulnone =None, *, \ul fix_imports\ulnone =True):\b\par
+\b0{\pntext\f5\'B7\tab}option "enable_plugin" (True par d\'e9fault ? ) \par
+{\pntext\f5\'B7\tab}ajouter l'option "strict_pickle" ou "as_pickle" ? \par
+\pard\li1440\sl240\slmult1\tx1980 -> si true : d\'e9sactiver tout ce qui peut donner un comportemetn diff\'e9rent de pickle \b\par
+\par
+\par
+Revoir histoire des (__dict__,__slot__)\b0\par
+\pard\li2160\sl240\slmult1\tx1980 a mettre aussi dans le cas g\'e9n\'e9ral ???\par
+\par
+        if type(state) is tuple: #(__dict__,__slot__)\par
+            __dict__,state = state                \par
+            if __dict__ : \par
+                state.update(__dict__) \cf1 # on ne controle pas bien l'ordre ? \cf0\par
+            if not hasMethod(class_,"__getstate__"):\par
+                state = sorted_filtered(state,serialize_parameters.attributes_filter) \par
+\pard\li1440\sl240\slmult1\tx1980\b\par
+\par
+\par
+ajout  dynamiquemnet d'une  m\'e9thode __reduce__ ou __reduce_ex__ pour pickle \'e0 un objet !? \par
+\pard\li2160\sl240\slmult1\tx1980\b0{\field{\*\fldinst{HYPERLINK "https://medium.com/@mgarod/dynamically-add-a-method-to-a-class-in-python-c49204b85bd6"}}{\fldrslt{\ul\cf3 https://medium.com/@mgarod/dynamically-add-a-method-to-a-class-in-python-c49204b85bd6}}}\f0\fs22\par
+J'ai r\'e9ussit pour les object Qt !!!!!!!!!!!!\par
+ne marche pas avec numpy.ndarray\par
+\par
+\pard\li2880\sl240\slmult1 cr\'e9er une methode __reduce_json__  ? \par
+\par
+\par
+\fs16\par
+If python-rapidjson could call a Encoder().\b\fs22 default_dict  dict methode , I could serialize dictionnary with non string  keys like that : \par
+\par
+\par
+\pard\li3600\sl240\slmult1\b0\fs16\par
+    from SmartFramework.serialize.serializeJson import dumps,loads\par
+    \par
+    def default_dict_nostring_keys(dict_): # called if TypeError: keys must be strings\par
+        return \{\par
+              "__class__":"__main__.dict_json_keys",\par
+              "__init__": \{dumps(key,indent=None):value for key, value in dict_.items()\}\par
+             \} \par
+        \par
+    def dict_json_keys(**args):\par
+        return \{loads(key):value for key,value in args.items()\}\par
+            \par
+    obj = \{\par
+            "string" : "str",\par
+            b"bytes" : "bytes",\par
+            True: "bool" , \par
+            2 : "int",\par
+            3.4 : "float",\par
+            (5,6) : "tuple",\par
+            frozenset([7,8]) : "frozenset"\par
+        \}\par
+    print(obj)\par
+    dumped = dumps(default_dict_nostring_keys(obj))\par
+    print(dumped)    \par
+    loaded = loads(dumped,authorized_classes = [dict_json_keys])\par
+    assert obj == loaded\par
+    \par
+    """\par
+    \{\par
+        "__class__": "__main__.dict_json_keys",\par
+        "__init__": \{\par
+                "\\"string\\"": "str",\par
+                "2": "int",\par
+               "3.4": "float",\par
+                "true": "bool",\par
+                "\{\\"__class__\\":\\"bytes\\",\\"__init__\\":[\\"bytes\\",\\"ascii\\"]\}": "bytes",\par
+                "\{\\"__class__\\":\\"frozenset\\",\\"__init__\\":[8,7]\}": "frozenset",\par
+                "\{\\"__class__\\":\\"tuple\\",\\"__init__\\":[5,6]\}": "tuple"\par
+        \}\par
+    \}\par
+\pard\li2880\sl240\slmult1     """\b\fs22\par
+\pard\sl240\slmult1\tx1980\cf7\b0\par
+\par
+implementer appel \'e0 __reduce_ex__ dans serializejson\par
+\cf0\b\par
+finir de recuper ce qu'il faut de pickle.dumps pour compatibilit\'e9 \par
+\pard{\pntext\f5\'B7\tab}{\*\pn\pnlvlblt\pnf5\pnindent0{\pntxtb\'B7}}\fi-360\li1440\sl240\slmult1\tx1980\b0 utiliser le dictionnaire copyreg.dispatch_table[type(obj)] = reduce_fonction\par
+{\pntext\f5\'B7\tab}voir pour le cas de sauvegarde si reduce plante (# arrive pour les QWidgets), soit plus proche que ce que tente de faire __reduce_ex__\par
+{\pntext\f5\'B7\tab}voir le cas ou reduce retourn une string... \par
+{\pntext\f5\'B7\tab}voir la partie sur les metas classes?\b\par
+\pard\sl240\slmult1\tx1980\par
+pb serialization QWidget : \par
+\pard\li720\sl240\slmult1\tx1980\b0 test_pickle_QWidget.py : \par
+\pard\li1440\sl240\slmult1\tx1980 import pickle\par
+from PyQt5 import QtWidgets \par
+import sys\par
+app = QtWidgets.QApplication(sys.argv)\par
+obj1 = QtWidgets.QWidget()\par
+pickle._dumps(obj1)\par
+\pard\li720\sl240\slmult1\tx1980\par
+pickle.py : \par
+\pard\li1440\sl240\slmult1\tx1980 1) obj1.__reduce_ex__() et __reduce__() plantent\par
+\pard\li2160\sl240\slmult1\tx1980 manuellement : \par
+\pard\li2880\sl240\slmult1\tx1980 try:\par
+    obj1.__reduce_ex__(4)\par
+except Exception as E:  \par
+    print("obj1.__reduce_ex__ : ",E)\par
+try:\par
+    obj1.__reduce_ex__(4)\par
+except Exception as E:  \par
+    print("obj1.__reduce__ : ",E)\par
+\pard\li2160\sl240\slmult1\tx1980\par
+dans pickle.py \par
+\pard\li2880\sl240\slmult1\tx1980\f1 reduce = getattr(obj, "__reduce_ex__", None)\par
+            if reduce is not None:\par
+                rv = reduce(self.proto) \f0\par
+l'appelle \'e0 __reduce_ex__() plante alors que c'est celui h\'e9rit\'e9 d'objet (obj.__class__.__reduce_ex__ is object.__reduce_ex__)\par
+-> TypeError: can't pickle QWidget objects \par
+pb j'arrive pas \'e0 en savoir plus , __reduce_ex__()  est cod\'e9 en c\par
+\pard\li2160\sl240\slmult1\tx1980\par
+\pard\li1440\sl240\slmult1\tx1980 2) essaye avec  "generic__reduce_ex__", ma version du __reduce_ex__  \line\pard\li2160\sl240\slmult1\tx1980 pour en savoir plus et l'appele en cas de plantatge de rv = reduce(self.proto)\line\par
+from  serialize.tools import generic__reduce_ex__\par
+...\par
+reduce = getattr(obj, "__reduce_ex__", None)\par
+            if reduce is not None:\par
+\cf4                 try: \par
+\cf0                     rv = reduce(self.proto)\par
+\cf4                 except : \par
+                    rv = generic__reduce_ex__(obj,self.proto)\cf0\par
+\cf4 => arrive \'e0 serializer sans message d'erreure !!! \cf1 mais du coup n'en dit pas plus... \cf4\par
+\par
+\cf0 mais plante \'e0 deserializer : \par
+setstate = getattr(inst, "__setstate__", None)\par
+\cf1 =>RuntimeError: super-class __init__() of type QWidget was never called\par
+\par
+\cf0{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/12280371/python-runtimeerror-super-class-init-of-s-was-never-called"}}{\fldrslt{\ul\cf3 https://stackoverflow.com/questions/12280371/python-runtimeerror-super-class-init-of-s-was-never-called}}}\f0\fs22\par
+\par
+\cf4 les QWidget doivent toujours \'eatre initalis\'e9s , le probl\'e8me c'est que le reduce n'a pas \'e9t\'e9 r\'e9impl\'e9ment\'e9 et donc rien ne dit qu'on veut initialiser l'objet .  PyQt aurait du initialiser code C dans le new ?\cf0\par
+\pard\sl240\slmult1\tx1980\b\par
+\par
+\par
+relecture du commit de rapidjson : \par
+\pard\li720\sl240\slmult1\tx1980\b0  IM_ONLY_LISTS : envoie les sous-classe de liste vers default ? \par
+\par
+\par
+.. data:: MM_COERCE_KEYS_TO_STRINGS\par
+\par
+   Since ``JSON`` objects require that all keys must be of type string, when a mapping\par
+   contains *non-string* keys, it will be processed by the `default` handler if available,\par
+   otherwise a ``TypeError`` exception is raised.\par
+\par
+   Alternatively, you can use the this option to automatically render such keys as their\par
+   ``str()`` representation.\par
+\par
+\b\par
+\pard\sl240\slmult1\tx1980\par
+\par
+tentative de serialzie sympy.core.symbol.Symbol(name, **assumptions)\par
+\par
+\tab\par
+\pard\li720\sl240\slmult1\tx1980 option 1 : pas encore compatible avec serializesjon ? MAIS DEVRAIT L'ETRE\par
+\par
+\pard\li1440\sl240\slmult1\tx1980\cf4\b0 sympy.core.symbol.py\par
+class Symbol\par
+    #def __getnewargs__(self):\par
+    #    return (self.name,)\par
+    \par
+    def __getnewargs_ex__(self):\par
+        print("__getnewargs_ex__")\par
+        kwargs= \{"name":self.name\}\par
+        kwargs.update(self._assumptions._generator)\par
+        return (tuple(), kwargs) \par
+\par
+    def __getstate__(self):\par
+        return None # \{'_assumptions': self._assumptions\}\par
+\tab\par
+\par
+\pard\fi-720\li2160\sl240\slmult1\cf0\b Probl\'e8me  1 :\b0  quand on modifie symbol.py m\'eame juste pour ajouter un espace on ne peut plus cr\'e9er de symbol.... TypeError: descriptor 'name' for 'Symbol' objects doesn't apply to 'Symbol' object \line le fichier symbol.cpython-37.pyc est modifi\'e9 ...\cf1\par
+\tab\cf4 => FAUT COMPLTEMENT FERMER LA FENETRE !!\par
+\cf0\b probl\'e8me 2 :\b0\par
+\pard\fi-720\li2880\sl240\slmult1 getnewargs_ex__ n'est jamais appell\'e9 par pickle  ni par serializejson\par
+\b par pickle ;\b0  \par
+\pard\fi-720\li3600\sl240\slmult1 en fait dans class Basic(Printable, metaclass=ManagedProperties):\par
+on a \par
+    def __reduce_ex__(self, proto):\par
+        """ Pickling support."""\par
+        return type(self), self.__getnewargs__(), self.__getstate__()\par
+or reduce_ex semble \'eatre appeller avant __getnewargs_ex__ ...\par
+\par
+=>\par
+sympy.cor.basic.py\par
+\cf4 j'ai comment\'e9 :\par
+    #def __reduce_ex__(self, proto):\par
+    #    """ Pickling support."""\par
+    #    return type(self), self.__getnewargs__(), self.__getstate__()\par
+la fonction semble faire ce que fait d\'e9j\'e0 pickle et fout la merde en court-circuitant l'appel de __getnewargs_ex__ \cf0\par
+\par
+\b\fs32\par
+\cf7\fs24\par
+//=> faire en sorte que serializejson suporte __getnewargs_ex__ !!!\cf0\fs32\par
+\pard\li720\sl240\slmult1\tx1980\fs22\par
+option 2 \'e0 priori compatible avec serializejson  : \par
+\pard\li1440\sl240\slmult1\tx1980\b0 les assumption sont sauv\'e9es dans self._assumptions qui est un sous-sous-classe de dictionnaire \par
+\cf4 from apply import apply\par
+\par
+class Symbol\par
+\par
+    def __reduce__(self):\par
+        newkargs = \{"name":self.name\}\par
+        newkargs.update(self._assumptions._generator)\par
+        return apply,(self.__class__,(self.name,),newkargs)\par
+\pard\fi-720\li2160\sl240\slmult1\cf0\b Probl\'e8me  1 :\b0  quand on modifie symbol.py m\'eame juste pour ajouter un espace on ne peut plus cr\'e9er de symbol.... TypeError: descriptor 'name' for 'Symbol' objects doesn't apply to 'Symbol' object \cf1  \cf4 => FAUT COMPLTEMENT FERMER LA FENETRE !!\cf1\line le fichier symbol.cpython-37.pyc est modifi\'e9 ...\par
+\b Probl\'e8me 2 \b0 : \ul oblige \'e0 utiliser apply , et donc \'e0 importer apply dans Sympy ...\par
+\cf0\ulnone\b probl\'e8me 3 \b0 : N'arrive pas \'e0 reloader en pickle !!!!!!!!!!!!!\par
+\pard\fi-720\li2880\sl240\slmult1 car__reduce__ n'est pas pris en compte par piclke car pr\'e9sence dans base de \par
+en fait on a  dans \par
+class Basic(Printable, metaclass=ManagedProperties):\par
+\pard\fi-720\li3600\sl240\slmult1     def __reduce_ex__(self, proto):\par
+        """ Pickling support."""\par
+        return type(self), self.__getnewargs__(), self.__getstate__()\par
+\par
+\pard\fi-720\li2880\sl240\slmult1 or reduce_ex semble \'eatre appeller avant __reduce__...\par
+solution \par
+\b option 2 a : \par
+\pard\fi-720\li3600\sl240\slmult1\cf4\b0 commenter \par
+\par
+    #def __reduce_ex__(self, proto):\par
+    #    """ Pickling support."""\par
+    #    return type(self), self.__getnewargs__(), self.__getstate__()\cf2\par
+\pard\fi-720\li2880\sl240\slmult1\cf4\par
+\cf0\b option 2 b : \cf4\b0\par
+\pard\fi-720\li3600\sl240\slmult1 ou dans Symbol utiliser \par
+\par
+\pard\li2880\sl240\slmult1\tx1980     def __reduce_ex__(self,protocol):\par
+        newkargs = \{"name":self.name\}\par
+        newkargs.update(self._assumptions._generator)\par
+\pard\fi-720\li3600\sl240\slmult1         return apply,(self.__class__,(self.name,),newkargs)\par
+\cf1 => probleme serialziejson ne fait pas appel \'e0 __reduce_ex__\par
+\tab //\cf7 implementer appel \'e0 __reduce_ex__ dans serializejson\cf1\par
+\pard\fi-720\li2160\sl240\slmult1\cf0\par
+\pard\li720\sl240\slmult1\tx1980\par
+\b option2 : \par
+\pard\li1440\sl240\slmult1\tx1980\b0 Symbol a une methode \par
+    def __getstate__(self):\par
+        return \{'_assumptions': self._assumptions\}\par
+qui demande explicitemet de return '_assumptions' qu'on ne vas donc pas etre filtr\'e9. \par
+Ce _assumptions est un StdFactKB qui est  sous-sous-class de dictionnaire qui contient les assomption qu'on veut sauver (tr\'e8s bien) , mais aussi l'attribut rules en plus (pas des clefs) qui contient  du bordel et qui ne commence pas par  '_' . \par
+On pourrait croire qu'on veut sauver ce rules, mais en fait il est initalis\'e9 avec \par
+dans : \par
+class StdFactKB(FactKB):\par
+    """A FactKB specialized for the built-in rules\par
+\par
+    This is the only kind of FactKB that Basic objects should use.\par
+    """\par
+    def __init__(self, facts=None):\par
+        super().__init__(_assume_rules)\par
+\par
+avec _assume_rules qui est un dictionnarie constant , il vaudra donc toujours la meme valuer pour un StdFactKB . il ne faut donc pas le sauver , et a vrais dir on ne veut rien sauver d'attres comme attributs\ul  (tout en sauvant les clefs !!!!! ) \ulnone\par
+\cf4\par
+\cf0 option 2 a : \par
+\pard\li2160\sl240\slmult1\tx1980 StdFactKB\par
+    def __getstate__(self):\par
+        return None\par
+\par
+    def __getinitargs__(self):\par
+\tab return self._generator\par
+\cf1 -> il va sauver trop de truc si commutative = False \par
+\cf4\par
+\pard\li1440\sl240\slmult1\tx1980 option 2 b : \par
+\pard\li2160\sl240\slmult1\tx1980\cf0 StdFactKB\par
+    def __getstate__(self):\par
+         return None\cf4\par
+\cf0     def __getnewargs__(self):\par
+       return (self._generator,)\par
+\par
+\cf1 am\'e9lior les choses que pour serializejson et pas pickle...\par
+\ul\b serializeJson != pickle !!!!!!!!!!!!!!!\ulnone\b0\par
+\cf0\par
+\pard\li1440\sl240\slmult1\tx1980\cf4 option 2 c : \par
+\par
+\pard\li2160\sl240\slmult1\tx1980     def __reduce__(self):\par
+        return self.__class__,(self._generator,),None\par
+\par
+\cf1  \cf4 => sauve juste ce qu'il faut !\cf1  \par
+par contre ne marche pas pour pickle.dumps !?  \par
+PicklingError: Can't pickle <class 'sympy.core.assumptions.StdFactKB'>: it's not the same object as sympy.core.assumptions.StdFactKB\par
+\cf4 => FAUT COMPLTEMENT FERMER LA FENETRE !!\par
+\pard\li1440\sl240\slmult1\tx1980\cf0\par
+\par
+from SmartFramework.tools.objects import deepCompare\par
+deepCompare(obj,obj2,return_reason = True)[2]\par
+\par
+\par
+\pard\li720\sl240\slmult1\tx1980     def __reduce__(self):\par
+        return self.__class__,(self._generator,),None\b\par
+\pard\li2880\sl240\slmult1\par
+\par
+\par
+\par
+\par
+Adding option to call Encoder's default method for dictionnaries containing no string keys.\par
+\pard\li3600\sl240\slmult1\b0\par
+\par
+Hello, \par
+\par
+In order to allow [serializejson] ({\field{\*\fldinst{HYPERLINK "https://github.com/SmartAudioTools/serializejson"}}{\fldrslt{\ul\cf3 https://github.com/SmartAudioTools/serializejson}}}\f0\fs22 ) to serialize dictionaries with no string keys,  and enable serializejson to be a drop-in replacement for the Python pickle package,  I wonder if it would be possible to add an option for automatically check if dictionaries contains only string keys, and call the "default" method if not instead of raising a "TypeError: keys must be strings" .\par
+ \par
+In the following code, I'm able to serialize a dictionary containing non string keys, by simulating call to default method for this dictionary. \par
+\fs16\par
+    from serializejson import dumps,loads\par
+    \par
+    def default(inst): \par
+        if isinstance(inst,dict):\par
+            return \{\par
+                  "__class__":"__main__.dict_json_keys",\par
+                  "__init__": \{dumps(key,indent=None):value for key, value in inst.items()\}\par
+                 \} \par
+        return inst\par
+            \par
+    def dict_json_keys(**args):\par
+        return \{loads(key):value for key,value in args.items()\}\par
+            \par
+    obj = \{\par
+            "string" : "str",\par
+            b"bytes" : "bytes",\par
+            True: "bool" , \par
+            2 : "int",\par
+            3.4 : "float",\par
+            (5,6) : "tuple",\par
+            frozenset([7,8]) : "frozenset"\par
+        \}\par
+    print(obj)\par
+    """\{'string': 'str', b'bytes': 'bytes', True: 'bool', 2: 'int', 3.4: 'float', (5, 6): 'tuple', frozenset(\{8, 7\}): 'frozenset'\}"""\par
+    \par
+    dumped = dumps(default(obj))\par
+    \par
+    """\par
+    \{\par
+        "__class__": "__main__.dict_json_keys",\par
+        "__init__": \{\par
+                "\\"string\\"": "str",\par
+                "2": "int",\par
+               "3.4": "float",\par
+                "true": "bool",\par
+                "\{\\"__class__\\":\\"bytes\\",\\"__init__\\":[\\"bytes\\",\\"ascii\\"]\}": "bytes",\par
+                "\{\\"__class__\\":\\"frozenset\\",\\"__init__\\":[8,7]\}": "frozenset",\par
+                "\{\\"__class__\\":\\"tuple\\",\\"__init__\\":[5,6]\}": "tuple"\par
+        \}\par
+    \}\par
+    """\par
+    \par
+    print(dumped)    \par
+    loaded = loads(dumped,authorized_classes = [dict_json_keys])\par
+    assert obj == loaded\par
+    \par
+\par
+\fs22 Maybe dictionaries returned by default should not be checked for only string keys, to avoid double checking and consuming too much cpu.\par
+In addition, we should check before starting to serialize a dictionary, rather than calling default only when it encounters a TypeError, because if you write in a file stream, we will not be able to go back if we have started to serialize the beginning of the dictionary.\par
+\par
+\pard\sl240\slmult1\tx1980\par
+\par
+//coder fonction \par
+// voir ce qui se passe si getstate retourne un dictionnaire avec des clefs qui ne sont pas des strings avec pickle et les autre\par
+\b\par
+Done   : \par
+\pard\li720\sl240\slmult1\tx1980\b0 //revoir la serialisation des dictionnaires et sous-classes ? \par
+\pard\li720\sl240\slmult1 // revoir system de plugins pour pouvoir enregistre en dehors de site package \par
+\par
+\par
+/nammed tuple ? \ul\b\par
+\par
+Contacter dev PyBase64\par
+\par
+\pard\li1440\sl240\slmult1\ulnone b64encode : \ul\par
+\pard\li2160\sl240\slmult1\ulnone\b0 faudrait pouvoir encoder directemetn dans une string \par
+\par
+\par
+et si possible en ajoutant "" \cf1\b\par
+\cf0\b0 pybase64.b64encode_as_str(bytes_) => eviterai un .decode("ascii") (le cout d'une copie) \par
+pybase64.b64encode_to_str_with_double_quotes(bytes_) => eviterait une deuxi\'e8me copie pour rajouter juste les doubles quotes si on veut utilsier RawJson une fois qu'il aura \'e9t\'e9 optimis\'e9 dans \par
+\pard\li1440\sl240\slmult1\b b64decode\par
+\b0\tab revoir pybase64 pourpouvoir resortir directemetn bytearray et eviter copies inutiles \par
+{\field{\*\fldinst{HYPERLINK "https://github.com/mayeut/pybase64/issues/204"}}{\fldrslt{\ul\cf3 https://github.com/mayeut/pybase64/issues/204}}}\f0\fs22\par
+\pard\li1440\sl240\slmult1\tx3060\fs16 Hi, I'm developing [serializejson](https://github.com/SmartAudioTools/serializejson),  a python library for fast serialization and deserialization of python objects in JSON designed as a safe, interoperable and human-readable drop-in replacement for the Python [pickle](https://docs.python.org/3/library/pickle.html) package.\par
+\par
+I use PyBase64 for bytes and bytesarray encoding in json. When encoding and deconding bytes and bytesarrays, most of the time is spend in avoidable copies rather really encoding and decoding in base64.\par
+\par
+example : \par
+\par
+    import pybase64\par
+    import json\par
+    \par
+    @profile\par
+    def encode_bytearray(bytearray_):\par
+        bytes_b64 = pybase64.b64encode(bytearray_) # 1.05 msec, 29% of time\par
+        string_b64 = bytes_b64.decode("ascii")     # 1.44 msec, 40% of time  \par
+        string_json = f'"\{string_b64\}"'            # 1.10 msec, 30% of time\par
+        return string_json\par
+    \par
+    @profile\par
+    def decode_bytearray(string_json_without_quotes):\par
+        bytes_b64 = string_json_without_quotes.encode("ascii")  # 1.13 msec, 28% of time \par
+        bytes_decoded = pybase64.b64decode(bytes_b64)           # 2.00 msec, 52% of time \par
+        #bytes_decoded = pybase64.b64decode(string_b64)         # 3.72 msec   \par
+        bytearray_decoded  = bytearray(bytes_decoded)           # 0.86 msec, 20% of time\par
+        return bytearray_decoded\par
+    \par
+    #for i in range(100):\par
+    bytearray_ = bytearray(range(256)) * 12000\par
+    string_json = encode_bytearray(bytearray_)\par
+    string_json_without_quotes = json.loads(string_json)\par
+    print(string_json_without_quotes.isascii())\par
+    bytearray_decoded = decode_bytearray(string_json)\par
+\par
+\par
+When encoding, 70% of time is lost in avoidable copies. I would like to know if it could be possible to add an option to encode directly in string to avoid a first copy with bytes_b64.decode("ascii"), and if it could be possible to add an option to encode directly in string with double quotes, to avoid a second copy just for adding double quotes for Json. \par
+\par
+When loading, 48 % of time is lost in avoidable copies.\par
+First, strangely, decoding directly from string is slower than passing by intermediary encoding in bytes even if the string is already ASCII (string_json_without_quotes.isascii() is True)  and so continuous ascii in memory.\par
+Secondly, I would know if it could be possible to add an option to b64decode (or a new function) for decoding directly in bytesarray, in order to avoid a second copy passing by an intermediary bytes.\par
+Sadly, I don't know C and C++ and I'm not comfortable to fork your project or propose a pull request for this am\'e9liorations.\par
+\par
+Tanks a lot . \par
+\par
+Baptiste\par
+--------------------------\par
+Hi @SmartAudioTools,\par
+\par
+Thanks for your feedback on pybase64.\par
+\par
+Regarding the encoding part, I'm OK with optionnaly returning a str object rather than a bytes object which I think would be a common enough usage however, I'm not comfortable adding those double quotes or any kind of prefix/suffix strings at the moment.\par
+\par
+Regarding the decoding part:\par
+\par
+    First, strangely, decoding directly from string is slower than passing by intermediary encoding in bytes even if the string is already ASCII (string_json_without_quotes.isascii() is True) and so continuous ascii in memory.\par
+\par
+I'm only seeing noise in measurements here and the way it works internally is the one you're using (by using PyUnicode_AsASCIIString API).\par
+That being said, for UTF-8 strings, when validate is True and altchars is None, a speed-up can be achieved by working directly on the string buffer.\par
+\par
+Returning a bytesarray object doesn't seem like a common enough usage but I might add it anyway.\par
+\par
+-----------------------------\par
+Hi @mayeut\par
+Thanks for your response ! \par
+\par
+Regarding the encoding part : \par
+Good if you could optionnaly returning a str object rather than a bytes object. For the double quotes I anderstand that you thing it's not a common usage, unfortunately I will waste 50% of the time just to add these quotes. It is a problem of difficulty to add the option or not to overload the API ? \par
+\par
+Regarding the decoding part:\par
+I have updated my example in order to use  validate = True , and making a mean over 100 iterations to avoid noise measurements .\par
+decoding from string is still slower than passing by string decoding in ascii bytes  1.16 msec + 1.09 msec = 2.25 msec <  2.88 msec  .\par
+And i guess it could be possble to reduce decoding from string to something about 1.16 msec,,  not passing by internal ascii decoding in bytes and  decoding directly from string if string.isascii() is True.\par
+Returning a bytesarray could by very usefull for all who want to recreate numpy arrays (which are widely used) without data copies, because numpy.array need to be initalizd from bytearray instead of bytes in order to be writeable.\par
+\par
+\par
+    import pybase64\par
+    import json\par
+    \par
+    @profile\par
+    def encode_bytearray(bytearray_):\par
+        bytes_b64 = pybase64.b64encode(bytearray_) # 1.05 msec, 29% of time\par
+        string_b64 = bytes_b64.decode("ascii")     # 1.44 msec, 40% of time  \par
+        string_json = f'"\{string_b64\}"'            # 1.10 msec, 30% of time\par
+        return string_json\par
+    \par
+    @profile\par
+    def decode_bytearray(string_json_without_quotes):\par
+        bytes_b64 = string_json_without_quotes.encode("ascii")        # 1.16 msec, 35% of time \par
+        bytes_decoded = pybase64.b64decode(bytes_b64,validate=True)   # 1.09 msec, 33% of time \par
+        #bytes_decoded = pybase64.b64decode(string_json_without_quotes, validate=True) # 2.84 msec   \par
+        bytearray_decoded  = bytearray(bytes_decoded)           # 1.01 msec, 31% of time\par
+        return bytearray_decoded\par
+    \par
+    for i in range(100):\par
+        # encoding :\par
+        bytearray_ = bytearray(range(256)) * 12000\par
+        string_json = encode_bytearray(bytearray_)\par
+        \par
+        # decoding :\par
+        string_json_without_quotes = json.loads(string_json)\par
+        print(string_json_without_quotes.isascii())\par
+        bytearray_decoded = decode_bytearray(string_json_without_quotes)\par
+\par
+Sinon tu peux me repondre en fran\'e7ais si tu n'as pas envie de t'emb\'eater \'e0 traduir je suis Lillois ;) \par
+-------------\par
+\par
+Let's stick to english if someone else comes across this issue.\par
+I'm not getting the same numbers with 100 iterations, it might be related to differences in our python versions, OS, compilers, ...\par
+\par
+Total time: 0.110393 s\par
+File: profile.py\par
+Function: decode_bytearray_impl at line 13\par
+\par
+Line #      Hits         Time  Per Hit   % Time  Line Contents\par
+==============================================================\par
+    13                                           @profile\par
+    14                                           def decode_bytearray_impl(string_json_without_quotes):\par
+    15       100      40272.0    402.7     36.4      bytes_b64 = string_json_without_quotes.encode("ascii")\par
+    16       100      41478.0    414.8     37.7      bytes_decoded = pybase64.b64decode(bytes_b64, validate=True)\par
+    17                                               #bytes_decoded = pybase64.b64decode(string_json_without_quotes, validate=True)\par
+    18       100      28643.0    286.4     25.9      bytearray_decoded  = bytearray(bytes_decoded)\par
+\par
+Total time: 0.106664 s\par
+File: profile.py\par
+Function: decode_bytearray_impl at line 13\par
+\par
+Line #      Hits         Time  Per Hit   % Time  Line Contents\par
+==============================================================\par
+    13                                           @profile\par
+    14                                           def decode_bytearray_impl(string_json_without_quotes):\par
+    15                                               #bytes_b64 = string_json_without_quotes.encode("ascii")\par
+    16                                               #bytes_decoded = pybase64.b64decode(bytes_b64, validate=True)\par
+    17       100      81379.0    813.8     76.3      bytes_decoded = pybase64.b64decode(string_json_without_quotes, validate=True)\par
+    18       100      25285.0    252.8     23.7      bytearray_decoded  = bytearray(bytes_decoded)\par
+Yes, it is possible to reduce this in specific cases. Implemented in branch encode_as_string-decode_utf8 if you want to give it a try.\par
+----------\par
+\par
+Thanks ! \par
+My cumputer is a little old, that explain the differents timing , but you have the same percents . \par
+Your two optimisations work well, times have been halved! \par
+I still pass 50 % of the time in avoidable copies adding quotes when encoding and 43 % of time converting to bytearray when decoding. \par
+A quote option for encoding_as_string and a decode_as_bytearray would be great ! \par
+\par
+\par
+\par
+\par
+\par
+\par
+I use blosc in order to compress binary data before encoding in Base64 for json serialisation.\par
+\pard\li1440\sl240\slmult1\fs22\par
+\pard\cf2\lang1036\b\f2\fs20\par
+\par
+\par
+\par
+\par
+\par
+\par
+serialization de tableau numpy \par
+\pard\li720 version non readable\b0\par
+\pard\li1440 serializePython -> isInstance(obj) \tab : \tab modifi\'e9 pour reconnaitre tableaux numpy  A TESTER !!!! permet de faire appelle \'e0 la serialisation classique pour tableau numpy si on ne tiens pas \'e0 ce qeu soit readable\par
+serializePython -> pyInstances -> tupleFromInstance(obj)  \par
+serializeJson    -> dictFromInstance -> tupleFromInstance\par
+\pard\li2160 cherche\'e0 lire obj.__dict__   qui n'existe pas  => mis test pour verifier qu'existe \par
+classe : numpy.ndarray => utilisera ndarray() et non array() pour reconstruire ... \par
+on ne poura pas passer un tableau mais qu'une string de donn\'e9e pseudo-binaire (buffeur) pas top pour lecture. \par
+de plus il faut absolument utilise __initArgs__ car pourra pas restaurer donn\'e9es apr\'e9s cr\'e9ation...\par
+\par
+\pard\li720\b version readable  \par
+\pard\li1440\b0 pour du json il faut modifier dictFromInstance ...et instance()\par
+\b\par
+\b0\'e0 la serialisation , tupleFromInstance recherche la classe, pour en fait avoir le constructeur, du coup ne prend pas en compte d'autres constructeur comme numpy.array...\par
+commenc\'e9 \'e0 hacker pour que __class__ = numpy.array \par
+=> pas tr\'e9s rigoureux\par
+=> risque de poser probl\'e8me la ou il consid\'e8re que __class__ correspond \'e0 une classe ? \par
+=> le probl\'e8me va \'eatre \'e0 la d\'e9serialisation ou il ne reconnait pas numpy.array en tant que classe ? \par
+-> j'ai mis un isCallable , pour pouvoir appeller la fonction numpy.array\par
+\par
+\par
+\cf8 il faudrait cr\'e9er un champ __constructor__ ? retourn\'e9 par tuple from instance ? ou alors que tupelFromInstance retourne toujours le constructeur en premier argument qui est appelle __class__ si c'est une classe et __constructor__ si c'est une fonction \cf2\par
+. il fait des mise \'e0 la ligne \'e0 chaque element du tableau ? ! \par
+-> a priori on ne peut rien faire ...\'e0 moins d'enlever l'indentation\par
+\pard\pagebb\sl240\slmult1  \cf0\lang12\b\f3\par
+Jsonlab \cf2\lang1033\f4\par
+\pard\pagebb\li720\sl240\slmult1 reprensatation de tableau numpy sous forme simple [ , , ] \par
+\pard\pagebb\li1440\sl240\slmult1 option 1 :  extension .jsonlab + tentative de transformer toute liste en numpy array avec un try : \b0\par
+\pard\pagebb\li2160\sl240\slmult1 a priori solution utilis\'e9 actuellemnet , \'e0 verifier \par
+\pard\li2160\cf0\lang1036\f2 je vais explorer l'objet apr\'e9s decompression pour tenter de changer les listes en array\cf2\lang1033\f4\par
+\pard\li1440\sl240\slmult1\b option 2: utilisation de __class__\b0\par
+\pard\pagebb\li2160\sl240\slmult0 rajoute un chmap __class__" : "SmartFace.frameData.FrameData" dans le json ?  ou parse de mon cot\'e9 \par
+rajoute un chmap __class__" : "numpy.array" dans le json ? => sera un peu verbeux\par
+=> permetrai d'\'eatre compatible avec mon serialiseur Json .... \cf0\lang1036\f2\par
+\pard\li2160\f4 Jsonlab : il ne sait pas ou trouver la d\'e9finition des classes matlab ....\lang12\b\f3\par
+\pard\li720\sl240\slmult0\tab options 3 : modifier encodeur et decodeur : \lang1036\b0\f2\par
+\pard\li2160\lang12\f0\fs22 faire distinction entre liste et numpy en utiliser ", " ou "," ?  va \'eatre compliqu\'e9 car je ne parse pas moi meme le text ...\par
+\cf2\lang1033\f4\fs20 sinon utilise des espace pour les liste apr\'e9s la virgule et pas d'espace pour les numpy.array...\par
+\pard\li720\cf0\lang1036\b\f2 pas r\'e9ussit \'e0 faire mieux ...\par
+\pard\li1440\b0 // Faire un truc qui met au format JsonLab (il faut recoder un d\'e9codeur..)\par
+\pard\pagebb\li1440\sl240\slmult0\cf2\lang1033\f4\par
+\pard\li720\par
+\cf0\lang12\b\f0\fs22\par
+\pard ------------------\par
+\pard\li720 securit\'e9 : \par
+\pard\li1440\cf4 essayer de virer eval dans deserialisation json \cf0\par
+\pard\li720\lang1036\par
+probl\'e8me mots reserv\'e9 __class__, __initArgs__ , __state__ . \par
+\pard\li1440\sl240\slmult0\b0 si on serialise des dictionnaire utilisant ce mots on risque de confondre avec une classe .. grave ? \cf2\lang1033\b\f4\fs20\par
+\pard\li720\sl240\slmult0\cf0\lang12\f3\par
+\par
+\par
+\par
+represtentation des liste d'entier et tableaux numpy sous forme d'une seule ligne : \par
+\pard\li1440\sl240\slmult0 option 1 : HACKSTRING \par
+\pard\li2160\sl240\slmult0\cf2\lang1033\b0\f4 je retourne une chaine de caract\'e8re avec HACKSTRING au debut et \'e0 la fin , puis je rempalce les "HACKSTRING[ -> HACKSTRING[ et ]HACKSTRING" par ] \cf0\lang12\b\f3\par
+\par
+\lang1033\b0\f4{\field{\*\fldinst{HYPERLINK "http://stackoverflow.com/questions/13249415/can-i-implement-custom-indentation-for-pretty-printing-in-pythons-json-module"}}{\fldrslt{\ul\cf3 http://stackoverflow.com/questions/13249415/can-i-implement-custom-indentation-for-pretty-printing-in-pythons-json-module}}}\cf2\f4\fs20\par
+la methode ne marche pas ..... il sort "[...]" au lieu de []\par
+\pard\li1440\sl240\slmult0\par
+\cf0\lang12\b\f3 options 2 : modifier encodeur et decodeur \par
+\pard\li3600\sl240\slmult0\cf2\lang1033\b0\f4\par
+\pard\li2160\cf0\lang1036\f2 decodeur : \par
+\pard\li2880 il faut transformer sois meme la chaine en string.... gal\'e8re \par
+\par
+\pard\li2160 encodeur  : \par
+\pard\li2880\sl240\slmult0\cf2\lang1033\f4 aller toucher ou code de json , notement \'e0 la fonction def _iterencode dans encodeur , pour suprimer indentation et retour \'e0 la ligne pour tableau , plutot qu'utiliser mon STRINGHACK de merde\par
+\pard\li2880\cf0\lang1036\f2 on dit en quel autre objet python transformer un objet python ... pas en quel string l'enregister ?\par
+il n'appelle encode(obj) que sur l'objet global pour le transformet en string ....?\par
+\cf2\lang1033\f4 il transforme tout en dictionnaire (l'indentation ne change rien ) \par
+\pard\li2880\sl240\slmult0 puis fait appel une seule fois \'e0 la methode encode .... donc d'un seule encodeur qui \'e0 \'e9t\'e9 initialis\'e9 en indent\'e9 ou non ?\cf0\lang12\b\f3\par
+\pard\li2160\sl240\slmult1\f0\fs22\par
+\par
+\pard\li720\lang1036 __initArgs__ -> __initargs__ ?\b0  \par
+\pard\li1440 serait plus consistant avec le nom de la methode __getinitargs__ que pickl appelle \par
+\pard\li720\b __initArgs__ nomm\'e9s ?\par
+\pard\li1440\b0 ne peuvent \'eatre qu'un tuple pour l'instant.. pas d'assignation par noms...\par
+c'est la compatibilit\'e9e avec pickle qui impose ca ... fait chier . Heu... g\'e9nant pour quoi d\'e9j\'e0 ? c'est genant car , on ne peut plus changer l'ordre des argument du init , ni choisir d'en initialiser que certain nom\'e9 qui ne sont pas forcement cote \'e0 cote. \par
+\par
+solution 1) \b  faire un sicit ch qui permet de retourner dictionnaire si on n'utilise pas pickle ?\b0\par
+solution 2) rejouger une methode __getiinitdict__ qui retourner un dictionnaire qu'on meettre dans __initdict__ ?\par
+\pard\li2160\sl240\slmult1\lang12\b\par
+\par
+\par
+\par
+\par
+\par
+ default pour pouvoir traiter diff\'e9rement des listes et dictionnaires : \par
+\pard\li2880\sl240\slmult1\b0 /- tuple \par
+/- time.struct_time\par
+/- collections.Counter\par
+/- collections.OrderedDict\par
+/- collections.defaultdict\par
+- les enum son serializ\'e9 comme des entiers\par
+\par
+{\field{\*\fldinst{HYPERLINK "https://github.com/python-rapidjson/python-rapidjson/issues/149"}}{\fldrslt{\ul\cf3 https://github.com/python-rapidjson/python-rapidjson/issues/149}}}\f0\fs22\par
+\fs16 Hi, I'm developing [serializejson](https://github.com/SmartAudioTools/serializejson),  a python library for fast serialization and deserialization of python objects in JSON designed as a safe, interoperable and human-readable drop-in replacement for the Python [pickle](https://docs.python.org/3/library/pickle.html) package.\par
+I use python-rapidjson in backend because it is the only one that is fast enough and has the sufficient API for serializejson needs. \par
+Sadly python-rapidjson doesn't call default() method for tuples , time.struct_time, collections.counter, collections.ordereddict and collections.defaultdic. python-rapidjson serialize them as a list or dictionary without any possibility to catch them with default().\par
+Did I miss something? would it be possible to add an option to call default for these objects?\par
+Thanks ! \par
+Baptiste \par
+-------\par
+    Did I miss something?\par
+That seems correct: any iterable value is serialized as a JSON array.\par
+    Would it be possible to add an option to call default for these objects?\par
+Yes, but that's tricky: the default() function, when specified, is called for unrecognized values, and is expected to return something else that the library handles, simply recursing thru the serialization machinery. So, if we add an option to not recognize iterables, and thus passing them to the default(), what would it return?\par
+------\par
+hi\par
+thanks for your response .\par
+default() would return dictionnaries with "__class__" and "__init__" keys.\par
+serializejson 0.1.0 is already able to load desired objects from such dictionnaries :\par
+from serializejson import loads\par
+print(loads('\{"__class__":"tuple","__init__":[1,2]\}'))\par
+print(loads('\{"__class__":"time.struct_time","__init__":[2020,11,28,10,10,58,5,333,0]\}'))\par
+print(loads('\{"__class__":"collections.Counter","__init__":\{"a":1,"b":2,"c":3\}\}'))\par
+print(loads('\{"__class__":"collections.OrderedDict","__init__":\{"a":1,"b":2,"c":3\}\}'))\par
+print(loads('\{"__class__":"collections.defaultdict","__init__":[null,\{"a":1,"b":2,"c":3\}]\}'))\par
+The simplejson library is too slow but call default for all this objects (struct_time,Counter, OrderedDict, defaultdict) and for tuples if the option tuple_as_array is set False.\fs22\par
+\pard\li720\sl240\slmult1\ul\b\par
+\par
+Github ? \par
+\pard\li1440\sl240\slmult1\ulnone\b0 + permetrait de demander am\'e9lioration aux d\'e9veloppeur de rapidJson et pybase64 ? \par
++ permetrait que d'autres personnes et apportent des am\'e9lioration \'e0 mon code ?\par
+- chronophage \par
+\pard\li720\sl240\slmult1\ul\b\par
+Licences : \par
+\pard\sl240\slmult1\cf4\ulnone NE PEUT PAS PUBLIER AVANT D'AVOIR FIXE UNE LICENSE\cf0\par
+\par
+//voir pb de recustion infini si on utile pas bytesB64 \par
+\pard\li720\sl240\slmult1 def tuple_from_ndarray(inst):\par
+deplacer le inst = numpy.ascontiguousarray(inst) pour ne l'utilsier que si vraiement utile\par
+\par
+\par
+initialiser : \par
+        serialize_parameters.bytes_compression = self.bytes_compression\par
+        serialize_parameters.bytes_compression_threshold = self.bytes_compression_threshold\par
+dans serializePython , serializeRepr etc...\par
+\pard\sl240\slmult1\b0\strike\par
+optimiser pour enregistrer quelque part les liste qui proviennent de tableau numpy pour eviter d'appeller  _onlyOneDimSameTypeNumbers dessus !  en fait y'a pas besoin il n'appelle jamasi d'appeller  _onlyOneDimSameTypeNumbers pour les tableau int32 en readable \par
+\b\strike0\par
+\par
+voir cette histoir de taille typesize , bon on dirait bien que c'est la taille en octet  ! c'est bon \par
+\pard\li1440\sl240\slmult1\par
+bugs rapidjson : \par
+\b0\par
+\pard\li2160\sl240\slmult1 >>> import rapidjson\par
+>>> encoder = rapidjson.Encoder()\par
+>>> encoder.indent\par
+Traceback (most recent call last):\par
+  File "<stdin>", line 1, in <module>\par
+AttributeError: 'rapidjson.Encoder' object has no attribute 'indent'\par
+=> normal selon lui , on peut recuperer les infos avec : \par
+\par
+\par
+>>> import rapidjson\par
+>>> encoder = rapidjson.Encoder(sort_keys = False, ensure_ascii = True)\par
+>>> encoder.sort_keys\par
+True\par
+>>> encoder = rapidjson.Encoder(sort_keys = False, ensure_ascii = False)\par
+>>> encoder.sort_keys\par
+False\par
+>>>\par
+=> a \'e9t\'e9 corrig\'e9 dans la version \ul\par
+\pard\li720\sl240\slmult1\par
+\par
+bizarre dans def instance() = \par
+\ulnone         if __state__ and type(__state__) == dict:\par
+            __state__.update(argsSup)\par
+=> j'ai vir\'e9 le truc , voir si \'e7a ne pause de probl\'e8me nul part ..\par
+\pard\sl240\slmult1\b\par
+update : \b0 revoir pour object avec slot la fonction  def _exploreToUpdate(self, obj, loaded_node):\b\par
+avec pickle un getstate ne peut pas retourner None ? si met dans ce cas rien n'est serialis\'e9 et __setstate__ n'est pas appell\'e9 \par
+voir pour plugins pour deserialisation et l'update d'objet : pas forcement bonne id\'e9e faut mieux s'arranger pour au moement de la serialisation fourni un bon constructeur . \par
+\cf5 /codage des methdoes d'objet \par
+\pard\li720\sl240\slmult1\b0 /il reste probl\'e8me dans la documantaiont ou je ne parle du fait qu'on a  pas juste une restauration des attirbut si set_attributs = True \b\par
+\pard\sl240\slmult1 set_attributs : \par
+\pard\li720\sl240\slmult1\b0 / pouvoir lui fournir un liste de classe pour lequeles il faut faire un set_attribut \b => j'ai cod\'e9 et test\'e9 \b0\par
+/dire que les attribut vont \'eatre restaur\'e9 dans l'odre dans lesquels il sont serialis\'e9 dans le json et donc \'e0 priori dans l'ordre alphabetique si sort_keys = True \par
+/dire que si l'\'e9tat de l'objet depant de plusieurs attribut avec setter \'e0 restaurer qui interagisse , il faut mieux /coder __setstate__ pour eviter de multiples \'e9tats transitoires et permet aussi d'avoir le m\'eame comprotement que pickle . \cf4\b\par
+\cf1\b0 Voir si properties sont appell\'e9e quand set_attributs est False avec serializejson et pickle\cf5\b\par
+\pard\sl240\slmult1 updating \par
+\pard\li720\sl240\slmult1\b0\strike dire que si y'a des objet qu'on souhaite pourvoir update, il faut remetre tous l'\'e9tat qu'on voudra restaurer en cas de update dans le __state__, et donc mettre le minimum dans le init_args retourn\'e9 par reduce pour eviter redondance . \par
+\strike0\par
+\strike dir que comme le code de__init__() ne sera pas execut\'e9 ; il faut \'eatre sur d'avoir tout qui se met bien en place via des properties (appell\'e9 meme si set_attribut = Flase? , des setters (avec set_attribut = False) \par
+ou si l'\'e9tait de l'objet depant de plusieurs attribut avec setter \'e0 restaurer qui interagisse , il faut mieux coder __setstate__ pour eviter de multiples \'e9tats transitoires et permet aussi d'avoir le m\'eame comprotement que pickle . \par
+ \cf0\par
+\pard\sl240\slmult1\b\strike0\par
+\par
+\par
+cleaner API pour options pour numpy array: \par
+\pard\li720\sl240\slmult1{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/9522877/pythonic-way-to-have-a-choice-of-2-3-options-as-an-argument-to-a-function"}}{\fldrslt{\ul\cf3 https://stackoverflow.com/questions/9522877/pythonic-way-to-have-a-choice-of-2-3-options-as-an-argument-to-a-function}}}\f0\fs22\par
+faire que des options avec True/False \par
+\pard\li1440\sl240\slmult1\b0 + autocompletion\par
+- doit verifier que options pas incompatibles \par
+\pard\li720\sl240\slmult1\b faire option avec str ? \par
+\par
+faire option avec enums ? \par
+\par
+\pard\sl240\slmult1\ul\par
+\par
+\par
+decoder : \par
+\pard\li720\sl240\slmult1\ulnone\b0 //probl\'e8me interface avec fp et s =  pas naturelle \par
+\tab apis existantes pour encoder et decoder:\par
+\pard\li1440\sl240\slmult1 pickle  :\par
+\pard\li2160\sl240\slmult1 encoder.dump \par
+decodeur.load \par
+\pard\li1440\sl240\slmult1 json \par
+\pard\li2160\sl240\slmult1 encoder.encode \par
+encoder.\lang1036\f2\fs20 iterencode\lang12\f0\fs22\par
+decodeur.decode \par
+decodeur.rawdecode\par
+\pard\li1440\sl240\slmult1 rapidjson\par
+\pard\li2160\sl240\slmult1 encoder.\lang1036\f2\fs20 __call__(self,obj, stream=None, *, chunk_size=65536)\par
+decoder.__call__(self,json, *, chunk_size=65536):\lang12\f0\fs22\par
+\pard\li1440\sl240\slmult1 bon je vais partir sur dump, dumps, load et loads , sera plus explicite sur les diff\'e9rences entre fichier/str\par
+\pard\li720\sl240\slmult1 //utiliser toujour Decoder pour eviter code redondant ? \par
+//pb attribut qui ne sont pas pass\'e9 \'e0 decoder = Decoder(...) dans loads_iter etc... \b\par
+\pard\sl240\slmult1\par
+\ul __setstate__ et setXXX : \ulnone\par
+\pard\li720\sl240\slmult1\b0 1) voir si instance(**..) restore quand y'a des setXX\par
+\pard\sl240\slmult1\ul\b\par
+serialzieJsonlab -> serializeJson \ulnone\par
+\pard\li720\sl240\slmult1\par
+finir de r\'e9cupere ce qu'il faut de JsonLab : \par
+\pard\li1440\sl240\slmult1\b0 / 1) reconnaissance d'objets \'e0 partir des attributs \par
+/ 4) conversion array_to_list et array_from_list\par
+5) loadJsonPaths\par
+pas de item_sort_key avec rapidjson , chiant pour mettre framedatas de tracking \'e0 la fin du jsons\b\par
+\pard\li2160\sl240\slmult1\b0\par
+\par
+\pard\li1440\sl240\slmult1 moins utile -------------\par
+3) sauvegarde uniquement des attributs  : onlyState , m'en suis servie uniqumenet pour exporter resultat tracking python pour comparaison avec tracking C++\par
+2) remplacement des inf, nan, et type matlab <-> numpy \par
+6) emptyListAsNone\par
+7)_ArrayData_\par
+\par
+\pard\li720\sl240\slmult1\b\par
+\par
+FaceEditorUI.pyw\par
+\pard\li1440\sl240\slmult1\b0 ligne 1665\par
+            #serializeJsonlab.dump(jsonDict,self.samplerBaseShapePath)\par
+            serializeJson.dump(jsonDict,self.samplerBaseShapePath,array_to_list = True)\par
+\par
+ligne     2409    jsonIn = serializeJson.load(path, array_to_list=True, \cf1 emptyListAsNone=True\cf0 , recognized_classes=[Camera, Head])  # mis emptyListAsNone a True pour pouvoir remplsacer "trackedPoints": [] en "trackedPoints": None .  probl\'e8me pour reconnaitre  TrackedFrame dans json de tracking C+++ car pas les meme attribut que TrackedFrame (cf SmartFaceEdit - Data - Json - Import (Edition, Tracking C++ , Tracking Matlab, Faceware).rtf )\par
+\par
+peut rester avec SerializeJsonlab ? pb d'import de dictFromInstance qui n'existe plus de objects.py .. pb je l'ai bien modifi\'e9... \par
+\par
+ligne 3015 : #serializeJsonlab.dump(jsonOut, jsonOutPath, item_sort_key = sortWithFrameDatasToEnd)\par
+       ->  serializeJson.dump(jsonOut, jsonOutPat)\par
+\cf1 il n'y a pas d'option item_sort_key pour mettre les framedatas \'e0 la fin \par
+\cf0\par
+\par
+ligne 3845 : \par
+\pard\li2160\sl240\slmult1                 #serializeJsonlab.onlyState = True\par
+                #serializeJsonlab.dump(jsonOut,jsonOutPath,arrayAsList = True, item_sort_key = sortWithFrameDatasToEnd)\par
+                #serializeJsonlab.onlyState = False\par
+                => serializeJson.dump(jsonOut,jsonOutPath,array_to_list = True)\par
+\cf1 il n'y a pas d'option item_sort_key pour mettre les framedatas \'e0 la fin \par
+\cf0 il n'y a pas de onlyState \par
+\pard\li1440\sl240\slmult1\par
+\par
+ligne 4897\par
+            #serializeJsonlab.dump(defaultPositionsDict, sameAnglesPositionsPath)\par
+            serializeJson.dump(defaultPositionsDict, sameAnglesPositionsPath,array_to_list = True)\b\par
+\pard\sl240\slmult1\par
+\pard\li720\sl240\slmult1 PointNameWayPosition.py : \par
+\pard\li1440\sl240\slmult1\b0 samplerBaseShape = load(joinPath(directory(__file__),'samplerBaseShape.json',numpy_array_from_list = True))\b\par
+\par
+\pard\sl240\slmult1\ul\par
+/ intergrer travail sur references copy dans serializejson\par
+\pard\li720\sl240\slmult1\ulnone\b0 serializeJson_doublon.py\par
+serializeJson_update2.py ? \par
+\b\par
+\par
+\par
+objects.py : \par
+\pard\li1440\sl240\slmult1\b0 # CAS GENERAL --------------------------------\par
+pas utilis\'e9? \par
+\pard\sl240\slmult1 isPyQt : ne fait pas appelle \'e0 getstate, probl\'e8matique pour PlotUI \b\par
+Farie marcher FaceEditorUI  et VERIFIER QUE CA NE MODIFIE PAS LES .DAT !!!!!\par
+\pard\li720\sl240\slmult1\par
+// pb __getinitargs__ -> __reduce__  dans state  (commit 3436) : \par
+\pard\li1440\sl240\slmult1\b0 j'ai fait des __getinitargs__ -> __reduce__ , sans retourner le state en 3\'e8me argument ... alors que quand j'utilisais __getinitargs__ il rajoutait le state automatiquement ?\b\par
+\pard\li720\sl240\slmult1\par
+// self.parent -> self._parent pour eviter serialisation circulaire avece serializePython ? \par
+\par
+//faire mise \'e0 jour fichiers dat : \par
+\pard\li1440\sl240\slmult1\b0 // SmartFace.liveDriver.Camera -> SmartFace.headAndCamera.Camera\par
+//SmartFace.liveDriver.Head -> SmartFace.headAndCamera.Head\par
+//SmartFramework.fromB64 -> SmartFramework.numpyB64 \par
+//\\r\\n -> \\n\par
+//BOM ? \par
+//utf-8 ?\par
+\par
+\par
+\par
+\pard\li720\sl240\slmult1\b // diff\'e9rence sur fichier .dat avant et apr\'e8s reserialization \par
+\pard\li1440\sl240\slmult1 AnimatedModel3DWithGlItems\par
+\pard\li2160\sl240\slmult1\b0 pb serialisation SmartFace.AnimatedModel3D.AnimatedModel3DWithGlItems : il manque plein d'infos \par
+\pard\li1440\sl240\slmult1\b whiteTrackingParameters\par
+\pard\li2160\sl240\slmult1\b0 pb obj.faceeditorui.whiteTrackingParameters il manque plein d'infos \par
+\pard\li720\sl240\slmult1\par
+// pour les courbes index\'e9s, on ajoute les curves apr\'e8s la d\'e9serialisation, ce qui provoque un reste du zoom\par
+\pard\li1440\sl240\slmult1 addCruve -> resetZoom\par
+\pard\sl240\slmult1 setXMax -> resetZoom\par
+\par
+//comment conserver les param\'e8tre  du dumps ? dans variable globale ? cr\'e9er une classe Encodeur ? pourait toujours choisir \'e0 chaud le backend ? \par
+//r\'e9implementer dump , loads et load \par
+/passer "__initArgs__" -> "__init__"  \par
+/r\'e9implementer tous mes objets avec __reduce__\par
+//chronmetrer les diff\'e9rents backends  ?\par
+//voir lacune des diffr\'e9ents backends et lequel il faudrait mettre \'e0 niveau .   \par
+//optimiser mon code : eviter les elif elif elif avec plusieurs fonctions (dans des fichier "className.py" dans une dictionnaire )\par
+\pard\li720\sl240\slmult1\cf9\par
+\par
+\par
+/ newline : \\n ou\strike  \\r\\n \strike0 ??\par
+/avoir un hack string qui suport ensure_ascii ?  plus besoin avec  rapidJson\par
+/serializeJson.load() : \par
+\tab il passe par un rawBytes  \par
+\tab faire un remove comment avec le truc de rapidjson \par
+serializeJson.dump  : \par
+\pard\li1440\sl240\slmult1 putain c'est quoi d\'e9j\'e0 cette histoir de hackFile?  je l'ai vir\'e9 avec rapidJson\par
+\pard\li720\sl240\slmult1 est ce qu'il met un BOM ?  non et il encode en utf=8\cf0\par
+\cf9 //detection de l'encodage : \par
+\pard\li1440\sl240\slmult1\cf0{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/4990095/json-specification-and-usage-of-bom-charset-encoding/38036753"}}{\fldrslt{\ul\cf3 https://stackoverflow.com/questions/4990095/json-specification-and-usage-of-bom-charset-encoding/38036753}}}\cf9\f0\fs22\par
+\pard\li720\sl240\slmult1\par
+\par
+tester pour voir si perfs am\'e9lior\'e9e avec \lang1036\f2\fs20 number_mode = rapidjson.NM_NATIVE,allow_nan = True : ne voit pas de diff... peut \'eatre sur gros tableau\lang12\f0\fs22\par
+\par
+tester diff\'e9rents \lang1036\f2\fs20 chunk_size ? n'y arive pas avec Bytes\par
+\cf5\par
+\lang12\f0\fs22 securit\'e9 :  \par
+\pard\li1440\sl240\slmult1 verification du pattern ? (\par
+\pard\li2160\sl240\slmult1 rapid json le permet )  ajout\'e9 la classe de rapidjson \'e0 serializeJosn , mais trop gal\'e8re de faire un truc pour construire la validation \cf0\lang1036\f2\fs20\par
+\pard\li720\sl240\slmult1\lang12\f0\fs22 A TESTER PLUS EN PROFONDEUR : \par
+\cf5 / voir pour la reconnaissance d'objetct \'e0 partir des attributs ?\par
+/liste d'objetc autoris\'e9s? \par
+\pard\li1440\sl240\slmult1 / comment la r\'e9cuperer ?  getDumpedClasses \par
+/pouvoir d\'e9sactiver la verification ?  param\'e8tre "all"\cf0\par
+\pard\sa200\sl276\slmult1\par
+\par
+\par
+\pard\li1440\lang1036\b\par
+\b0\par
+\pard\b DONE \par
+\pard\li720\par
+\lang12 serialization tableaux numpy\par
+\par
+\par
+\pard\li1440 avec fonctions existante : DONE\par
+\pard\li2160\b0 utilsier quand je peut numpy.fromstring(base64.b64decode("oiuoiuoiu")) DONE\par
+avec mupy.ndarray , on doit passer un bytearray et non un string si on veut que le tableau soit mutable \par
+or on nen peut passer qu'un param\'e8tre d'encodage et non de d\'e9codage \'e0 bytearray("oiuoi","encoding") = > oblig\'e9 de passer par une chaine intermediaire d\'e9cod\'e9 mais non mutable \b\par
+\pard\li1440 avec fonction perso : DONE\par
+\pard\li2160\b0 - sans doute pas tr\'e8s bonne id\'e9e car le json ne sera plus neutre... alors qu'on pour l'instant on ne force \'e0 connaitre aucun de mes fonction pour le comprendre \b\par
+\b0 + serait moins lourd en json \par
+bytearrayFrom64 =>  bytearray\par
+numpyFrom64(str,dtype,shape = None)    =>  numpy array\par
+np64(str,dtype,shape = None)\par
+\par
+\par
+\pard\li1440\b faire un swith readable / non readeable automatique : DONE\par
+\pard\li2160\b0 si on ne compte pas la taille des declarations etc : \b\par
+float : \b0 a priori le binaire est toujour plus performant , on va juste fixe un taille en dessous de laquelle on pref\'e8re tou de meme readable \b\par
+int:\b0\par
+\pard\li2880 en comparant les 2 serialiseation pour chaque tableau et prenant la plus courte ? \par
+en fixant des regles ? \par
+si len< seuil ? \par
+si int et max < \par
+\par
+3 entier 32 bits (0-4294967296)=> 12 char non encod\'e9s => 16 char encod\'e9s =>  5.3 chars par entier \tab\par
+3 entier 16 bits (0-65536)=> 6 char non encod\'e9s => 8 char encod\'e9s =>  2.6 chars par entier \tab\par
+3 entier 8 bits (0-256)=> 3 char non encod\'e9s => 4 char encod\'e9s =>  1.3 chars par entier \tab\par
+\par
+3 entiers \'e0  n decimale => 3(n chars + ',') => 3*(n+1) chars => n+1 char par entier  =\par
+=>  vaut pas le coup de coder en binaire si 32 bits et n+1 < 5.3 => n < 4.3 =>  n <= 4 =>  i <= 9999\par
+=>  vaut pas le coup de coder en binaire si 16 bits et n+1 < 2.6 => n < 1.6 =>  n <= 1 =>  i <= 9\par
+=>  vaut pas le coup de coder en binaire si 8 bits et n+1 < 1.3 => n < 0.3 =>  n <= 0 =>  i <= 0\par
+\pard\li720\lang1036\b\par
+\par
+permetre de choisir objets qu'un serializeInterface va serializer \par
+\pard\li1440\b0 soit : metre jsute une chexk box: => OK , mais  ne poura pas permetre de repondre \'e0 tel ou tel serialization .... \b\par
+\cf9 soit :  connecter \'e0 l'objet save ... comme sans max.... on leur envoit un signla "accepte la prochaine serialisation"\par
+\cf0\b0\par
+\cf9 soit : definir pour un objet quel serializeInterface il va accepter , sous forme de liste ?   permetre reaction % destinataire ? (= preset MaxPSM + fil ?)\par
+\pard\li2160 permetre selection des objet \'e0 serialize  % destinataire ? (= preset MaxPSM + fil ?)\par
+voudrait dire qu'il faut soit propager le nom du destinataire en cours de serialization , sois le mettre en variabe gloabal.....\par
+risque d'\'eater un peu compliqu\'e9 et pas tr\'e9s robuste.... meme si on utilise dej\'e0 des variables global pour choisir si setAtttribut , si filtre..etc...\par
+concr\'e8tement \par
+1) rajouter une liste de nom de destiantaire auquel un objet doit r\'e9agir \par
+2) rajouter une varible global du destinataire en train de reclamer serialization \par
+    => le cot\'e9 global risque de cr\'e9er de nouveaux probl\'e9mes !!!!\par
+3) rajouter un nom au serializeInterface \cf0\par
+\pard\li1440\cf9 soit : definir dans le serializeInterface les objets qu'il doit serializer (compliqu\'e9)\cf0\b\par
+\pard\sa200\sl276\slmult1\lang12\b0\par
+}
+ 

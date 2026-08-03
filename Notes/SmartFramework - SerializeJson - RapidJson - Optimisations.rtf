@@ -1,0 +1,256 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset2 Symbol;}}
+{\colortbl ;\red155\green0\blue211;\red0\green176\blue80;\red0\green0\blue255;\red255\green0\blue0;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\li720\sl240\slmult1\lang12\f0\fs22\par
+\pard\sl240\slmult1\b permetre \'e0 RawJSON de prendre des bytes plutot que de l'unicode \par
+\pard\li720\sl240\slmult1\b0 pour l'instant j'ai rajouter RawJSONBYTES car je n'arrivais pas faire que RawJSON accepter des bytes ou des strings\par
+\cf1 => voir si je peut permetre \'e0 RawJSON de prendre des bytes ou strings \par
+\cf0\par
+\pard\sl240\slmult1\b\par
+optimisation  malloc ,  realloc et ecriture directement dans des bytes  \par
+\par
+\pard\li360\sl240\slmult1 dumps : \par
+\pard\li1440\sl240\slmult1\b0 la strategie pour les realloc est vraiement mauvaise !!!! \par
+il fait x1.5 \'e0 chaque fois , quand manque de place et resize pile poile si on depaser les x1.5 ?\par
+du coup il fait des recopies \'e0 chaque fois qu'on fait  un Put() qui depasser les 1x5 le realloc pr\'e9cedant\par
+\par
+strat\'e9gie 1 :  \par
+\pard\li2160\sl240\slmult1 on prendre un Pybytes super grand d\'e8s le d\'e9but et on le r\'e9duit \'e0 la fin \par
+comment on choisit la taille ? \par
+\pard\li1440\sl240\slmult1 strat\'e9gie 2 : \par
+\pard\li2160\sl240\slmult1 on resize Pybytes  x 4 \'e0 chaque fois qu'on depasse la capacit\'e9 . avec un peu de chance il arrivera \'e0 agrandid sans avoir \'e0 bouger les donn\'e9es . \par
+\pard\li1440\sl240\slmult1 strat\'e9gie 3 :\par
+\tab on r\'e9aloue x 4  mais si la ralocatio, demande un nouvele espace en m\'e9moire, ne pas copier les donn\'e9e, mais continuer \'e0 la bonne position.\line\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li2160\sl240\slmult1 on recopiera tous les bout qui n'ont pas \'e9t\'e9 copi\'e9s \'e0 la fin .\par
+\pard\li1440\sl240\slmult1 stategie 4  \par
+\pard\li1440\sl240\slmult1\tab\cf2 on stock des bouts, sans copier les bytes  qu'on assemble \'e0 la fin . sensiblement la meme aproche que si on ecrivait dans un fichier . \par
+\pard\li2160\sl240\slmult1 d'ailleur pas faisable avec IObytes ? \par
+\pard\li720\sl240\slmult1\cf0\par
+\b dump : \par
+\pard\li1440\sl240\slmult1\b0 PyWriteStreamWrapper\par
+\cf2 on ecrit directement dans des bytes "currentBytes" de taille chunksize\par
+et si c'est un bytes , on envoit le  currentBytes resiz\'e9 \'e0 son contenu et le bytes \cf0\par
+\par
+\par
+\par
+\par
+\pard\sl240\slmult1\b string encode performance problem :\par
+\pard\li720\sl240\slmult1\b0 Hello, \par
+\par
+from my benchmark,  to serialize a simple string, rapidjson.dumps take 10x more time than a copy, juste for adding  doubles quotes at both ends  and sometimes escape " ,\\  ,controls characters (ord(c) < 32 including \\b,\\t,\\n,\\f,\\r) and non-ascii characters when ensure_ascii is True and string.isascii() is False .\par
+\par
+Do you have a idea why ? Does rapidjson go through utf_8 encoding in bytes and utf_8 decoding , that could explain this bad performances compared to copy time ?\par
+\par
+Otherwise ,  if that is the escape step that take so much time, would it be possible to precise to rapidjson that a string doesn't contain any character needing escape (for example if generated from base64 encoding) with a RawString object for example, or to add internaly a step to check if a string will need escape in order to bypass the rapidjson normal path for strings juste needing  double quotes to the both ends ? \par
+\par
+I coded an example with a need_escape function that checks if a string needs escaping, although the function is not optimized at all, it already saves a 90% of time on lot of strings.\par
+\fs16\par
+    import rapidjson\par
+    escaped_chars =  set('\\b\\t\\n\\f\\r"\\\\') #& set((chr(i) for i in range(32)))\par
+    \par
+    #@profile\par
+    def need_escape(str_,ensure_ascii):         # 0.45 msec \par
+        if ensure_ascii and not str_.isascii():\par
+            return True\par
+        for c in escaped_chars:\par
+            if c in str_:\par
+                return True\par
+        return False\par
+    \par
+    #@profile\par
+    def dumps_str(str_,ensure_ascii):    # 4.5 msec\par
+        return rapidjson.dumps(str_, ensure_ascii=ensure_ascii)  # 4.5 msec if ensure_ascii is False\par
+    \par
+    #@profile\par
+    def dumps_str_optimized(str_,ensure_ascii,need_escape): # 0.75 msec\par
+        if not need_escape :\par
+            return (f'"\{str_\}"')    # 0.26 msec\par
+        return rapidjson.dumps(str_, ensure_ascii=ensure_ascii)  # 4.5 msec if ensure_ascii is False\par
+    \par
+    str_long = "A"* 1200000\par
+    for i in [8,9,10,12,13] + list(range(32,132)):\par
+        char = chr(i)\par
+        str_  =   str_long + char # worse case\par
+        for ensure_ascii in [True,False]:\par
+            encoded = dumps_str(str_,ensure_ascii)\par
+            encoded_optimized = dumps_str_optimized(str_,ensure_ascii,need_escape = need_escape(str_,ensure_ascii))\par
+       )\par
+\b\fs22\par
+\par
+\par
+\pard\sl240\slmult1 string decode performance probleme \par
+\pard\li720\sl240\slmult1\par
+\b0 Hello, \par
+\par
+from my benchmark, rapidjson take 8x more time than a copy to load string , juste for removing  doubles quotes at both ends  and sometimes unescape characters. \par
+Do you have a idea why ? Does rapidjson pass by utf_8 encoding in bytes and utf_8 decoding , that could explain this bad performances compared to copy time ? Is the unescape check and processing that take so much time ? \par
+\par
+Otherwise ,  would it be possible to check internaly  if a json part string contain a \\ character, in order to bypass the rapidjson normal process for strings not needing to unescape any character and juste remove doubles quotes to the both ends ? \par
+\par
+I coded an example that checks if a string needs unescaping allowing to reduce 8x loading time for lot of string. \par
+\par
+\pard\li1440\sl240\slmult1 import rapidjson\par
+control_chars = "".join(chr(i) for i in range(32))\par
+escaped_chars = '"\\\\' #+ control_chars\par
+\par
+@profile     \par
+def loads_str(str_):\par
+    return rapidjson.loads(str_)  # 2.34 msec \par
+\par
+@profile\par
+def loads_str_optimized(str_):\par
+    if "\\\\" not in str_ : # 0.14 msec (check if escaped chars)\par
+        return str_[1:-1] #  0.30 msec\par
+    return rapidjson.loads(str_)  # 2.34 msec\par
+\par
+str_long = "A"* 1200000\par
+for i in range(32,128):\par
+    char = chr(i)\par
+    str_  =   str_long + char # worse case\par
+    encoded = rapidjson.dumps(str_,ensure_ascii= False)\par
+    decoded = loads_str(encoded)\par
+    decoded_optimized = loads_str_optimized(encoded)\par
+    assert decoded == decoded_optimized\par
+\pard\li720\sl240\slmult1\par
+\par
+\b ideal : \par
+\pard\li1440\sl240\slmult1\b0 on devrait juste avoir le cout d'un peu plus qu'un encodage en utf-8 , \par
+l'encodeage en utf-8 devraite ecrire directement dans le memory buffeur . \par
+les echapement devraient se faire directement dans l'encodage en utf-8 ? soit dans la fonction\par
+\par
+\pard\li720\sl240\slmult1\b Diagnostic :\par
+\pard\li1440\sl240\slmult1\b0 rapidejson.h\par
+\pard\li2160\sl240\slmult1 WriteString\par
+\pard\li1440\sl240\slmult1 writter. h \par
+\pard\li720\sl240\slmult1\par
+\pard\li2160\sl240\slmult1 583 : ScanWriteUnescapedString : c'est quoi cette horreure qui est appeller \'e0 chaque iteration ? \par
+\par
+\pard\li720\sl240\slmult1 Je ne connait quasiement rien en C++ et doit proceder par essais + erreure\par
+Je n'ai aps les bons outils pour investiger (j'utiliser notepass++ et , rien pour debuger ,ni profiler directment le code c//) \par
+\par
+\pard\sl240\slmult1\b RawJSON performance problem => envoy\'e9\par
+\pard\li720\sl240\slmult1\b0\par
+Hello, \par
+\par
+In serializejson , like you suggest in {\field{\*\fldinst{HYPERLINK "https://github.com/python-rapidjson/python-rapidjson/issues/100"}}{\fldrslt{\ul\cf3 https://github.com/python-rapidjson/python-rapidjson/issues/100}}}\f0\fs22  , I heavily use RawJSON, in order to keep on the same line tuples or array of numerical values of the same type (single_line_array don't allow to treat differently array of same numerical types and others) \par
+But RawJSON seems to have big performance problems . \par
+Basicaly rapidjson.dumps should just copy string from RawJSON as it without any check for char needing escape or needing to be convert in ascii,  but take 12x or 14x more time than a copy !  Do you have a idea why ? Moreover ensure_ascii True or False  , should not have any performance differencies on RawJSON.\par
+\par
+\fs16     import rapidjson\par
+    import copy\par
+    @profile\par
+    def test_RawJSON():\par
+        json  =f'"[\{"0,"*6000000\}0]"'  \par
+        copie = json[:-1]+'"' #  3.6 msec \par
+        rawjson  = rapidjson.RawJSON(json) # 0.01 msec\par
+        json_with_rawjson = rapidjson.dumps(rawjson, ensure_ascii=False)   # 40 msec  (12x time of a copy, for juste coping json !)\par
+        json_with_rawjson_ascii = rapidjson.dumps(rawjson, ensure_ascii=True)   # 50 msec  (14x time of a copy, for juste coping json !)\par
+        assert json == json_with_rawjson\par
+        assert json == json_with_rawjson_ascii\par
+    test_RawJSON()\par
+\par
+\b\fs22\par
+\par
+Code r\'e9sum\'e9 : \par
+\pard\li1440\sl240\slmult1\b0 RawJSON_new\par
+\pard\li2160\sl240\slmult1 475 PyArg_ParseTupleAndKeywords(args, kwds, "U", (char**) kwlist, &value))\par
+\pard\li1440\sl240\slmult1 Rapidjson.cpp : \par
+\pard\li2160\sl240\slmult1 3029 : dumps \tab\par
+\pard\li2880\sl240\slmult1 -> 3134 : do_encode\par
+\pard\li2160\sl240\slmult1 3399 : do_encode\par
+\pard\li2880\sl240\slmult1 StringBuffer buf; \cf2 => MemoryBuffer buf \cf0\par
+PrettyWriter<StringBuffer> writer(buf); \cf2 => PrettyWriter<MemoryBuffer > writer(buf); \par
+\cf0 -> DUMPS_INTERNAL_CALL\par
+\pard\li2160\sl240\slmult1 3385 : DUMPS_INTERNAL_CALL\par
+\tab 3386 : -> dumps_internal \par
+\pard\li2880\sl240\slmult1 3395 : ? \ul PyUnicode_FromString\ulnone (buf.\ul GetString\ulnone ()) : NULL) \cf2 => acc\'e9ler\'e9 avec  PyUnicode_FromStringAndSize(buf.Get  mais on pourrait encore am\'e9liorer en ecrivant directement dans un bytes \cf0{\field{\*\fldinst{HYPERLINK "https://github.com/pybind/pybind11/issues/1236#issuecomment-527730864"}}{\fldrslt{\ul\cf3 https://github.com/pybind/pybind11/issues/1236#issuecomment-527730864}}}\cf2\f0\fs22\par
+\pard\li2160\sl240\slmult1\cf0 2320 : dumps_internal\par
+\pard\li2880\sl240\slmult1 2972 :  jsonStr = \ul PyUnicode_AsUTF8AndSize\ulnone (((RawJSON*) object)->value, &l); => pas de copy si ascii ! par contre pour les autres strings prendra du temps..\par
+\cf4 2976 : writer->\ul RawValue\ulnone (jsonStr, (SizeType) l, kStringType\cf0 ); \cf4\b l\'e0 qu'il passe 3/4 du temps  le temps... \cf0\b0\par
+\pard\li2160\sl240\slmult1\par
+\pard\li1440\sl240\slmult1 writer.h :\par
+\pard\li2160\sl240\slmult1 272 :     bool RawValue(const Ch* json, size_t length, Type type) \par
+\tab -> return EndValue(WriteRawValue(json, length));\par
+\par
+460 :  bool WriteRawValue(const Ch* json, size_t length) \{\par
+\pard\li2880\sl240\slmult1         \ul PutReserve\ulnone (*os_, length);\par
+        GenericStringStream<SourceEncoding> is(json); \par
+        while (RAPIDJSON_LIKELY(is.Tell() < length)) \{\par
+            RAPIDJSON_ASSERT(is.Peek() != '\\0');\par
+            if (RAPIDJSON_UNLIKELY(!(writeFlags & kWriteValidateEncodingFlag ? \par
+                Transcoder<SourceEncoding, TargetEncoding>::Validate(is, *os_) :\par
+                \cf4\ul Transcoder<SourceEncoding, TargetEncoding>::TranscodeUnsafe(is, *os_))))\cf0\ulnone\par
+                return false;\par
+        \}\par
+        return true;\par
+    \}\par
+\cf2 => acc\'e9l\'e9r\'e9 en ajoutant une methode  Extend \'e0 stringbuffer qui fait un memcpy et qui acc\'e9l\'e8re \'e0 fond la copie \par
+\pard\li1440\sl240\slmult1\cf0 encoding.h \par
+\pard\li2160\sl240\slmult1     template<typename InputStream, typename OutputStream>\par
+    static RAPIDJSON_FORCEINLINE bool \ul TranscodeUnsafe\ulnone (InputStream& is, OutputStream& os) \{\par
+\cf4         \ul PutUnsafe\ulnone (os, is.Take());  // Just copy one code unit. This semantic is different from primary template class.\par
+\cf0         return true;\par
+    \}\par
+\pard\li1440\sl240\slmult1 stringbuffer.h  \par
+\pard\li2160\sl240\slmult1 103 : inline void \ul PutReserve\ulnone (GenericStringBuffer<Encoding, Allocator>& stream, size_t count) \{\par
+    stream.Reserve(count);\par
+\}\par
+71:    void Reserve(size_t count) \{ stack_.template Reserve<Ch>(count); \}\par
+\par
+\cf4 91 : void \ul PutUnsafe\ulnone (Ch c) \{ *stack_.template PushUnsafe<Ch>() = c; \}\par
+\par
+\par
+\pard\li720\sl240\slmult1\cf2\b Ce que j'ai fait sur mon repos dans serializejson : \par
+\pard\li2160\sl240\slmult1\cf4\b0\par
+\pard\li1440\sl240\slmult1\cf0 version fran\'e7aise : \fs8\par
+1) la fonction WriteRawValue  \'e9tait mal optimis\'e9 et les realloc \'e0 chaque d\'e9passement de cappacit\'e9 occupaient 3/4 du temps  \par
+\pard\li2160\sl240\slmult1 j'ai \'e9cris une nouvelle version en ajoutant une methode "Extend" \'e0 la classe GenericStringBuffer => speed x 2\par
+\par
+dans rapidjson/writer.h : \par
+\par
+bool WriteRawValue(const Ch* json, size_t length) \{\par
+PutReserve(*os_, length);\par
+os_->Extend(json,length);\par
+\}\par
+\par
+dans rapidjson.stringbuffer.h line, 59 : \par
+\par
++\tab void Extend(const char* json, size_t length) \{\par
++\tab\tab std::memcpy(stack_.Push<Ch>(length), json,length);\par
++\tab\}\par
+\par
+\par
+j'ai \'e9galument du l'ajouter \'e0 PyWriteStreamWrapper  pour r\'e9ussir \'e0 compiler.\line (elle n'est pas optimis\'e9 et ne sais pas si elle est utilis\'e9e, ni \'e0 quoi elle servirait)\par
+\tab\par
++\tab void Extend(const char* json , size_t size) \{\par
++\tab\tab for (size_t i = 0; i < size; i++)\par
++\tab\tab\tab *cursor++ = *json++;\par
++  \par
++\tab\}\par
+\pard\li1440\sl240\slmult1\par
+2)  la conversion vers Utf-8 ligne 2972 avec \ul PyUnicode_AsUTF8AndSize,\ulnone   ne fait pas de copie pour les string python ne contenant que de l'ASCII. Par contre il suffit d'un caract\'e8re non-ascci pour que les performence d\'e9gringolent.\line J'ai donc cr\'e9e un nouvel objet  "RawJSONBYTES"  qui prend des bytes d\'e9j\'e0 encod\'e9s en UTF-8 \par
+ \par
+3)  la reconversion en unicode avec   \ul PyUnicode_FromString\ulnone (buf.GetString()) (line 3395) \'e9tait \'e9galement trop lente .  j'ai acc\'e9l\'e9r\'e9 en utilisant plutot la fonction \ul PyUnicode_FromStringAndSize(buf.GetString(),buf.GetSize())\par
+\ulnone\par
+4) j'ai utilis\'e9 des MemoryBuffer au lieu de StringBuffer pour la variable buf,  dans la fonction do_encode quand ensureAscii est False . On peut alors utiliser  pour accelerer encore ; \par
+=> \ul PyUnicode_FromStringAndSize(buf.\cf2 GetBuffer(),\cf0 buf.GetSize())\par
+\ulnone\par
+5) je permet \'e0 rapidjson de retourner directement des bytes avec une nouvelle fonction dumpb , qui utilise \ul PyBytes_FromStringAndSize(buf.GetBuffer(),buf.GetSize())\ulnone\par
+\par
+6 ) en modifiant Stack.h Expand  pour allouer directement PyBytes en m\'e9moire, je pense qu'on pourrait encore acc\'e9l\'e9r\'e9 x2 en \'e9vitant d'avoir \'e0 utiliser le PyBytes_FromStringAndSize\par
+\par
+7) en utilisant un flag qui permet de savoir toutes les strings qu'on a serialis\'e9 \'e9taient en ascii :\par
+on pourra alors utiliser  _PyUnicode_FromASCII(buf.GetString(),  buf.\ul GetSize\ulnone ())) \par
+qui permetra encore d'acceler le retour en Unicode et evitant de scanner le buf \'e0 la recherche de caract\'e8re en UTF-8 \par
+\par
+Je m'arr\'e8te l\'e0 pour l'instant , mais je pense qu'il y a encore beaucoup d'optimisations possibles avec une int\'e9gration plus profonde de serializejson, python-rapidjson et rapidjson qui permetrait d'atteindre les performences de cpickle, voir m\'eame de le surpasser grace \'e0 la compression ultra-rapide de blosc \par
+\fs22\par
+version anglaise : \par
+\par
+\par
+\par
+\par
+\pard\sl240\slmult1\b DONE -------------------------------------------------------------------------\par
+permetre \'e0 rapidjson de retourner des bytes : \par
+\pard\li720\sl240\slmult1\b0 dumpb ? ou dumps(return_bytes = True) \par
+\pard\li1440\sl240\slmult1\cf1 => voir si marche avec encoder, permetre egalement param\'e8tre \'e0 dumps ?  pour choisir dynamiquement ?  DONE \cf0\par
+}
+ 

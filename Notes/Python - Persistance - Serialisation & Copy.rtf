@@ -1,0 +1,1121 @@
+{\rtf1\ansi\ansicpg1252\deff0\deflang1036{\fonttbl{\f0\fswiss\fprq2\fcharset0 Arial;}{\f1\fswiss\fcharset0 Arial;}{\f2\fnil Courier New;}{\f3\fnil\fcharset0 Courier New;}{\f4\fnil\fcharset0 Calibri;}{\f5\fnil\fcharset0 Arial;}{\f6\fnil\fcharset134 SimSun;}{\f7\fnil\fcharset2 Symbol;}}
+{\colortbl ;\red0\green0\blue255;\red0\green0\blue0;\red255\green0\blue0;\red192\green192\blue192;\red204\green204\blue204;\red0\green176\blue80;\red155\green0\blue211;\red165\green165\blue165;\red75\green172\blue198;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\b\f0\fs20\par
+sources\par
+\pard\li720\b0{\field{\*\fldinst{HYPERLINK "http://en.wikipedia.org/wiki/Serialization#Python"}}{\fldrslt{\ul\cf1 http://en.wikipedia.org/wiki/Serialization#Python}}}\f0\fs20\par
+\par
+\b\f1\par
+\pard\cf2 copy \cf3\par
+\pard\fi-2160\li2880\cf0\b0{\field{\*\fldinst{HYPERLINK "http://quentel.pierre.free.fr/python-trad/module-copy.html"}}{\fldrslt{\ul\cf1 http://quentel.pierre.free.fr/python-trad/module-copy.html}}}\f1\fs20\par
+Les classes peuvent utiliser les m\'eames methodes pour contr\'f4ler la copie que pour contr\'f4ler la s\'e9rialisation avec Pickle : \par
+__getinitargs__(), \par
+__getstate__() et \par
+__setstate__(). \par
+Pour qu'une classe d\'e9finisse sa propre impl\'e9mentation de la copie, elle peut d\'e9finir des m\'e9thodes :\par
+\b __copy__() \b0  \tab est appel\'e9e pour impl\'e9menter l'op\'e9ration de copie superficielle; on ne lui passe aucun argument suppl\'e9mentaire.\par
+\b __deepcopy__() \tab\b0 est appel\'e9 pour impl\'e9menter l'op\'e9ration de copie profonde; on lui passe un argument, le dictionnaire "m\'e9mo". Si l'impl\'e9mentation de __deepcopy__() n\'e9cessite de r\'e9aliser une copie profonde d'un composant, elle doit appeler la fonction avec le composant comme premier argument et le dictionnaire "m\'e9mo" comme second argument. \par
+\b\par
+\pard pickle & cPickle \tab\cf4\b0\tab\cf0\b\par
+\pard\li1440\b0 permetent de sauvegarder et charger \'e0 partir d'un fichier,flux ou chaine de caract\'e8res un objet complet pour qu\rquote il soit exactement dans le m\'eame \'e9tat. \par
+cPickle, qui (comme son nom l'indique) est une impl\'e9mentation C du module pickle. Il peut \'eatre jusqu'\'e0 1000 fois plus rapide que le module Python pickle pure, mais a quelques limitations. .\par
+\pard\li720\b sources \par
+\pard\li1440\b0{\field{\*\fldinst{HYPERLINK "http://docs.python.org/library/pickle"}}{\fldrslt{\ul\cf1 http://docs.python.org/library/pickle}}}\cf2\f1\fs20\par
+\cf0\b{\field{\*\fldinst{HYPERLINK "http://www.python.org/dev/peps/pep-0307"}}{\fldrslt{\ul\cf1 http://www.python.org/dev/peps/pep-0307}}}\cf3\f1\fs20  : faudra finir par le traduir !!!!!\par
+\cf2\b0 Python - Les Fondamentaux du langage - La Programmation pour les scientifiques.pdf\par
+\cf0{\field{\*\fldinst{HYPERLINK "http://quentel.pierre.free.fr/python-trad/module-pickle.html"}}{\fldrslt{\ul\cf1 http://quentel.pierre.free.fr/python-trad/module-pickle.html}}}\b\f1\fs20\par
+\pard\li720 +/-\tab\par
+\pard\li1440\b0 + ce qui semblerait le plus modulaire\par
++ sauve une instance d'objet \par
+- pas tr\'e9s lisible ni modifiable \'e0 la main ... \par
+  on peut analyser ce qu'il se passe : \par
+\pard\li2160{\field{\*\fldinst{HYPERLINK "https://rushter.com/blog/pickle-serialization-internals/"}}{\fldrslt{\ul\cf1 https://rushter.com/blog/pickle-serialization-internals/}}}\f1\fs20\par
+{\field{\*\fldinst{HYPERLINK "https://docs.python.org/3/library/pickletools.html"}}{\fldrslt{\ul\cf1 https://docs.python.org/3/library/pickletools.html}}}\f1\fs20  \par
+\pard\li1440 - on ne peut sauvegarder qu'un seul objet dans un fichier avec pickle, sinon il faut utiliser shelve\par
+\cf3\b\par
+\pard\li720\cf0\par
+objets serialisables\b0\f0\par
+\pard\li1440 * les objets propos\'e9s nativement par Python :\par
+\pard\li2160 . None, True et False\par
+. Integers, long integers, floats, nombres complexes\par
+. String normales et Unicode\par
+. Tuples, listes, ensembles, et des dictionnaires ne contenant que des objets picklables\par
+\pard\li1440 * les classes , fonctions, fonction integr\'e9es, d\'e9finies au niveau sup\'e9rieur d'un module ( en fait uniquement le nom des fonctions et des classes est sauvegard\'e9)\par
+* les instances de ces classes dont __dict__ ou __getstate__ () est picklables (voir l'article "The pickle protocol"  pour plus de d\'e9tails):\par
+\par
+\pard\li720\b sauvegarde \par
+\pard\li1440\b0 Seul le nom de la classe et l'etat de l'instance sont sauv\'e9s . (ex : attribut contenus dans self.__dict__, ou retourn\'e9 par __getstate__ ) \line les attribut de classe , le code des fonction et methode ne sont pas sauv\'e9s. (A moins de redefinir __getstate__)\par
+Ceci est fait volontairement, pour que vous puissiez corriger des bogues dans une classe ou ajouter des m\'e9thodes et continuer de charger des objets qui ont \'e9t\'e9 cr\'e9\'e9s avec une version pr\'e9c\'e9dente de la classe. Si vous pr\'e9voyez de conserver longtemps des objets qui verront de nombreuses versions de la classe, il peut valoir le coup de mettre un num\'e9ro de version dans les objets de fa\'e7on que les conversions ad\'e9quates puissent \'eatre faites par la m\'e9thode __setstate__() de la classse. \par
+\pard\li720\b protocols \b0 : \par
+\pard\li1440 * Protocol version 0 is the original ASCII protocol and is backwards compatible with earlier versions of Python.\par
+* Protocol version 1 is the old binary format which is also compatible with earlier versions of Python.\par
+* Protocol version 2 was introduced in Python 2.3. It provides much more efficient pickling of new-style classes. (seul protocol qui fait appel \'e0 __getnewargs__ lors du pickling)\par
+\f1\fs24\par
+\pard\li720\b\fs20 Interface de pickle\par
+\pard\fi-2160\li3600\b0 dumps(obj[, protocol])  \tab s\'e9rialise l \rquote objet et retourne une cha\'eene de caract\'e8res avec l\rquote objet.  \b\par
+\b0 dump(obj, file[, protocol])\tab sauvegarde  dans  un  flux  (un  objet  proposant  la  m\'e9thode  write() )  l \rquote objet  pass\'e9 en param\'e8tre selon un protocole.  \par
+loads(string)  \tab\tab retourne l \rquote objet \'e0 partir d\rquote une cha\'eene de caract\'e8res repr\'e9sentant l\rquote objet s\'e9rialis\'e9.  \par
+load(file)  \tab\tab retourne un objet depuis le flux donn\'e9 en param\'e8tre (un objet qui poss\'e8de une m\'e9thode  read()   prenant  un  entier  en  param\'e8tre  et  une  m\'e9thode  readline(),  toutes  deux  retournant  une  cha\'eene  de  caract\'e8res).  \par
+PickleError, PicklingError  et  UnpicklingError  sont les exceptions qui peuvent \'eatre lev\'e9es par pickle. La  premi\'e8re est la classe parente des deux autres, indiquant une erreur lors de la s\'e9rialisation ou une erreur  lors de la r\'e9cup\'e9ration respectivement.  \par
+class pickle.Pickler \par
+\pard\fi-2160\li4320 dump(obj)\par
+...\par
+...\par
+\par
+\pard\li1440\f0 class pickle.Unpickler\par
+\pard\li2160 load()\b\par
+\pard\li1440 ex : \par
+\b0   if(os.path.exists(filename)):\par
+            f = file(filename,'r')\par
+            self.clients = pickle.load(f)\par
+            f.close()\par
+\par
+     f = file(self.filename,'w')\par
+        pickle.dump(self.clients,f) \par
+\pard\fi-2160\li3600         f.close()\par
+\pard\li720  \par
+\b methode de l'objet a (r\'e9?)impl\'e9menter\par
+\b0\par
+\pard\fi-1440\li2880 __getstate__() \tab  sans __reduce__() si on souhaite avoir autre comportement que celui par defaut qui est de serialize self.__dict__\par
+\pard\li2880 retourne l\rquote\'e9tat de la classe,c\rquote est un objet qui sera lui\- m\'eame s\'e9rialis\'e9.  \line Si __getstate__() n\rquote est pas disponible, et que pas de __reduce__() c\rquote est __dict__ qui sera directement s\'e9rialis\'e9.\line Si __setstate__() n'est pas disponible , l'objet retourn\'e9 devra \'eatre un dictionnaire (les elements seront restaur\'e9s comme etant des attributs) ou None (l'\'e9tat ne sera pas sauvegard\'e9 ) , sinon l'objet peut \'eatre n'importe quel objet serialisable\par
+Attention : si __reduce__() est impl\'e9ment\'e9 , __getstate__() ne sera pas appell\'e9 \line\cf4 (par defaut : \i\f2 s\f3 return s\f2 elf\i0 .__dict__\f3 )\f0\par
+\pard\fi-1440\li2880\cf0 __setstate__()  \tab si on souhaite avoir autre comportement que celui par defaut qui conssite a faire self.__dict__.update(state)\par
+\pard\li2880 prend en param\'e8tre l\rquote objet d\'e9crivant l\rquote\'e9tat de la classe et replace l\rquote instance dans l\rquote\'e9tat dans lequel elle \'e9tait avant la s\'e9rialisation. \line peut eventuellement executer du code d'initialisation \line Si __setstate__() n'est pas disponible ,les tous les elements du dictionnaire __dict__ ou retourn\'e9 par __getstate__ (qui dans ce cas devra retourner un dict) seront restaur\'e9s comme etant des attributs\line\cf4 (par defaut : \i\f2 self\i0 .__dict__.update(state)\f3 )\f0\par
+\pard\fi-1440\li2880\cf5 __getinitargs__() \b Uniquement en python 2.x et pour objets oldstyle!!!\b0\par
+\pard\li2880 si on souhaite utiliser le constructeur __init__()   \tab\tab\line Si cette m\'e9thode n\rquote est pas d\'e9finie, le constructeur __init__() n\rquote est pas appel\'e9 lors de la recr\'e9ation de l\rquote objet. \line retourne un tuple (ou une liste) contenant les arguments \'e0 passer au constructeur de l\rquote instance s\'e9rialis\'e9e. \line ne pas oublier la virgule \'e0 la fin du tuple si on n'a qu'un seul argument! pour un tuple vide on met : ()\line ATTENTION : l'etat de l'objet et tout de meme restaurer  apr\'e9s l'__init__() , il faut donc mettre un __getstate__(self):,pass  ou __setstate__(self,etat):,pass si on veut eviter un ecrasement des attributs\par
+\pard\li1440\cf0 __reduce__() /__reduce_ex__ (protocole) \cf6\b  En python 3.x \cf5  (ou pour objets Newstyle en python 2.x)\par
+\pard\li2880\cf0\b0 permet d'avoir l'equivalent de __getinitargs__() + __getstate__() pour les objet new-style, \par
+\b REM :  on utilisera juste __getstate__ si on veut pas executer __init__() , car on ne peut eviter un __init__() avec __reduce__()\par
+\b0\par
+Doit retourner un tuple avec : \par
+\pard\fi-180\li3060 - la classe \tab\tab\tab\tab\tab (ou un objet appelable qui sera appel\'e9 pour cr\'e9er la version initiale de l'objet)\par
+- Un tuple d'arguments pour l'objet appelable. \tab (on est oblig\'e9 de fournir un tuple pour initArgs, None fait buger pickle.)\par
+- En option, l'objet d'\'c9tat, qui sera transmis \'e0 la methode __setstate__ () de l'objet. \line Si l'objet n'a pas de methode __setstate__ ();la valeur doit \'eatre un dictionnaire et il sera ajout\'e9 \'e0 l'objet de __dict__. \line Si on on ne fournit pas le state (tuple de longueure 2) ou qu'on le met \'e0 None, l'\'e9tat ne sera pas sauvegard\'e9  .\par
+\cf4\i - Eventuellement, un it\'e9rateur (et non pas une s\'e9quence) qui donne des \'e9l\'e9ments de liste successifs. Ces \'e9l\'e9ments de la liste sera pickl\'e9s, et ajout\'e9 \'e0 l'objet en utilisant soit obj.append (point) ou obj.extend (list_of_items). Elle est principalement utilis\'e9e pour les sous-classes liste, mais peut \'eatre utilis\'e9 par d'autres classes aussi longtemps qu'ils ont append () et d\'e9velopper ()\par
+- Eventuellement, un it\'e9rateur (pas une s\'e9quence) donnant successives de dictionnaire, qui devrait \'eatre tuples de la forme (cl\'e9, valeur). Ces articles seront d\'e9cap\'e9es et stock\'e9es \'e0 l'objet \'e0 l'aide obj [key] = valeur. Elle est principalement utilis\'e9e pour les sous-classes dictionnaire, mais \par
+\pard\li2880\cf0\i0\par
+En generale on codera :  \par
+\par
+# juste appel du __init__ avec arguments par positions, sans restauration \'e9tat \par
+def __reduce__(self):\par
+        return self.__class__,initargs \par
+ \par
+# juste appel du __init__ avec arguments nomm\'e9s, sans restauration \'e9tat (rem : il faut faire un pip install apply) \par
+def __reduce__(self):\par
+        return apply,(self.__class__,None,initkwargs) \par
+\par
+# appel du __init__ avec arguments par positions, et restauration \'e9tat\par
+def __reduce__(self):\par
+        return self.__class__, initargs, filtered(self.__dict__)\par
+\par
+# appel du __init__ avec arguments nomm\'e9s, et restauration \'e9tat  (rem : il faut faire un pip install apply) \par
+def __reduce__(self):\par
+        return apply,(self.__class__,None,initkwargs) , filtered(self.__dict__)\par
+\par
+\par
+\cf4\i initArgs : Changed in version 2.5: Formerly, this argument could also be None. \cf0{\field{\*\fldinst{HYPERLINK "https://docs.python.org/2.6/library/pickle.html"}}{\fldrslt{\ul\cf1 https://docs.python.org/2.6/library/pickle.html}}}\cf4\f0\fs20   \cf3 , Pourquoi ils ont chang\'e9 \'e7a ???\cf4\par
+pour contourner ce probl\'e8me , le __reduce__ impl\'e9ment\'e9 par defaut , ne retourne pas (objet ,initArgs , state) mais (fonction_reconstruction, (objet , classedebase,None),state) d'apres mes essais \par
+\par
+\pard\fi-1440\li2880 __getnewargs__()\par
+\pard\li2880 (remarque le protocol 2 est seul protocol qui fait appel \'e0 __getnewargs__ lors du pickling)\line appell\'e9 lors du pickling si protocol 2 et si pas de __reduce__ , par contre ne fait pas appelle \'e0 __init__() lors du unpickling.....argument doivent pass\'e9 \'e0 __new__() mais celui si ne doit pas faire appelle \'e0 __init__() , je n'ai pas du bien comprendre comment marche le __new__(). selon ce que j'ai compris , devrait \'eatre sens\'e9 repercuter les argument \'e0 __init__() .\cf0{\field{\*\fldinst{HYPERLINK "http://docs.python.org/release/2.5.2/ref/customization.html"}}{\fldrslt{\ul\cf1 http://docs.python.org/release/2.5.2/ref/customization.html}}}\cf4\f0\fs20\par
+\cf0{\field{\*\fldinst{HYPERLINK "http://docs.python.org/library/pickle.html#pickling-and-unpickling-normal-class-instances"}}{\fldrslt{\ul\cf1 http://docs.python.org/library/pickle.html#pickling-and-unpickling-normal-class-instances}}}\cf4\f0\fs20  obj = C.__new__(C, *args)\par
+Instances of a new-style class C are created using : \par
+\cf0{\field{\*\fldinst{HYPERLINK "http://docs.python.org/release/2.5.2/ref/customization.html"}}{\fldrslt{\ul\cf1 http://docs.python.org/release/2.5.2/ref/customization.html}}}\i0\f0\fs20\par
+\b\par
+\pard\li720 Methodes \'e0 (r\'e9)impl\'e9menter en fonction approches de restauration : \b0\par
+\pard\li1440\b\par
+__new__()\par
+\pard\li2160 new() + restauration passive de tous les attributs (__dict__) \cf6 (par defaut) \cf0\par
+\pard\li2880 ne coder aucune des methodes __reduce__(),__getstate__() et __setstate__()\par
+\b0 - comme l'objet est appell\'e9 sans faire appelle au __init__.\par
+aucun initialisation n'est effectu\'e9e -> on n'est pas s\'fbr d'avoir un objet dans un \'e9tat correct . \par
+- absolument tous les attribut de __dict__ sont serialis\'e9e, m\'eame ceux commencant par "_" et donc \'e0 priori des donn\'e9e internes (flags, fichier ouvert  etc..) par forcement serialisables.\par
+\par
+\pard\li2160\b new() +  restauration passive des attributs filtr\'e9s\par
+\pard\li2880 __gestate__(self):return filtred(self.__dict__)  , sans __reduce__() ni __setstate__()\par
+\b0 - comme l'objet est appell\'e9 sans faire appelle au __init__.\par
+aucun initialisation n'est effectu\'e9e -> on n'est pas s\'fbr d'avoir un objet dans un \'e9tat correct . \par
++ attribut sont filtr\'e9 (par exemple ceux commencant par "_")  on \'e9vite de s\'e9rializer des  donn\'e9e internes (flags, fichier ouvert  etc..) par forcement serialisables.\par
+\b\par
+\pard\li2160 new() +  restauration active via __setstate__()\par
+\pard\li2880\b0 __setstate__() + __getstate\cf2 __() \cf0   sans __reduce__() \par
++ l\'e0 on va pouvoir maitriser compl\'e9tement ce qu'il se passe \par
++ l'\'e9tat sauvegard\'e9 n'a plus besoin d'etre forcement un dictionnaire \par
++ on peut si on le souhaite faire appeller au __init__ avec des argument nomm\'e9s\par
+\cf3 - sera plus verbeux  serializePython et serializeRepr , car utiliser instance(class,state = ...) ?\par
+\cf5\strike - sera plus verbeux avec serializeJson car rajoutera un champ __state__ ? uniquement si c'est pas un dictionnaire ? \par
+\pard\li2160\par
+\pard\li1440\cf0\b\strike0 __init__(argument par defaut ou serialis\'e9s) \par
+\pard\li2160 + \b0 on initilise l'objet de fa\'e7on habituelle -> on est s\'fbr d'avoir un objet dans un \'e9tat correct . \par
+\pard\li720\b\fs16\par
+\pard\li2880\par
+\trowd\trgaph30\trleft2210\trrh209\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5443\clvertalb\cellx11130\clvertalc\cellx16157\clvertalb\cellx18166\clvertalb\cellx19374\clvertalc\cellx20286\clvertalb\cellx23801\pard\intbl Exemples\cell Remarque\cell\pard\intbl\qc METHODE\cell\b0\cell\cell\b DESERIALISATION\cell\b0\cell\row\trowd\trgaph30\trleft2210\trrh390\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5443\clvertalb\cellx11130\clvertalb\cellx16157\clvertalb\cellx18166\clvertalb\cellx19374\clvertalb\cellx20286\clvertalb\cellx23801\pard\intbl\cell\cell\b\i __reduce__()  \cell __getstate__()  \cell __setstate__() \cell\i0 __init__()\line Appel\'e9?\cell\i __setstate__() \line Appell\'e9 ?\cell\row\trowd\trgaph30\trleft2210\trrh209\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5443\clvertalb\cellx11130\clvertalb\cellx16157\clvertalb\cellx18166\clvertalb\cellx19374\clvertalb\cellx20286\clvertalb\cellx23801\pard\intbl\b0\i0 C_New_SaveDict_RestoreDict\cell __new__ avec restauration passive de __dict__\cell x\cell x\cell x\cell x\cell x\cell\row\trowd\trgaph30\trleft2210\trrh209\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5443\clvertalb\cellx11130\clvertalb\cellx16157\clvertalb\cellx18166\clvertalb\cellx19374\clvertalb\cellx20286\clvertalb\cellx23801\pard\intbl C_New_SaveFilteredDict_RestoreDict\cell __new__ avec restauration passive des attributs filtr\'e9s\cell x\cell return filtered(self.__dict__)\cell x\cell x\cell x\cell\row\trowd\trgaph30\trleft2210\trrh209\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5443\clvertalb\cellx11130\clvertalb\cellx16157\clvertalb\cellx18166\clvertalb\cellx19374\clvertalb\cellx20286\clvertalb\cellx23801\pard\intbl C_New_GetState_SetState\cell __new__ avec restauration active du state\cell x\cell return __state__ \cell oui\cell x\cell __setstate__(__state__)\cell\row\trowd\trgaph30\trleft2210\trrh210\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5443\clvertalb\cellx11130\clvertalb\cellx16157\clvertalb\cellx18166\clvertalb\cellx19374\clvertalb\cellx20286\clvertalb\cellx23801\pard\intbl C_InitDefault_SaveNothing\cell __init__ avec parametres par defaut\cell return (self.__class__,())\cell pas appell\'e9 ?\cell pas appell\'e9 ?\cell oui\cell x\cell\row\trowd\trgaph30\trleft2210\trrh210\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5443\clvertalb\cellx11130\clvertalb\cellx16157\clvertalb\cellx18166\clvertalb\cellx19374\clvertalb\cellx20286\clvertalb\cellx23801\pard\intbl C_InitDefault_SaveFilteredDict_RestoreDict\cell __init__ avec parametres par defaut + restauration passive des attributs filtr\'e9s\cell return (self.__class__,(),filtered(self.__dict__))\cell pas appell\'e9 ?\cell x\cell oui\cell x\cell\row\trowd\trgaph30\trleft2210\trrh210\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5443\clvertalb\cellx11130\clvertalb\cellx16157\clvertalb\cellx18166\clvertalb\cellx19374\clvertalb\cellx20286\clvertalb\cellx23801\pard\intbl C_InitDefault_GetState_SetState\cell __init__ avec parametres par defaut + restauration active du state\cell return (self.__class__,(),__state__)\cell pas appell\'e9 ?\cell oui\cell oui\cell __setstate__(__state__)\cell\row\trowd\trgaph30\trleft2210\trrh210\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5443\clvertalb\cellx11130\clvertalb\cellx16157\clvertalb\cellx18166\clvertalb\cellx19374\clvertalb\cellx20286\clvertalb\cellx23801\pard\intbl C_InitArgs\cell __init__ avec parametres par position\cell return (self.__class__,initargs)\cell pas appell\'e9 ?\cell pas appell\'e9 ?\cell oui\cell x\cell\row\trowd\trgaph30\trleft2210\trrh210\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5443\clvertalb\cellx11130\clvertalb\cellx16157\clvertalb\cellx18166\clvertalb\cellx19374\clvertalb\cellx20286\clvertalb\cellx23801\pard\intbl C_InitArgs_SaveFilteredDict_RestoreDict\cell __init__ avec parametres par position + restauration passive des attributs filtr\'e9s\cell return (self.__class__,initargs,filtered(self.__dict__))\cell pas appell\'e9 ?\cell x\cell oui\cell x\cell\row\trowd\trgaph30\trleft2210\trrh210\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5443\clvertalb\cellx11130\clvertalb\cellx16157\clvertalb\cellx18166\clvertalb\cellx19374\clvertalb\cellx20286\clvertalb\cellx23801\pard\intbl C_InitArgs_GetState_SetState\cell __init__ avec parametres par position + restauration active du state\cell return (self.__class__,initargs,__state__)\cell pas appell\'e9 ?\cell oui\cell oui\cell __setstate__(__state__)\cell\row\trowd\trgaph30\trleft2210\trrh210\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5443\clvertalb\cellx11130\clvertalb\cellx16157\clvertalb\cellx18166\clvertalb\cellx19374\clvertalb\cellx20286\clvertalb\cellx23801\pard\intbl C_InitKwargs\cell __init__ avec parametres nomm\'e9s\cell return (apply,(self.__class__,none,init_kwargs) ) \cell pas appell\'e9 ?\cell pas appell\'e9 ?\cell oui\cell x\cell\row\trowd\trgaph30\trleft2210\trrh210\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5443\clvertalb\cellx11130\clvertalb\cellx16157\clvertalb\cellx18166\clvertalb\cellx19374\clvertalb\cellx20286\clvertalb\cellx23801\pard\intbl C_InitKwargs_SaveFilteredDict_RestoreDict\cell __init__ avec parametres nomm\'e9s  + restauration passive des attributs filtr\'e9s\cell return (apply,(self.__class__,none,initkwargs) ,filtered(self.__dict__))\cell pas appell\'e9 ?\cell x\cell oui\cell x\cell\row\trowd\trgaph30\trleft2210\trrh210\trpaddl30\trpaddr30\trpaddfl3\trpaddfr3
+\clvertalb\cellx5443\clvertalb\cellx11130\clvertalb\cellx16157\clvertalb\cellx18166\clvertalb\cellx19374\clvertalb\cellx20286\clvertalb\cellx23801\pard\intbl C_InitKwargs_GetState_SetState\cell __init__ avec parametres nomm\'e9s  + restauration active du state\cell return (apply,(self.__class__,none,initkwargs) ,__state__)\cell pas appell\'e9 ?\cell oui\cell oui\cell __setstate__(__state__)\cell\row\pard\li2880\b\par
+\pard\li1440\cf5\par
+\par
+\par
+\pard\li720\sl240\slmult1\tx1980\cf7\lang12\f4\fs24 ordre d'apppel (methode de object , faudrait lire le code source en c pour \'eatre exact...)\cf0\fs22\par
+\pard\li1800\sl240\slmult1\tx1980\par
+\pard\li1080\sl240\slmult1\tx1980 __reduce_ex__ : \par
+\pard\li1800\sl240\slmult1\tx1980\b0 si redefini :  return func,func_args, \cf8 state,listitems, dictitems \par
+\cf0\par
+si pas redefini , le__reduce_ex__  h\'e9rit\'e9 d'objet \par
+\par
+\pard{\pntext\f7\'B7\tab}{\*\pn\pnlvlblt\pnf7\pnindent0{\pntxtb\'B7}}\fi-360\li2520\sl240\slmult1\tx1980 si __reduce__ redefini   :\line return self.__reduce__() \par
+{\pntext\f7\'B7\tab}si __getnewargs_ex__ :\par
+\pard\li2520\sl240\slmult1\tx1980 args , kwargs = self.__getnewargs_ex__()\par
+state = self.__getstate__() ou None \par
+listitems = ?? ou None \par
+dictitems = ?  ou None\par
+return (function copyreg.\cf6\b __newobj_ex__ \cf0\b0 , (Ma_Class,args,kwargs), state,listitems, dictitems\par
+\pard{\pntext\f7\'B7\tab}{\*\pn\pnlvlblt\pnf7\pnindent0{\pntxtb\'B7}}\fi-360\li2520\sl240\slmult1\tx1980 sinon si __getnewargs__ :\line new_arg1, new_arg2.. = self.__getnewargs__()\line\pard\li2520\sl240\slmult1\tx1980 state = self._getstate__() ou None \par
+listitems = ?? ou None \line dictitems = ?  ou None\par
+return (function copyreg.\cf6\b __newobj__\cf0\b0  ,(Ma_Class,new_arg1,new_arg2..)), state,listItems, dictItems\par
+\pard{\pntext\f7\'B7\tab}{\*\pn\pnlvlblt\pnf7\pnindent0{\pntxtb\'B7}}\fi-360\li2520\sl240\slmult1\tx1980 sinon :\line\pard\li2520\sl240\slmult1\tx1980 state = self._getstate__() ou None \par
+listitems = ?? ou None \line dictitems = ?  ou None\line\pard{\pntext\f7\'B7\tab}{\*\pn\pnlvlblt\pnf7\pnindent0{\pntxtb\'B7}}\fi-360\li2520\sl240\slmult1\tx1980 return (function copyreg.\cf6\b __newobj__\cf0\b0  ,(Ma_Class,),state,listItems, dictItems\par
+\pard\li2520\sl240\slmult1\tx1980\par
+\pard\li1080\sl240\slmult1\tx1980\b __reduce__ : \par
+\pard\li1800\sl240\slmult1\tx1980\b0 si redefini :  return func,func_args, \cf8 state,listitems, dictitems \cf0\par
+si pas redefinit  appelle le __reduce__  h\'e9rit\'e9 d'objet  : \cf3 ENCORE QU'ON ARRIVE ICI AVEC ICI ? \par
+\pard\li2520\sl240\slmult1\tx1980\cf0 state = self._getstate__() ou None\par
+listitems = ?? ou None \line dictitems = ?  ou None\par
+return (function copyreg._reconstructor,(Ma_Class,Ma_class_Base,\cf3 newargs et init arg pour classe de base ?),\cf8 state,\strike listItems,dictItems ?\par
+\cf0\strike0 avec state,listItems,dictItems  sont optionnels \par
+\pard\li1440\cf5\lang1036\b\f0\fs16\par
+\pard\li720\cf0\b0\fs20\par
+\cf5\b donnees externes \par
+\pard\li1440\cf0\b0{\field{\*\fldinst{HYPERLINK "http://docs.python.org/library/pickle.html#pickling-and-unpickling-external-objects"}}{\fldrslt{\ul\cf1 http://docs.python.org/library/pickle.html#pickling-and-unpickling-external-objects}}}\cf5\f0\fs20\par
+il faut cr\'e9er deux methodes : persistent_id \'e0 l'objet pickler et persistent_load \'e0 l'objet unpickler... bien merdique \par
+l'autre solution s'est de gerer ca dans les getstate et setstate .... mieux selon moi \par
+\cf0\par
+\par
+\par
+\pard\li720\cf6\b Questions : \par
+\pard\li1440\b0 comment sont gerer les objet C bind\'e9s?\par
+comment sont ger\'e9es les connects ?\par
+comment est g\'e9r\'e9 le recursivit\'e9 ? \cf0\par
+\pard\li720\par
+\pard\li1440\par
+\pard\b cloudpickle \par
+\par
+\pard\li720\sl240\slmult1\b0{\field{\*\fldinst{HYPERLINK "https://github.com/cloudpipe/cloudpickle"}}{\fldrslt{\ul\cf1 https://github.com/cloudpipe/cloudpickle}}}\f0\fs20\par
+cloudpickle makes it possible to serialize Python constructs not supported by the default pickle module from the Python standard library.\par
+cloudpickle is especially useful for cluster computing where Python code is shipped over the network to execute on remote hosts, possibly close to the data.\par
+Among other things, cloudpickle supports pickling for lambda functions along with functions and classes defined interactively in the __main__ module (for instance in a script, a shell or a Jupyter notebook).\par
+Cloudpickle can only be used to send objects between the exact same version of Python.\par
+Using cloudpickle for long-term object storage is not supported and strongly discouraged.\par
+Security notice: one should only load pickle data from trusted sources as otherwise pickle.load can lead to arbitrary code execution resulting in a critical security vulnerability.\par
+\par
+\par
+It is similar to pickle serializer, but more capable. Extends python\rquote s \lquote pickle\rquote  module for serializing and de-serializing python objects to the majority of the built-in python types. Has security problems though, just as pickle.\par
+\pard\b\par
+dill \par
+\pard\li720\b0{\field{\*\fldinst{HYPERLINK "https://dill.readthedocs.io/en/latest/"}}{\fldrslt{\ul\cf1 https://dill.readthedocs.io/en/latest/}}}\f0\fs20\par
+\par
+dill package documentation\par
+dill: serialize all of python\par
+About Dill\par
+\par
+dill extends python\rquote s pickle module for serializing and de-serializing python objects to the majority of the built-in python types. Serialization is the process of converting an object to a byte stream, and the inverse of which is converting a byte stream back to a python object hierarchy.\par
+\par
+dill provides the user the same interface as the pickle module, and also includes some additional features. In addition to pickling python objects, dill provides the ability to save the state of an interpreter session in a single command. Hence, it would be feasable to save a interpreter session, close the interpreter, ship the pickled file to another computer, open a new interpreter, unpickle the session and thus continue from the \lquote saved\rquote  state of the original interpreter session.\par
+\par
+dill can be used to store python objects to a file, but the primary usage is to send python objects across the network as a byte stream. dill is quite flexible, and allows arbitrary user defined classes and functions to be serialized. Thus dill is not intended to be secure against erroneously or maliciously constructed data. It is left to the user to decide whether the data they unpickle is from a trustworthy source.\par
+\par
+dill is part of pathos, a python framework for heterogeneous computing. dill is in active development, so any user feedback, bug reports, comments, or suggestions are highly appreciated. A list of issues is located at {\field{\*\fldinst{HYPERLINK "https://github.com/uqfoundation/dill/issues"}}{\fldrslt{\ul\cf1 https://github.com/uqfoundation/dill/issues}}}\f0\fs20 , with a legacy list maintained at {\field{\*\fldinst{HYPERLINK "https://uqfoundation.github.io/pathos-issues.html"}}{\fldrslt{\ul\cf1 https://uqfoundation.github.io/pathos-issues.html}}}\f0\fs20 .\par
+Major Features\par
+\par
+dill can pickle the following standard types:\par
+\par
+        none, type, bool, int, long, float, complex, str, unicode,\par
+        tuple, list, dict, file, buffer, builtin,\par
+        both old and new style classes,\par
+        instances of old and new style classes,\par
+        set, frozenset, array, functions, exceptions\par
+\par
+dill can also pickle more \lquote exotic\rquote  standard types:\par
+\par
+        functions with yields, nested functions, lambdas,\par
+        cell, method, unboundmethod, module, code, methodwrapper,\par
+        dictproxy, methoddescriptor, getsetdescriptor, memberdescriptor,\par
+        wrapperdescriptor, xrange, slice,\par
+        notimplemented, ellipsis, quit\par
+\par
+dill cannot yet pickle these standard types:\par
+\par
+        frame, generator, traceback\par
+\par
+dill also provides the capability to:\par
+\par
+        save and load python interpreter sessions\par
+        save and extract the source code from functions and classes\par
+        interactively diagnose pickling errors\par
+\b\par
+\pard shelve  \par
+\pard\li720 sources\par
+\pard\li1440\b0 Python - Les Fondamentaux du langage - La Programmation pour les scientifiques.pdf\par
+{\field{\*\fldinst{HYPERLINK "http://quentel.pierre.free.fr/python-trad/module-shelve.html"}}{\fldrslt{\ul\cf1 http://quentel.pierre.free.fr/python-trad/module-shelve.html}}}\f0\fs20\par
+\pard\li720\b\f1 definition \f0\par
+\pard\li1440\b0\f1 permet de sauver plusieurs objet ,\'e0 l'aide de pickle. dans un objet/fichier se \f0 comportant comme un dictionnaire\f1 .\f0\par
+M\'eame s\rquote il est possible de sauvegarder plusieurs objets dans un fichier pickle l\rquote un \'e0 la suite de l\rquote autre, il est obligatoire de les r\'e9cup\'e9rer dans l\rquote ordre. \line shelve permet de s\rquote affranchir de cela en permettant de\~sauvegarder n\rquote importe quel objet n\rquote importe quand et de m\'eame pour les r\'e9cup\'e9rer.Les cl\'e9s associ\'e9es sont en revanche uniquement des cha\'eenes de caract\'e8res. \par
+\pard\li720\b Syntaxe\par
+\pard\li1440\b0 import shelve\par
+d = shelve.open(fichier) \tab\tab # ouvre, avec un nom de fichier (g)dbm (format de base de donn\'e9e) pas d'extension\par
+d.sync()\tab\tab\tab\tab # synchronise le shelve avec le disc dur  \par
+d.close()      \tab\tab\tab # synchronise le shelve avec le disc dur  et ferme le fichier (c'est \'e0 ce moment que sauve selon mes tests, (disent ci-dessous que depend des implementation))\par
+\par
+\par
+clef = 'maclef"\par
+d[clef] = donnee \tab\tab # stocke la donn\'e9e \'e0 la cl\'e9 (\'e9crase les anciennes donn\'e9es si la cl\'e9 existait d\'e9j\'e0)\par
+donnee = d[clef] \tab\tab # r\'e9cup\'e8re les donn\'e9es \'e0 la cl\'e9 (d\'e9clenche KeyError si cette cl\'e9 n'existe pas)\par
+del d[clef]      \tab\tab\tab # d\'e9truit les donn\'e9es stock\'e9es \'e0 la cl\'e9 (d\'e9clenche KeyError si cette cl\'e9 n'existe pas)\par
+indic = d.has_key(clef)  \tab\tab # vrai si la cl\'e9 existe\par
+liste = d.keys()\tab\tab\tab # la liste de toutes les cl\'e9s existantes (lent!)\par
+\par
+\pard\li720\b Restrictions:\par
+\pard\li1440\b0 - Le choix du package de base de donn\'e9es \'e0 utiliser (par exemple dbm ou gdbm) d\'e9pend de l'interface disponible. Par cons\'e9quent, il n'est pas s\'fbr d'ouvrir la base de donn\'e9es directement avec le module dbm. La base de donn\'e9es est aussi (h\'e9las) sujette aux limitations de dbm, s'il est utilis\'e9 - ceci signifie que les repr\'e9sentations pickl\'e9es des objets stock\'e9es dans la base doivent \'eatre relativement petites, et dans des cas rares des collisions de cl\'e9s peuvent conduire la base de donn\'e9es \'e0 refuser des mises \'e0 jour.\par
+- Selon l'impl\'e9mentation, il peut \'eatre n\'e9cessaire ou non de fermer un dictionnaire persistant pour sauvegarder les changements sur le disque.\par
+- Le module shelve ne supporte pas les acc\'e8s concurrentsen lecture/\'e9criture aux objets (Plusieurs acc\'e8s simultan\'e9s en lecture ne posent pas de probl\'e8me.) Quand un programme ouvre un fichier shelve en \'e9criture, aucun autre programme ne doit l'ouvrir en lecture ou en \'e9criture. On peut se servir du verrouillage de fichiers d'Unix pour r\'e9soudre ce probl\'e8me, mais cette fonction n'est pas la m\'eame selon les versions d'Unix et il faut conna\'eetre l'impl\'e9mentation de la base de donn\'e9es utilis\'e9e. \par
+\pard\li720\b Question :\b0\par
+\pard\li1440\cf3\b quel est l'avantage par rapport \'e0 sauver un objet avec pickle dont les attributs seraient les differents objets , si de toute facon ne fait la sauvegarde qu'au moment du d.close() ??\par
+\cf0\b0\par
+\par
+\pard\sl240\slmult1\tx1980\lang12\b\f4\fs22 Serpent\par
+\pard\li720\sl240\slmult1\tx1980{\field{\*\fldinst{HYPERLINK "https://pypi.org/project/serpent/"}}{\fldrslt{\ul\cf1 https://pypi.org/project/serpent/}}}\f4\fs22\par
+\b0\par
++ impl\'e9mentation C# et Java \par
+- bon il ne sait pas deserializer les objets, ils les laisse sous forme de dictionnaire... \par
+\i "other types --> dict with the __getstate__ or vars() of the object, and a __class__ element with the name of the class"\par
+{\field{\*\fldinst{HYPERLINK "https://pyro-core.narkive.com/hUaJrBVW/pyro-4-20-serpent-serializer-issues"}}{\fldrslt{\ul\cf1 https://pyro-core.narkive.com/hUaJrBVW/pyro-4-20-serpent-serializer-issues}}}\i0\f4\fs22\par
+- Floats +inf and -inf are handled via a trick\par
+- Float 'nan' cannot be handled and is represented by the special value: \{'__class__':'float','value':'nan'\} We chose not to encode it as just the string 'NaN' because that could cause memory issues when used in multiplications.\par
+\par
+\cf6 par contre y'a des choses \'e0 r\'e9cuper dans le code...\par
+. la d\'e9sactivation du garbage collector \par
+- l'exploration des classes de base pour le recherche de plugins\b\par
+\cf0\par
+\pard\li1440\lang1036\b0\f0\fs20\par
+\par
+\pard\b msgpack\par
+\pard\li720\b0{\field{\*\fldinst{HYPERLINK "https://pypi.org/project/msgpack/"}}{\fldrslt{\ul\cf1 https://pypi.org/project/msgpack/}}}\f0\fs20\par
+MessagePack is an efficient binary serialization format. It lets you exchange data among multiple languages like JSON. But it's faster and smaller. This package provides CPython bindings for reading and writing MessagePack data.\par
+\pard\b\f1\par
+Json \b0 ?\tab JavaScript Object Notation\par
+\pard\li1440\par
+\pard\li720\b +/-\par
+\pard\li1440\b0 - transforme les tuples en liste (on s'en fou un peu )\par
++ lisible (human readable)\line\ul + utilis\'e9 par MaxMSP !!!! \par
+\ulnone + tr\'e9s proche du python ,  beaucoup plus simple \'e0 lire\line + Correspond quasiment \'e0 des dictionnaires python !!!!!!!\line{\field{\*\fldinst{HYPERLINK "http://www.developer.com/lang/jscript/article.php/10939_3596836_2/Speeding-Up-AJAX-with-JSON.htm"}}{\fldrslt{\ul\cf1 http://www.developer.com/lang/jscript/article.php/10939_3596836_2/Speeding-Up-AJAX-with-JSON.htm}}}\cf4\f1\fs20  \line Speaking of parsers, Python fans might've noticed that not only is JSON a subset of JavaScript, it's also a subset of Python. You can evaluate JSON directly in Python, or take advantage of a safe JSON parser instead. Parsers for JSON exist in dozens of other languages as well; the JSON.org Web site lists them.\f0\par
+\cf0\b\f1\par
+\pard\li720 Table de conversion \b0\par
+\par
+\pard\fi-2880\li4320\tx3600\b Python\tab\tab Json \b0\par
+None\tab <->\tab null\par
+True \tab <-> \tab true\par
+False\tab <->\tab false\par
+int\tab <->       x \tab (pas de limite)\par
+\pard\fi-3600\li5040\tx3600\tx4320 float\tab <->\tab x.x\tab (format d\'e9cimal tronqu\'e9 \'e0 18 caract\'e8res mais reste valeur exact car en float64 le nombre de bit significatif est 16 . sys.float_info.epsilon ==  2.220446049250313e-16)\par
+\pard\fi-2880\li4320\tx3600 inf\tab <->\tab Infinity \cf3  \tab (-> null avec orjson)\par
+\cf0 -inf \tab  \par
+nan \tab <-> \tab NaN\tab\cf3 (-> null avec orjson)\cf0\par
+str\tab <-> \tab "string"\tab avec certains caract\'e8re remplac\'e9 par leur verison escape:\par
+\pard\li5040 si ensure_ascii = True :  caract\'e8re non ascii -> \\uXXXX\par
+Newline -> \\n\par
+Carriage return -> \\r\par
+Tab -> \\t\par
+Double quote -> \\"\par
+Backslash -> \\\\\par
+Backspace (del text to the left) -> \\b\par
+Form feed (saut de page) -> \\f   \par
+\par
+\pard\fi-2880\li4320\tx3600 dict \tab  <->  \tab dict\cf8\tab (s'appelle "object" en javascript)\cf0\par
+liste\tab <->\tab list\cf8\tab  (s'appeller "array" en javascript )\cf0\par
+\par
+\par
+\cf3\i tuple\tab   ->\tab list\cf8\i0\tab  (s'appeller "array" en javascript ) \cf0{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/15721363/preserve-python-tuples-with-json"}}{\fldrslt{\ul\cf1 https://stackoverflow.com/questions/15721363/preserve-python-tuples-with-json}}}\f1\fs20\par
+\cf3\i namedtuple \tab   ->  \tab dict \par
+\par
+\i0\par
+set\cf0\tab\tab\cf3 error\cf0\par
+\cf3 bytes\tab\tab error\tab (sauf avec simplejson qui le d\'e9code en utf-8?)\par
+\pard\li1440\tx2880 bytesarray\tab\tab\tab error\cf0\par
+\pard\fi-2880\li4320\tx3600\cf3 instance d'objet\tab\tab error\cf0\par
+\pard\li1440\cf3 numpy.array \par
+recarray ? \par
+multidimentional array ? \par
+deque \par
+Counter\par
+OrderedDict\par
+defaultdict\par
+queue.SimpleQueue\par
+iterator ? \par
+range\par
+decimal.Decimal\par
+\cf0\f5 datetime, date, and time\par
+\cf3\f1\par
+\pard\li720\cf0\b Serialization d'objets python \par
+\par
+\pard\li1440 1er approche \par
+\pard\li2160\b0 data =   json.dumps(obj, default=convert_to_builtin_type) # passe les objet non serializable par defaut dans la fonciton de conversion "convert_to_builtin_type" avant serialisation\par
+decoded   =   json.loads(data, object_hook=dict_to_object)  # passse les dictionnaire (uniquement) serialis\'e9 dans la foncton de re-conversion "dict_to_object" \par
+\pard\li3600\par
+\pard\li1440\b 2eme approche\par
+\pard\li2160\b0{\field{\*\fldinst{HYPERLINK "file:///D:/Documents/Bureau/python/persistance/json%20%E2%80%93%20JavaScript%20Object%20Notation%20Serializer%20-%20Python%20Module%20of%20the%20Week.htm#encoder-and-decoder-classes"}}{\fldrslt{\ul\cf1 file:///D:/Documents/Bureau/python/persistance/json%20%E2%80%93%20JavaScript%20Object%20Notation%20Serializer%20-%20Python%20Module%20of%20the%20Week.htm#encoder-and-decoder-classes}}}\b\f1\fs20\par
+\pard\li2070\b0 encoder     = \tab json.JSONEncoder()\par
+data_string = \tab encoder.encode(data)\par
+for part in \tab encoder.iterencode(data): \tab print 'PART:', part\par
+\par
+on peut alors surcharg\'e9 la methode "default" de l'objet encoder : \par
+myencoder .... \par
+poru le decodage , c'est un peu plus complexe, cf le liens \par
+\pard\li1440\par
+\pard\li720\b Json (biblioth\'e8que standard fournie avec python)\par
+\pard\li1440 dumps\b0 (obj, *, skipkeys=False, ensure_ascii=True, check_circular=True, allow_nan=True, cls=None, indent=None, separators=None, default=None, sort_keys=False, **kw)\par
+\pard\li2160 S\'e9rialise obj vers un \cf3\ul str\cf0\ulnone  format\'e9 en JSON en utilisant la table de conversion au desus.\line Tous les param\'e8tres optionnels sont maintenant des keyword-only \'e0 partir de python 3.6\par
+\par
+\pard\fi-1710\li3870 skipkeys\tab si vrai (faux par d\'e9faut), alors les clefs de dictionnaires qui ne sont pas de types basiques (str, int, float, bool, None) seront ignor\'e9es, elles provoquent normalement la lev\'e9e d'une TypeError.\par
+\par
+ensure_ascii\tab si  vrai (par d\'e9faut), il est garanti que les caract\'e8res non ASCII soient tous \'e9chapp\'e9s sur la sortie. Si ensure_ascii est faux, ces caract\'e8res seront \'e9crits comme tels.\par
+\par
+check_circular\tab si faux (vrai par d\'e9faut), la v\'e9rification des r\'e9f\'e9rences circulaires pour les conteneurs sera ignor\'e9e, et une r\'e9f\'e9rence circulaire r\'e9sultera en une OverflowError (ou pire).\par
+\par
+allow_nan\tab si faux (vrai par d\'e9faut), une ValueError sera lev\'e9e lors de la s\'e9rialisation de valeurs float ext\'e9rieures aux bornes (nan, inf, -inf), en respect strict de la sp\'e9cification JSON. Si allow_nan est vrai, leurs \'e9quivalents JavaScript (NaN, Infinity, -Infinity) seront utilis\'e9s.\par
+\par
+indent\tab Si un nombre entier positif ou une cha\'eene de caract\'e8res, les \'e9l\'e9ments de tableaux et les membres d'objets JSON seront affich\'e9s \'e9l\'e9gamment avec ce niveau d'indentation. Un niveau d'indentation de 0, n\'e9gatif, ou "" n'ins\'e9rera que des retours \'e0 la ligne. None (la valeur par d\'e9faut) choisit la repr\'e9sentation la plus compacte. Utiliser un entier positif comme indentation indente d'autant d'espaces par niveau. Si indent est une cha\'eene (telle que "\\t"), cette cha\'eene est utilis\'e9e pour indenter \'e0 chaque niveau.\line Modifi\'e9 dans la version 3.2: Autorise les cha\'eenes en plus des nombres entiers pour indent.\par
+\par
+separators\tab Si sp\'e9cifi\'e9, doit \'eatre un tuple (item_separator, key_separator). Sa valeur par d\'e9faut est (', ', ': ') si indent est None, et (',', ': ') autrement. Pour obtenir la repr\'e9sentation JSON la plus compacte possible, vous devriez sp\'e9cifier (',', ':') pour \'e9liminer les espacements.\line Modifi\'e9 dans la version 3.4: Utilise (',', ': ') par d\'e9faut si indent n'est pas None.\par
+\par
+\cf6 default \tab Si sp\'e9cifi\'e9, doit \'eatre une fonction qui sera appel\'e9e pour les objets qui ne peuvent \'eatre s\'e9rialis\'e9s autrement. Elle doit renvoyer une repr\'e9sentation de l'objet s\'e9rialisable en JSON ou lever une TypeError. Si non sp\'e9cifi\'e9, une TypeError sera lev\'e9e pour les types non s\'e9rialisables.\par
+\cf0\par
+sort_keys\tab Si vrai (faux par d\'e9faut), les dictionnaires seront retranscrits tri\'e9s selon leurs cl\'e9s.\par
+\par
+cls\tab Pour utiliser une sous-classe JSONEncoder personnalis\'e9e (p. ex. une qui red\'e9finit la m\'e9thode default() pour s\'e9rialiser des types additionnels), sp\'e9cifiez-la avec le param\'e8tre nomm\'e9 cls ; autrement, JSONEncoder est utilis\'e9e.\par
+\pard\li1440\b\par
+dump\b0 (obj, fp, *, skipkeys=False, ensure_ascii=True, check_circular=True, allow_nan=True, cls=None, indent=None, separators=None, default=None, sort_keys=False, **kw)\par
+\pard\li2160 S\'e9rialise obj en JSON vers fp (un file-like object ayant une methode  .write() supportant des str en entr\'e9e)\par
+\pard{\pntext\f7\'B7\tab}{\*\pn\pnlvlblt\pnf7\pnindent0{\pntxtb\'B7}}\fi-360\li2520\cf3 Le module json produisant toujours des objets str, et non des objets bytes. \cf0 fp\cf3  donc \'eatre ouvert en mode text "w" avec\b  encoding = "utf-8")\cf0\b0\par
+{\pntext\f7\'B7\tab}\'c0 l'inverse de pickle et marshal, JSON n'est pas un protocole par trames, donc essayer de s\'e9rialiser de multiples objets par des appels r\'e9p\'e9t\'e9s \'e0 dump() en utilisant le m\'eame fp r\'e9sultera en un fichier JSON invalide. \par
+\pard\li2160\par
+\par
+\pard\fi-1710\li3150\b loads\b0 (s, *, cls=None, object_hook=None, parse_float=None, parse_int=None, parse_constant=None, object_pairs_hook=None, **kw)\par
+\pard\fi-1710\li3870 D\'e9serialise s (une instance de str, bytes ou bytearray contenant un document JSON) vers un objet Python en utilisant cette table de conversion.\par
+\pard{\pntext\f7\'B7\tab}{\*\pn\pnlvlblt\pnf7\pnindent0{\pntxtb\'B7}}\fi-360\li2520 si s est un bytes ou bytearray, doit \'eatre ASCII, UTF-8, UTF-16 ou UTF-32.\par
+{\pntext\f7\'B7\tab}Si les donn\'e9es \'e0 d\'e9serialiser ne sont pas un document JSON valide, une JSONDecodeError sera lev\'e9e.\par
+{\pntext\f7\'B7\tab}Tous les param\'e8tres optionnels sont maintenant des keyword-only \'e0 partir de python 3.6 \par
+\pard\fi-1710\li3150\par
+\pard\fi-2250\li4410 object_hook\tab est une fonction optionnelle qui sera appel\'e9e avec le r\'e9sultat de chaque objet litt\'e9ral d\'e9cod\'e9 (chaque dict). La valeur de retour de object_hook sera utilis\'e9e \'e0 la place du dict. Cette fonctionnalit\'e9 peut \'eatre utilis\'e9e pour impl\'e9menter des d\'e9codeurs personnalis\'e9s (p. ex. les class hinting de JSON-RPC).\par
+\par
+object_pairs_hook\tab est une fonction optionnelle qui sera appel\'e9 pour chaque objet litt\'e9ral d\'e9cod\'e9, avec une liste ordonn\'e9e de couples. La valeur de retour de object_pairs_hook sera utilis\'e9e \'e0 la place du dict. Cette fonctionnalit\'e9 peut \'eatre utilis\'e9e pour impl\'e9menter des d\'e9codeurs personnalis\'e9s. object_pairs_hook prend la priorit\'e9 sur object_hook, si cette derni\'e8re est aussi d\'e9finie.\line Modifi\'e9 dans la version 3.1: Ajout du support de object_pairs_hook.\par
+\par
+parse_float\tab si sp\'e9cifi\'e9e, sera appel\'e9e pour chaque nombre r\'e9el JSON \'e0 d\'e9coder sous forme d'une cha\'eene de caract\'e8res. Par d\'e9faut, elle est \'e9quivalente \'e0 float(num_str). Cela peut servir \'e0 utiliser un autre type de donn\'e9es ou un autre analyseur pour les nombres r\'e9els JSON (p. ex. decimal.Decimal).\par
+\par
+parse_int\tab si sp\'e9cifi\'e9e, sera appel\'e9e pour chaque nombre entier JSON \'e0 d\'e9coder sous forme d'une cha\'eene de caract\'e8res. Par d\'e9faut, elle est \'e9quivalente \'e0 int(num_str). Cela peut servir \'e0 utiliser un autre type de donn\'e9es ou un autre analyseur pour les nombres entiers JSON (p. ex. float).\par
+\par
+parse_constant\tab  si sp\'e9cifi\'e9e, sera appel\'e9e avec l'une des cha\'eenes de caract\'e8res suivantes : '-Infinity', 'Infinity' ou 'NaN'. Cela peut servir \'e0 lever une exception si des nombres JSON invalides sont rencontr\'e9s.\line Modifi\'e9 dans la version 3.1: parse_constant n'est plus appel\'e9e pour null, true ou false.\par
+\par
+cls\tab Pour utiliser une sous-classe JSONDecoder personnalis\'e9e, sp\'e9cifiez-la avec l'argument nomm\'e9 cls ; autrement, JSONDecoder est utilis\'e9e. Les arguments nomm\'e9s additionnels seront pass\'e9s au constructeur de cette classe.\par
+\pard\li1440\par
+\pard\fi-720\li2160\b load\b0 (fp, *, cls=None, object_hook=None, parse_float=None, parse_int=None, parse_constant=None, object_pairs_hook=None, **kw)\par
+\pard\fi-1710\li3870 D\'e9serialise fp (un text file ou un binary file supportant .read() et contenant un document JSON) vers un objet Python en utilisant cette table de conversion.\par
+\pard{\pntext\f7\'B7\tab}{\*\pn\pnlvlblt\pnf7\pnindent0{\pntxtb\'B7}}\fi-360\li2520 fp peut maintenant \'eatre un binary file (depuis python 3.6 ). Son encodage doit \'eatre ASCII, UTF-8, UTF-16 ou UTF-32.\par
+{\pntext\f7\'B7\tab}Si les donn\'e9es \'e0 d\'e9serialiser ne sont pas un document JSON valide, une JSONDecodeError sera lev\'e9e\par
+{\pntext\f7\'B7\tab}le param\'e8tre encoding qui est ignor\'e9 et obsol\'e8te depuis Python 3.1 et va \'eatre retir\'e9 dans python 3.9\par
+\pard\fi-1710\li3870\par
+\pard\fi-1710\li3150\b JSONEncoder \b0{\field{\*\fldinst{HYPERLINK "https://docs.python.org/fr/3/library/json.html#json.JSONEncoder"}}{\fldrslt{\ul\cf1 https://docs.python.org/fr/3/library/json.html#json.JSONEncoder}}}\b\f1\fs20\par
+\pard\fi-1710\li3870\cf6\b0 default(o)\tab Impl\'e9mentez cette m\'e9thode dans une sous-classe afin qu'elle renvoie un objet s\'e9rialisable pour o, ou appelle l'impl\'e9mentation de base (qui l\'e8vera une TypeError).\cf0\par
+encode(o)\tab Renvoie une cha\'eene JSON repr\'e9sentant la structure de donn\'e9es Python o. Par exemple :\par
+iterencode(o)\tab Encode l'objet o donn\'e9, et produit chaque cha\'eene repr\'e9sentant l'objet selon disponibilit\'e9. Par exemple :\par
+\pard\li3870 for chunk in json.JSONEncoder().iterencode(bigobject):\par
+    mysocket.write(chunk)\par
+\pard\fi-1710\li3150\b\par
+\par
+\pard\li1440 JSONDecoder \b0{\field{\*\fldinst{HYPERLINK "https://docs.python.org/fr/3/library/json.html#json.JSONDecoder"}}{\fldrslt{\ul\cf1 https://docs.python.org/fr/3/library/json.html#json.JSONDecoder}}}\f1\fs20\par
+\pard\fi-1800\li3960\cf6 object_hook \tab si sp\'e9cifi\'e9e, sera appel\'e9e avec le r\'e9sultat de chaque objet JSON d\'e9cod\'e9 et sa valeur de retour sera utilis\'e9e \'e0 la place du dict donn\'e9. Cela peut \'eatre utilis\'e9 pour apporter des d\'e9serialisations personnalis\'e9es (p. ex. pour supporter les class hinting de JSON-RPC).\par
+\cf0 object_pairs_hook\tab si sp\'e9cifi\'e9e, sera appel\'e9e avec le r\'e9sultat de chaque objet JSON d\'e9cod\'e9 avec une liste ordonn\'e9e de couples. Sa valeur de retour sera utilis\'e9e \'e0 la place du dict. Cette fonctionnalit\'e9 peut \'eatre utilis\'e9e pour impl\'e9menter des d\'e9codeurs personnalis\'e9s. object_pairs_hook prend la priorit\'e9 sur object_hook, si cette derni\'e8re est aussi d\'e9finie.\par
+parse_float\tab si sp\'e9cifi\'e9e, sera appel\'e9e pour chaque nombre r\'e9el JSON \'e0 d\'e9coder sous forme d'une cha\'eene de caract\'e8res. Par d\'e9faut, elle est \'e9quivalente \'e0 float(num_str). Cela peut servir \'e0 utiliser un autre type de donn\'e9es ou un autre analyseur pour les nombres r\'e9els JSON (p. ex. decimal.Decimal).\par
+parse_int\tab si sp\'e9cifi\'e9e, sera appel\'e9e pour chaque nombre entier JSON \'e0 d\'e9coder sous forme d'une cha\'eene de caract\'e8res. Par d\'e9faut, elle est \'e9quivalente \'e0 int(num_str). Cela peut servir \'e0 utiliser un autre type de donn\'e9es ou un autre analyseur pour les nombres entiers JSON (p. ex. float).\par
+parse_constant\tab si sp\'e9cifi\'e9e, sera appel\'e9e avec l'une des cha\'eenes de caract\'e8res suivantes : '-Infinity', 'Infinity' ou 'NaN'. Cela peut servir \'e0 lever une exception si des nombres JSON invalides sont rencontr\'e9s.\par
+decode(s)\tab Renvoie la repr\'e9sentation Python de s (une instance str contenant un document JSON).Une JSONDecodeError sera lev\'e9e si le document JSON donn\'e9 n'est pas valide.\par
+raw_decode(s)\tab D\'e9code en document JSON depuis s (une instance str d\'e9butant par un document JSON) et renvoie un tuple de 2 \'e9l\'e9ments contenant la repr\'e9sentation Python de l'objet et l'index dans s o\'f9 le document se terminait. Elle peut \'eatre utilis\'e9e pour d\'e9coder un document JSON depuis une cha\'eene qui peut contenir des donn\'e9es suppl\'e9mentaires \'e0 la fin.\line\cf6\b => peut permetre de serialize plusieur json dans un meme fichier et de les deserialiser un \'e0 un ! \cf0\par
+\pard\li2160\par
+\pard\li2070\cf3\f0\par
+\pard\li720\cf0\f1 differentes version \par
+\pard\li1440{\field{\*\fldinst{HYPERLINK "https://pythonspeed.com/articles/faster-json-library/"}}{\fldrslt{\ul\cf1 https://pythonspeed.com/articles/faster-json-library/}}}\f1\fs20\par
+\b0{\field{\*\fldinst{HYPERLINK "http://deron.meranda.us/python/comparing_json_modules/"}}{\fldrslt{\ul\cf1 http://deron.meranda.us/python/comparing_json_modules/}}}\f1\fs20\par
+\b\par
+\pard\li720\par
+\cf2\f0 rapidjson (la plus compl\'e8te ! ) \par
+\pard\li1440\cf0\f1{\field{\*\fldinst{HYPERLINK "https://github.com/python-rapidjson/python-rapidjson"}}{\fldrslt{\ul\cf1 https://github.com/python-rapidjson/python-rapidjson}}}\f1\fs20\par
+{\field{\*\fldinst{HYPERLINK "https://github.com/python-rapidjson/python-rapidjson/tree/master/docs"}}{\fldrslt{\ul\cf1 https://github.com/python-rapidjson/python-rapidjson/tree/master/docs}}}\f1\fs20\par
+{\field{\*\fldinst{HYPERLINK "https://github.com/python-rapidjson/python-rapidjson/blob/master/rapidjson.cpp"}}{\fldrslt{\ul\cf1 https://github.com/python-rapidjson/python-rapidjson/blob/master/rapidjson.cpp}}}\f1\fs20\line\b0 (attention la doc n'est pas \'e0 jour, il faut mieux aller voir directement le code  pour la arguements des fonctions) \par
+import rapidjson \par
+\b\par
++/- \par
+\pard\fi-180\li2340\cf6\b0 ++ la classe RawJSON permet de serializer des objets sous la forme d'une string qu'on veut , sans qu'il rajoute des "" autour !  va nous permetre de serialisez les tuples et listes sur une seul ligne , meme si on a mis indent = '\\n' !\par
++ dump accepte des files ouvert en binaire (-> plus rapide ? ) \par
++ il est possible d'avoir des commentaires  dans les json qui seront suprim\'e9s \'e0 la d\'e9serialisation !!!  \par
++ en sous-classant Encoder, possible de traiter comme on veut au moment de la d\'e9serialisation  : \par
+\pard\fi-180\li3060 les listes : avec la methode \b end_array(..) \b0\par
+les string  : avec la methode string(..) \par
+\pard\fi-180\li2340 + indentation avec '\\t' depuis 05/2020\cf3\par
+\pard\fi-180\li2520\cf6 => j'ai cr\'e9\'e9 une "issue" : \cf0{\field{\*\fldinst{HYPERLINK "https://github.com/python-rapidjson/python-rapidjson/issues/135"}}{\fldrslt{\ul\cf1 https://github.com/python-rapidjson/python-rapidjson/issues/135}}}\f1\fs20\par
+\pard\fi-180\li2340\cf3\par
+\cf0 NM_NATIVE et NAN ? \cf3\par
+- dumps serialize en string et pas en bytes . \cf6 => j'ai cr\'e9e une issue : \cf0{\field{\*\fldinst{HYPERLINK "https://github.com/python-rapidjson/python-rapidjson/issues/136"}}{\fldrslt{\ul\cf1 https://github.com/python-rapidjson/python-rapidjson/issues/136}}}\cf6\b\f1\fs20\par
+\cf3\b0 - pas d'option pour traiter les tuples diff\'e9rement des listes comme avec l'option\f0   tuple_as_array=False dans \f1 simplejson \cf6 => corrig\'e9 dans derni\'e8re version \cf0\lang12\f4\fs22{\field{\*\fldinst{HYPERLINK "https://github.com/mayeut/pybase64/issues/204"}}{\fldrslt{\ul\cf1 https://github.com/mayeut/pybase64/issues/204}}}\cf3\lang1036\f1\fs20\par
+- pas d'option pour traiter les named tuples diff\'e9rement des dictionnairescomme avec l'option\f0  namedtuple_as_object=False dans \f1 simplejson \par
+- pas de methode iterencode \'e0 la class Encoder ? \par
+- pas de methode default_list pour : intercepter les listes et pouvoir les serialize sur une seule ligne si dans un dictionnaire . \par
+- pas de methode default_list et default_dict pour intercepter les listes et dictionnaire pour detecter des duplicate \par
+- pas de  item_sort_key permetant de mettre les data en fin de fichier pour le tracking \par
+\cf0\b\par
+\pard\li720\par
+\pard\fi-720\li2160\cf6 class rapidjson.RawJSON(string)\par
+\pard\li2160\b0 When serialized, the string value provided will be used verbatim, whitespace included:\par
+>>> raw_list = RawJSON('[1, 2,3]')\par
+>>> dumps(\{'foo': raw_list\})\par
+'\{"foo":[1, 2,3]\}'\par
+Warning : python-rapidjson runs no checks on the preserialized data. This means that it can potentially output invalid JSON\cf0\b\par
+\pard\fi-720\li2160\par
+\b0\par
+\b dumps\b0 (obj, *, skipkeys=False, ensure_ascii=True, indent=4, default=None, sort_keys=False, number_mode=None, datetime_mode=None, uuid_mode=None,bytes_mode=\cf6 BM_UTF8\cf0 , write_mode=WM_COMPACT, allow_nan=True)\par
+\pard\li2160\par
+S\'e9rialise obj vers un \cf3\ul str\cf0\ulnone  format\'e9 en JSON avec quasiment les m\'eames options que pour le module standard json inclu dans python .\par
+\pard\fi-1710\li3870 avec en moins : check_circular\tab , separators , cls\tab .\par
+\pard\li2160 avec en plus : \par
+\pard\fi-2160\li4320\tx5940 write_mode\tab WM_COMPACT\tab that produces the most compact JSON representation\line WM_PRETTY\tab it will use RapidJSON's PrettyWriter\line\cf6 WM_SINGLE_LINE_ARRAY` arrays will be kept on a single line:\par
+bytes_mode\tab\cf3 BM_UTF8\tab va serialize les bytes en string apr\'e8s les avoir d\'e9cod\'e9 avec utf_8\cf6\line BM_NONE\tab va serialiser les bytes avec le resultat dela fonction "default" sinon va d\'e9clancher une erreure.\par
+\cf0 mapping_mode\tab MM_NONE \par
+\pard\fi-2160\li6480\tx5940 MM_OBJECT\tab Dump mapping object (heriting form dict) as JSON object\par
+MM_COERCE_KEYS_TO_STRINGS\tab Convert keys to strings\par
+MM_CHECK_STRING_KEYS = 1<<3        // Check for the presence of non-string keys\tab\par
+\pard\fi-2160\li4320\tx5940\par
+number_mode\tab enable particular behaviors in handling numbers\line NM_NONE\tab nan, +inf and -inf raise Exception\line NM_NAN\tab (by default) This enables non-numbers (i.e. nan, +inf and -inf) handling in both directions.\line NM_NATIVE\tab In this alternative number_mode numeric values must fit into the underlying C library limits, with a considerable speed benefit\par
+datetime_mode\tab how should datetime, time and date instances be handled.\line (DM_NONE, DM_ISO8601, DM_UNIX_TIME, DM_ONLY_SECONDS, DM_IGNORE_TZ, DM_NAIVE_IS_UTC, DM_SHIFT_TO_UTC)\par
+uuid_mode\tab how should UUID instances be handled ( UM_NONE, UM_CANONICAL, UM_HEX)\par
+allow_nan (bool)\tab compatibility flag equivalent to number_mode=NM_NAN\par
+\pard\fi-720\li2160  \par
+\b dump\b0 (obj, stream, *, skipkeys=False, ensure_ascii=True, write_mode=WM_COMPACT, indent=4, default=None, sort_keys=False, number_mode=None, datetime_mode=None, uuid_mode=None, bytes_mode=\cf3 BM_UTF8\cf0 , chunk_size=65536, write_mode=WM_COMPACT, allow_nan=True)\par
+\par
+\pard\li2160 S\'e9rialise obj en JSON vers fp (un file-like object ayant une methode  .write() \par
+\pard\li2160\tx2070 supportant des string  ou \cf6\ul des bytes (contrairement au module json) \cf0\ulnone\par
+\pard\li2160\par
+\pard\fi-720\li2160\b loads\b0 (string, *, object_hook=None, number_mode=None, datetime_mode=None, uuid_mode=None, parse_mode=None, allow_nan=True)\par
+\par
+\pard\fi-1710\li3870 D\'e9serialise s (une instance de str, bytes ou bytearray contenant un document JSON) vers un objet Python en utilisant cette table de conversion.\par
+\par
+\pard\fi-2160\li4320 string\tab string,bytes ou bytearray \'e0 d\'e9coder. Si bytes ou bytearray doit \'eatre encod\'e9 en UTF-8.\cf3\par
+\cf0 object_hook\tab an optional function that will be called with the result of any object literal decoded (a dict) and should return the value to use instead of the dict\par
+number_mode\tab enable particular behaviors in handling numbers .\line These flags can be combined together\par
+\pard\fi-2250\li6570 NM_NAN \tab (by default) pemet de reconnaitre nan et inf \par
+NM_NONE\tab ne reconnait ni nan ni inf\par
+NM_NATIVE\tab When you can be sure that all the numeric values are constrained within the architecture\rquote s hardware limits you can get a sensible speed gain \par
+NM_DECIMAL \tab float instances will be returned as Decimal instances instead\par
+\pard\fi-2250\li4410 datetime_mode\tab how should datetime and date instances be handled\line (cf documentation en ligne)\par
+uuid_mode\tab how should UUID instances be handled\par
+parse_mode\tab whether the parser should allow non-standard JSON extensions\line PM_NONE\line\cf6 PM_COMMENTS : remove /*comment*/  or // comment ! \cf0\line PM_TRAILING_COMMAS : accept "," at the end of arrays and objects\par
+allow_nan (bool) \tab compatibility flag equivalent to number_mode=NM_NAN\par
+\pard\li1440\par
+\pard\fi-720\li2160\b load\b0 (stream, *, object_hook=None, number_mode=None, datetime_mode=None, uuid_mode=None, parse_mode=None, chunk_size=65536, allow_nan=True)\par
+\pard\li2160\par
+Decode the given Python file-like stream containing a JSON formatted value into Python object.\par
+\pard\fi-1710\li3870\par
+stream\tab a file-like object\par
+object_hook\tab an optional function that will be called with the result of any object literal decoded (a dict) and should return the value to use instead of the dict\par
+number_mode\tab enable particular behaviors in handling numbers\par
+datetime_mode\tab how should datetime and date instances be handled\par
+uuid_mode\tab how should UUID instances be handled\par
+parse_mode\tab whether the parser should allow non-standard JSON extensions\par
+chunk_size\tab read the stream in chunks of this size at a time\par
+allow_nan (bool)\tab compatibility flag equivalent to number_mode=NM_NAN\par
+\pard\li720\b\par
+\pard\li1440\par
+\b0\par
+\b class Encoder(rapidjson.Encoder):\b0\par
+\pard\fi-360\li2160     """Class-based dumps()-like functionality."""\par
+\par
+\pard\fi-1440\li3240     \b def __init__\b0 (self,skip_invalid_keys=False, ensure_ascii=True, indent=None, sort_keys=False, number_mode=None, datetime_mode=None, uuid_mode=None,bytes_mode,write_mode):\par
+\pard\fi-360\li2520         """\par
+\pard\fi-3060\li5220         Args:\tab\par
+            skip_invalid_keys (bool) : whether invalid dict keys will be skipped\par
+            ensure_ascii (bool) : \tab whether the output should contain only ASCII characters\par
+            indent (int) : \tab indentation width to produce pretty printed JSON\par
+            sort_keys (bool) : \tab whether dictionary keys should be sorted alphabetically\par
+            number_mode (int) :\tab enable particular behaviors in handling numbers\par
+            datetime_mode (int) : \tab how should datetime, time and date instances be handled\par
+            uuid_mode (int) : \tab how should UUID instances be handled\par
+            write_mode :\tab WM_COMPACT`, that produces the most compact JSON representation\par
+\pard\fi-1710\li5220                             WM_PRETTY` it will use RapidJSON's PrettyWriter\par
+                            WM_SINGLE_LINE_ARRAY` arrays will be kept on a single line:\par
+\pard\fi-3060\li5220             bytes_mode :\tab BM_UTF8\par
+\pard\fi-1710\li5220                             BM_NONE\par
+\pard\fi-360\li2520         """\par
+\pard\fi-1080\li3240         return rapidjson.Encoder.__init__(self,skip_invalid_keys=skip_invalid_keys, ensure_ascii=ensure_ascii, indent=None, sort_keys=sort_keys, number_mode=number_mode, datetime_mode=datetime_mode, uuid_mode=uuid_mode)\par
+\pard\fi-360\li2160     \par
+\pard\fi-1440\li3240     \b def __call__\b0 (self,obj, stream=None, *, chunk_size=65536):\par
+\pard\fi-360\li2520         """\par
+\pard\fi-2340\li4500         Args:\tab\par
+            obj : \tab The value to be encoded\par
+            stream (file-like) :\tab When specified, the encoded result will be written there\par
+            chunk_size (int) :\tab write the stream in chunks of this size at a time\par
+\pard\fi-720\li2880\par
+        Returns:\tab\par
+            a string with the JSON encoded value, when stream is None\par
+            \par
+        Exemples : \par
+            >>> encoder = Encoder()\par
+            >>> encoder([1,2])\par
+            '[1,2]'\par
+            >>> f = io.StringIO()\par
+            >>> encoder([1,2],f,chunk_size = 65536)\par
+            >>> f.seek(0)\par
+            >>> f.read()\par
+            '[1,2]'\par
+\pard\fi-360\li2520         """\par
+\pard\fi-1080\li3240         return rapidjson.Encoder.__call__(self,obj,stream = stream ,chunk_size = chunk_size)\par
+\pard\fi-360\li2160     \par
+    \b def default\b0 (self,obj):  #\cf6  Equivalent au calback "default" qu'on peut passer \'e0 dump ou dumps \par
+\pard\fi-450\li2610\cf0         """\par
+        If implemented, this method is called whenever the serialization machinery finds a Python object that it does not recognize: if possible, the method should returns a JSON encodable version of the value, otherwise raise a TypeError:\par
+\pard\fi-360\li2520\par
+        Args:\tab\par
+\pard\fi-1170\li3330             obj : the Python object to be encoded\par
+\pard\fi-720\li2880\par
+        Returns:\par
+            a JSON-serializable value\par
+\par
+        Raises : \par
+\pard\fi-1800\li3960             TypeError : the method MUST raise a TypeError if the value is not serializable, otherwisex it will be serialized as None .\par
+\pard\fi-720\li2880\par
+        Exemples :               \par
+            if isinstance(obj, Point):\par
+                return \{'x': obj.x, 'y': obj.y\}\par
+            else:\par
+                raise TypeError('%r is not JSON serializable' % obj)\par
+\pard\fi-360\li2520         """\par
+\pard\fi-1080\li3240         return rapidjson.Encoder.default(self,obj)\par
+\pard\fi-360\li2160     \par
+\pard\fi-1440\li2880\b class Decoder(rapidjson.Decoder):\par
+\pard\fi-270\li2070\b0     """Class-based loads()-like functionality."""\par
+\pard\fi-360\li2160\par
+\pard\fi-1440\li3240     \b def __init__\b0 (self,number_mode=None, datetime_mode=None, uuid_mode=None, parse_mode=None):\par
+\pard\fi-360\li2520         """   \par
+\pard\fi-2700\li4860         Args:\tab\par
+            number_mode (int) :\tab Enable particular behaviors in handling numbers\par
+            datetime_mode (int) : How should datetime, time and date instances be handled\par
+            uuid_mode (int) :\tab How should UUID instances be handled\par
+            parse_mode (int) :\tab Whether the parser should allow non-standard JSON extensions\par
+\pard\fi-360\li2520         """\par
+\pard\fi-1080\li3240         return rapidjson.Decoder.__init__(self,number_mode=number_mode, datetime_mode=datetime_mode, uuid_mode=uuid_mode, parse_mode=parse_mode)\par
+\pard\fi-360\li2160     \par
+    \b def __call__\b0 (self,json, *, chunk_size=65536):\par
+\pard\fi-360\li2520         """\par
+\pard\fi-720\li2880         Args:\tab\par
+\pard\fi-2970\li5130             json (str,bytes,file-like) :\tab either a str instance, an UTF-8 bytes instance or a file-like stream, containing the JSON to be decoded\par
+            chunk_size (int) :\tab in case of a stream, it will be read in chunks of this size\par
+\pard\fi-720\li2880\par
+        Returns:\tab\par
+            a Python value\par
+            \par
+        Exemples : \par
+            >>> decoder = Decoder()\par
+            >>> decoder('"\'80 0.50"')\par
+            '\'80 0.50'\par
+            >>> decoder(b'"\\xe2\\x82\\xac 0.50"')\par
+            '\'80 0.50'\par
+            >>> decoder(io.StringIO('"\'80 0.50"'))\par
+            '\'80 0.50'\par
+            >>> decoder(io.BytesIO(b'"\\xe2\\x82\\xac 0.50"'))\par
+            '\'80 0.50'\par
+\pard\fi-360\li2520         """\par
+        return rapidjson.Decoder.__call__(self,json, chunk_size=chunk_size)\par
+\pard\fi-360\li2160\par
+\cf6     \b def end_array\b0 (self,sequence):\par
+\pard\fi-360\li2520\cf0         """This is called, if implemented, when a \cf6 JSON\ul  array \cf0\ulnone has been completely parsed, and \cf6 can be used replace it with an arbitrary different value\cf0 :\par
+\par
+        Args:\tab\par
+\pard\fi-1800\li3960             sequence : an instance implement the mutable sequence protocol\par
+\pard\fi-360\li2520             \par
+        Returns:\tab\par
+            a new value\par
+\par
+        Exemples : \par
+\pard\fi-720\li2880             >>> class TupleDecoder(Decoder):\par
+            ...   def end_array(self, a):\par
+            ...     return tuple(a)\par
+            ...\par
+            >>> td = TupleDecoder()\par
+            >>> res = td('[\{"one": [1]\}, \{"two":[2,3]\}]')\par
+            >>> isinstance(res, tuple)\par
+            True\par
+            >>> res[0]\par
+            \{'one': (1,)\}\par
+            >>> res[1]\par
+            \{'two': (2, 3)\}\par
+\pard\fi-360\li2520         """\par
+\pard\fi-360\li2160\par
+    \b def end_object\b0 (self,mapping):\par
+\pard\fi-360\li2520         """This is called, if implemented, when a JSON object (dictionnaire) has been completely parsed, and can be used to replace it with an arbitrary different value,\cf6  like what can be done with the object_hook argument of the loads() function\cf0 :\par
+\par
+        Args:\tab\par
+\pard\fi-1710\li3870             mapping : an instance implementing the mapping protocol\par
+\pard\fi-360\li2520             \par
+        Returns:\tab\par
+            a new value\par
+\par
+        Exemples : \par
+\pard\fi-720\li2880             >>> class Point(object):\par
+            ...   def __init__(self, x, y):\par
+            ...     self.x = x\par
+            ...     self.y = y\par
+            ...   def __repr__(self):\par
+            ...     return 'Point(%s, %s)' % (self.x, self.y)\par
+            ...\par
+            >>> class PointDecoder(Decoder):\par
+            ...   def end_object(self, d):\par
+            ...     if 'x' in d and 'y' in d:\par
+            ...       return Point(d['x'], d['y'])\par
+            ...     else:\par
+            ...       return d\par
+            ...\par
+            >>> pd = PointDecoder()\par
+            >>> pd('\{"x":1,"y":2\}')\par
+            Point(1, 2)\par
+\pard\fi-360\li2520         """\par
+\pard\fi-1080\li3240         return mapping\par
+\pard\fi-360\li2160\par
+\cf6     \b def start_object\b0 (self):\par
+\pard\fi-450\li2520\cf0         """This method, when implemented, is called whenever a new JSON object (dictionnaire) is found: it must return an instance implementing the mapping protocol.\par
+\pard\fi-360\li2520         It can be used to select a different implementation than the standard dict used by default:\par
+\par
+        Returns:\par
+            a mapping instance\par
+\par
+        Exemples : \par
+\pard\fi-720\li2880             >>> from collections import OrderedDict\par
+            >>> class OrderedDecoder(Decoder):\par
+            ...   def start_object(self):\par
+            ...     return OrderedDict()\par
+            ...\par
+            >>> od = OrderedDecoder()\par
+            >>> type(od('\{"foo": "bar"\}'))\par
+            <class 'collections.OrderedDict'>\par
+\pard\fi-360\li2520         """\par
+\pard\fi-1080\li3240         return dict()\par
+\pard\fi-360\li2520     \par
+\pard\fi-360\li2160\cf6     \b def string\b0 (self,s):\par
+\pard\fi-450\li2520\cf0         """This method, when implemented, is called whenever a JSON string has been completely parsed, and can be used to replace it with an arbitrary different value:\par
+\pard\fi-360\li2520\par
+        Args:\tab\par
+            s : a str instance\par
+        Returns:\tab\par
+            a new value\par
+\par
+        Exemples : \par
+\pard\fi-720\li2880             >>> class SwapStringCase(Decoder):\par
+            ...   def string(self, s):\par
+            ...     return s.swapcase()\par
+            ...\par
+            >>> ssc = SwapStringCase()\par
+            >>> ssc('"Hello World!"')\par
+            'hELLO wORLD!'\par
+    \par
+            Note that it is called after the recognition of dates and UUIDs, when datetime_mode and/or uuid_mode are specified:\par
+    \par
+            >>> class DDMMYYYY(Decoder):\par
+            ...   def string(self, s):\par
+            ...     if len(s) == 8 and s.isdigit():\par
+            ...       dd = int(s[:2])\par
+            ...       mm = int(s[2:4])\par
+            ...       yyyy = int(s[-4:])\par
+            ...       return (yyyy, mm, dd)\par
+            ...     return s\par
+            ...\par
+            >>> ddmmyyyy = DDMMYYYY(datetime_mode=DM_ISO8601)\par
+            >>> ddmmyyyy('["2017-08-21", "21082017"]')\par
+            [datetime.date(2017, 8, 21), (2017, 8, 21)]\par
+\pard\fi-360\li2520         """\par
+\pard\fi-1080\li3240         return s \b\par
+\pard\li1440\par
+\pard\li1080\cf2\f0 orjson (la plus rapide ! \par
+\pard\li1800\cf0\b0{\field{\*\fldinst{HYPERLINK "https://github.com/ijl/orjson"}}{\fldrslt{\ul\cf1 https://github.com/ijl/orjson}}}\cf2\f5\fs20\par
+\b +/-\par
+\pard\li2520\cf3\b0 - pas de RawJSON : \par
+\pard\li3240\cf6 => j'ai ouvert une issue \cf0{\field{\*\fldinst{HYPERLINK "https://github.com/ijl/orjson/issues/86"}}{\fldrslt{\ul\cf1 https://github.com/ijl/orjson/issues/86}}}\cf3\f5\fs20\par
+\pard\li2520 - has strict JSON conformance in not supporting Nan/Infinity/-Infinity\par
+- does not provide load() or dump() functions for reading from/writing to file-like objects\par
+- pas de param\'e8tre "\f1 object_hook" \'e0 la fonction loads -> \f5 ne peut pas d\'e9serialize des types autres que ceux de base ! \par
+\cf6\tab => j'ai ouvert une issue \cf0{\field{\*\fldinst{HYPERLINK "https://github.com/ijl/orjson/issues/85"}}{\fldrslt{\ul\cf1 https://github.com/ijl/orjson/issues/85}}}\cf6\f1\fs20\par
+\cf3\f5 - l'indentation si y'a ne peut \'eatre que de deux espace (pas de indent = "\\t")\par
+\pard\fi-180\li3420\cf6\f1 => j'ai ouvert une issue : \cf0{\field{\*\fldinst{HYPERLINK "https://github.com/ijl/orjson/issues/84"}}{\fldrslt{\ul\cf1 https://github.com/ijl/orjson/issues/84}}}\cf6\f1\fs20\par
+\pard\fi-180\li2700 - \cf3 n'arrive pas \'e0 d\'e9sactiver la serialization des datetime, date et time sous forme de string , je ne peux donc pas les attratper avec defaut \par
+\pard\fi-180\li3420 datetime.datetime(2020, 3, 10, 17, 30) -> b'"2020-03-10T17:30:00"' -> '2020-03-10T17:30:00'\par
+  datetime.date(2020, 3, 10) -> b'"2020-03-10"' -> '2020-03-10'\par
+  datetime.time(17, 30) -> b'"17:30:00"' -> '17:30:00'\par
+\cf6\par
+\pard\fi-180\li2700\cf3 - n'arrive pas \'e0 d\'e9sactiver la serialization des tuples en liste , je ne peux donc les attraper avec default\par
+\pard\fi-180\li3420\cf6\par
+\pard\li2520\cf0\f5 - does not support subclasses \ul by default\ulnone , requiring use of default hook \line   -> un objet heritant d'un objet serializable, n'est pas par defaut serialisable? il faut coder ce qu'il faut dans la fonction pass\'e9e "defaut"\f1\par
+\cf2\f5 + peut serializer n'import quel type en utilisant dumps( ... default = transform_object_serializable)( idem que dans l'API json) \par
+\cf6 + serialize nativement des tableaux numpy avec l'option \f0 orjson.OPT_SERIALIZE_NUMPY.\par
+\pard\li3240\cf3 - rien ne le diff\'e8re d'une liste  (revient \'e0 faire un numpy.array().tolist())\par
+- ne sauve pas le type\par
+- n'utilise pas de base 64\f1\par
+\pard\li2520\cf2\f5 + rapide \par
+\pard\li3240 serializes dataclass instances 40-50x as fast as other libraries\par
+serializes float 10x as fast and deserializes twice as fast as other libraries\par
+serializes numpy.ndarray instances 4-12x as fast with 0.3x the memory usage of other libraries\par
+pretty prints 10x to 20x as fast as the standard library\cf3\b\par
+\pard\li2520\cf6\b0 . serializes to bytes rather than str\par
+\pard\li3240\cf2 + permet d'\'eatre plus rapide ?\par
+- ne peut pas \'eatre utilis\'e9 tel-quel \'e0 la place de json\par
+\pard\li2520 . serializes str without escaping unicode to ASCII, e.g., "\f6\'ba\'c3\f5 " rather than "\cf0{\field{\*\fldinst{HYPERLINK "\\\\\\\\u597d"}}{\fldrslt{\ul\cf1\\\\u597d}}}\cf2\f5\fs20 " ( correspond au param\'e8tre ensure_ascii = False dans l'API json) \par
+\cf0 . serializes datetime, date, and time instances to RFC 3339 format, e.g., "1970-01-01T00:00:00+00:00"\par
+\cf2 . has strict UTF-8 conformance, more correct than the standard library (veut dire quoi ? ) \par
+. has an option for strict JSON conformance on 53-bit integers with default support for 64-bit\par
+\pard\li1800\par
+\pard\fi-3240\li5040\b\f0 numpy\b0\par
+\pard\li2520\tx4320 orjson natively serializes numpy.ndarray instances. Arrays may have a dtype of numpy.bool, numpy.float32, numpy.float64, numpy.int32, numpy.int64, numpy.uint32, numpy.uint64, numpy.uintp, or numpy.intp. orjson is faster than all compared libraries at serializing numpy instances. Serializing numpy data requires specifying option=orjson.OPT_SERIALIZE_NUMPY.\par
+>>> import orjson, numpy\par
+>>> orjson.dumps(  numpy.array([[1, 2, 3], [4, 5, 6]]),option=orjson.OPT_SERIALIZE_NUMPY,)\par
+b'[[1,2,3],[4,5,6]]\par
+The array must be a contiguous C array (C_CONTIGUOUS) and one of the supported datatypes. Individual items (e.g., numpy.float64(1)) are not supported.\par
+If an array is not a contiguous C array or contains an supported datatype, orjson falls through to default\par
+orjson does not have an installation or compilation dependency on numpy. The implementation is independent, reading numpy.ndarray using PyArrayInterface.\par
+\pard\li1800\b\f5\par
+API \par
+\pard\fi-3240\li5760\cf0 dumps\b0 (  __obj: Any,default: Optional[Callable[[Any], Any]] = ...,option: Optional[int] = ...,) -> bytes: ...\par
+\pard\fi-3240\li6480\par
+\pard\li3240 It natively serializes str, dict, list, tuple, int, float, bool, dataclasses.dataclass, typing.TypedDict, datetime.datetime, datetime.date, datetime.time, uuid.UUID, numpy.ndarray, and None instances. It supports arbitrary types through default. It does not serialize subclasses of supported types natively, with the exception of dataclasses.dataclass subclasses.\par
+The output is a bytes object containing UTF-8.It raises JSONEncodeError \par
+\par
+\pard\fi-720\li3960 default\tab To serialize a subclass or arbitrary types, specify default as a callable that returns a supported type. default may be a function, lambda, or \ul callable class instance.\ulnone  \par
+\tab If a type cannot be handled, defautl MUST raise an exception such as TypeError. Python otherwise implicitly returns None, which appears to the caller like a legitimate value and is serialized:\par
+\pard\fi-3240\li6480 option = OPT_XXX | OPT_XXX \par
+\pard\fi-3240\li7200 OPT_INDENT_2\tab equivalent to indent=2 in the standard library-\cf3\par
+\cf2\f0 OPT_NAIVE_UTC\tab Serialize datetime.datetime objects without a tzinfo as UTC\par
+OPT_NON_STR_KEYS\tab Serialize dict keys of type other than str. (str, int, float, bool, None, datetime.datetime, datetime.date, datetime.time, enum.Enum, and uuid.UUID) . Attention c'est un peu plus lent avec l'option\par
+OPT_OMIT_MICROSECONDS\tab\tab Do not serialize the microsecond field on datetime.datetime and datetime.time instances.\par
+OPT_SERIALIZE_DATACLASS\tab Serialize dataclasses.dataclass instances. For more, see dataclass.\par
+OPT_SERIALIZE_NUMPY\tab Serialize numpy.ndarray instances. For more, see numpy.\par
+OPT_SERIALIZE_UUID\tab Serialize uuid.UUID instances. For more, see UUID.\par
+OPT_SORT_KEYS\tab Serialize dict keys in sorted order. The default is to serialize in an unspecified order. This is equivalent to sort_keys=True in the standard library.\line This can be used to ensure the order is deterministic for hashing or tests. It has a substantial performance penalty and is not recommended in general.\par
+OPT_STRICT_INTEGER\tab Enforce 53-bit limit on integers. The limit is otherwise 64 bits, the same as the Python standard library. For more, see int.\par
+OPT_UTC_Z\tab Serialize a UTC timezone on datetime.datetime instances as Z instead of +00:00.\par
+\pard\fi-3240\li6480\par
+\pard\li2520\b loads\b0 (__obj: Union[bytes, bytearray, str]) -> Any: ...\par
+\pard\li3240 loads() deserializes JSON to Python objects. It deserializes to dict, list, int, float, str, bool, and None objects.\par
+bytes, bytearray, and str input are accepted. If the input exists as bytes (was read directly from a source), it is recommended to pass bytes. This has lower memory usage and lower latency.\par
+The input must be valid UTF-8.\b\par
+\pard\li1080\cf0\f1\par
+simplejson\par
+\pard\li1800\b0\f0{\field{\*\fldinst{HYPERLINK "https://simplejson.readthedocs.io/en/latest/"}}{\fldrslt{\ul\cf1 https://simplejson.readthedocs.io/en/latest/}}}\cf2\f0\fs20\par
+\b +/-\par
+\pard\li2520\b0\par
+\pard\li1800\b API \par
+\pard\fi-1800\li4320 simplejson.dumps\b0 (obj, skipkeys=False, ensure_ascii=True, check_circular=True, allow_nan=True, cls=None, indent=None, separators=None, \cf3 encoding='utf-8'\cf2 , default=None, \cf9 use_decimal=True,\cf6  namedtuple_as_object=True, tuple_as_array=True\cf0 , \cf9 bigint_as_string=False\cf0 , \cf2 sort_keys=False,\cf9  item_sort_key=None, for_json=None, ignore_nan=False, int_as_string_bitcount=None\cf0 , \cf9 iterable_as_array=False\cf2 , **kw)\par
+\par
+\pard\fi-1440\li4680\cf3 encoding\tab si on le laisse \'e0 "utf-8" il va tenter de d\'e9coder les bytes en utf-8 pour les serialiser , sans faire appel \'e0la fonction default . \par
+\cf9 item_sort_key\tab a callable (not the default), then the output of dictionaries will be sorted with it. The callable will be used like this: sorted(dct.items(), key=item_sort_key). This option takes precedence over sort_keys.\par
+for_json\tab if true (not the default), objects with a for_json() method will use the return value of that method for encoding as JSON instead of the object.\cf2\b\par
+\pard\li1800\par
+\pard\li1080 jsonpickle \cf0\b0{\field{\*\fldinst{HYPERLINK "http://jsonpickle.github.com/"}}{\fldrslt{\ul\cf1 http://jsonpickle.github.com/}}}\cf2\f0\fs20\par
+\pard\li1800\i test 18 avril 2020 :\par
+\b\i0 +/-\par
+\pard\li2520\b0 + encodage concis des tuples, set , bytes gr\'e2ce \'e0 l'utilisation de keywords r\'e9serv\'e9s \par
++ encodage en pr\'e9servant le tyype des tuples; set, bytes, bytearray, numpyarray, objets (avec m\'eames m\'e9thodes \'e0 coder que pour pickle)\par
+- encodage des numpyarray hyper verbeux \par
+- encodage du state des objets dans un sous-dictionnaire \cf0 "py/state" au lieu de mettre directement dans la racine du dictionnaire\cf2\par
+\cf3 - pas d'arguement "\f1 default" \'e0 dumps/encode pour customiser la serialisation \par
+  -> impossible  filtrer les attributs commen\'e7ant par "_" !?\par
+\cf2\f0 - pas d'arguement "\cf0\f1 object_hook" loads/decode pour pour customiser la d\'e9serialisation\par
+- \cf2\f0 pb de comportement diff\'e9rents de pickle sur certains objets   (cf plus bas)\par
+\cf3 -- n'utilise pas en interne le callback "default" , il semblerait qu'il fasse d'abord une copie de TOUTES LES DONNES sous forme serializable (dictionnaire , listes etc..) \cf2\par
+par contre g\'e8re les __reduce__qui retournent plus de 3 valeure dans un tuple \par
+g\'e8re les __getnewargs__ et __getnewargs_ex__\par
+continue \'e0 gerer les __getinitargs__ alors que n'existe plus dans python 3 avec pickle \par
+\par
+\pard\li1800\b syntaxe \cf0\b0\f1\par
+\pard\fi-1440\li3960 namedtuple\tab\cf3 dictionnaire  # ne pourra pas restaurer un namedtuple...\par
+\cf0 tuple\tab\{"py/tuple": [0, 1]\}\i\par
+\i0 set\tab\{"py/set": [0, 1]\}\par
+\pard\fi-1440\li3960\tx2880 bytes\tab\{"py/b64": "AP8="\}\par
+\pard\fi-1440\li3960 bytearray\tab\{"py/object": "builtins.bytearray", "py/seq": [0, 255]\}\cf3  # va prendre beaucoup d'espace car pas en base64\cf0\par
+numpyarray \tab\{"py/reduce": [\{"py/function": "numpy.core.multiarray._reconstruct"\}, \{"py/tuple": [\{"py/type": "numpy.ndarray"\}, \{"py/tuple": [0]\}, \{"py/b64": "Yg=="\}]\}, \{"py/tuple": [1, \{"py/tuple": [2]\}, \{"py/reduce": [\{"py/type": "numpy.dtype"\}, \{"py/tuple": ["i4", 0, 1]\}, \{"py/tuple": [3, "<", null, null, null, -1, -1, 0]\}]\}, false, \{"py/b64": "AAAAAAEAAAA="\}]\}]\} \cf3 # hyper verbeux\cf0\fs10\par
+\pard\li3960\tx2880\fs6\{\par
+        "py/reduce": [\par
+                \{\par
+                        "py/function": "numpy.core.multiarray._reconstruct"\par
+                \},\par
+                \{\par
+                        "py/tuple": [\par
+                                \{\par
+                                        "py/type": "numpy.ndarray"\par
+                                \},\par
+                                \{\par
+                                        "py/tuple": [\par
+                                                0\par
+                                        ]\par
+                                \},\par
+                                \{\par
+                                        "py/b64": "Yg=="\par
+                                \}\par
+                        ]\par
+                \},\par
+                \{\par
+                        "py/tuple": [\par
+                                1,\par
+                                \{\par
+                                        "py/tuple": [\par
+                                                2\par
+                                        ]\par
+                                \},\par
+                                \{\par
+                                        "py/reduce": [\par
+                                                \{\par
+                                                        "py/type": "numpy.dtype"\par
+                                                \},\par
+                                                \{\par
+                                                        "py/tuple": [\par
+                                                                "i4",\par
+                                                                0,\par
+                                                                1\par
+                                                        ]\par
+                                                \},\par
+                                                \{\par
+                                                        "py/tuple": [\par
+                                                                3,\par
+                                                                "<",\par
+                                                                null,\par
+                                                                null,\par
+                                                                null,\par
+                                                                -1,\par
+                                                                -1,\par
+                                                                0\par
+                                                        ]\par
+                                                \}\par
+                                        ]\par
+                                \},\par
+                                false,\par
+                                \{\par
+                                        "py/b64": "AAAAAAEAAAA="\par
+                                \}\par
+                        ]\par
+                \}\par
+        ]\fs10\par
+\}\fs20\par
+\pard\li2520 instance d'objet\par
+\pard\li3240\f0\{\par
+\tab "py/object": "objects_sans_reduce.Classe_GetState_DefaultInit_RestoreState", \par
+\tab "py/initargs": \{"py/tuple": []\}, \par
+\tab "py/state": \{\par
+\tab\tab "keySaved": "ValueSaved"\par
+\tab\}\par
+\}\cf2\par
+\pard\li1800\b API \b0\par
+\pard\fi-720\li3240\b jsonpickle.encode \b0 (value, unpicklable=True, make_refs=True, keys=False, max_depth=None, reset=True, backend=None, warn=False, context=None, max_iter=None, numeric_keys=False)\par
+\pard\li3240 Return a JSON formatted representation of value, a Python object.\par
+Parameters:\tab\par
+\pard\fi-1170\li4410\cf8 unpicklable\tab If set to False then the output will not contain the information necessary to turn the JSON data back into Python objects, but a simpler JSON stream is produced.\par
+max_depth\tab If set to a non-negative integer then jsonpickle will not recurse deeper than \lquote max_depth\rquote  steps into the object. Anything deeper than \lquote max_depth\rquote  is represented using a Python repr() of the object.\par
+make_refs\tab If set to False jsonpickle\rquote s referencing support is disabled. Objects that are id()-identical won\rquote t be preserved across encode()/decode(), but the resulting JSON stream will be conceptually simpler. jsonpickle detects cyclical objects and will break the cycle by calling repr() instead of recursing when make_refs is set False.\par
+\cf2 keys\tab If set to True then jsonpickle will encode non-string dictionary keys instead of coercing them into strings via repr().\par
+\cf8 warn\tab If set to True then jsonpickle will warn when it returns None for an object which it cannot pickle (e.g. file descriptors).\par
+max_iter\tab If set to a non-negative integer then jsonpickle will consume at most max_iter items when pickling iterators.\cf2\par
+\pard\li3240\par
+\pard\fi-720\li3240\b jsonpickle.decode\b0 (string, backend=None, context=None, keys=False, reset=True, safe=False, classes=None)\par
+\pard\li3240 Convert a JSON string into a Python object.\par
+\pard{\pntext\f7\'B7\tab}{\*\pn\pnlvlblt\pnf7\pnindent0{\pntxtb\'B7}}\fi-360\li3600 The keyword argument \lquote keys\rquote  defaults to False. If set to True then jsonpickle will decode non-string dictionary keys into python objects via the jsonpickle protocol.\par
+{\pntext\f7\'B7\tab}The keyword argument \lquote classes\rquote  defaults to None. If set to a single class, or a sequence (list, set, tuple) of classes, then the classes will be made available when constructing objects. This can be used to give jsonpickle access to local classes that are not available through the global module import scope.\par
+\pard\li1800\b pb de comportement diff\'e9rents de pickle sur certains objets : \cf6\b0 (script de test : Test_pickle_vs_serializeXXX_for_objects.py)\cf0\f1\par
+\pard\fi-180\li2700\cf2\f0 - \cf0\f1 dumps  \cf3\f0 appel la methode __getinitargs__ \'e0 la serialialisation si elle existe contrairement \'e0 pickle , \cf2 meme si ne  ne fait pas appelle au __init__() \'e0 la reconstruciton >  perte de cpu \cf3\par
+\cf2 -  si l'oject \'e0 la methode __getstate__ sans  __setstate__ et si un methode  __reduce__ qui returne en 3\'e8me position du tuple un dictionnaire non vide\line\f1 => dumps \f0 fait appel \'e0 __getstate__  apr\'e8s l'appel \'e0 __reduce__ alors qu'il ne devrait pas car\cf0  __reduce__ \'e0 d\'e9j\'e0 retourn\'e9 un dictionnaire non vide , peut \'eatre au mieux redondant, au pire retourner un autre dictionnaire.  \line\cf3 => loads ne fait pas appel \'e0 __init__ alors qu'il le devrait !!!\line\cf5 objects concern\'e9s : \line Classe_GetState_DefaultInit_RestoreState_withReduce\line Classe_GetState_SaveArgInit_RestoreState_withReduce\line Classe_GetState_DefaultInit_RestoreState_withReduce_filter\line Classe_GetState_SaveArgInit_RestoreState_withReduce_filter\line Classe_SaveDict_DefaultInit_RestoreDict_withReduce_filter\line Classe_SaveDict_SaveArgInit_RestoreDict_withReduce_filter\cf2\par
+- loads \cf3 deserialize en \f1 None \f0 les objets\cf2  dont le __getstate__ \'e0 retourn\'e9 None :   "py/state": \cf0\f1 null en !!!! \par
+-> oblige \'e0 recoder pour retourner un dictionnaire vide \{\}, plut\'f4t que None ou pass ...\cf3\f0\par
+- \cf2 loads \cf3 n'execute pas de __setstate__ \cf0 quand ni  __getstate__ ni __reduce__ : \cf3\line\cf5 objects concern\'e9s : \line Classe_SaveDict_DefaultInit_SetState_withoutReduce\line Classe_SaveDict_SaveArgInit_SetState_withoutReduce\line Classe_SaveDict_SaveArgInit_withoutReduce\line Classe_SaveDict_SetState_withoutReduce\line Classe_SaveDict_SetState_withReduce\par
+\par
+\cf0 voir si toujors probl\'e8me "-> probl\'e8mes \'e0 la r\'e9-hydratation des objets old style (donc sans reduc) n'ayant pas des valeures par defaut pour tout ces parametres dans __init__() !!!!!!!!!!!!!!! il les laisse sous forme de dictionnaire  ! "\par
+\pard\li1080\cf2\b ujson\par
+\pard\li1800\cf0\b0{\field{\*\fldinst{HYPERLINK "https://pypi.org/project/ujson/"}}{\fldrslt{\ul\cf1 https://pypi.org/project/ujson/}}}\f1\fs20  \par
+{\field{\*\fldinst{HYPERLINK "https://github.com/ultrajson/ultrajson"}}{\fldrslt{\ul\cf1 https://github.com/ultrajson/ultrajson}}}\b\f1\fs20  \lang12\b0\f4\fs22{\field{\*\fldinst{HYPERLINK "https://artem.krylysov.com/blog/2015/09/29/benchmark-python-json-libraries/"}}{\fldrslt{\ul\cf1 https://artem.krylysov.com/blog/2015/09/29/benchmark-python-json-libraries/}}}\cf5\f4\fs22\par
+\cf0\lang1036\b\f1\fs20\par
+\cf3\b0\f5 +/-\par
+\pard\li2520 - does not provide load() or dump() functions for reading from/writing to file-like objects\b\f1\par
+- tr\'e8s peu d'option suport\'e9es (\b0 ensure_ascii et indent) => inutilisable pour moi \par
+\pard\li2520\sl240\slmult1 - \lang12\f4\fs22 N'accepte pas d'argument "default" - > inutilisable ! \line\cf0{\field{\*\fldinst{HYPERLINK "https://github.com/ultrajson/ultrajson/issues/124"}}{\fldrslt{\ul\cf1 https://github.com/ultrajson/ultrajson/issues/124}}}\lang1036\b\f1\fs20\par
+\pard\li1800 API  \par
+\pard\li2520 dumps\b0 (ensure_ascii=True, indent=None,\cf5 escape_forward_slashes = True, encode_html_chars = False\cf0 )\b\par
+\pard\li1080\cf2\f0 nujson\par
+\pard\li1800\tx1530\cf0\b0{\field{\*\fldinst{HYPERLINK "https://github.com/caiyunapp/ultrajson"}}{\fldrslt{\ul\cf1 https://github.com/caiyunapp/ultrajson}}}\f1\fs20\par
+un fork de ujson qui semple serialiser les tableau numpy comme des listes\b\par
+\pard\li1080 hyperjson\par
+\pard\li1800\b0{\field{\*\fldinst{HYPERLINK "https://github.com/mre/hyperjson"}}{\fldrslt{\ul\cf1 https://github.com/mre/hyperjson}}}\f1\fs20  \line only has packages for macOS, and in general seems pretty immature.\b\par
+\pard\li1080 json-tricks : {\field{\*\fldinst{HYPERLINK "https://pypi.org/project/json-tricks/"}}{\fldrslt{\ul\cf1 https://pypi.org/project/json-tricks/}}}\f1\fs20\par
+demjson\cf4\f0\par
+\cf0\f1 jsonlib\par
+py-yajl\par
+JsonUtils\par
+python-cjson\par
+python-json\par
+\pard\li2880\b0\f0\par
+\par
+\par
+\b\par
+\pard\f1 PyON\tab Python Object Notation\b0\line\pard\li720{\field{\*\fldinst{HYPERLINK "http://code.google.com/p/pyon/wiki/GettingStarted"}}{\fldrslt{\ul\cf1 http://code.google.com/p/pyon/wiki/GettingStarted}}}\f1\fs20\par
+projet mort en 2008 on dirait \par
+- marche j'ai l'impression qu'avec des objet Newtype \par
+\b -> il faut savoir implementer __reduce__()\par
+-> il faut utiliser des objets newtype\b0\f0\par
+\cf3\b pourtant \'e0 l'air bien !!!!!!!!!!!!!!!\par
+SE PENCHER SUR PYON : A L'AIR DE FAIRE EXACTEMENT CE QUE JE VOULAIS \par
+ILS ONT L'AIR DE GENERER DU CODE CAPABLE DE CREER DES NOUVEAUX OBJET SANS APPELLER INIT !!!\par
+SE PENCHER SUR REDUCE (utilis\'e9 dans pyon , avec objetc newtype)\par
+\cf0\par
+\b0\f1\par
+\par
+\pard\b Xml \par
+\pard\li720\b0 librarie standard python 2.6 : "plistlib"\par
+complexe\par
+\ul utilis\'e9 par Qt Designer !!!! \par
+\ulnone\par
+\par
+\pard\b YAML PyYAML \b0\par
+\pard\li720 lisible \par
+python ? y'a t'il des parseurs pour lire ? \line\tab y'a t'il des outils pour generer du python ? \par
+\par
+\pard\b repr()/str()/eval() /pprint() \b0 come to mind. {\field{\*\fldinst{HYPERLINK "http://stackoverflow.com/questions/408866/python-human-readable-object-serialization"}}{\fldrslt{\ul\cf1 http://stackoverflow.com/questions/408866/python-human-readable-object-serialization}}}\f1\fs20\par
+\pard\li720\b eval( expression \cf4 [, globals[, locals]] \cf0 ) \tab\tab\tab\b0{\field{\*\fldinst{HYPERLINK "http://docs.python.org/library/functions.html#eval"}}{\fldrslt{\ul\cf1 http://docs.python.org/library/functions.html#eval}}}\cf4\f1\fs20\par
+\pard\li1440\cf0 L'argument expression est analys\'e9e et \'e9valu\'e9e comme une expression Python (techniquement parlant, une liste de conditions) \par
+en utilisant les dictionnaires globals et locals comme espace de nom global et local .(rem: on peut obtenir les dictionnaires courant avec globals () et locals () )\par
+Si les deux dictionnaires sont omis, l'expression est ex\'e9cut\'e9e dans l'environnement o\'f9 eval () est appel\'e9e. \par
+\ul La valeur de retour est le r\'e9sultat de l'expression \'e9valu\'e9e.\ulnone  \par
+\par
+\cf4\fs4 Les arguments sont une string et optionnelement globals and locals.\par
+\par
+globals et locals\par
+globales doit \'eatre un dictionnaire. \par
+locals peuvent \'eatre n'importe quel objet de mapping\par
+\par
+L'argument expression est analys\'e9e et \'e9valu\'e9e comme une expression Python (techniquement parlant, une liste de conditions) en utilisant les dictionnaires globals et locals comme espace de nom global et local .\par
+Si le dictionnaire globals est pr\'e9sent et qu'il manque  '__builtins__', les variables globales en cours sont copi\'e9es dans les variables globales avant que l'expression ne soit analys\'e9e. \par
+\par
+Cela signifie que l'expression a normalement un acc\'e9s complet au module standard __builtin__ et que  les environnements restreint sont propag\'e9es. \par
+Si le dictionnaire locals est omis, eval  prend par d\'e9faut le dictionnaire globals. \par
+Si les deux dictionnaires sont omis, l'expression est ex\'e9cut\'e9e dans l'environnement o\'f9 eval () est appel\'e9e. \par
+La valeur de retour est le r\'e9sultat de l'expression \'e9valu\'e9e. \par
+Les erreurs de syntaxe sont signal\'e9es comme des exceptions. \par
+\par
+Cette fonction peut \'e9galement \'eatre utilis\'e9 pour ex\'e9cuter des objets de code arbitraire  (tels que ceux cr\'e9\'e9s par compile () ). \par
+Dans ce cas, passerr un code objet au lieu d'une cha\'eene. \par
+Si l'objet du code a \'e9t\'e9 compil\'e9 avec "exec" comme argument de mode, eval () retournera None.\par
+\par
+Conseils: l"ex\'e9cution dynamique de statements est soutenu par la d\'e9claration exec \par
+l'ex\'e9cution de statements \'e0 partir d'un fichier est pris en charge par la fonction execfile (). \par
+Les fonctions  globals () et locals () renvoie les dictionnaire courant  respectivement, ce qui peut \'eatre utile pour les passer \'e0 eval () ou execfile () .\par
+\par
+Voir ast.literal_eval () pour une fonction qui peut evluer sans risque d'\'e9valuer des cha\'eenes avec des expressions contenant les litt\'e9raux seulement. \fs20\par
+\cf0\par
+\pard\li720\b __str__() \tab\tab\tab\tab\tab\cf4\tab\cf0\b0{\field{\*\fldinst{HYPERLINK "http://docs.python.org/library/functions.html#str"}}{\fldrslt{\ul\cf1 http://docs.python.org/library/functions.html#str}}}\cf4\f1\fs20\tab\cf0\tab\par
+\pard\li1440 Retourne une cha\'eene contenant une repr\'e9sentation imprimable d'un objet. Pour les chaine string , elle retourne la cha\'eene elle-m\'eame. \par
+La diff\'e9rence avec la repr (objet) est que str (objet) :\par
+- ne tente pas de retourner une cha\'eene executable (avec eval ()).\b\par
+\b0 -  n'est appell\'e9e que quand on fait un cast (str(object)) ou quand fait un print direct (print(object)) ( a verifier )\par
+- ne support pas la recusivit\'e9 : n'est pas appeller lors de l'affichage d'un object contenant l'object\par
+\par
+\pard\li720\b __unicode__(self) \b0\tab\par
+\pard\li1440 correspond \'e0 la version unicode de __str__() . \par
+\pard\li720\b repr() et __repr__()\tab\tab\tab\tab\tab\b0{\field{\*\fldinst{HYPERLINK "http://docs.python.org/library/functions.html#repr"}}{\fldrslt{\ul\cf1 http://docs.python.org/library/functions.html#repr}}}\f1\fs20\par
+\pard\li1440\f0 Retourne une cha\'eene contenant une repr\'e9sentation imprimable d'un objet . Il s'agit de la m\'eame valeur g\'e9n\'e9r\'e9s par les conversions (anti-quotes). \par
+Pour de nombreux types, cette fonction tente de retourner une cha\'eene qui donnerait un objet avec la m\'eame valeur lorsqu'elle est execut\'e9e (pass\'e9e \'e0 eval ())\par
+autrement la repr\'e9sentation est une cha\'eene entre crochets angle qui contient le nom du type de l'objet ainsi que des informations suppl\'e9mentaires, y compris souvent le nom et l'adresse de l'objet.\par
+\f1 support la recusivit\'e9 : c'est cette fonction qui est appell\'e9 lors de l'affichage d'un object contenant l'object\par
+\b\f0 Classe arbitraire\b0\par
+Une classe peut contr\'f4ler ce que cette fonction retourne pour son cas, en d\'e9finissant une m\'e9thode  __repr__ () .\f1  \par
+Sera utilis\'e9 pour retourner constructeur d'un instance avec arguments : 'maClasse(par1,par2)' \par
+sert en quelque sorte de \f0 __getinitargs__() \par
+\par
+class maClass(object):\par
+\pard\li2160 def __init__(self, par1, par2):\par
+\pard\li2880 self.par1 = par1\par
+self.par2 = par2\par
+\pard\li2160 def __repr__(self):\par
+\pard\li2880 return 'maClass(' + repr(self.par1) + ', ' + repr(self.par2) + ')'\par
+\pard\li720\b pprint\par
+\pard\li1440\b0 sources\par
+\pard\li2160{\field{\*\fldinst{HYPERLINK "http://www.doughellmann.com/PyMOTW/pprint/"}}{\fldrslt{\ul\cf1 http://www.doughellmann.com/PyMOTW/pprint/}}}\f0\fs20\par
+{\field{\*\fldinst{HYPERLINK "http://docs.python.org/library/pprint.html"}}{\fldrslt{\ul\cf1 http://docs.python.org/library/pprint.html}}}\f0\fs20\par
++/-\par
+- on dirait que ne marche pas avec des objets quelconques.... ({\field{\*\fldinst{HYPERLINK "http://docs.python.org/library/pprint.html"}}{\fldrslt{\ul\cf1 http://docs.python.org/library/pprint.html}}}\f0\fs20 )\par
+defnition\par
+comme repr() , permet de generer une reprenstation de structure de donn\'e9es pouvant \'eatre execut\'e9 par l'interpreteur, en faisant appelle au methode __repr__() des objets\par
+mais avec des retours \'e0 la ligne et de l'indentation pour facilit\'e9e lecture, si ne tiens pas sur une seule ligne. \par
+\pard\li1440 syntaxe\par
+\pard\li2160 pprint(object[, stream[, indent[, width[, depth]]]])\par
+pformat(object[, indent[, width[, depth]]])\par
+\par
+\f1\line\par
+\pard\b Binaire \b0\par
+\pard\li720 + sauve une instance d'objet \par
+- illisible \par
+\par
+\par
+\b\f0\par
+\pard PyQt  : \par
+\pard\li720 Python Objects and QVariant\par
+\b0\par
+\pard\li1440 Qt uses the QVariant class as a wrapper for any C++ data type. PyQt allows any Python object to be wrapped as a QVariant and passed around Qt's meta-object system like any other type.\par
+PyQt will try to convert the Python object to a C++ equivalent if it can so that the QVariant can be passed to other C++ code that doesn't know what a Python object is.\par
+Version 2 of PyQt's QVariant API will automatically convert a QVariant back to a Python object of the correct type.\par
+Version 1 of the QVariant API provides the QVariant.toPyObject() method to convert the QVariant back to a Python object of the correct type.\par
+Both versions will raise a Python exception if the conversion cannot be done.\par
+\b\par
+\pard\li720 The following PyQt classes may be pickled.\par
+\pard\li1440\b0 .  QByteArray\par
+.  QChar\par
+.  QColor\par
+.  QDate\par
+.  QDateTime\par
+.  QKeySequence\par
+.  QLatin1Char\par
+.  QLatin1String\par
+.  QLine\par
+.  QLineF\par
+.  QMatrix\par
+.  QPoint\par
+.  QPointF\par
+.  QPolygon\par
+.  QRect\par
+.  QRectF\par
+.  QSize\par
+.  QSizeF\par
+.  QString\par
+.  QTime\par
+\f1\par
+\pard\b\f0 marshall \par
+\pard\li720\b0 Le marshalling d\rquote objets sous Python est une forme de s\'e9rialisation. C\rquote est elle qui est utilis\'e9e pour la compilation des scripts sous Python.Marshal offre la possibilit\'e9e de serializer des object de code python. La compatibilit\'e9 n\rquote est pas assur\'e9e entre les diff\'e9rentes versions de Python, contrairement aux modules pickle et cPickle, gr\'e2ce aux diff\'e9rents protocoles qu\rquote ils utilisent. \b\par
+\par
+\b0\f1\par
+\pard\b Config.ini\par
+\pard\li720\b0 module ConfigParser\par
++ fichier lissible par \'eatre humain\par
+- complexe\par
+\par
+\par
+\pard\b Matlab \par
+\pard\li720\b0 selon martin , on peut surcharger methodes save() et load(), sans ca se contente de recopier la structure avec donn\'e9es.\par
+n'execute jamais le init() \b\par
+\b0\par
+}
+ 

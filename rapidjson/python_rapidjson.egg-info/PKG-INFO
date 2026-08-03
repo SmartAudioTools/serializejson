@@ -1,4 +1,4 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.4
 Name: python-rapidjson
 Version: 1.8
 Summary: Python wrapper around rapidjson
@@ -23,6 +23,19 @@ Classifier: Programming Language :: Python
 Requires-Python: >=3.7
 Description-Content-Type: text/x-rst
 License-File: LICENSE
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: keywords
+Dynamic: license
+Dynamic: license-file
+Dynamic: maintainer
+Dynamic: maintainer-email
+Dynamic: requires-python
+Dynamic: summary
 
 .. -*- coding: utf-8 -*-
 .. :Project:   python-rapidjson -- Introduction
