@@ -1195,14 +1195,13 @@ verdict « tout s'est dégradé » venait entièrement de la charge.
 
 Écarté « le plus sûr d'abord », à faire proprement plus tard :
 
-- **SWAR/SIMD sur les chiffres au parse** : lire 8 octets d'un coup exige
-  de PROUVER 8 octets lisibles — le flux insitu n'a pas de pointeur de fin
-  (mode sans terminateur : lecture hors-borne possible sur un nombre en fin
-  de document, jusqu'à 7 octets après le NUL sinon). Chantier propre :
-  ajouter end_ au flux insitu du fork (do_decode connaît la longueur), puis
-  convertir 8 chiffres par multiplication SWAR tant que
-  significandDigit + 8 <= 18 (aucun débordement possible), queue en
-  scalaire. Estimation : quelques % sur les charges à gros entiers.
+- **SWAR/SIMD sur les chiffres au parse** : FAIT dans la foulée (flux
+  insitu borné SjBoundedInsituStream, 8 chiffres par multiplication SWAR,
+  plafond 17 chiffres) — −18 % sur les entiers de 15-16 chiffres, neutre
+  sur les petits. Piège consigné : le parse relit le début d'un nombre via
+  le flux ORIGINAL non avancé (copyOptimization) — le trait doit être
+  déclaré pour la sous-classe, sinon tous les nombres du chemin
+  nombres-en-chaînes lisent du vide (attrapé par la batterie).
 - **Dragonbox à l'écriture des flottants** : remplaçant exact de Grisu3
   (repr le plus court unique → octets identiques), ~×2-3 sur la conversion
   seule. Implémentation substantielle (intervalles de Schubfach, table
@@ -1217,6 +1216,37 @@ unpickle_list ×1,79 ; pickle_dict ×2,24. Et hors benchmarks officiels,
 pickle est BATTU sur : chaînes, gros numpy compressibles, objets ordinaires
 en écriture, objets à __slots__ en écriture, objets à __getstate__ en
 écriture.
+
+### Tableau par type après SWAR (3.14, PGO, ~23 h, ratios sj/pickle)
+
+| charge             | dump      | load  |
+|--------------------|-----------|-------|
+| floats (200 k)     | ×2,9      | ×2,8  |
+| gros ints (200 k)  | **×0,44** | ×1,18 |
+| chaînes (20 k)     | **×0,33** | ×2,1  |
+| objets slots (5 k) | **×0,63** | ×1,47 |
+
+(Le load des chaînes à ×2,1 : pickle rend des objets str mémoïsés ; nous
+recréons chaque str depuis l'UTF-8 — voir piste ci-dessous.)
+
+### Deux chantiers restants, spécifiés (choix « le plus sûr » : pas lancés
+### à 23 h passées)
+
+- **Balayage par lots des tableaux homogènes au DÉCODAGE** : dans un
+  tableau JSON, une suite `nombre,nombre,...` pourrait être consommée par
+  une boucle serrée du fork (le flux borné le permet désormais) qui
+  contourne l'aiguillage par valeur ParseValue → handler : construire la
+  liste Python d'un trait, SWAR sur chaque élément. C'est LE levier
+  d'unpickle_list (×1,86) et du load des gros ints (×1,18) ; chirurgie du
+  cœur du reader, à faire reposé.
+- **Dragonbox à l'écriture des flottants** : toujours valable (×2-3 sur la
+  conversion), mais l'écriture float texte restera au-dessus du memcpy
+  binaire de pickle (~8,5 ns/float) même parfaite : priorité derrière le
+  balayage par lots.
+- **Cache/mémoïsation des chaînes au décodage** (le ×2,1 du load chaînes) :
+  généraliser le cache des clés aux VALEURS chaînes courtes répétées —
+  attention à ne pas payer le hachage sur les chaînes toutes distinctes
+  (plafonner comme le cache des clés).
 
 ### Cycle de vie du tampon de sortie : fuite str et OOM (3 août, soir)
 
