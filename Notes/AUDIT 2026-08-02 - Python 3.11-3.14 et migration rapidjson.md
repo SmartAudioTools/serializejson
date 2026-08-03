@@ -897,6 +897,26 @@ d'environnement), 4 manches, charge consignée à chaque passe — plus un A/B
 | numpy 64 Mo compressible | **×0,17** | **×0,34** |
 | numpy 64 Mo incompressible | ×1,29 | ×2,26 |
 
+### Les optimisations risquées (13 h – 14 h)
+
+1. **Les dicts ordinaires ne repassent plus par end_object Python** (~11 % du
+   décodage des conteneurs au profil) : le Decoder certifie par
+   _fast_plain_end_object (dotdict et recognized_classes inactifs, jamais en
+   update), le C++ marque les dicts où passe une clé __class__ ou $ref et
+   rend les autres directement. Conteneurs mixtes : loads ×1,55 → ×1,35.
+2. **Chirurgie du lecteur (chiffres paresseux)** : la partie entière des
+   nombres n'est plus empilée chiffre à chiffre pendant le scan ; rempilage
+   d'un bloc seulement si '.', 'e' ou grand entier. Validé par 2M de doubles
+   bit-à-bit, les formes textuelles pièges et les grands entiers ; gain ~5 %
+   (33,3 ms le million d'entiers), conservé car borné et prouvé.
+3. **No-go ARCHITECTURAL consigné — construction différée des dicts** : la
+   résolution des $ref en cours de parse navigue dans self.root, donc dans
+   les dicts partiellement remplis ; les différer casserait la résolution.
+   Ce n'est pas une question de mesure.
+4. **No-go consigné — décodage différé-parallèle multi-blobs** : les
+   constructeurs peuvent copier leur charge à l'instanciation (array.array
+   le fait), qui arriverait avant le remplissage différé.
+
 ### Ce qui borne encore, et pourquoi
 
 - **Flottants et entiers scalaires en dumps** : pickle copie 8 octets binaires
