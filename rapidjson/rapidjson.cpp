@@ -1143,6 +1143,66 @@ struct PyHandler {
         return key;
     }
 
+    // cache ADAPTATIF des VALEURS chaînes courtes : mêmes principes que le
+    // cache des clés, plus un interrupteur — si les données ne se répètent
+    // pas (échecs dominants), il se coupe pour le reste du parse afin que
+    // les chaînes toutes distinctes ne paient que quelques sondes
+    static const unsigned kValCacheSize = 2048;   // puissance de deux
+    KeyCacheSlot valCache[kValCacheSize];
+    unsigned valCacheCount;
+    int valCacheBudget;      // crédits : gagnés aux succès, perdus aux échecs
+    bool valCacheEnabled;
+
+    PyObject* ValueString(const char* s, size_t n) {
+        if (!valCacheEnabled || n > 48)
+            return sj_unicode_from_utf8(s, n);
+        uint64_t h = KeyHash(s, n);
+        unsigned i = (unsigned) h & (kValCacheSize - 1);
+        for (;;) {
+            KeyCacheSlot& slot = valCache[i];
+            if (slot.hash == 0)
+                break;
+            if (slot.hash == h) {
+                Py_ssize_t sl;
+                const char* ss = PyUnicode_AsUTF8AndSize(slot.str, &sl);
+                if (ss != nullptr && (size_t) sl == n
+                    && memcmp(ss, s, n) == 0) {
+                    valCacheBudget += 2;
+                    if (valCacheBudget > 4096)
+                        valCacheBudget = 4096;
+                    Py_INCREF(slot.str);
+                    return slot.str;
+                }
+                PyErr_Clear();
+            }
+            i = (i + 1) & (kValCacheSize - 1);
+        }
+        // échec : l'interrupteur se ferme si le crédit est épuisé
+        if (--valCacheBudget < 0)
+            valCacheEnabled = false;
+        PyObject* value = sj_unicode_from_utf8(s, n);
+        if (value == nullptr)
+            return nullptr;
+        if (valCacheCount < kValCacheSize - (kValCacheSize / 4)) {
+            KeyCacheSlot& slot = valCache[i];
+            slot.hash = h;
+            slot.str = value;
+            Py_INCREF(value);
+            valCacheCount++;
+        }
+        return value;
+    }
+
+    void ReleaseValCache() {
+        for (unsigned i = 0; i < kValCacheSize; i++)
+            if (valCache[i].hash != 0) {
+                Py_DECREF(valCache[i].str);
+                valCache[i].hash = 0;
+                valCache[i].str = nullptr;
+            }
+        valCacheCount = 0;
+    }
+
     void ReleaseKeyCache() {
         for (unsigned i = 0; i < kKeyCacheSize; i++)
             if (keyCache[i].hash != 0) {
@@ -1274,6 +1334,10 @@ struct PyHandler {
             sharedKeys = PyDict_New();
             memset(keyCache, 0, sizeof(keyCache));
             keyCacheCount = 0;
+            memset(valCache, 0, sizeof(valCache));
+            valCacheCount = 0;
+            valCacheBudget = 512;    // ~512 échecs nets avant de renoncer
+            valCacheEnabled = true;
         }
 
     ~PyHandler() {
@@ -1291,6 +1355,7 @@ struct PyHandler {
         Py_CLEAR(decoderString);
         Py_CLEAR(sharedKeys);
         ReleaseKeyCache();
+        ReleaseValCache();
         Py_CLEAR(decoderObject);
         Py_CLEAR(decodeClassPlanFn);
         for (auto& entry : decodePlans)
@@ -2596,7 +2661,7 @@ struct PyHandler {
         if (uuidMode != UM_NONE && IsUuid(str, length))
             return HandleUuid(str, length);
 
-        value = sj_unicode_from_utf8(str, (size_t) length);
+        value = ValueString(str, (size_t) length);
         if (value == nullptr)
             return false;
 
