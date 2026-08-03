@@ -450,16 +450,12 @@ struct PtrMemo {
 // Les valeurs sont extraites sous GIL en tableau C, converties en texte par
 // tranches d'index fixes sur plusieurs threads (GIL relâché), puis recollées
 // dans l'ordre : octets strictement identiques au chemin séquentiel.
-// Les rares flottants dont Grisu3 ne garantit pas l'arrondi sont notés
-// (position de coupe, valeur) et rendus sous GIL au recollage via
-// PyOS_double_to_string.
 
 #define SJ_NUM_MT_MIN 32768
 #define SJ_NUM_MT_CHUNK 16384
 
 struct sj_numchunk {
     std::vector<char> text;
-    std::vector<std::pair<size_t, double>> fallbacks;  // coupe -> valeur
 };
 
 // brouillons réutilisés d'un dump à l'autre (possédés par l'Encoder) : les
@@ -475,7 +471,6 @@ static void
 sj_render_int_chunk(const long long* vals, size_t n, sj_numchunk& out)
 {
     out.text.resize(n * 21);
-    out.fallbacks.clear();
     char* cursor = out.text.data();
     for (size_t i = 0; i < n; i++) {
         if (i)
@@ -489,7 +484,6 @@ static void
 sj_render_double_chunk(const double* vals, size_t n, sj_numchunk& out)
 {
     out.text.resize(n * 28);
-    out.fallbacks.clear();
     char* base = out.text.data();
     char* cursor = base;
     for (size_t i = 0; i < n; i++) {
@@ -502,11 +496,7 @@ sj_render_double_chunk(const double* vals, size_t n, sj_numchunk& out)
             if (v < 0) { memcpy(cursor, "-Infinity", 9); cursor += 9; }
             else       { memcpy(cursor, "Infinity", 8);  cursor += 8; }
         } else {
-            int len = sjdtoa::ReprDouble(v, cursor);
-            if (len > 0)
-                cursor += len;
-            else
-                out.fallbacks.push_back({(size_t) (cursor - base), v});
+            cursor += sjdtoa::ReprDouble(v, cursor);
         }
     }
     out.text.resize((size_t) (cursor - base));
@@ -538,8 +528,8 @@ sj_render_chunks_parallel(const T* vals, size_t total,
         t.join();
 }
 
-// recolle les tranches dans le flux, en rendant les replis sous GIL ;
-// l'appelant a déjà écrit StartArray et fera AnnounceArrayValues+EndArray
+// recolle les tranches dans le flux ; l'appelant a déjà écrit StartArray
+// et fera AnnounceArrayValues+EndArray
 template <typename WriterT>
 static bool
 sj_splice_chunks(WriterT* writer, std::vector<sj_numchunk>& chunks)
@@ -550,20 +540,7 @@ sj_splice_chunks(WriterT* writer, std::vector<sj_numchunk>& chunks)
         if (!first_chunk)
             os.Put(',');
         first_chunk = false;
-        size_t pos = 0;
-        for (auto& fb : chunk.fallbacks) {
-            if (fb.first > pos)
-                os.RawValue(chunk.text.data() + pos, fb.first - pos);
-            pos = fb.first;
-            char* repr_str = PyOS_double_to_string(fb.second, 'r', 0,
-                                                   Py_DTSF_ADD_DOT_0, nullptr);
-            if (repr_str == nullptr)
-                return false;
-            os.RawValue(repr_str, strlen(repr_str));
-            PyMem_Free(repr_str);
-        }
-        if (chunk.text.size() > pos)
-            os.RawValue(chunk.text.data() + pos, chunk.text.size() - pos);
+        os.RawValue(chunk.text.data(), chunk.text.size());
     }
     return true;
 }
@@ -3804,20 +3781,11 @@ write_buffer_value(WriterT* writer, char code, const char* ptr, unsigned numberM
             writer->RawValue(value < 0 ? "-Infinity" : "Infinity",
                              value < 0 ? 9 : 8);
         } else {
-            // graphie EXACTE de repr() : Grisu3 en direct, repli sur le
-            // moteur interne de CPython quand l'arrondi n'est pas garanti
+            // graphie EXACTE de repr() : Ryu en direct (total, jamais
+            // d'échec)
             char repr_buf[40];
-            int repr_len = sjdtoa::ReprDouble(value, repr_buf);
-            if (repr_len > 0) {
-                writer->RawValue(repr_buf, (size_t) repr_len);
-            } else {
-                char* repr_str = PyOS_double_to_string(value, 'r', 0,
-                                                       Py_DTSF_ADD_DOT_0, nullptr);
-                if (repr_str == nullptr)
-                    return false;
-                writer->RawValue(repr_str, strlen(repr_str));
-                PyMem_Free(repr_str);
-            }
+            writer->RawValue(repr_buf,
+                             (size_t) sjdtoa::ReprDouble(value, repr_buf));
         }
         return true;
     }
@@ -4195,20 +4163,10 @@ dumps_internal(
         } else {
             // graphie EXACTE de repr(), sans passer par le __repr__ des
             // sous-classes (numpy 2 float64 donnerait "np.float64(0.0)") :
-            // Grisu3 en direct, repli sur le moteur interne de CPython
-            // quand l'arrondi n'est pas garanti (~0,5 % des valeurs)
+            // Ryu en direct (total, jamais d'échec)
             char repr_buf[40];
-            int repr_len = sjdtoa::ReprDouble(d, repr_buf);
-            if (repr_len > 0) {
-                writer->RawValue(repr_buf, (size_t) repr_len);
-            } else {
-                char* repr_str = PyOS_double_to_string(d, 'r', 0,
-                                                       Py_DTSF_ADD_DOT_0, nullptr);
-                if (repr_str == nullptr)
-                    return false;
-                writer->RawValue(repr_str, strlen(repr_str));
-                PyMem_Free(repr_str);
-            }
+            writer->RawValue(repr_buf,
+                             (size_t) sjdtoa::ReprDouble(d, repr_buf));
         }
     }
 	
@@ -4408,20 +4366,9 @@ dumps_internal(
                                              value < 0 ? 9 : 8);
                     } else {
                         char repr_buf[40];
-                        int repr_len = sjdtoa::ReprDouble(value, repr_buf);
-                        if (repr_len > 0) {
-                            writer->RawValue(repr_buf, (size_t) repr_len);
-                        } else {
-                            char* repr_str = PyOS_double_to_string(
-                                value, 'r', 0, Py_DTSF_ADD_DOT_0, nullptr);
-                            if (repr_str == nullptr) {
-                                if (pushed_compact)
-                                    writer->PopCompact();
-                                return false;
-                            }
-                            writer->RawValue(repr_str, strlen(repr_str));
-                            PyMem_Free(repr_str);
-                        }
+                        writer->RawValue(repr_buf,
+                                         (size_t) sjdtoa::ReprDouble(
+                                             value, repr_buf));
                     }
                 }
             }
