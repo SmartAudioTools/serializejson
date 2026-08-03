@@ -52,6 +52,15 @@ static inline PyObject* sj_unicode_from_utf8(const char* s, size_t len) {
     return PyUnicode_FromStringAndSize(s, (Py_ssize_t) len);
 }
 
+// variante guidée par l'indice du scan SSE du reader : 1 = prouvé pur
+// ascii sans échappement -> copie brute directe, sans re-scan du contenu
+static inline PyObject* sj_unicode_from_utf8_hint(const char* s, size_t len,
+                                                  int asciiHint) {
+    if (asciiHint == 1 && len >= 2)
+        return sj_unicode_from_ascii(s, (Py_ssize_t) len);
+    return sj_unicode_from_utf8(s, len);
+}
+
 #include "serializejson.h"
 #include "dtoa_repr.h"
 #include "reader.h"
@@ -1172,10 +1181,14 @@ struct PyHandler {
                              // données prouvées distinctes ne repaient que
                              // le plancher de 64 essais par parse
     bool valCacheEnabled;
+    // indice posé par le scan SSE du reader (via sjHintOut du flux borné) :
+    // 1 = la chaîne en cours est pure ascii sans échappement ; consommé
+    // (remis à 0) à chaque String()
+    int stringAsciiHint;
 
-    PyObject* ValueString(const char* s, size_t n) {
+    PyObject* ValueString(const char* s, size_t n, int asciiHint) {
         if (!valCacheEnabled || valCache == nullptr || n > 48)
-            return sj_unicode_from_utf8(s, n);
+            return sj_unicode_from_utf8_hint(s, n, asciiHint);
         uint64_t h = KeyHash(s, n);
         unsigned i = (unsigned) h & (kValCacheSize - 1);
         for (;;) {
@@ -1210,7 +1223,7 @@ struct PyHandler {
                 }
             *valCacheCount = 0;
         }
-        PyObject* value = sj_unicode_from_utf8(s, n);
+        PyObject* value = sj_unicode_from_utf8_hint(s, n, asciiHint);
         if (value == nullptr)
             return nullptr;
         if (*valCacheCount < kValCacheSize - (kValCacheSize / 4)) {
@@ -1291,6 +1304,7 @@ struct PyHandler {
           valCacheCount(nullptr),
           valCacheBudget(nullptr),
           valCacheEnabled(false),
+          stringAsciiHint(0),
           fastStartObject(false),
           fastPlainEndObject(false),
           deferB64(false),
@@ -2613,6 +2627,8 @@ struct PyHandler {
 
     bool String(const char* str, SizeType length, bool copy) {
         PyObject* value;
+        const int asciiHint = stringAsciiHint;
+        stringAsciiHint = 0;
 
         // ----- charges binaires : décode le base64 directement depuis le
         // tampon de parse (sans matérialiser la chaîne Python intermédiaire)
@@ -2700,7 +2716,7 @@ struct PyHandler {
         if (uuidMode != UM_NONE && IsUuid(str, length))
             return HandleUuid(str, length);
 
-        value = ValueString(str, (size_t) length);
+        value = ValueString(str, (size_t) length, asciiHint);
         if (value == nullptr)
             return false;
 
@@ -3254,6 +3270,7 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
         // mais rien n'est garanti au-delà)
         SjBoundedInsituStream<UTF8<> > ss(parseBuffer,
                                           parseBuffer + jsonStrLen);
+        ss.sjHintOut = &handler.stringAsciiHint;
 
         handler.deferB64 = true;
 

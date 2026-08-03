@@ -176,8 +176,12 @@ template <typename Encoding>
 struct SjBoundedInsituStream : GenericInsituStringStream<Encoding> {
     SjBoundedInsituStream(typename Encoding::Ch* src,
                           const typename Encoding::Ch* end)
-        : GenericInsituStringStream<Encoding>(src), sj_end_(end) {}
+        : GenericInsituStringStream<Encoding>(src), sj_end_(end),
+          sjHintOut(nullptr) {}
     const typename Encoding::Ch* sj_end_;
+    // indice « chaîne pure ascii sans échappement » : écrit au vol par le
+    // scan SSE chez le handler (1 = propre, 0 = sale ou indéterminé)
+    int* sjHintOut;
 };
 
 // même optimisation de copie locale que le flux insitu de base : le code
@@ -198,6 +202,34 @@ RAPIDJSON_FORCEINLINE const typename Encoding::Ch*
 SjRawEnd(SjBoundedInsituStream<Encoding>& s) { return s.sj_end_; }
 template <typename StreamType>
 RAPIDJSON_FORCEINLINE const char* SjRawEnd(StreamType&) { return nullptr; }
+
+// le scan SSE du flux borné écrit le verdict (1 propre / 0 sale) en une
+// fois ; l'échappement et le transcodage unitaire salissent après coup ;
+// no-op pour les autres flux
+template <typename StreamType>
+RAPIDJSON_FORCEINLINE void SjStringHintDirty(StreamType&) {}
+template <typename Encoding>
+RAPIDJSON_FORCEINLINE void SjStringHintDirty(SjBoundedInsituStream<Encoding>& s) {
+    if (s.sjHintOut)
+        *s.sjHintOut = 0;
+}
+
+// helpers SWAR : premier octet nul d'un mot (exact pour la POSITION du
+// premier vrai positif : les faux positifs des emprunts n'apparaissent
+// qu'au-dessus de lui), et index du premier bit à 1
+RAPIDJSON_FORCEINLINE uint64_t sj_haszero8(uint64_t v) {
+    return (v - RAPIDJSON_UINT64_C2(0x01010101, 0x01010101)) & ~v
+        & RAPIDJSON_UINT64_C2(0x80808080, 0x80808080);
+}
+RAPIDJSON_FORCEINLINE unsigned sj_ctz64(uint64_t v) {
+#if defined(_MSC_VER) && defined(_M_X64)
+    unsigned long r;
+    _BitScanForward64(&r, v);
+    return (unsigned) r;
+#else
+    return (unsigned) __builtin_ctzll(v);
+#endif
+}
 
 // conversion SWAR de 8 chiffres decimaux (petit-boutiste) : rend false si
 // l'un des 8 octets n'est pas un chiffre
@@ -1282,6 +1314,7 @@ private:
             Ch c = is.Peek();
             if (RAPIDJSON_UNLIKELY(c == '\\')) {    // Escape
                 size_t escapeOffset = is.Tell();    // For invalid escaping, report the initial '\\' as error offset
+                SjStringHintDirty(is);
                 is.Take();
                 Ch e = is.Peek();
                 if ((sizeof(Ch) == 1 || unsigned(e) < 256) && RAPIDJSON_LIKELY(escape[static_cast<unsigned char>(e)])) {
@@ -1332,6 +1365,7 @@ private:
                     RAPIDJSON_PARSE_ERROR(kParseErrorStringInvalidEncoding, is.Tell());
             }
             else {
+                SjStringHintDirty(is);
                 size_t offset = is.Tell();
                 if (RAPIDJSON_UNLIKELY((parseFlags & kParseValidateEncodingFlag ?
                     !Transcoder<SEncoding, TEncoding>::Validate(is, os) :
@@ -1501,6 +1535,109 @@ private:
             }
         }
 
+        is.src_ = is.dst_ = p;
+    }
+
+    // fork serializejson : mêmes scans SSE pour le flux insitu BORNÉ (les
+    // surcharges exactes ci-dessus ne s'appliquent pas à une classe
+    // dérivée : sans celles-ci, le template générique — qui ne fait rien —
+    // l'emportait et chaque caractère repassait par le transcodage
+    // unitaire), en accumulant au passage le bit non-ascii pour l'indice
+    // de chaîne pure
+    static RAPIDJSON_FORCEINLINE void ScanCopyUnescapedString(SjBoundedInsituStream<UTF8<> >& is,
+                                                              SjBoundedInsituStream<UTF8<> >& os) {
+        RAPIDJSON_ASSERT(&is == &os);
+        (void)os;
+        if (is.src_ == is.dst_) {
+            SkipUnescapedString(is);
+            return;
+        }
+        // src != dst : un échappement a déjà eu lieu, l'indice est déjà
+        // sale — le déplacement de la suite passe par le scan de base
+        ScanCopyUnescapedString(static_cast<InsituStringStream&>(is),
+                                static_cast<InsituStringStream&>(os));
+    }
+
+    static RAPIDJSON_FORCEINLINE void SkipUnescapedString(SjBoundedInsituStream<UTF8<> >& is) {
+        RAPIDJSON_ASSERT(is.src_ == is.dst_);
+        char* p = is.src_;
+        const char* rawEnd = is.sj_end_;
+        uint64_t seen64 = 0;
+
+        // 1-2 pas SWAR de 8 octets non alignés : la grande majorité des
+        // chaînes (clés, petites valeurs) se règle ici sans la mécanique
+        // d'alignement du chemin SSE ; le guillemet, l'antislash et les
+        // octets < 0x20 sont détectés à leur PREMIÈRE position exacte
+        for (int step = 0; step < 2; step++) {
+            if (RAPIDJSON_UNLIKELY(p + 8 > rawEnd))
+                break;
+            uint64_t v;
+            memcpy(&v, p, 8);
+            uint64_t special =
+                sj_haszero8(v ^ RAPIDJSON_UINT64_C2(0x22222222, 0x22222222))
+                | sj_haszero8(v ^ RAPIDJSON_UINT64_C2(0x5C5C5C5C, 0x5C5C5C5C))
+                | ((v - RAPIDJSON_UINT64_C2(0x20202020, 0x20202020)) & ~v
+                   & RAPIDJSON_UINT64_C2(0x80808080, 0x80808080));
+            if (RAPIDJSON_LIKELY(special)) {
+                unsigned idx = sj_ctz64(special) >> 3;
+                if (idx)
+                    seen64 |= v & ((UINT64_C(1) << (8 * idx)) - 1);
+                if (is.sjHintOut)
+                    *is.sjHintOut =
+                        (seen64 & RAPIDJSON_UINT64_C2(0x80808080, 0x80808080))
+                            ? 0 : 1;
+                is.src_ = is.dst_ = p + idx;
+                return;
+            }
+            seen64 |= v;
+            p += 8;
+        }
+        unsigned seen = (seen64 & RAPIDJSON_UINT64_C2(0x80808080, 0x80808080))
+                            ? 0x80u : 0u;   // octets >= 0x80 rencontrés
+
+        const char* nextAligned = reinterpret_cast<const char*>((reinterpret_cast<size_t>(p) + 15) & static_cast<size_t>(~15));
+        for (; p != nextAligned; p++) {
+            if (RAPIDJSON_UNLIKELY(*p == '\"') || RAPIDJSON_UNLIKELY(*p == '\\') || RAPIDJSON_UNLIKELY(static_cast<unsigned>(*p) < 0x20)) {
+                if (is.sjHintOut)
+                    *is.sjHintOut = seen ? 0 : 1;
+                is.src_ = is.dst_ = p;
+                return;
+            }
+            seen |= static_cast<unsigned>(static_cast<unsigned char>(*p)) & 0x80u;
+        }
+
+        static const char dquote[16] = { '\"', '\"', '\"', '\"', '\"', '\"', '\"', '\"', '\"', '\"', '\"', '\"', '\"', '\"', '\"', '\"' };
+        static const char bslash[16] = { '\\', '\\', '\\', '\\', '\\', '\\', '\\', '\\', '\\', '\\', '\\', '\\', '\\', '\\', '\\', '\\' };
+        static const char space[16] = { 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F };
+        const __m128i dq = _mm_loadu_si128(reinterpret_cast<const __m128i *>(&dquote[0]));
+        const __m128i bs = _mm_loadu_si128(reinterpret_cast<const __m128i *>(&bslash[0]));
+        const __m128i sp = _mm_loadu_si128(reinterpret_cast<const __m128i *>(&space[0]));
+
+        for (;; p += 16) {
+            const __m128i s = _mm_load_si128(reinterpret_cast<const __m128i *>(p));
+            const __m128i t1 = _mm_cmpeq_epi8(s, dq);
+            const __m128i t2 = _mm_cmpeq_epi8(s, bs);
+            const __m128i t3 = _mm_cmpeq_epi8(_mm_max_epu8(s, sp), sp); // s < 0x20 <=> max(s, 0x1F) == 0x1F
+            const __m128i x = _mm_or_si128(_mm_or_si128(t1, t2), t3);
+            unsigned short r = static_cast<unsigned short>(_mm_movemask_epi8(x));
+            unsigned hi = static_cast<unsigned>(_mm_movemask_epi8(s));   // bits de poids fort
+            if (RAPIDJSON_UNLIKELY(r != 0)) {   // some of characters is escaped
+                size_t length;
+#ifdef _MSC_VER         // Find the index of first escaped
+                unsigned long offset;
+                _BitScanForward(&offset, r);
+                length = offset;
+#else
+                length = static_cast<size_t>(__builtin_ffs(r) - 1);
+#endif
+                seen |= hi & ((1u << length) - 1u);
+                p += length;
+                break;
+            }
+            seen |= hi;
+        }
+        if (is.sjHintOut)
+            *is.sjHintOut = seen ? 0 : 1;
         is.src_ = is.dst_ = p;
     }
 #elif defined(RAPIDJSON_NEON)
