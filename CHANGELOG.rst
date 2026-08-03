@@ -1,3 +1,23 @@
+Version suivante (non publiée)
+------------------------------
+:Date: 2026-08-03
+
+* Python 3.11 to 3.14 support (default ``object.__getstate__`` handled), numpy 2 support
+* circular references and duplicates now handled for lists and dicts too (``$ref``),
+  including physically shared ``__dict__`` (restored at load, beyond pickle)
+* big speedups: per-class fast paths fully in C++ (encode and decode),
+  SIMD parser, base64 written/read without intermediate strings,
+  readable numpy arrays written straight from their buffer (``ArrayRows``)
+* blosc2 compression in C without Python round trip; DETERMINISTIC internal
+  multithreading via the bundled patched libblosc2 (same bytes whatever the
+  thread count); parallel base64; chunked parallel fallback (``b64_blosc2p``)
+* default compression switched to ``blosc2_zstd`` (old ``b64_blosc`` files
+  still readable; new files need a blosc2-capable serializejson)
+* homogeneous number lists written on a single line everywhere (dict values,
+  nested lists), decided in C++
+* fixes: segfault on 3.12/3.13 with deep/cyclic data, ``append()`` of objects,
+  float subclasses written via ``repr()`` (numpy 2), docstring SyntaxWarnings
+
 Version 0.3.4
 -------------
 :Date: 2023-06-11
