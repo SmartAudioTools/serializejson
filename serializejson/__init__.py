@@ -224,6 +224,9 @@ from .tools import (
     serializejson_,
     serializejson_builtins,
     class_has_user_getstate,
+    setters as _setters_registry,
+    properties as _properties_registry,
+    slots_properties_getters_setters_from_class,
     setters_names_from_class,
     slots_from_class,
     authorized_classes,
@@ -1580,6 +1583,51 @@ class Decoder(rapidjson.Decoder):
                     updatableClassStrs.add(class_str_from_class(updatable))
         self.updatableClassStrs = updatableClassStrs
 
+    # court-circuit du start_object Python par le C++ (racine posée par lui) ;
+    # False par défaut : les chemins itérateur et update le laissent inactif
+    _fast_start_object = False
+
+    def decode_class_plan(self, class_str):
+        # Chemin rapide de décodage, consulté par le C++ UNE fois par classe et
+        # par chargement : None -> end_object Python complet ; la CLASSE -> les
+        # objets {"__class__": nom, attributs...} sans clé spéciale sont
+        # instanciés directement en C++ (cls.__new__ puis assignation du dict
+        # d'attributs). Les conditions calquent _inst_from_dict/instance()/
+        # setstate : au moindre doute, None.
+        try:
+            if self._updating or class_str not in self._authorized_classes_strs:
+                return None
+            if class_str in constructors or class_str in remove_add_braces:
+                return None
+            class_ = class_from_class_str(class_str)
+            if not isinstance(class_, type) or not (
+                class_.__flags__ & _TPFLAGS_HEAPTYPE
+            ):
+                return None
+            if hasattr(class_, "__setstate__") or hasattr(class_, "__slots__"):
+                return None
+            _setters = self.setters
+            if _setters is True:
+                _setters = _setters_registry.get(class_, True)
+            elif type(_setters) is dict:
+                _setters = _setters.get(class_, False)
+            if _setters is True:
+                _setters = setters_names_from_class(class_)
+            if _setters:
+                return None
+            _properties = self.properties
+            if _properties is True:
+                _properties = _properties_registry.get(class_, True)
+            elif type(_properties) is dict:
+                _properties = _properties.get(class_, False)
+            if _properties is True:
+                _properties = slots_properties_getters_setters_from_class(class_)[1]
+            if _properties:
+                return None
+            return class_
+        except Exception:
+            return None
+
     def start_object(self):
         dict_ = dict()
         if (
@@ -1703,7 +1751,10 @@ class Decoder(rapidjson.Decoder):
         # for updating ------------------
         if obj is None:
             self._updating = False
+            # le C++ crée les dicts et pose .root lui-même (chemin rapide)
+            self._fast_start_object = True
             loaded = rapidjson.Decoder.__call__(self, json, chunk_size=self.chunk_size)
+            self._fast_start_object = False
         else:  # update
             self._updating = True
             self.ancestors = deque()

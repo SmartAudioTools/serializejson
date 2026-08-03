@@ -76,6 +76,15 @@ static PyObject* default_dict_name = nullptr;
 static PyObject* default_list_name = nullptr;
 static PyObject* class_plan_name = nullptr;
 static PyObject* dict_dunder_name = nullptr;
+static PyObject* decode_class_plan_name = nullptr;
+static PyObject* fast_start_object_name = nullptr;
+static PyObject* root_attr_name = nullptr;
+static PyObject* class_key_name = nullptr;
+static PyObject* init_key_name = nullptr;
+static PyObject* new_key_name = nullptr;
+static PyObject* state_key_name = nullptr;
+static PyObject* items_key_name = nullptr;
+static PyObject* empty_args_tuple = nullptr;
 static PyObject* end_array_name = nullptr;
 static PyObject* string_name = nullptr;
 static PyObject* read_name = nullptr;
@@ -739,6 +748,15 @@ struct PyHandler {
     unsigned uuidMode;
     unsigned numberMode;
     std::vector<HandlerContext> stack;
+    // chemin rapide de décodage : decode_class_plan(nom_de_classe), appelé
+    // UNE fois par classe et par chargement, retourne None (end_object
+    // Python) ou la CLASSE — l'objet est alors instancié en C++ (tp_new puis
+    // assignation du dict d'attributs), sans aucun appel Python par objet
+    PyObject* decoderObject;        // le Decoder lui-même (pour poser .root)
+    PyObject* decodeClassPlanFn;
+    bool fastStartObject;           // start_object Python court-circuité
+    bool rootAttrSet;
+    std::unordered_map<std::string, PyObject*> decodePlans;  // réfs possédées
 
     PyHandler(PyObject* decoder,
               PyObject* hook,
@@ -753,7 +771,11 @@ struct PyHandler {
           objectHook(hook),
           datetimeMode(dm),
           uuidMode(um),
-          numberMode(nm)
+          numberMode(nm),
+          decoderObject(nullptr),
+          decodeClassPlanFn(nullptr),
+          fastStartObject(false),
+          rootAttrSet(false)
         {
             stack.reserve(128);
             if (decoder != nullptr) {
@@ -770,6 +792,20 @@ struct PyHandler {
                 if (PyObject_HasAttr(decoder, string_name)) {
                     decoderString = PyObject_GetAttr(decoder, string_name);
                 }
+                if (PyObject_HasAttr(decoder, decode_class_plan_name)) {
+                    decodeClassPlanFn = PyObject_GetAttr(decoder, decode_class_plan_name);
+                }
+                if (decoderStartObject != nullptr) {
+                    PyObject* fast = PyObject_GetAttr(decoder, fast_start_object_name);
+                    if (fast == nullptr)
+                        PyErr_Clear();
+                    else {
+                        fastStartObject = PyObject_IsTrue(fast) == 1;
+                        Py_DECREF(fast);
+                    }
+                }
+                decoderObject = decoder;
+                Py_INCREF(decoder);
             }
             sharedKeys = PyDict_New();
         }
@@ -788,6 +824,10 @@ struct PyHandler {
         Py_CLEAR(decoderEndArray);
         Py_CLEAR(decoderString);
         Py_CLEAR(sharedKeys);
+        Py_CLEAR(decoderObject);
+        Py_CLEAR(decodeClassPlanFn);
+        for (auto& entry : decodePlans)
+            Py_DECREF(entry.second);
     }
 
     bool Handle(PyObject* value) {
@@ -878,7 +918,21 @@ struct PyHandler {
         PyObject* mapping;
         bool key_value_pairs;
 
-        if (decoderStartObject != nullptr) {
+        if (decoderStartObject != nullptr && fastStartObject) {
+            // court-circuite le start_object Python : dict natif, et .root
+            // posé sur le Decoder si ce dict est la racine du document
+            mapping = PyDict_New();
+            if (mapping == nullptr)
+                return false;
+            key_value_pairs = false;
+            if (!rootAttrSet && stack.empty() && decoderObject != nullptr) {
+                if (PyObject_SetAttr(decoderObject, root_attr_name, mapping) == -1) {
+                    Py_DECREF(mapping);
+                    return false;
+                }
+                rootAttrSet = true;
+            }
+        } else if (decoderStartObject != nullptr) {
             mapping = PyObject_CallFunctionObjArgs(decoderStartObject, nullptr);
             if (mapping == nullptr)
                 return false;
@@ -923,21 +977,84 @@ struct PyHandler {
         PyObject* mapping = ctx.object;
         stack.pop_back();
 
-        if (objectHook == nullptr && decoderEndObject == nullptr) {
+        PyObject* replacement = nullptr;
+
+        // ----- chemin rapide de décodage par classe : {"__class__": nom,
+        // attributs...} sans clé spéciale -> instanciation directe en C++
+        if (decodeClassPlanFn != nullptr && PyDict_CheckExact(mapping)) {
+            PyObject* class_value = PyDict_GetItem(mapping, class_key_name);
+            if (class_value != nullptr && PyUnicode_CheckExact(class_value)
+                && PyDict_GetItem(mapping, init_key_name) == nullptr
+                && PyDict_GetItem(mapping, new_key_name) == nullptr
+                && PyDict_GetItem(mapping, state_key_name) == nullptr
+                && PyDict_GetItem(mapping, items_key_name) == nullptr
+                && PyDict_GetItem(mapping, dict_dunder_name) == nullptr) {
+                Py_ssize_t class_length;
+                const char* class_str =
+                    PyUnicode_AsUTF8AndSize(class_value, &class_length);
+                if (class_str == nullptr) {
+                    Py_DECREF(mapping);
+                    return false;
+                }
+                std::string plan_key(class_str, (size_t) class_length);
+                PyObject* plan;
+                auto plan_it = decodePlans.find(plan_key);
+                if (plan_it != decodePlans.end()) {
+                    plan = plan_it->second;
+                } else {
+                    plan = PyObject_CallFunctionObjArgs(decodeClassPlanFn,
+                                                        class_value, nullptr);
+                    if (plan == nullptr) {
+                        Py_DECREF(mapping);
+                        return false;
+                    }
+                    if (plan != Py_None && !PyType_Check(plan)) {
+                        Py_DECREF(plan);
+                        plan = Py_None;
+                        Py_INCREF(Py_None);
+                    }
+                    decodePlans.emplace(std::move(plan_key), plan);
+                }
+                if (plan != Py_None) {
+                    if (PyDict_DelItem(mapping, class_key_name) == -1) {
+                        Py_DECREF(mapping);
+                        return false;
+                    }
+                    PyTypeObject* cls = (PyTypeObject*) plan;
+                    PyObject* inst = cls->tp_new(cls, empty_args_tuple, nullptr);
+                    if (inst == nullptr) {
+                        Py_DECREF(mapping);
+                        return false;
+                    }
+                    // assignation directe du dict d'attributs (objet neuf au
+                    // dict vide : équivalent du update() du chemin Python)
+                    if (PyObject_SetAttr(inst, dict_dunder_name, mapping) == -1) {
+                        Py_DECREF(inst);
+                        Py_DECREF(mapping);
+                        return false;
+                    }
+                    Py_DECREF(mapping);
+                    replacement = inst;
+                }
+            }
+        }
+
+        if (replacement == nullptr) {
+            if (objectHook == nullptr && decoderEndObject == nullptr) {
+                Py_DECREF(mapping);
+                return true;
+            }
+
+            if (decoderEndObject != nullptr) {
+                replacement = PyObject_CallFunctionObjArgs(decoderEndObject, mapping, nullptr);
+            } else /* if (objectHook != nullptr) */ {
+                replacement = PyObject_CallFunctionObjArgs(objectHook, mapping, nullptr);
+            }
+
             Py_DECREF(mapping);
-            return true;
+            if (replacement == nullptr)
+                return false;
         }
-
-        PyObject* replacement;
-        if (decoderEndObject != nullptr) {
-            replacement = PyObject_CallFunctionObjArgs(decoderEndObject, mapping, nullptr);
-        } else /* if (objectHook != nullptr) */ {
-            replacement = PyObject_CallFunctionObjArgs(objectHook, mapping, nullptr);
-        }
-
-        Py_DECREF(mapping);
-        if (replacement == nullptr)
-            return false;
 
         if (!stack.empty()) {
             HandlerContext& current = stack.back();
@@ -4467,6 +4584,42 @@ module_exec(PyObject* m)
 
     dict_dunder_name = PyUnicode_InternFromString("__dict__");
     if (dict_dunder_name == nullptr)
+        return -1;
+
+    decode_class_plan_name = PyUnicode_InternFromString("decode_class_plan");
+    if (decode_class_plan_name == nullptr)
+        return -1;
+
+    fast_start_object_name = PyUnicode_InternFromString("_fast_start_object");
+    if (fast_start_object_name == nullptr)
+        return -1;
+
+    root_attr_name = PyUnicode_InternFromString("root");
+    if (root_attr_name == nullptr)
+        return -1;
+
+    class_key_name = PyUnicode_InternFromString("__class__");
+    if (class_key_name == nullptr)
+        return -1;
+
+    init_key_name = PyUnicode_InternFromString("__init__");
+    if (init_key_name == nullptr)
+        return -1;
+
+    new_key_name = PyUnicode_InternFromString("__new__");
+    if (new_key_name == nullptr)
+        return -1;
+
+    state_key_name = PyUnicode_InternFromString("__state__");
+    if (state_key_name == nullptr)
+        return -1;
+
+    items_key_name = PyUnicode_InternFromString("__items__");
+    if (items_key_name == nullptr)
+        return -1;
+
+    empty_args_tuple = PyTuple_New(0);
+    if (empty_args_tuple == nullptr)
         return -1;
 
     end_array_name = PyUnicode_InternFromString("end_array");
