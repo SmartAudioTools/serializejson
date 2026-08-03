@@ -30,6 +30,14 @@ from rapidjson import RawBytesToBase64, BloscToBase64
 
 
 def bytearrayB64(string, compression=None):
+    if type(string) is bytearray:
+        # charge déjà décodée du base64 par le parseur C++ (sans chaîne
+        # intermédiaire) : il ne reste que l'éventuelle décompression
+        if compression == "b64":
+            return string
+        if compression in ("b64_blosc", "b64_blosc2"):
+            return blosc_decompress(string, as_bytearray=True)
+        raise Exception(f"unknow {compression} compression")
     if not compression or compression == "ascii":
         return bytearray(
             string, "ascii"
@@ -46,6 +54,14 @@ constructors["bytearray"] = bytearrayB64
 
 class bytesB64:
     def __new__(cls, string, compression=None):
+        if type(string) is bytes:
+            # charge déjà décodée du base64 par le parseur C++ (sans chaîne
+            # intermédiaire) : il ne reste que l'éventuelle décompression
+            if compression == "b64":
+                return string
+            if compression in ("b64_blosc", "b64_blosc2"):
+                return blosc_decompress(string)
+            raise Exception(f"unknow {compression} compression")
         if not compression or compression == "ascii":
             return bytes(string, "ascii")  # A REVOIR : 2 COPIES !!!
         elif compression == "b64":

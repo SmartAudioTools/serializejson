@@ -1587,6 +1587,11 @@ class Decoder(rapidjson.Decoder):
     # False par défaut : les chemins itérateur et update le laissent inactif
     _fast_start_object = False
 
+    # classes dont la charge __init__/__new__[0] est du base64 : le parseur
+    # C++ la décode directement depuis son tampon de parse, sans matérialiser
+    # la chaîne Python intermédiaire (0 -> bytes, 1 -> bytearray)
+    _b64_payload_classes = {"bytes": 0, "bytearray": 1, "numpyB64": 1}
+
     def decode_class_plan(self, class_str):
         # Chemin rapide de décodage, consulté par le C++ UNE fois par classe et
         # par chargement : None -> end_object Python complet ; la CLASSE -> les

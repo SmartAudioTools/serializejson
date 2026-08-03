@@ -89,6 +89,7 @@ static PyObject* new_key_name = nullptr;
 static PyObject* state_key_name = nullptr;
 static PyObject* items_key_name = nullptr;
 static PyObject* empty_args_tuple = nullptr;
+static PyObject* b64_payload_classes_name = nullptr;
 static PyObject* end_array_name = nullptr;
 static PyObject* string_name = nullptr;
 static PyObject* read_name = nullptr;
@@ -761,6 +762,9 @@ struct PyHandler {
     bool fastStartObject;           // start_object Python court-circuité
     bool rootAttrSet;
     std::unordered_map<std::string, PyObject*> decodePlans;  // réfs possédées
+    // classes dont la charge __init__/__new__[0] est du base64 à décoder
+    // directement depuis le tampon de parse (0 -> bytes, 1 -> bytearray)
+    std::unordered_map<std::string, int> b64PayloadClasses;
 
     PyHandler(PyObject* decoder,
               PyObject* hook,
@@ -807,6 +811,26 @@ struct PyHandler {
                         fastStartObject = PyObject_IsTrue(fast) == 1;
                         Py_DECREF(fast);
                     }
+                }
+                PyObject* payload_classes =
+                    PyObject_GetAttr(decoder, b64_payload_classes_name);
+                if (payload_classes == nullptr)
+                    PyErr_Clear();
+                else {
+                    if (PyDict_CheckExact(payload_classes)) {
+                        Py_ssize_t pos = 0;
+                        PyObject* key;
+                        PyObject* value;
+                        while (PyDict_Next(payload_classes, &pos, &key, &value)) {
+                            Py_ssize_t kl;
+                            const char* ks = PyUnicode_AsUTF8AndSize(key, &kl);
+                            if (ks != nullptr)
+                                b64PayloadClasses.emplace(
+                                    std::string(ks, (size_t) kl),
+                                    (int) PyLong_AsLong(value));
+                        }
+                    }
+                    Py_DECREF(payload_classes);
                 }
                 decoderObject = decoder;
                 Py_INCREF(decoder);
@@ -1575,6 +1599,45 @@ struct PyHandler {
 
     bool String(const char* str, SizeType length, bool copy) {
         PyObject* value;
+
+        // ----- charges binaires : décode le base64 directement depuis le
+        // tampon de parse (sans matérialiser la chaîne Python intermédiaire)
+        // quand cette chaîne est le premier élément de la liste __init__ ou
+        // __new__ d'une classe enregistrée (bytes, bytearray, numpyB64...).
+        // Si ce n'est pas du base64 propre, chemin normal.
+        if (!b64PayloadClasses.empty() && length >= 8 && stack.size() >= 2) {
+            const HandlerContext& top = stack.back();
+            if (!top.isObject && PyList_CheckExact(top.object)
+                && PyList_GET_SIZE(top.object) == 0) {
+                const HandlerContext& parent = stack[stack.size() - 2];
+                if (parent.isObject && parent.key != nullptr
+                    && ((parent.keyLength == 8
+                         && memcmp(parent.key, "__init__", 8) == 0)
+                        || (parent.keyLength == 7
+                            && memcmp(parent.key, "__new__", 7) == 0))
+                    && PyDict_CheckExact(parent.object)) {
+                    PyObject* class_value =
+                        PyDict_GetItem(parent.object, class_key_name);
+                    if (class_value != nullptr
+                        && PyUnicode_CheckExact(class_value)) {
+                        Py_ssize_t class_length;
+                        const char* class_str = PyUnicode_AsUTF8AndSize(
+                            class_value, &class_length);
+                        if (class_str != nullptr) {
+                            auto it = b64PayloadClasses.find(
+                                std::string(class_str, (size_t) class_length));
+                            if (it != b64PayloadClasses.end()) {
+                                PyObject* decoded =
+                                    serializejson_b64_decode_to_pyobject(
+                                        str, (size_t) length, it->second);
+                                if (decoded != nullptr)
+                                    return Handle(decoded);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         if (datetimeMode != DM_NONE) {
             int year, month, day, hours, mins, secs, usecs, tzoff;
@@ -4624,6 +4687,10 @@ module_exec(PyObject* m)
 
     empty_args_tuple = PyTuple_New(0);
     if (empty_args_tuple == nullptr)
+        return -1;
+
+    b64_payload_classes_name = PyUnicode_InternFromString("_b64_payload_classes");
+    if (b64_payload_classes_name == nullptr)
         return -1;
 
     end_array_name = PyUnicode_InternFromString("end_array");

@@ -68,7 +68,12 @@ else:
     )
 
     def numpyB64(str64, dtype=None, shape_len_compression=None, compression=None):
-        decoded_bytearray = b64decode_as_bytearray(str64, validate=True)
+        if type(str64) is bytearray:
+            # charge déjà décodée du base64 par le parseur C++,
+            # sans chaîne intermédiaire
+            decoded_bytearray = str64
+        else:
+            decoded_bytearray = b64decode_as_bytearray(str64, validate=True)
         if isinstance(shape_len_compression, str):
             compression = shape_len_compression
             shape_len = None

@@ -344,6 +344,88 @@ serializejson_b64_encode(const unsigned char* src, size_t n, char* dst)
 }
 
 
+// table de décodage base64 (255 = invalide, 254 = '=')
+static inline const unsigned char*
+serializejson_b64_decode_table()
+{
+    static unsigned char table[256];
+    static bool ready = false;
+    if (!ready) {
+        memset(table, 255, 256);
+        for (int i = 0; i < 64; i++)
+            table[(unsigned char) serializejson_b64_table[i]] = (unsigned char) i;
+        table[(unsigned char) '='] = 254;
+        ready = true;
+    }
+    return table;
+}
+
+// Décode du base64 strict (sans blancs, padding final) directement en
+// PyBytes (as_bytearray=0) ou PyByteArray (1). nullptr SANS exception Python
+// si la chaîne n'est pas du base64 propre : l'appelant reprend alors le
+// chemin normal.
+static PyObject*
+serializejson_b64_decode_to_pyobject(const char* src, size_t length,
+                                     int as_bytearray)
+{
+    if (length == 0 || (length % 4) != 0)
+        return nullptr;
+    const unsigned char* table = serializejson_b64_decode_table();
+    size_t padding = 0;
+    if (src[length - 1] == '=') {
+        padding = (src[length - 2] == '=') ? 2 : 1;
+    }
+    size_t out_length = length / 4 * 3 - padding;
+    PyObject* result = as_bytearray
+        ? PyByteArray_FromStringAndSize(nullptr, (Py_ssize_t) out_length)
+        : PyBytes_FromStringAndSize(nullptr, (Py_ssize_t) out_length);
+    if (result == nullptr)
+        return nullptr;
+    unsigned char* dst = as_bytearray
+        ? (unsigned char*) PyByteArray_AS_STRING(result)
+        : (unsigned char*) PyBytes_AS_STRING(result);
+    size_t full_groups = (length / 4) - (padding ? 1 : 0);
+    const unsigned char* in = (const unsigned char*) src;
+    for (size_t group = 0; group < full_groups; group++) {
+        unsigned a = table[in[0]], b = table[in[1]],
+                 c = table[in[2]], d = table[in[3]];
+        if ((a | b | c | d) >= 64) {
+            Py_DECREF(result);
+            return nullptr;
+        }
+        unsigned v = (a << 18) | (b << 12) | (c << 6) | d;
+        *dst++ = (unsigned char) (v >> 16);
+        *dst++ = (unsigned char) (v >> 8);
+        *dst++ = (unsigned char) v;
+        in += 4;
+    }
+    if (padding) {
+        unsigned a = table[in[0]], b = table[in[1]];
+        if (a >= 64 || b >= 64) {
+            Py_DECREF(result);
+            return nullptr;
+        }
+        if (padding == 1) {
+            unsigned c = table[in[2]];
+            if (c >= 64 || in[3] != '=') {
+                Py_DECREF(result);
+                return nullptr;
+            }
+            unsigned v = (a << 18) | (b << 12) | (c << 6);
+            *dst++ = (unsigned char) (v >> 16);
+            *dst++ = (unsigned char) (v >> 8);
+        } else {
+            if (in[2] != '=' || in[3] != '=') {
+                Py_DECREF(result);
+                return nullptr;
+            }
+            *dst++ = (unsigned char) ((a << 2) | (b >> 4));
+        }
+    }
+    return result;
+}
+
+
 typedef struct {
     PyObject_HEAD
     PyObject* value;
