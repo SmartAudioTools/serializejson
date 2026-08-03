@@ -30,6 +30,28 @@ static inline PyObject* sj_unicode_from_ascii(const char* s, Py_ssize_t size) {
     return u;
 }
 
+// création d'un str depuis de l'utf-8 : scan ascii par mots de 8 octets
+// (cas ultra-majoritaire) -> copie brute sans la passe de validation du
+// décodeur utf-8 ; sinon chemin normal
+static inline PyObject* sj_unicode_from_utf8(const char* s, size_t len) {
+    // 0 et 1 octet : le chemin standard renvoie les singletons du cache
+    // (chaine vide, caracteres latin1) sans allocation
+    if (len < 2)
+        return PyUnicode_FromStringAndSize(s, (Py_ssize_t) len);
+    uint64_t acc = 0;
+    size_t i = 0;
+    for (; i + 8 <= len; i += 8) {
+        uint64_t w;
+        memcpy(&w, s + i, 8);
+        acc |= w;
+    }
+    for (; i < len; i++)
+        acc |= (unsigned char) s[i];
+    if (!(acc & UINT64_C(0x8080808080808080)))
+        return sj_unicode_from_ascii(s, (Py_ssize_t) len);
+    return PyUnicode_FromStringAndSize(s, (Py_ssize_t) len);
+}
+
 #include "serializejson.h"
 #include "dtoa_repr.h"
 #include "reader.h"
@@ -939,8 +961,8 @@ struct PyHandler {
             const HandlerContext& current = stack.back();
 
             if (current.isObject) {
-                PyObject* key = PyUnicode_FromStringAndSize(current.key,
-                                                            current.keyLength);
+                PyObject* key = sj_unicode_from_utf8(current.key,
+                                                            (size_t) current.keyLength);
                 if (key == nullptr) {
                     Py_DECREF(value);
                     return false;
@@ -1170,8 +1192,8 @@ struct PyHandler {
             HandlerContext& current = stack.back();
 
             if (current.isObject) {
-                PyObject* key = PyUnicode_FromStringAndSize(current.key,
-                                                            current.keyLength);
+                PyObject* key = sj_unicode_from_utf8(current.key,
+                                                            (size_t) current.keyLength);
                 if (key == nullptr) {
                     Py_DECREF(replacement);
                     return false;
@@ -1287,8 +1309,8 @@ struct PyHandler {
             const HandlerContext& current = stack.back();
 
             if (current.isObject) {
-                PyObject* key = PyUnicode_FromStringAndSize(current.key,
-                                                            current.keyLength);
+                PyObject* key = sj_unicode_from_utf8(current.key,
+                                                            (size_t) current.keyLength);
                 if (key == nullptr) {
                     Py_DECREF(replacement);
                     return false;
@@ -1746,7 +1768,7 @@ struct PyHandler {
         if (uuidMode != UM_NONE && IsUuid(str, length))
             return HandleUuid(str, length);
 
-        value = PyUnicode_FromStringAndSize(str, length);
+        value = sj_unicode_from_utf8(str, (size_t) length);
         if (value == nullptr)
             return false;
 
