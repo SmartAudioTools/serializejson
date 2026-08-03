@@ -160,6 +160,14 @@ enum ParseFlag {
     kParseDefaultFlags = RAPIDJSON_PARSE_DEFAULT_FLAGS  //!< Default parse flags. Can be customized by defining RAPIDJSON_PARSE_DEFAULT_FLAGS
 };
 
+// fork serializejson : acces au curseur brut d'un flux insitu (nullptr pour
+// tout autre flux) - permet de rempiler d'un bloc des chiffres deja scannes
+template <typename Encoding>
+RAPIDJSON_FORCEINLINE const typename Encoding::Ch*
+SjRawCursor(GenericInsituStringStream<Encoding>& s) { return s.src_; }
+template <typename StreamType>
+RAPIDJSON_FORCEINLINE const char* SjRawCursor(StreamType&) { return nullptr; }
+
 ///////////////////////////////////////////////////////////////////////////////
 // Handler
 
@@ -1482,8 +1490,24 @@ private:
         double d = 0.0;
         bool useNanOrInf = false;
 
+        // fork serializejson : avec un tampon insitu, les chiffres de la
+        // partie entiere ne sont pas empiles pendant le scan (Take au lieu de
+        // TakePush) ; ils sont rempiles d'un bloc si un '.', un 'e' ou un
+        // grand entier les reclame - l'empilement est ainsi economise pour le
+        // cas majoritaire (les entiers ordinaires)
+        enum { kLazyIntDigits =
+                   (parseFlags & kParseBigIntsAsStringsFlag) != 0
+                   && (parseFlags & kParseInsituFlag) != 0
+                   && (parseFlags & kParseNumbersAsStringsFlag) == 0
+                   && (parseFlags & kParseFullPrecisionFlag) != 0 };
+        bool lazyPushed = false;
+        (void) lazyPushed;
+
         // Parse minus
         bool minus = Consume(s, '-');
+        const char* lazyBegin = kLazyIntDigits
+            ? reinterpret_cast<const char*>(SjRawCursor(copy.s)) : nullptr;
+        (void) lazyBegin;
 
         // Parse int: zero / ( digit1-9 *DIGIT )
         unsigned i = 0;
@@ -1492,10 +1516,10 @@ private:
         int significandDigit = 0;
         if (RAPIDJSON_UNLIKELY(s.Peek() == '0')) {
             i = 0;
-            s.TakePush();
+            (kLazyIntDigits ? s.Take() : s.TakePush());
         }
         else if (RAPIDJSON_LIKELY(s.Peek() >= '1' && s.Peek() <= '9')) {
-            i = static_cast<unsigned>(s.TakePush() - '0');
+            i = static_cast<unsigned>((kLazyIntDigits ? s.Take() : s.TakePush()) - '0');
 
             if (minus)
                 while (RAPIDJSON_LIKELY(s.Peek() >= '0' && s.Peek() <= '9')) {
@@ -1506,7 +1530,7 @@ private:
                             break;
                         }
                     }
-                    i = i * 10 + static_cast<unsigned>(s.TakePush() - '0');
+                    i = i * 10 + static_cast<unsigned>((kLazyIntDigits ? s.Take() : s.TakePush()) - '0');
                     significandDigit++;
                 }
             else
@@ -1518,7 +1542,7 @@ private:
                             break;
                         }
                     }
-                    i = i * 10 + static_cast<unsigned>(s.TakePush() - '0');
+                    i = i * 10 + static_cast<unsigned>((kLazyIntDigits ? s.Take() : s.TakePush()) - '0');
                     significandDigit++;
                 }
         }
@@ -1561,7 +1585,7 @@ private:
                             useDouble = true;
                             break;
                         }
-                    i64 = i64 * 10 + static_cast<unsigned>(s.TakePush() - '0');
+                    i64 = i64 * 10 + static_cast<unsigned>((kLazyIntDigits ? s.Take() : s.TakePush()) - '0');
                     significandDigit++;
                 }
             else
@@ -1572,7 +1596,7 @@ private:
                             useDouble = true;
                             break;
                         }
-                    i64 = i64 * 10 + static_cast<unsigned>(s.TakePush() - '0');
+                    i64 = i64 * 10 + static_cast<unsigned>((kLazyIntDigits ? s.Take() : s.TakePush()) - '0');
                     significandDigit++;
                 }
         }
@@ -1580,7 +1604,7 @@ private:
         // Force double for big integer
         if (useDouble) {
             while (RAPIDJSON_LIKELY(s.Peek() >= '0' && s.Peek() <= '9')) {
-                d = d * 10 + (s.TakePush() - '0');
+                d = d * 10 + ((kLazyIntDigits ? s.Take() : s.TakePush()) - '0');
             }
         }
 
@@ -1589,6 +1613,14 @@ private:
         size_t decimalPosition;
         if (Consume(s, '.')) {
             sawFracOrExp = true;
+            if (kLazyIntDigits) {
+                // rempile d'un bloc les chiffres entiers scannes sans pile
+                const char* lazyEnd =
+                    reinterpret_cast<const char*>(SjRawCursor(copy.s)) - 1;
+                for (const char* lp = lazyBegin; lp != lazyEnd; ++lp)
+                    s.Push(static_cast<NumberCharacter>(*lp));
+                lazyPushed = true;
+            }
             decimalPosition = s.Length();
 
             if (RAPIDJSON_UNLIKELY(!(s.Peek() >= '0' && s.Peek() <= '9')))
@@ -1637,6 +1669,14 @@ private:
         int exp = 0;
         if (Consume(s, 'e') || Consume(s, 'E')) {
             sawFracOrExp = true;
+            if (kLazyIntDigits && !lazyPushed) {
+                const char* lazyEnd =
+                    reinterpret_cast<const char*>(SjRawCursor(copy.s)) - 1;
+                for (const char* lp = lazyBegin; lp != lazyEnd; ++lp)
+                    s.Push(static_cast<NumberCharacter>(*lp));
+                lazyPushed = true;
+                decimalPosition = s.Length();  // pas de frac : point en fin
+            }
             if (!useDouble) {
                 d = static_cast<double>(use64bit ? i64 : i);
                 useDouble = true;
@@ -1719,11 +1759,18 @@ private:
                // fork serializejson : entier trop grand pour 64 bits, livre
                // en chaine pour une conversion exacte (les chiffres sont sur
                // la pile grace a kParseFullPrecisionFlag)
+               const char* bigDigits = reinterpret_cast<const char*>(decimal);
+               size_t bigLen = length;
+               if (kLazyIntDigits) {
+                   bigDigits = lazyBegin;
+                   bigLen = (size_t)(reinterpret_cast<const char*>(
+                                         SjRawCursor(copy.s)) - lazyBegin);
+               }
                std::string bigint;
-               bigint.reserve(length + 1);
+               bigint.reserve(bigLen + 1);
                if (minus)
                    bigint += '-';
-               bigint.append(reinterpret_cast<const char*>(decimal), length);
+               bigint.append(bigDigits, bigLen);
                cont = handler.RawNumber(
                    reinterpret_cast<const typename TargetEncoding::Ch*>(bigint.data()),
                    static_cast<SizeType>(bigint.size()), true);
