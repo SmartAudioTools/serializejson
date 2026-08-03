@@ -1129,10 +1129,18 @@ verdict « tout s'est dégradé » venait entièrement de la charge.
    sous-classe de class_plan (l'ancien .so était incompatible avec le
    nouveau class_plan : premier essai de mesure faux, jeté).
 
-   RESTE au chantier des recettes : le registre plugins serializejson_
-   en recette (mêmes formes plus les chaînes d'arguments), et la recette
-   d'encodage déclarative pour __getstate__/__reduce__ (appel par objet,
-   emballage C).
+   Étendu dans la foulée au REGISTRE plugins : array.array en recette (les
+   plugins retournent la CLASSE en tuple[0], le nom émis est précalculé par
+   class_plan) — 3 305 → 2 184 µs le millier (×1,5), les 13 formes
+   array.array des goldens passent par la recette. Les autres entrées du
+   registre restent volontairement en voie Python : datetime.datetime a sa
+   branche C dédiée, ndarray et les scalaires numpy sont traités par
+   default() AVANT _dict_from_instance (la recette les court-circuiterait),
+   et les instances numpy 2 de dtype ont pour type exact une sous-classe
+   (dtype[int32]) qui ne matche pas le registre de toute façon.
+
+   RESTE au chantier des recettes : la recette d'encodage déclarative pour
+   __getstate__/__reduce__ (appel par objet, emballage C).
 
 ### Cycle de vie du tampon de sortie : fuite str et OOM (3 août, soir)
 
