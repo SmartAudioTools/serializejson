@@ -535,6 +535,7 @@ struct PathTracker {
     bool singleLineNumbers = false;
     bool singleLineInit = true;
     bool singleLineNew = true;
+    bool strictPickle = false;
     // vrai si le prochain dict rencontré est l'état d'un objet retourné par
     // default() : ses clés sont alors des attributs (".attr" et non "['clef']")
     bool next_dict_is_attrs = false;
@@ -1688,6 +1689,28 @@ struct PyHandler {
                                 PyBytes_AS_STRING(ctor_args);
                             replacement = PyDate_FromDate(
                                 (raw4[0] << 8) | raw4[1], raw4[2], raw4[3]);
+                        }
+                    } else if (PyUnicode_CompareWithASCIIString(
+                                   cls_value, "datetime.datetime") == 0) {
+                        if (PyList_CheckExact(ctor_args)
+                            && PyList_GET_SIZE(ctor_args) == 7) {
+                            // appel du TYPE (validation identique à Python)
+                            PyObject* args_tuple = PyList_AsTuple(ctor_args);
+                            if (args_tuple != nullptr) {
+                                replacement = PyObject_CallObject(
+                                    (PyObject*) PyDateTimeAPI->DateTimeType,
+                                    args_tuple);
+                                Py_DECREF(args_tuple);
+                            }
+                        }
+                    } else if (PyUnicode_CompareWithASCIIString(
+                                   cls_value, "datetime.time") == 0) {
+                        if (PyBytes_CheckExact(ctor_args)
+                            && PyBytes_GET_SIZE(ctor_args) == 6
+                            && (pendingB64.empty() || FlushPendingB64())) {
+                            replacement = PyObject_CallFunctionObjArgs(
+                                (PyObject*) PyDateTimeAPI->TimeType,
+                                ctor_args, nullptr);
                         }
                     } else if (PyUnicode_CompareWithASCIIString(
                                    cls_value, "complex") == 0) {
@@ -4019,6 +4042,75 @@ dumps_internal(
         writer->EndObject();
     }
 
+	// datetime.datetime : {"__class__": "datetime.datetime", "__init__":
+	// [a, mois, j, h, mn, s, µs]} — comme la voie Python actuelle (qui perd
+	// fold et tzinfo : dette pré-existante, répliquée à l'identique)
+	else if (PyDateTime_CheckExact(object) && pathTracker != nullptr
+             && !pathTracker->strictPickle) {
+        CONTAINER_MEMO_OR_REF()
+        writer->StartObject();
+        writer->Key("__class__", 9);
+        writer->String("datetime.datetime", 17);
+        writer->Key("__init__", 8);
+        bool dt_compact = pathTracker->singleLineInit && !writer->InCompact();
+        if (dt_compact)
+            writer->PushCompact();
+        writer->StartArray();
+        writer->Int64(PyDateTime_GET_YEAR(object));
+        writer->Int64(PyDateTime_GET_MONTH(object));
+        writer->Int64(PyDateTime_GET_DAY(object));
+        writer->Int64(PyDateTime_DATE_GET_HOUR(object));
+        writer->Int64(PyDateTime_DATE_GET_MINUTE(object));
+        writer->Int64(PyDateTime_DATE_GET_SECOND(object));
+        writer->Int64(PyDateTime_DATE_GET_MICROSECOND(object));
+        writer->EndArray();
+        if (dt_compact)
+            writer->PopCompact();
+        writer->EndObject();
+    }
+
+	// datetime.time sans fuseau : {"__class__": "datetime.time", "__init__":
+	// {"__class__": "bytes", "__new__": ["<b64 de 6 octets>","b64"]}} — la
+	// forme reduce native (heure|0x80 si fold, mn, s, µs sur 3 octets)
+	else if (PyTime_CheckExact(object)
+             && ((PyDateTime_Time*) object)->tzinfo == Py_None
+             && pathTracker != nullptr) {
+        CONTAINER_MEMO_OR_REF()
+        writer->StartObject();
+        writer->Key("__class__", 9);
+        writer->String("datetime.time", 13);
+        writer->Key("__init__", 8);
+        writer->StartObject();
+        writer->Key("__class__", 9);
+        writer->String("bytes", 5);
+        writer->Key("__new__", 7);
+        bool time_compact = pathTracker->singleLineNew && !writer->InCompact();
+        if (time_compact)
+            writer->PushCompact();
+        writer->StartArray();
+        {
+            int us = PyDateTime_TIME_GET_MICROSECOND(object);
+            unsigned char raw6[6] = {
+                (unsigned char) (PyDateTime_TIME_GET_HOUR(object)
+                                 | (PyDateTime_TIME_GET_FOLD(object)
+                                    ? 0x80 : 0)),
+                (unsigned char) PyDateTime_TIME_GET_MINUTE(object),
+                (unsigned char) PyDateTime_TIME_GET_SECOND(object),
+                (unsigned char) ((us >> 16) & 0xFF),
+                (unsigned char) ((us >> 8) & 0xFF),
+                (unsigned char) (us & 0xFF)};
+            char b64_buf[9];
+            serializejson_b64_encode(raw6, 6, b64_buf);
+            writer->String(b64_buf, 8);
+            writer->String("b64", 3);
+        }
+        writer->EndArray();
+        if (time_compact)
+            writer->PopCompact();
+        writer->EndObject();
+        writer->EndObject();
+    }
+
 	// datetime.date : {"__class__": "datetime.date", "__init__": {"__class__":
 	// "bytes", "__new__": ["<b64 de 4 octets>","b64"]}} — la forme reduce
 	// native (année big-endian, mois, jour)
@@ -4690,6 +4782,7 @@ typedef struct {
     bool singleLineNumbers;
     bool singleLineInit;
     bool singleLineNew;
+    bool strictPickle;
     // traqueur de chemin actif pendant un encodage (nullptr sinon),
     // consulté par la méthode json_path()
     PathTracker* activePathTracker;
@@ -5510,6 +5603,7 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     pathTracker.singleLineNumbers = e->singleLineNumbers;
     pathTracker.singleLineInit = e->singleLineInit;
     pathTracker.singleLineNew = e->singleLineNew;
+    pathTracker.strictPickle = e->strictPickle;
     pathTracker.classPlanFn = classPlanFn;
     e->activePathTracker = &pathTracker;
 
@@ -5604,6 +5698,7 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
         "single_line_numbers",
         "single_line_init",
         "single_line_new",
+        "strict_pickle",
         nullptr
     };
     int skipInvalidKeys = false;
@@ -5612,8 +5707,9 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
     int singleLineNumbers = false;
     int singleLineInit = true;
     int singleLineNew = true;
+    int strictPickle = false;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|ppOpOOOOOOOpppppp:Encoder",
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|ppOpOOOOOOOppppppp:Encoder",
                                      (char**) kwlist,
                                      &skipInvalidKeys,
                                      &ensureAscii,
@@ -5631,7 +5727,8 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
                                      &memoRefs,
                                      &singleLineNumbers,
                                      &singleLineInit,
-                                     &singleLineNew
+                                     &singleLineNew,
+                                     &strictPickle
                                      ))
         return nullptr;
 
@@ -5688,6 +5785,7 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
     e->singleLineNumbers = singleLineNumbers? true : false;
     e->singleLineInit = singleLineInit? true : false;
     e->singleLineNew = singleLineNew? true : false;
+    e->strictPickle = strictPickle? true : false;
     e->activePathTracker = nullptr;
 
     return (PyObject*) e;

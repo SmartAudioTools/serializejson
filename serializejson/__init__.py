@@ -677,7 +677,8 @@ class Encoder(rapidjson.Encoder):
             # transmis au C++ pour les chemins rapides (tuple, date...) : le
             # __new__/__init__ compact doit suivre ces drapeaux
             single_line_init=bool(single_line_init),
-            single_line_new=bool(single_line_new)
+            single_line_new=bool(single_line_new),
+            strict_pickle=bool(strict_pickle)
             # **argsDict
         )
         self.use_tuple_for_numpy_shape = False
