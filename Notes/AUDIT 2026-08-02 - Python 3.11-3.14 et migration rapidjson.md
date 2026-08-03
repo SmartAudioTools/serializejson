@@ -1264,10 +1264,15 @@ enveloppes des micro-dicts (verbosité du format).
 - **Dragonbox à l'écriture des flottants** : ~×2-3 sur la conversion,
   protocole de validation massive identique à Grisu3/EL. Ne suffira PAS à
   battre le memcpy binaire de pickle sur les floats.
-- **Cache adaptatif des VALEURS chaînes au décodage** : généraliser le
-  cache des clés avec un interrupteur adaptatif (se couper si les échecs
-  dominent — les chaînes toutes distinctes ne doivent rien payer). Gain
-  réel sur les données répétitives, neutre sur les benchmarks distincts.
+- **Cache adaptatif des VALEURS chaînes au décodage** : FAIT — et deux
+  leçons au passage. (1) Par parse, il RÉGRESSAIT de +10 % sur les petits
+  documents (amorçage payé, jamais récolté) : il est PERSISTANT sur le
+  DecoderObject (32 Ko), comme le memo de pickle mais entre appels. (2) Le
+  crédit adaptatif doit persister AUSSI (plancher 64/parse, purge de la
+  table à l'épuisement), sinon chaque parse de données distinctes repayait
+  l'amorçage (+25 %). Final : −40 % répétitives, NEUTRE distinctes.
+  Sémantique : les chaînes identiques relues par le même Decoder sont le
+  MÊME objet str (immutable, sans danger — pickle fait pareil via son memo).
 - **Chaînes ASCII au décodage** : la remarque utilisateur du soir (détecter
   non-ASCII + échappement puis copier tel quel) est DÉJÀ en place aux deux
   étages : RAPIDJSON_SSE42 balaie les chaînes sans échappement par 16
