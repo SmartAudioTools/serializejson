@@ -1005,6 +1005,33 @@ interne rendu déterministe. Discipline : batterie 27 tests × 5 versions et
 goldens octet à octet à CHAQUE étape, A/B contre-vérifiés, chaque rejet
 chiffré et consigné.
 
+### Benchmarks officiels pyperformance (14 h – 16 h)
+
+La suite officielle (bm_pickle : 60 dumps/loads de micro-objets par itération)
+révélait le régime opposé à nos gros volumes : le coût fixe PAR APPEL et les
+allers-retours Python par objet. Trois vagues, avec le banc répliqué versionné
+dans tests/bench_pyperformance_pickle.py :
+
+1. **Coût fixe amorti** : la poussée des paramètres globaux (2,2 µs sur les
+   3,3 d'un dump minuscule !) n'est refaite que si un autre Encoder/Decoder a
+   poussé ou si un attribut a changé (__setattr__ côté encodeur ; garde par
+   comparaison côté décodeur — un __setattr__ y taxait les écritures internes,
+   régression mesurée et corrigée). Dump minuscule : 3,3 → 1,5 µs.
+2. **Dicts à clés entières en C++** (MICRO_DICT était ×12) : forme
+   dict_non_str_keys écrite en C, clés i64toa, prouvée à l'octet sur 22 cas.
+3. **Chemins rapides tuple/date/complex/range/slice**, encode et décode, avec
+   les drapeaux single_line_init/new transmis au C++. Un bogue de lecture
+   d'un tampon encore différé (dates) attrapé par les tests avant commit.
+
+Résultats officiels 3.14 (PGO) : pickle ×3,5 → ×2,20, unpickle ×2,6 → ×2,16,
+pickle_list ×2,3 → ×1,38, unpickle_list ×1,8 → ×1,75, pickle_dict ×12,3 →
+×2,10. Écarté sur mesure : le GC en pause à l'ENCODAGE (≤2 %, l'encodage
+n'alloue presque plus d'objets Python) ; la branche set/frozenset à l'encodage
+— et ce chantier a mis au jour un INDÉTERMINISME PRÉ-EXISTANT : l'ordre
+d'itération d'un set à collision de hachage (ex. {(1,2), 3}) varie entre
+processus même à PYTHONHASHSEED fixe, donc les sets ne sont pas garantis
+octet-stables aujourd'hui — à trancher un jour (tri canonique ?).
+
 ### Ce qui borne encore, et pourquoi
 
 - **Flottants et entiers scalaires en dumps** : pickle copie 8 octets binaires
