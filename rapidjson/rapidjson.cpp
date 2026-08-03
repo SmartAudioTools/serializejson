@@ -380,10 +380,20 @@ struct sj_numchunk {
     std::vector<std::pair<size_t, double>> fallbacks;  // coupe -> valeur
 };
 
+// brouillons réutilisés d'un dump à l'autre (possédés par l'Encoder) : les
+// vecteurs gardent leur capacité, donc leurs pages déjà touchées — un malloc
+// de 8 Mo par dump repasserait par mmap et re-paierait les défauts de page
+struct SjMtScratch {
+    std::vector<long long> ivals;
+    std::vector<double> dvals;
+    std::vector<sj_numchunk> chunks;
+};
+
 static void
 sj_render_int_chunk(const long long* vals, size_t n, sj_numchunk& out)
 {
     out.text.resize(n * 21);
+    out.fallbacks.clear();
     char* cursor = out.text.data();
     for (size_t i = 0; i < n; i++) {
         if (i)
@@ -397,6 +407,7 @@ static void
 sj_render_double_chunk(const double* vals, size_t n, sj_numchunk& out)
 {
     out.text.resize(n * 28);
+    out.fallbacks.clear();
     char* base = out.text.data();
     char* cursor = base;
     for (size_t i = 0; i < n; i++) {
@@ -524,6 +535,9 @@ struct PathTracker {
     // 4 plans de forme, indexés par profondeur : des dicts imbriqués de
     // formes différentes ne s'écrasent pas mutuellement le cache
     DictShape shapes[4];
+    // brouillons du multithread numérique, possédés par l'Encoder (survivent
+    // au dump), nullptr pour les chemins sans Encoder
+    SjMtScratch* mtScratch = nullptr;
 
     ~PathTracker() {
         for (DictShape& s : shapes)
@@ -3205,8 +3219,10 @@ dumps_internal(
                 // texte par tranches sur plusieurs threads (octets identiques,
                 // repli séquentiel si un entier déborde 64 bits)
                 bool mt_written = false;
-                if (size >= SJ_NUM_MT_MIN) {
-                    std::vector<long long> vals((size_t) size);
+                if (size >= SJ_NUM_MT_MIN && pathTracker
+                    && pathTracker->mtScratch) {
+                    std::vector<long long>& vals = pathTracker->mtScratch->ivals;
+                    vals.resize((size_t) size);
                     bool extractable = true;
                     for (Py_ssize_t i = 0; i < size; i++) {
                         int mt_overflow;
@@ -3224,7 +3240,9 @@ dumps_internal(
                         if (nthreads >= 2) {
                             size_t nchunks = ((size_t) size + SJ_NUM_MT_CHUNK - 1)
                                              / SJ_NUM_MT_CHUNK;
-                            std::vector<sj_numchunk> chunks(nchunks);
+                            std::vector<sj_numchunk>& chunks =
+                                pathTracker->mtScratch->chunks;
+                            chunks.resize(nchunks);
                             Py_BEGIN_ALLOW_THREADS
                             sj_render_chunks_parallel<long long, sj_render_int_chunk>(
                                 vals.data(), (size_t) size, chunks, nthreads);
@@ -3280,8 +3298,10 @@ dumps_internal(
                 }
             } else {  // PyFloat_Type : repr() conservé (graphie de Python)
                 bool mt_written = false;
-                if (size >= SJ_NUM_MT_MIN) {
-                    std::vector<double> vals((size_t) size);
+                if (size >= SJ_NUM_MT_MIN && pathTracker
+                    && pathTracker->mtScratch) {
+                    std::vector<double>& vals = pathTracker->mtScratch->dvals;
+                    vals.resize((size_t) size);
                     bool extractable = true;
                     for (Py_ssize_t i = 0; i < size; i++) {
                         double v = PyFloat_AS_DOUBLE(PyList_GET_ITEM(object, i));
@@ -3298,7 +3318,9 @@ dumps_internal(
                         if (nthreads >= 2) {
                             size_t nchunks = ((size_t) size + SJ_NUM_MT_CHUNK - 1)
                                              / SJ_NUM_MT_CHUNK;
-                            std::vector<sj_numchunk> chunks(nchunks);
+                            std::vector<sj_numchunk>& chunks =
+                                pathTracker->mtScratch->chunks;
+                            chunks.resize(nchunks);
                             Py_BEGIN_ALLOW_THREADS
                             sj_render_chunks_parallel<double, sj_render_double_chunk>(
                                 vals.data(), (size_t) size, chunks, nthreads);
@@ -3991,6 +4013,8 @@ typedef struct {
     // (évite les réallocations-copies mesurées ~8% sur les gros graphes)
     size_t pathNodesHighWater;
     size_t memoHighWater;
+    // brouillons réutilisables du multithread numérique (voir SjMtScratch)
+    SjMtScratch* mtScratch;
 } EncoderObject;
 
 
@@ -4570,12 +4594,19 @@ static PyGetSetDef encoder_props[] = {
     {nullptr}
 };
 
+static void encoder_dealloc(PyObject* self)
+{
+    // libère les brouillons réutilisables du multithread numérique
+    delete (SjMtScratch*) ((EncoderObject*) self)->mtScratch;
+    Py_TYPE(self)->tp_free(self);
+}
+
 static PyTypeObject Encoder_Type = {
     PyVarObject_HEAD_INIT(nullptr, 0)
     "rapidjson.Encoder",                      /* tp_name */
     sizeof(EncoderObject),                    /* tp_basicsize */
     0,                                        /* tp_itemsize */
-    0,                                        /* tp_dealloc */
+    (destructor) encoder_dealloc,             /* tp_dealloc */
     0,                                        /* tp_print */
     0,                                        /* tp_getattr */
     0,                                        /* tp_setattr */
@@ -4775,6 +4806,9 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     }
 
     PathTracker pathTracker;
+    if (e->mtScratch == nullptr)
+        e->mtScratch = new SjMtScratch();
+    pathTracker.mtScratch = e->mtScratch;
     if (e->pathNodesHighWater) {
         pathTracker.nodes.reserve(e->pathNodesHighWater);
         pathTracker.registered.reserve(64);
@@ -4950,6 +4984,7 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
     e->memoRefs = memoRefs? true : false;
     e->pathNodesHighWater = 0;
     e->memoHighWater = 0;
+    e->mtScratch = nullptr;
     e->singleLineNumbers = singleLineNumbers? true : false;
     e->activePathTracker = nullptr;
 
