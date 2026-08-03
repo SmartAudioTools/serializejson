@@ -862,6 +862,68 @@ private:
         }
     }
 
+    // fork serializejson : consomme goulûment les motifs « entier, » d'un
+    // tableau (flux insitu borné seulement) en émettant chaque valeur sans
+    // repasser par ParseValue/ParseNumber. S'arrête au premier élément qui
+    // n'est pas un entier simple suivi d'une virgule (flottant, grand
+    // entier, JSON invalide comme 01 : la voie normale tranche). Rend le
+    // nombre d'éléments émis ; *terminate est levé si le handler refuse.
+    template<unsigned parseFlags, typename InputStream, typename Handler>
+    RAPIDJSON_FORCEINLINE SizeType SjIntRun(InputStream& is, Handler& handler,
+                                            bool* terminate) {
+        const char* runEnd = reinterpret_cast<const char*>(SjRawEnd(is));
+        if (runEnd == nullptr)
+            return 0;
+        SizeType emitted = 0;
+        for (;;) {
+            const char* start = reinterpret_cast<const char*>(SjRawCursor(is));
+            const char* p = start;
+            bool neg = false;
+            if (p < runEnd && *p == '-') {
+                neg = true;
+                p++;
+            }
+            const char* digitsBegin = p;
+            uint64_t value = 0;
+            while (p + 8 <= runEnd && p - digitsBegin <= 8) {
+                uint32_t swarVal;
+                if (!sj_swar8_digits(p, &swarVal))
+                    break;
+                value = value * RAPIDJSON_UINT64_C2(0x00000000, 0x05F5E100)
+                    + swarVal;
+                p += 8;
+            }
+            while (p < runEnd
+                   && static_cast<unsigned>(*p - '0') <= 9
+                   && p - digitsBegin < 18) {
+                value = value * 10 + static_cast<unsigned>(*p - '0');
+                p++;
+            }
+            size_t digitCount = static_cast<size_t>(p - digitsBegin);
+            if (digitCount == 0 || digitCount >= 18)
+                return emitted;             // vide ou possiblement trop long
+            if (*digitsBegin == '0' && digitCount > 1)
+                return emitted;             // 01 : invalide, voie normale
+            if (p >= runEnd || *p != ',')
+                return emitted;             // flottant, fin, exposant...
+            bool ok = neg ? handler.Int64(-static_cast<int64_t>(value))
+                          : handler.Uint64(value);
+            if (!ok) {
+                *terminate = true;
+                return emitted;
+            }
+            emitted++;
+            // consomme le jeton, la virgule et les blancs qui suivent
+            Ch c;
+            size_t consume = static_cast<size_t>(p - start) + 1;
+            while (consume--)
+                is.Take();
+            while ((c = is.Peek()) == ' ' || c == '\n' || c == '\r'
+                   || c == '\t')
+                is.Take();
+        }
+    }
+
     // Parse array: [ value, ... ]
     template<unsigned parseFlags, typename InputStream, typename Handler>
     void ParseArray(InputStream& is, Handler& handler) {
@@ -881,6 +943,17 @@ private:
         }
 
         for (SizeType elementCount = 0;;) {
+            // fork serializejson : suite d'entiers consommée par lots
+            if ((parseFlags & kParseInsituFlag) != 0
+                && (parseFlags & kParseBigIntsAsStringsFlag) != 0
+                && (parseFlags & kParseNumbersAsStringsFlag) == 0
+                && (parseFlags & kParseCommentsFlag) == 0) {
+                bool sjTerminate = false;
+                elementCount += SjIntRun<parseFlags>(is, handler, &sjTerminate);
+                if (RAPIDJSON_UNLIKELY(sjTerminate))
+                    RAPIDJSON_PARSE_ERROR(kParseErrorTermination, is.Tell());
+            }
+
             ParseValue<parseFlags>(is, handler);
             RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
 
