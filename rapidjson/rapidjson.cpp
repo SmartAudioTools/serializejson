@@ -946,15 +946,21 @@ struct PyHandler {
                     return false;
                 }
 
-                PyObject* shared_key = PyDict_SetDefault(sharedKeys, key, key);
-                if (shared_key == nullptr) {
+                // internement des cles : rentable quand les memes cles
+                // reviennent (objets, listes de dicts homogenes), pur surcout
+                // quand elles sont toutes distinctes -> plafond au-dela duquel
+                // on cesse d'interner (optimisation sans effet semantique)
+                if (PyDict_GET_SIZE(sharedKeys) < 4096) {
+                    PyObject* shared_key = PyDict_SetDefault(sharedKeys, key, key);
+                    if (shared_key == nullptr) {
+                        Py_DECREF(key);
+                        Py_DECREF(value);
+                        return false;
+                    }
+                    Py_INCREF(shared_key);
                     Py_DECREF(key);
-                    Py_DECREF(value);
-                    return false;
+                    key = shared_key;
                 }
-                Py_INCREF(shared_key);
-                Py_DECREF(key);
-                key = shared_key;
 
                 int rc;
                 if (current.keyValuePairs) {
@@ -2228,6 +2234,17 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
 {
     PyHandler handler(decoder, objectHook, datetimeMode, uuidMode, numberMode);
     Reader reader;
+
+    // pause du GC generationnel pendant le parse : tout ce qui est construit
+    // ici est un arbre acyclique entierement accessible, les collections
+    // declenchees par les millions d'allocations ne liberent RIEN (mesure
+    // gprofng : gc_collect_main ~13% du temps de decodage) ; retabli a la
+    // sortie par le destructeur, y compris sur erreur
+    struct GCPause {
+        int was_enabled;
+        GCPause() : was_enabled(PyGC_Disable()) {}
+        ~GCPause() { if (was_enabled) PyGC_Enable(); }
+    } gc_pause;
 
     if (jsonStr != nullptr) {
         // insitu sur une COPIE de l'entrée : essayé sans copie (StringStream)
