@@ -1058,7 +1058,36 @@ voir ci-dessous ; (2) la
 généralisation des recettes — class_plan/decode_class_plan étendus pour que
 le Python déclare une fois par classe (constructeur, disposition des
 arguments, politique setters/properties) ce que le C exécute, couvrant les
-classes utilisateur et l'habillage numpy — NON COMMENCÉ.
+classes utilisateur et l'habillage numpy — PREMIÈRE MOITIÉ FAITE le 3 août
+au soir (gating par classe des getters/properties, classes à __slots__),
+voir ci-dessous.
+
+### Recettes par classe, première moitié (3 août, soir)
+
+Deux extensions du class_plan, chacune vérifiée par A/B contrôlé (sorties de
+HEAD régénérées par stash, aucune divergence d'octets sur toutes les
+combinaisons) :
+
+1. **Gating par classe des getters/properties.** Avant, `properties=True` ou
+   `getters=True` sur l'encodeur coupait le chemin C pour TOUTES les classes.
+   Le class_plan refait maintenant exactement les résolutions de tools.reduce
+   (registres, dict par classe, introspection) et ne rend None que si CETTE
+   classe a des getters/properties effectifs. 1 000 objets ordinaires avec
+   `properties=True` : 2 713 → 429 µs (×6,3).
+
+2. **Classes à __slots__ purs** (dictoffset == 0, donc sans __dict__ à
+   fusionner ; sinon voie Python). La recette d'encodage gagne un 3e élément :
+   les noms de slots de `copyreg._slotnames` (héritage et name mangling
+   compris), triés une fois par classe ; le C lit chaque slot par getattr, un
+   slot jamais assigné est simplement absent (même forme que le __getstate__
+   par défaut). Au décodage, le plan `(classe, True)` restaure par setattr
+   dans l'ordre du JSON (celui du setstate Python). Mémo/$ref et cycles
+   couverts. 1 000 objets à slots : dump 2 633 → 528 µs (pickle : 849 —
+   BATTU), load 1 853 → 599 µs (pickle : 315).
+
+Reste de ce chantier : les recettes déclaratives complètes (constructeur et
+disposition des arguments __init__/__new__ décrits par le Python, exécutés
+par le C — couvrirait __getinitargs__, les setters, et l'habillage numpy).
 
 ### Le __call__ porté en C (3 août, tranche 1 du chantier)
 
