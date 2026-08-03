@@ -68,6 +68,19 @@ if cxx and 'g++' in cxx:
         '-pedantic', '-Wno-long-long', '-std=c++11',
         '-O3', '-fno-semantic-interposition']
 
+    # optimisation guidée par profil (voir build_pgo.sh) :
+    #   SERIALIZEJSON_PGO=generate -> instrumente, écrit les .gcda dans le
+    #                                 dossier de build à l'exécution
+    #   SERIALIZEJSON_PGO=use      -> réutilise ces profils
+    pgo = os.environ.get('SERIALIZEJSON_PGO')
+    if pgo == 'generate':
+        extension_options['extra_compile_args'].append('-fprofile-generate')
+        extension_options.setdefault('extra_link_args', []).append('-fprofile-generate')
+    elif pgo == 'use':
+        extension_options['extra_compile_args'] += ['-fprofile-use',
+                                                    '-fprofile-correction']
+        extension_options.setdefault('extra_link_args', []).append('-fprofile-use')
+
     # Up to Python 3.7, some structures use "char*" instead of "const char*",
     # and ISO C++ forbids assigning string literal constants
     if sys.version_info < (3, 7):
