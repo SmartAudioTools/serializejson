@@ -5,6 +5,9 @@
 #include <structmember.h>
 #include <thread>
 #include <atomic>
+#if defined(__SSSE3__)
+#include <tmmintrin.h>
+#endif
 #include <vector>
 
 // En-têtes blosc2 vendorés (roue python-blosc2) : uniquement pour les TYPES
@@ -339,6 +342,41 @@ static inline char*
 serializejson_b64_encode(const unsigned char* src, size_t n, char* dst)
 {
     size_t i = 0;
+#if defined(__SSSE3__)
+    // vectorisation pshufb (Mula/aklomp) : 12 octets -> 16 caracteres par
+    // iteration. La charge lit 16 octets (4 au-dela des 12 consommes) : on
+    // s'arrete des que moins de 16 octets restent, queue scalaire ensuite —
+    // regle qui vaut aussi pour les segments paralleles (pas de sur-lecture
+    // au-dela du tampon d'entree)
+    if (n >= 16) {
+        const __m128i shuf = _mm_set_epi8(10, 11, 9, 10, 7, 8, 6, 7,
+                                          4, 5, 3, 4, 1, 2, 0, 1);
+        const __m128i t0mask = _mm_set1_epi32(0x0fc0fc00);
+        const __m128i t1mul  = _mm_set1_epi32(0x04000040);
+        const __m128i t2mask = _mm_set1_epi32(0x003f03f0);
+        const __m128i t3mul  = _mm_set1_epi32(0x01000010);
+        const __m128i lut = _mm_setr_epi8(65, 71, -4, -4, -4, -4, -4, -4,
+                                          -4, -4, -4, -4, -19, -16, 0, 0);
+        const __m128i c25 = _mm_set1_epi8(25);
+        const __m128i c51 = _mm_set1_epi8(51);
+        while (i + 16 <= n) {
+            __m128i x = _mm_loadu_si128((const __m128i*) (src + i));
+            x = _mm_shuffle_epi8(x, shuf);
+            __m128i t0 = _mm_and_si128(x, t0mask);
+            __m128i t1 = _mm_mulhi_epu16(t0, t1mul);
+            __m128i t2 = _mm_and_si128(x, t2mask);
+            __m128i t3 = _mm_mullo_epi16(t2, t3mul);
+            __m128i sextets = _mm_or_si128(t1, t3);
+            __m128i indices = _mm_subs_epu8(sextets, c51);
+            __m128i mask = _mm_cmpgt_epi8(sextets, c25);
+            indices = _mm_sub_epi8(indices, mask);
+            __m128i ascii = _mm_add_epi8(sextets, _mm_shuffle_epi8(lut, indices));
+            _mm_storeu_si128((__m128i*) dst, ascii);
+            dst += 16;
+            i += 12;
+        }
+    }
+#endif
     for (; i + 3 <= n; i += 3) {
         unsigned v = ((unsigned) src[i] << 16)
                    | ((unsigned) src[i + 1] << 8)
@@ -382,8 +420,8 @@ serializejson_b64_decode_table()
 // si la chaîne n'est pas du base64 propre : l'appelant reprend alors le
 // chemin normal.
 static bool
-sj_b64_decode_groups(const unsigned char* in, size_t groups,
-                     unsigned char* dst, const unsigned char* table)
+sj_b64_decode_groups_scalar(const unsigned char* in, size_t groups,
+                            unsigned char* dst, const unsigned char* table)
 {
     for (size_t group = 0; group < groups; group++) {
         unsigned a = table[in[0]], b = table[in[1]],
@@ -399,7 +437,58 @@ sj_b64_decode_groups(const unsigned char* in, size_t groups,
     return true;
 }
 
-#define SJ_B64_DECODE_PARALLEL_GROUPS (1u << 20)  // 4 Mo d'entree par segment... seuil plus bas ci-dessous
+static bool
+sj_b64_decode_groups(const unsigned char* in, size_t groups,
+                     unsigned char* dst, const unsigned char* table)
+{
+    size_t g = 0;
+#if defined(__SSSE3__)
+    // vectorisation pshufb (Mula/aklomp) : 16 caracteres -> 12 octets par
+    // iteration (4 groupes). Le store ecrit 16 octets (4 de rebut au-dela
+    // des 12 utiles) : il faut 16 octets de place dans NOTRE segment de
+    // sortie (jamais dans celui d'un autre thread), soit >= 6 groupes
+    // restants ; queue scalaire ensuite. En cas de rejet SIMD, le scalaire
+    // est l'arbitre (il revalide et decode le reste).
+    if (groups >= 6) {
+        const __m128i lut_lo = _mm_setr_epi8(
+            0x15, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+            0x11, 0x11, 0x13, 0x1A, 0x1B, 0x1B, 0x1B, 0x1A);
+        const __m128i lut_hi = _mm_setr_epi8(
+            0x10, 0x10, 0x01, 0x02, 0x04, 0x08, 0x04, 0x08,
+            0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10);
+        const __m128i lut_roll = _mm_setr_epi8(
+            0, 16, 19, 4, -65, -65, -71, -71, 0, 0, 0, 0, 0, 0, 0, 0);
+        const __m128i mask_2F = _mm_set1_epi8(0x2F);
+        const __m128i mask_0F = _mm_set1_epi8(0x0F);
+        const __m128i pack1 = _mm_set1_epi32(0x01400140);
+        const __m128i pack2 = _mm_set1_epi32(0x00011000);
+        const __m128i final_shuf = _mm_setr_epi8(2, 1, 0, 6, 5, 4, 10, 9, 8,
+                                                 14, 13, 12, -1, -1, -1, -1);
+        while (groups - g >= 6) {
+            __m128i str = _mm_loadu_si128((const __m128i*) (in + g * 4));
+            __m128i hi_nib = _mm_and_si128(_mm_srli_epi32(str, 4), mask_0F);
+            __m128i lo_nib = _mm_and_si128(str, mask_0F);
+            __m128i lo = _mm_shuffle_epi8(lut_lo, lo_nib);
+            __m128i hi = _mm_shuffle_epi8(lut_hi, hi_nib);
+            if (_mm_movemask_epi8(_mm_cmpgt_epi8(_mm_and_si128(lo, hi),
+                                                 _mm_setzero_si128())) != 0)
+                break;  // caractere suspect : le scalaire tranchera
+            __m128i eq_2F = _mm_cmpeq_epi8(str, mask_2F);
+            __m128i roll = _mm_shuffle_epi8(lut_roll,
+                                            _mm_add_epi8(eq_2F, hi_nib));
+            __m128i values = _mm_add_epi8(str, roll);
+            __m128i merged = _mm_maddubs_epi16(values, pack1);
+            __m128i packed = _mm_madd_epi16(merged, pack2);
+            packed = _mm_shuffle_epi8(packed, final_shuf);
+            _mm_storeu_si128((__m128i*) (dst + g * 3), packed);
+            g += 4;
+        }
+    }
+#endif
+    return sj_b64_decode_groups_scalar(in + g * 4, groups - g,
+                                       dst + g * 3, table);
+}
+
 
 static inline bool
 sj_b64_decode_maybe_parallel(const unsigned char* in, size_t groups,
