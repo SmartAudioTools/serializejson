@@ -1149,9 +1149,19 @@ verdict « tout s'est dégradé » venait entièrement de la charge.
    (×5,5) — PICKLE BATTU (483 µs). Les familles *getstate* des goldens
    passent par la recette.
 
-   RESTE au chantier des recettes : les classes à __reduce__/__reduce_ex__
-   réimplémenté (l'appel rend (callable, args, ...) : il faudrait résoudre
-   le nom du callable par objet), et __getnewargs__/__getnewargs_ex__.
+5. **Recette __reduce__ réimplémenté** (fin de nuit) : un adaptateur Python
+   minuscule appelle obj.__reduce_ex__(protocole) et reforme (classe, args,
+   état) pour la branche recette C existante — zéro nouveau code C. Repli
+   voie Python : callable ≠ classe, listitems/dictitems. Deux exclusions
+   apprises DE LA BATTERIE (leçon : les recettes doivent reproduire l'ordre
+   de priorité complet de tuple_from_instance) : serializejson_builtins
+   (bytearray a un __reduce_ex__ mais son plugin prime) et
+   remove_add_braces (Counter). 1 000 objets : 1 919 → 529 µs (×3,6 ;
+   pickle 259 — devant ici, listes d'arguments texte).
+
+   RESTE au chantier des recettes : __getnewargs__/__getnewargs_ex__
+   (forme __new__), et côté décodage la généralisation aux __state__/
+   __items__.
 
 ### Pistes consignées sur les conversions nombre ↔ texte (questions du soir)
 
