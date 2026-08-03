@@ -1032,6 +1032,30 @@ d'itération d'un set à collision de hachage (ex. {(1,2), 3}) varie entre
 processus même à PYTHONHASHSEED fixe, donc les sets ne sont pas garantis
 octet-stables aujourd'hui — à trancher un jour (tri canonique ?).
 
+### La question « tout en C++ ? » et le découpage retenu (15 h – 16 h)
+
+Réponse chiffrée : une bascule totale ne gagnerait presque rien sur les gros
+volumes (déjà dominés par le C++) et ~×1,5 sur les micro-objets, avec un
+plancher structurel (le texte écrit "birthday" en toutes lettres là où pickle
+émet des jetons binaires mémoïsés). Le bon découpage : des RECETTES PAR CLASSE
+déclarées en Python, exécutées en C. Première tranche livrée :
+datetime.datetime et datetime.time (encode + décode), avec deux dettes
+pré-existantes mises au jour — les datetime PERDENT fold et tzinfo à la
+sérialisation, et datetime.timezone n'est pas dans les classes autorisées par
+défaut — et une leçon de méthode : les goldens ont attrapé au premier jet que
+strict_pickle garde la forme octets, le drapeau est désormais transmis au C++.
+
+Benchmarks officiels après cette tranche (3.14, PGO) : pickle ×2,17,
+unpickle ×1,76, pickle_list ×1,33, unpickle_list ×1,73, pickle_dict ×2,30.
+
+CHANTIER SUIVANT SPÉCIFIÉ (non commencé) : (1) le __call__ des
+Encoder/Decoder porté en C (le dernier ~µs par appel : garde amortie, reset,
+curly-check, queue des doublons rare via helper Python) ; (2) la
+généralisation des recettes — class_plan/decode_class_plan étendus pour que
+le Python déclare une fois par classe (constructeur, disposition des
+arguments, politique setters/properties) ce que le C exécute, couvrant les
+classes utilisateur et l'habillage numpy.
+
 ### Ce qui borne encore, et pourquoi
 
 - **Flottants et entiers scalaires en dumps** : pickle copie 8 octets binaires
