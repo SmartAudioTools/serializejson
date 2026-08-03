@@ -5814,7 +5814,7 @@ static PyTypeObject Encoder_Type = {
                     bytesMode,                          \
                     iterableMode,                       \
                     mappingMode)                        \
-     ? (buf.Flush(), (outputHighWater ? (void)(*outputHighWater = buf.GetSize()) : (void)0), (returnBytes ? buf.getPyBytes()         : (buf.maybe_non_ascii            ? PyUnicode_FromEncodedObject(buf.getPyBytes(),"utf-8",errors)            : sj_unicode_from_ascii(buf.GetBuffer(), (Py_ssize_t) buf.GetSize())))): nullptr)
+     ? (buf.Flush(), (outputHighWater ? (void)(*outputHighWater = buf.GetSize()) : (void)0), (returnBytes ? buf.stealPyBytes()         : (buf.maybe_non_ascii            ? PyUnicode_FromEncodedObject(buf.getPyBytes(),"utf-8",errors)            : sj_unicode_from_ascii(buf.GetBuffer(), (Py_ssize_t) buf.GetSize())))): nullptr)
 
 
 static PyObject*
@@ -5832,16 +5832,25 @@ do_encode(PyObject* value, PyObject* defaultFn,
     // Encoder (une seule allocation en regime etabli, A/B mesure ~10% sur
     // les listes de nombres) ; 0 -> capacite par defaut
     PyBytesBuffer buf(outputHighWater ? *outputHighWater : 0);
-    if (writeMode == WM_COMPACT) {
+    // mémoire insuffisante : Resize lève bad_alloc (MemoryError déjà posée
+    // par l'allocateur CPython) — avant, le code déréférençait le NULL
+    // laissé par _PyBytes_Resize et plantait le processus
+    try {
+        if (writeMode == WM_COMPACT) {
             Writer<PyBytesBuffer> writer(buf);
-            return DUMPS_INTERNAL_CALL_WITH_PYBYTESBUFFER  ;
-    } else {
-        PrettyWriter<PyBytesBuffer> writer(buf);
-        writer.SetIndent(indentChar, indentCount);
-        if (writeMode & WM_SINGLE_LINE_ARRAY) {
-            writer.SetFormatOptions(kFormatSingleLineArray);
+            return DUMPS_INTERNAL_CALL_WITH_PYBYTESBUFFER;
+        } else {
+            PrettyWriter<PyBytesBuffer> writer(buf);
+            writer.SetIndent(indentChar, indentCount);
+            if (writeMode & WM_SINGLE_LINE_ARRAY) {
+                writer.SetFormatOptions(kFormatSingleLineArray);
+            }
+            return DUMPS_INTERNAL_CALL_WITH_PYBYTESBUFFER;
         }
-        return DUMPS_INTERNAL_CALL_WITH_PYBYTESBUFFER;
+    } catch (const std::bad_alloc&) {
+        if (!PyErr_Occurred())
+            PyErr_NoMemory();
+        return nullptr;
     }
 }
 

@@ -17,7 +17,8 @@
 
 #include "stream.h"
 #include <Python.h>
-#include <algorithm>   
+#include <algorithm>
+#include <new>
 
 RAPIDJSON_NAMESPACE_BEGIN
 
@@ -44,6 +45,14 @@ struct PyBytesBuffer { // a revoir c'est quoi la différence entre struc et clas
         bufferCursor = 0;
         bufferEnd = 0;
         pybytes = nullptr;
+    }
+
+    // propriétaire de pybytes tant que stealPyBytes() n'a pas transféré la
+    // référence : les chemins str et TOUS les chemins d'erreur libèrent ici
+    // (avant, chaque dumps vers str fuyait son tampon entier — mesuré
+    // +205 Mo en 200 dumps de 1 Mo)
+    ~PyBytesBuffer() {
+        Py_XDECREF(pybytes);
     }
 
     void Put(char c) { 
@@ -156,23 +165,39 @@ struct PyBytesBuffer { // a revoir c'est quoi la différence entre struc et clas
         return bufferCursor;
     }
     
+    // référence EMPRUNTÉE (le buffer reste propriétaire) : pour lire ou
+    // convertir sans transfert
     PyObject* getPyBytes(){
         return pybytes;
     }
-    
-    int Resize(size_t newCapacity) {
-        int success;
+
+    // TRANSFÈRE la référence à l'appelant (sortie bytes) : le destructeur
+    // ne libérera pas
+    PyObject* stealPyBytes(){
+        PyObject* transferred = pybytes;
+        pybytes = nullptr;
+        return transferred;
+    }
+
+    void Resize(size_t newCapacity) {
         const size_t size = GetSize();  // Backup the current size
         if (pybytes==nullptr){
             pybytes = PyBytes_FromStringAndSize(nullptr,newCapacity);
-            success = (pybytes!=nullptr);
-        } else { 
-            success= _PyBytes_Resize(&pybytes, newCapacity);
+            if (pybytes == nullptr)
+                // MemoryError déjà levée ; interrompt l'encodage (rattrapé
+                // dans do_encode) au lieu de déréférencer NULL plus bas
+                throw std::bad_alloc();
+        } else {
+            if (_PyBytes_Resize(&pybytes, newCapacity) != 0) {
+                // _PyBytes_Resize a LIBÉRÉ l'objet et mis pybytes à NULL :
+                // remet les curseurs dans un état sûr avant d'interrompre
+                bufferBegin = bufferCursor = bufferEnd = nullptr;
+                throw std::bad_alloc();
+            }
         }
         bufferBegin = PyBytes_AS_STRING(pybytes);
         bufferCursor = bufferBegin + size;
         bufferEnd = bufferBegin + newCapacity;
-        return success;
     }
     static const size_t kDefaultCapacity = 1024; // 10 Mo 
     PyObject* pybytes;

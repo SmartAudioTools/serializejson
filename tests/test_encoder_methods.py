@@ -43,6 +43,22 @@ def test_call_protocol_state():
     assert encoder({"m": shared, "n": shared}) == first
 
 
+def test_dumps_str_does_not_leak():
+    # régression : la sortie str fuyait tout son tampon à chaque appel (le
+    # buffer n'avait pas de destructeur ; +1 bloc et +1 Mo par dump avant le
+    # correctif, mesuré +205 Mo en 200 dumps)
+    import sys
+
+    data = ["x" * 100] * 1000
+    encoder = serializejson.Encoder()
+    encoder.dumps(data)
+    before = sys.getallocatedblocks()
+    for _ in range(50):
+        encoder.dumps(data)
+    grown = sys.getallocatedblocks() - before
+    assert grown < 25, "fuite du tampon de sortie str : +%d blocs" % grown
+
+
 if __name__ == "__main__":
     test_dumps_dumpb_per_call_return_bytes()
     test_dump_to_file(__import__("pathlib").Path(os.environ.get("TMPDIR", "/tmp")))
