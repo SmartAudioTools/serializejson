@@ -21,6 +21,15 @@
 #include <unordered_map>
 #include <dlfcn.h>
 
+// copie brute vers str quand tout le buffer est resté ascii (drapeau
+// maybe_non_ascii) : évite la passe de validation du décodeur utf-8
+static inline PyObject* sj_unicode_from_ascii(const char* s, Py_ssize_t size) {
+    PyObject* u = PyUnicode_New(size, 127);
+    if (u != nullptr)
+        memcpy(PyUnicode_1BYTE_DATA(u), s, (size_t) size);
+    return u;
+}
+
 #include "serializejson.h"
 #include "reader.h"
 #include "schema.h"
@@ -2675,6 +2684,8 @@ dumps_internal(
     if (PyUnicode_CheckExact(object)) {
         Py_ssize_t l;
         const char* s = PyUnicode_AsUTF8AndSize(object, &l);
+        if (!PyUnicode_IS_ASCII(object))
+            writer->MarkMaybeNonAscii();
         writer->String(s, (SizeType) l);
     }
 
@@ -2862,9 +2873,8 @@ dumps_internal(
 	else if (PyUnicode_Check(object)) {
         Py_ssize_t l;
         const char* s = PyUnicode_AsUTF8AndSize(object, &l);
-        //if (s == nullptr)
-        //    return false;
-        //ASSERT_VALID_SIZE(l);
+        if (!PyUnicode_IS_ASCII(object))
+            writer->MarkMaybeNonAscii();
         writer->String(s, (SizeType) l);
     } 
 	
@@ -2986,12 +2996,28 @@ dumps_internal(
             }
         } else {
             for (Py_ssize_t i = 0; i < size; i++) {
+                PyObject* item = PyList_GET_ITEM(object, i);
+                if (PyUnicode_CheckExact(item)) {
+                    // raccourci : écrit la chaîne sur place, sans payer
+                    // l appel récursif complet (garde, chemin, aiguillage)
+                    Py_ssize_t inline_length;
+                    const char* inline_str =
+                        PyUnicode_AsUTF8AndSize(item, &inline_length);
+                    if (inline_str == nullptr) {
+                        if (pushed_compact)
+                            writer->PopCompact();
+                        return false;
+                    }
+                    if (!PyUnicode_IS_ASCII(item))
+                        writer->MarkMaybeNonAscii();
+                    writer->String(inline_str, (SizeType) inline_length);
+                    continue;
+                }
                 if (Py_EnterRecursiveCall(" while JSONifying list object")) {
                     if (pushed_compact)
                         writer->PopCompact();
                     return false;
                 }
-                PyObject* item = PyList_GET_ITEM(object, i);
                 PATH_PUSH_INDEX(i);
                 bool r = RECURSE(item);
                 PATH_POP();
@@ -3104,7 +3130,23 @@ dumps_internal(
                         return false;
                     }
                     ASSERT_VALID_SIZE(l);
+                    if (!PyUnicode_IS_ASCII(key))
+                        writer->MarkMaybeNonAscii();
                     writer->Key(key_str, (SizeType) l);
+                    if (PyUnicode_CheckExact(item)) {
+                        Py_ssize_t inline_length;
+                        const char* inline_str =
+                            PyUnicode_AsUTF8AndSize(item, &inline_length);
+                        if (inline_str == nullptr) {
+                            Py_XDECREF(coercedKey);
+                            return false;
+                        }
+                        if (!PyUnicode_IS_ASCII(item))
+                            writer->MarkMaybeNonAscii();
+                        writer->String(inline_str, (SizeType) inline_length);
+                        Py_CLEAR(coercedKey);
+                        continue;
+                    }
                     if (Py_EnterRecursiveCall(" while JSONifying dict object")) {
                         Py_XDECREF(coercedKey);
                         return false;
@@ -3146,6 +3188,8 @@ dumps_internal(
                         return false;
                     }
                     ASSERT_VALID_SIZE(l);
+                    if (!PyUnicode_IS_ASCII(key))
+                        writer->MarkMaybeNonAscii();
                     items.push_back(DictItem(key_str, l, item));
                 } else if (!(mappingMode & MM_SKIP_NON_STRING_KEYS)) {
                     PyErr_SetString(PyExc_TypeError, "keys must be strings");
@@ -3159,6 +3203,17 @@ dumps_internal(
 
             for (size_t i=0, s=items.size(); i < s; i++) {
                 writer->Key(items[i].key_str, (SizeType) items[i].key_size);
+                if (PyUnicode_CheckExact(items[i].item)) {
+                    Py_ssize_t inline_length;
+                    const char* inline_str =
+                        PyUnicode_AsUTF8AndSize(items[i].item, &inline_length);
+                    if (inline_str == nullptr)
+                        return false;
+                    if (!PyUnicode_IS_ASCII(items[i].item))
+                        writer->MarkMaybeNonAscii();
+                    writer->String(inline_str, (SizeType) inline_length);
+                    continue;
+                }
                 if (Py_EnterRecursiveCall(" while JSONifying dict object"))
                     return false;
                 PATH_PUSH_KEY(items[i].key_str, items[i].key_size);
@@ -3175,12 +3230,16 @@ dumps_internal(
 
 	// RawString, RawBytes , RawBytesToPutInQuotes----------------------------------
 	else if (PyObject_TypeCheck(object, &RawString_Type)) {
+        if (!PyUnicode_IS_ASCII(((RawString*) object)->value))
+            writer->MarkMaybeNonAscii();
         writer->RawString_(object);
     } 
 	else if (PyObject_TypeCheck(object, &RawBytes_Type)) {
+        writer->MarkMaybeNonAscii();  // contenu opaque : conservateur
         writer->RawBytes_(object);
     } 
 	else if (PyObject_TypeCheck(object, &RawBytesToPutInQuotes_Type)) {
+        writer->MarkMaybeNonAscii();  // contenu opaque : conservateur
         writer->RawBytesToPutInQuotes_(object);
     }
 	else if (PyObject_TypeCheck(object, &SingleLine_Type)) {
@@ -3294,6 +3353,8 @@ dumps_internal(
                                 all_kept = false;
                                 continue;
                             }
+                            if (!PyUnicode_IS_ASCII(key))
+                                writer->MarkMaybeNonAscii();
                             if (!attrs.empty()) {
                                 const FastAttr& previous = attrs.back();
                                 size_t common = (size_t)
@@ -3345,6 +3406,8 @@ dumps_internal(
                         Py_XDECREF(object_dict);
                         return false;
                     }
+                    if (!PyUnicode_IS_ASCII(class_name))
+                        writer->MarkMaybeNonAscii();
                     writer->String(name_str, (SizeType) name_length);
 
                     if (shared_dict_node != -2) {
@@ -3372,6 +3435,20 @@ dumps_internal(
                         attrsDict = true;  // segments de chemin en style ".attr"
                         for (const FastAttr& attr : attrs) {
                             writer->Key(attr.key, (SizeType) attr.len);
+                            if (PyUnicode_CheckExact(attr.value)) {
+                                Py_ssize_t inline_length;
+                                const char* inline_str = PyUnicode_AsUTF8AndSize(
+                                    attr.value, &inline_length);
+                                if (inline_str == nullptr) {
+                                    Py_XDECREF(object_dict);
+                                    return false;
+                                }
+                                if (!PyUnicode_IS_ASCII(attr.value))
+                                    writer->MarkMaybeNonAscii();
+                                writer->String(inline_str,
+                                               (SizeType) inline_length);
+                                continue;
+                            }
                             if (Py_EnterRecursiveCall(" while JSONifying object")) {
                                 Py_XDECREF(object_dict);
                                 return false;
@@ -4129,7 +4206,7 @@ static PyTypeObject Encoder_Type = {
                     bytesMode,                          \
                     iterableMode,                       \
                     mappingMode)                        \
-     ? (buf.Flush(), (returnBytes ? buf.getPyBytes() : PyUnicode_FromEncodedObject(buf.getPyBytes(),"utf-8",errors))): nullptr)
+     ? (buf.Flush(), (returnBytes ? buf.getPyBytes()         : (buf.maybe_non_ascii            ? PyUnicode_FromEncodedObject(buf.getPyBytes(),"utf-8",errors)            : sj_unicode_from_ascii(buf.GetBuffer(), (Py_ssize_t) buf.GetSize())))): nullptr)
 
 
 static PyObject*

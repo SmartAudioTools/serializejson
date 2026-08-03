@@ -175,6 +175,9 @@ struct PyBytesBuffer { // a revoir c'est quoi la différence entre struc et clas
     }
     static const size_t kDefaultCapacity = 1024; // 10 Mo 
     PyObject* pybytes;
+    // vrai si une chaîne potentiellement non-ascii a été écrite : sinon la
+    // conversion finale en str peut être une copie brute (_PyUnicode_FromASCII)
+    bool maybe_non_ascii = false;
     char* bufferBegin ;
     char* bufferCursor;
     char* bufferEnd;

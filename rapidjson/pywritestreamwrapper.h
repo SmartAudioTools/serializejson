@@ -142,6 +142,7 @@ public:
     
     Ch* bufferCursor;
     PyObject* currentBytes;
+    bool maybe_non_ascii = false;  // sans objet pour un flux (pas de conversion)
 
     
 

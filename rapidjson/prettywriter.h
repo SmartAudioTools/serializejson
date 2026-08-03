@@ -91,6 +91,7 @@ public:
     bool InCompact() const {
         return compactDepth_ > 0 || compactPending_;
     }
+    void MarkMaybeNonAscii() { Base::os_->maybe_non_ascii = true; }
 
 #if RAPIDJSON_HAS_CXX11_RVALUE_REFS
     PrettyWriter(PrettyWriter&& rhs) :

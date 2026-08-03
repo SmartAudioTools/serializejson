@@ -335,6 +335,7 @@ public:
     void PushCompact() {}
     void PopCompact() {}
     bool InCompact() const { return true; }
+    void MarkMaybeNonAscii() { os_->maybe_non_ascii = true; }
 
     //! Flush the output stream.
     /*!
