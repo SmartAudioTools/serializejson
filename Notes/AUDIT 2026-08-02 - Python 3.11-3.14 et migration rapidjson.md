@@ -937,6 +937,23 @@ Le mur « constructeurs copieurs » était contournable en trois étages :
 46 → 40 ms. Reste pour le plein effet numpy : instancier les tableaux en C++
 via l'API C de numpy (dépendance de compilation optionnelle, non faite).
 
+### La marche numpy (14 h 30 – 15 h) — sans l'API C de numpy
+
+L'analyse a montré que l'API C n'était pas nécessaire : numpyB64 sans
+compression ne LIT jamais sa charge (frombuffer = vue), il suffisait de ne pas
+vider les différés pour ces dicts-là. Et pour les charges compressées en trame
+blosc2 UNIQUE, l'entête (24 octets décodés depuis les 32 premiers caractères
+base64) donne la taille décompressée : le job devient « base64 puis
+décompression », l'objet destination remplace la charge dans les arguments, et
+l'étiquette neutralisée fait même retomber bytes/bytearray dans le chemin C++
+sans aucun Python. Trames multiples, blosc v1, _diff, dtype bool : voie
+normale inchangée. Une régression du blob unique (dctx à 1 thread : 57 ms) a
+été attrapée et corrigée avant commit (MT interne quand jobs < coeurs).
+
+**Résultats loads : 30 tableaux non compressés 10,1 ms (devant pickle 10,7) ;
+64 Mo compressibles 6,5 ms (pickle 19,5 — 3× plus vite) ; 30 tableaux
+compressés ~8-11 ms ; 64 Mo incompressible stable à 40 ms.**
+
 ### Ce qui borne encore, et pourquoi
 
 - **Flottants et entiers scalaires en dumps** : pickle copie 8 octets binaires
