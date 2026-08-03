@@ -595,6 +595,10 @@ struct PathTracker {
     // tuple (nom_de_classe, filtrer_underscores) autorisant l'écriture de
     // l'objet entièrement en C++ (attributs du __dict__, triés)
     PyObject* classPlanFn = nullptr;   // référence empruntée (encoder_call)
+    // dumped_classes de l'Encoder (référence FORTE, posée par encoder_call
+    // après le reset, libérée en fin d'appel) : les recettes
+    // __serializejson__ y ajoutent le nom de classe émis
+    PyObject* dumpedClasses = nullptr;
     std::unordered_map<PyTypeObject*, PyObject*> classPlans;  // réfs possédées
     // écrit sur une seule ligne les listes homogènes de nombres, où qu'elles
     // soient (valeurs de dicts purs et sous-listes comprises)
@@ -4912,7 +4916,272 @@ dumps_internal(
                 }
                 pathTracker->classPlans.emplace(object_type, plan);
             }
-            if (plan != Py_None) {
+            if (plan != Py_None
+                && PyTuple_GET_ITEM(plan, 0) == Py_None) {
+                // ----- recette __serializejson__ : (None, méthode,
+                // numpy_array_to_list). La méthode de l'objet est appelée —
+                // seul Python restant —, l'emballage complet est écrit ici,
+                // octet pour octet comme _dict_from_instance. Un tuple de
+                // forme inattendue retombe sur le chemin Python (defaultFn).
+                PyObject* recipe_fn = PyTuple_GET_ITEM(plan, 1);
+                bool numpy_keeps_list =
+                    PyObject_IsTrue(PyTuple_GET_ITEM(plan, 2)) == 1;
+
+                // mémo des doublons : mémorise à la première rencontre,
+                // $ref ensuite — le comportement de default()
+                CONTAINER_MEMO_OR_REF()
+
+                PyObject* tup = PyObject_CallFunctionObjArgs(
+                    recipe_fn, object, nullptr);
+                if (tup == nullptr)
+                    return false;
+                Py_ssize_t tup_size =
+                    PyTuple_Check(tup) ? PyTuple_GET_SIZE(tup) : 0;
+                PyObject* class_str_obj =
+                    (tup_size >= 2) ? PyTuple_GET_ITEM(tup, 0) : nullptr;
+                PyObject* init_args =
+                    (tup_size >= 2) ? PyTuple_GET_ITEM(tup, 1) : nullptr;
+                PyObject* state_obj =
+                    (tup_size > 2) ? PyTuple_GET_ITEM(tup, 2) : Py_None;
+                PyObject* list_items =
+                    (tup_size > 3) ? PyTuple_GET_ITEM(tup, 3) : Py_None;
+                PyObject* dict_items =
+                    (tup_size > 4) ? PyTuple_GET_ITEM(tup, 4) : Py_None;
+                PyObject* new_args =
+                    (tup_size > 5) ? PyTuple_GET_ITEM(tup, 5) : Py_None;
+                // formes prises en charge : nom str, arguments None ou
+                // tuple/liste/dict EXACTS (les mêmes tests de type que
+                // _dict_from_instance, qui compare par type exact)
+                bool shape_ok = tup_size >= 2 && tup_size <= 6
+                    && PyUnicode_Check(class_str_obj);
+                for (PyObject* args : {init_args, new_args})
+                    if (shape_ok && args != Py_None && args != nullptr
+                        && !PyTuple_CheckExact(args)
+                        && !PyList_CheckExact(args)
+                        && !PyDict_CheckExact(args))
+                        shape_ok = false;
+
+                if (shape_ok) {
+                    if (pathTracker->dumpedClasses != nullptr
+                        && PySet_Add(pathTracker->dumpedClasses,
+                                     class_str_obj) < 0)
+                        PyErr_Clear();
+
+                    bool wrote_ok = true;
+                    bool saved_attrs_style = attrsDict;
+                    attrsDict = true;   // segments de chemin en style ".attr"
+                    writer->StartObject();
+                    writer->Key("__class__", 9);
+                    Py_ssize_t cls_len;
+                    const char* cls_str =
+                        PyUnicode_AsUTF8AndSize(class_str_obj, &cls_len);
+                    if (cls_str == nullptr) {
+                        Py_DECREF(tup);
+                        return false;
+                    }
+                    if (!PyUnicode_IS_ASCII(class_str_obj))
+                        writer->MarkMaybeNonAscii();
+                    writer->String(cls_str, (SizeType) cls_len);
+
+                    // __new__ puis __init__ (l'ordre d'écriture de
+                    // _dict_from_instance), règles de déballage identiques
+                    struct ArgSlot {
+                        const char* key;
+                        SizeType key_length;
+                        PyObject* args;
+                    };
+                    ArgSlot arg_slots[2] = {
+                        {"__new__", 7, new_args},
+                        {"__init__", 8, init_args},
+                    };
+                    for (int slot_index = 0;
+                         slot_index < 2 && wrote_ok; slot_index++) {
+                        PyObject* args = arg_slots[slot_index].args;
+                        if (args == Py_None || args == nullptr)
+                            continue;
+                        writer->Key(arg_slots[slot_index].key,
+                                    arg_slots[slot_index].key_length);
+                        PATH_PUSH_KEY(arg_slots[slot_index].key,
+                                      arg_slots[slot_index].key_length)
+                        PyObject* single = nullptr;
+                        bool write_list = false;
+                        if (PyDict_CheckExact(args)) {
+                            single = args;   // arguments nommés : dict tel quel
+                        } else {
+                            Py_ssize_t nargs = PySequence_Fast_GET_SIZE(args);
+                            if (nargs == 1) {
+                                PyObject* first =
+                                    PySequence_Fast_GET_ITEM(args, 0);
+                                bool keep_list = PyTuple_CheckExact(first)
+                                    || PyList_CheckExact(first)
+                                    || (numpy_keeps_list
+                                        && strcmp(Py_TYPE(first)->tp_name,
+                                                  "numpy.ndarray") == 0);
+                                if (!keep_list && PyDict_CheckExact(first))
+                                    keep_list = PyDict_GetItem(
+                                        first, class_key_name) == nullptr;
+                                if (!keep_list)
+                                    single = first;
+                                else
+                                    write_list = true;
+                            } else {
+                                write_list = true;
+                            }
+                        }
+                        if (single != nullptr) {
+                            wrote_ok = RECURSE(single);
+                        } else if (write_list) {
+                            // default() enveloppe les listes __init__/__new__
+                            // dans SingleLine (single_line_init/new) : même
+                            // forme compacte ici
+                            bool args_compact = (slot_index == 0
+                                                 ? pathTracker->singleLineNew
+                                                 : pathTracker->singleLineInit)
+                                && !writer->InCompact();
+                            if (args_compact)
+                                writer->PushCompact();
+                            writer->StartArray();
+                            Py_ssize_t nargs = PySequence_Fast_GET_SIZE(args);
+                            for (Py_ssize_t ai = 0;
+                                 ai < nargs && wrote_ok; ai++) {
+                                PATH_PUSH_INDEX(ai)
+                                wrote_ok = RECURSE(
+                                    PySequence_Fast_GET_ITEM(args, ai));
+                                PATH_POP()
+                            }
+                            if (wrote_ok)
+                                writer->EndArray();
+                            if (args_compact)
+                                writer->PopCompact();
+                        }
+                        PATH_POP()
+                    }
+
+                    // __items__ : listitems prioritaire, sinon dictitems
+                    if (wrote_ok) {
+                        PyObject* items = nullptr;
+                        if (list_items != Py_None && list_items != nullptr
+                            && PyObject_IsTrue(list_items) == 1)
+                            items = list_items;
+                        else if (dict_items != Py_None && dict_items != nullptr
+                                 && PyObject_IsTrue(dict_items) == 1)
+                            items = dict_items;
+                        if (items != nullptr) {
+                            writer->Key("__items__", 9);
+                            PATH_PUSH_KEY("__items__", 9)
+                            wrote_ok = RECURSE(items);
+                            PATH_POP()
+                        }
+                    }
+
+                    // état : dict à clés str -> attributs à plat (l'ordre du
+                    // dict, ni tri ni filtre : dictionnaire.update(state)),
+                    // avec la rigueur du __dict__ réel partagé ; sinon
+                    // "__state__"
+                    if (wrote_ok && state_obj != Py_None
+                        && state_obj != nullptr
+                        && PyObject_IsTrue(state_obj) == 1) {
+                        bool flat = PyDict_CheckExact(state_obj);
+                        if (flat
+                            && PyObject_HasAttrString(object, "__setstate__")) {
+                            Py_ssize_t key_pos = 0;
+                            PyObject* key;
+                            PyObject* val;
+                            while (PyDict_Next(state_obj, &key_pos,
+                                               &key, &val)) {
+                                if (!PyUnicode_Check(key)) {
+                                    flat = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!flat) {
+                            writer->Key("__state__", 9);
+                            PATH_PUSH_KEY("__state__", 9)
+                            wrote_ok = RECURSE(state_obj);
+                            PATH_POP()
+                        } else {
+                            PyObject* real_dict =
+                                PyObject_GetAttr(object, dict_dunder_name);
+                            if (real_dict == nullptr)
+                                PyErr_Clear();
+                            bool is_real_dict = (real_dict == state_obj);
+                            Py_XDECREF(real_dict);
+                            bool state_done = false;
+                            if (is_real_dict && pathTracker->memoContainers) {
+                                auto dict_it =
+                                    pathTracker->memo.find(state_obj);
+                                if (dict_it != pathTracker->memo.end()) {
+                                    // déjà écrit ailleurs : {"__dict__":
+                                    // {"$ref": ...}} et rien d'autre
+                                    writer->Key("__dict__", 8);
+                                    std::string ref_ = "{\"$ref\": \"";
+                                    ref_ += path_tracker_string(
+                                        pathTracker, dict_it->second);
+                                    ref_ += "\"}";
+                                    writer->RawValue(ref_.data(),
+                                                     ref_.size());
+                                    state_done = true;
+                                } else {
+                                    // memo_state_dict : le vrai __dict__
+                                    // devient adressable "<chemin>.__dict__"
+                                    long recipe_node =
+                                        path_tracker_materialize(pathTracker);
+                                    PathNode node;
+                                    node.parent = (int) recipe_node;
+                                    node.kind = PathSegment::ATTR;
+                                    node.key = "__dict__";
+                                    node.index = 0;
+                                    pathTracker->nodes.push_back(
+                                        std::move(node));
+                                    pathTracker->memo.emplace(
+                                        state_obj,
+                                        (long) pathTracker->nodes.size() - 1);
+                                    Py_INCREF(state_obj);
+                                }
+                            }
+                            if (!state_done) {
+                                Py_ssize_t state_pos = 0;
+                                PyObject* state_key;
+                                PyObject* state_val;
+                                while (wrote_ok
+                                       && PyDict_Next(state_obj, &state_pos,
+                                                      &state_key,
+                                                      &state_val)) {
+                                    if (!PyUnicode_Check(state_key)) {
+                                        wrote_ok = false;   // clés non-str
+                                        break;              // sans setstate :
+                                    }                       // erreur en aval
+                                    Py_ssize_t sk_len;
+                                    const char* sk = PyUnicode_AsUTF8AndSize(
+                                        state_key, &sk_len);
+                                    if (sk == nullptr) {
+                                        wrote_ok = false;
+                                        break;
+                                    }
+                                    if (!PyUnicode_IS_ASCII(state_key))
+                                        writer->MarkMaybeNonAscii();
+                                    writer->Key(sk, (SizeType) sk_len);
+                                    PATH_PUSH_KEY(sk, sk_len)
+                                    wrote_ok = RECURSE(state_val);
+                                    PATH_POP()
+                                }
+                            }
+                        }
+                    }
+                    attrsDict = saved_attrs_style;
+                    if (wrote_ok)
+                        writer->EndObject();
+                    Py_DECREF(tup);
+                    if (!wrote_ok)
+                        return false;
+                    return PyErr_Occurred() ? false : true;
+                }
+                // tuple inattendu : voie Python (defaultFn ci-dessous) —
+                // le mémo C reste le bon, les rencontres suivantes du même
+                // objet y répondront par le même $ref que default()
+                Py_DECREF(tup);
+            } else if (plan != Py_None) {
                 PyObject* class_name = PyTuple_GET_ITEM(plan, 0);
                 bool filter_underscore =
                     PyObject_IsTrue(PyTuple_GET_ITEM(plan, 1)) == 1;
@@ -6078,6 +6347,12 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     pathTracker.singleLineNew = e->singleLineNew;
     pathTracker.strictPickle = e->strictPickle;
     pathTracker.classPlanFn = classPlanFn;
+    PyObject* dumpedClassesSet = PyObject_GetAttr(self, dumped_classes_name);
+    if (dumpedClassesSet == nullptr)
+        PyErr_Clear();
+    else if (!PySet_Check(dumpedClassesSet))
+        Py_CLEAR(dumpedClassesSet);
+    pathTracker.dumpedClasses = dumpedClassesSet;
     e->activePathTracker = &pathTracker;
 
     if (stream != nullptr && stream != Py_None) {
@@ -6128,6 +6403,8 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     }
 
     e->activePathTracker = nullptr;
+    Py_XDECREF(pathTracker.dumpedClasses);
+    pathTracker.dumpedClasses = nullptr;
     if (pathTracker.nodes.size() > e->pathNodesHighWater)
         e->pathNodesHighWater = pathTracker.nodes.size();
     if (pathTracker.memo.size() > e->memoHighWater)

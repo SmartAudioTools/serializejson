@@ -946,9 +946,24 @@ class Encoder(rapidjson.Encoder):
         try:
             if self.strict_pickle or self.remove_default_values:
                 return None
-            if not isinstance(class_, type) or not (
-                class_.__flags__ & _TPFLAGS_HEAPTYPE
-            ):
+            if not isinstance(class_, type):
+                return None
+            # recette __serializejson__ : la méthode est appelée par objet
+            # (seul Python restant), l'emballage s'écrit en C. Mêmes
+            # exclusions que tuple_from_instance : le registre plugins
+            # (serializejson_) prime sur la méthode — classes du registre en
+            # voie Python pour l'instant ; Enum a son traitement dans
+            # default() ; les noms remove_add_braces ont un déballage à part
+            method = getattr(class_, "__serializejson__", None)
+            if method is not None:
+                if (
+                    class_ in serializejson_
+                    or issubclass(class_, Enum)
+                    or class_str_from_class(class_) in remove_add_braces
+                ):
+                    return None
+                return (None, method, bool(self.numpy_array_to_list))
+            if not (class_.__flags__ & _TPFLAGS_HEAPTYPE):
                 # types natifs (tuple, dict, bytes...) : chemins dédiés
                 return None
             if (
