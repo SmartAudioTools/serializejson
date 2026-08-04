@@ -7296,6 +7296,24 @@ load_blosc_library(PyObject* Py_UNUSED(self), PyObject* arg)
         }
     }
 
+    // codec « Rice à prédicteurs fixes » : enregistré dans la lib chargée —
+    // nécessaire à la compression ET à la décompression des trames qui le
+    // portent (la trame stocke le compcode 243 et la largeur d'échantillon)
+    serializejson_blosc2_rice_ok = false;
+    if (serializejson_blosc2_ctx_ok) {
+        sj_blosc2_register_codec_t register_codec =
+            (sj_blosc2_register_codec_t) dlsym(handle,
+                                               "blosc2_register_codec");
+        if (register_codec != nullptr) {
+            static char sj_rice_name[] = "serializejson_rice";
+            static blosc2_codec sj_rice_codec = {
+                SJ_BLOSC2_CODEC_RICE, sj_rice_name, 0, 1,
+                sj_rice_encoder, sj_rice_decoder};
+            if (register_codec(&sj_rice_codec) == 0)
+                serializejson_blosc2_rice_ok = true;
+        }
+    }
+
     Py_RETURN_TRUE;
 }
 

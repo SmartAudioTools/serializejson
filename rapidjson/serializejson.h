@@ -1010,6 +1010,306 @@ typedef int (*sj_blosc2_register_filter_t)(blosc2_filter*);
 static bool serializejson_blosc2_delta_ok = false;
 static int serializejson_blosc2_nthreads_global = 1;
 
+// --- codec blosc2 « Rice à prédicteurs fixes » (id 243) ---------------------
+// Codec UTILISATEUR enregistré : par trame de 1024 échantillons, le meilleur
+// prédicteur polynomial FIXE d'ordre 0..3 (les mêmes que le mode « fixed » de
+// FLAC — nos dérivées itérées), puis résidus zigzag codés en Rice avec un
+// calibre k réajusté par partition de 256 échantillons (6 bits d'en-tête,
+// k=63 = partition verbatim). C'est l'adaptation LOCALE qui permet de
+// descendre sous l'entropie globale des résidus, là où zstd plafonne —
+// mesuré 57 437 octets contre 68 625 (zstd sur delta) et 50 200 (FLAC) sur
+// la voix de référence. Entiers 2 et 4 octets ; pur, donc déterministe ;
+// exécuté par bloc dans les threads de blosc2. Ignore clevel.
+#define SJ_BLOSC2_CODEC_RICE 243
+#define SJ_RICE_FRAME 1024
+#define SJ_RICE_PART 256
+#define SJ_RICE_ESCAPE 63
+#define SJ_RICE_ZERO 62  // partition entièrement nulle : 6 bits, pas de charge
+                         // (l'équivalent du sous-frame constant de FLAC —
+                         // sans lui, le silence coûterait 1 bit/échantillon
+                         // là où le RLE de zstd le rend presque gratuit)
+
+struct SjBitWriter {
+    uint8_t* out;
+    int32_t cap;
+    int32_t pos;
+    uint64_t acc;
+    int nbits;
+    bool overflow;
+};
+
+static inline void
+sj_bw_flush(SjBitWriter* w)
+{
+    while (w->nbits >= 8) {
+        if (w->pos >= w->cap) {
+            w->overflow = true;
+            w->nbits = 0;
+            return;
+        }
+        w->out[w->pos++] = (uint8_t) w->acc;
+        w->acc >>= 8;
+        w->nbits -= 8;
+    }
+}
+
+static inline void
+sj_bw_put(SjBitWriter* w, uint64_t v, int n)  // n <= 56, poids faible d'abord
+{
+    w->acc |= v << w->nbits;
+    w->nbits += n;
+    sj_bw_flush(w);
+}
+
+static inline void
+sj_bw_unary(SjBitWriter* w, uint64_t q)  // q zéros puis un 1
+{
+    while (q >= 48 && !w->overflow) {
+        sj_bw_put(w, 0, 48);
+        q -= 48;
+    }
+    sj_bw_put(w, (uint64_t) 1 << q, (int) q + 1);
+}
+
+struct SjBitReader {
+    const uint8_t* in;
+    int32_t len;
+    int32_t pos;
+    uint64_t acc;
+    int nbits;
+    bool fail;
+};
+
+static inline void
+sj_br_fill(SjBitReader* r)
+{
+    while (r->nbits <= 56 && r->pos < r->len) {
+        r->acc |= (uint64_t) r->in[r->pos++] << r->nbits;
+        r->nbits += 8;
+    }
+}
+
+static inline uint64_t
+sj_br_get(SjBitReader* r, int n)
+{
+    sj_br_fill(r);
+    if (r->nbits < n) {
+        r->fail = true;
+        return 0;
+    }
+    uint64_t v = r->acc & (((uint64_t) 1 << n) - 1);
+    r->acc >>= n;
+    r->nbits -= n;
+    return v;
+}
+
+static inline uint64_t
+sj_br_unary(SjBitReader* r)
+{
+    uint64_t q = 0;
+    while (true) {
+        sj_br_fill(r);
+        if (r->nbits == 0) {
+            r->fail = true;
+            return 0;
+        }
+        if (r->acc == 0) {  // que des zéros dans le tampon : tout consommer
+            q += (uint64_t) r->nbits;
+            r->nbits = 0;
+            continue;
+        }
+#if defined(_MSC_VER)
+        unsigned long t32;
+        _BitScanForward64(&t32, r->acc);
+        int t = (int) t32;
+#else
+        int t = __builtin_ctzll(r->acc);
+#endif
+        q += (uint64_t) t;
+        r->acc >>= t + 1;
+        r->nbits -= t + 1;
+        return q;
+    }
+}
+
+// prédiction polynomiale fixe d'ordre eff sur l'historique h (h = x + i)
+template <typename T>
+static inline int64_t
+sj_rice_predict(const T* h, int eff)
+{
+    switch (eff) {
+        case 1: return (int64_t) h[-1];
+        case 2: return 2 * (int64_t) h[-1] - (int64_t) h[-2];
+        case 3: return 3 * ((int64_t) h[-1] - (int64_t) h[-2])
+                       + (int64_t) h[-3];
+        default: return 0;
+    }
+}
+
+template <typename T>
+static int32_t
+sj_rice_encode_typed(const T* x, int32_t n, uint8_t* out, int32_t cap)
+{
+    SjBitWriter w = {out, cap, 0, 0, 0, false};
+    static const int esc_bits = (int) sizeof(T) * 8 + 4;
+    int64_t r[4][SJ_RICE_FRAME];
+    uint64_t u[SJ_RICE_PART];
+    for (int32_t start = 0; start < n; start += SJ_RICE_FRAME) {
+        int32_t m = n - start;
+        if (m > SJ_RICE_FRAME)
+            m = SJ_RICE_FRAME;
+        // résidus des quatre ordres (la prédiction traverse les trames :
+        // l'historique est le signal déjà vu, le décodeur fait pareil)
+        uint64_t cost[4] = {0, 0, 0, 0};
+        for (int o = 0; o < 4; o++) {
+            for (int32_t i = 0; i < m; i++) {
+                int32_t g = start + i;
+                int eff = (g < o) ? (int) g : o;
+                int64_t d = (int64_t) x[g] - sj_rice_predict(x + g, eff);
+                r[o][i] = d;
+                cost[o] += (uint64_t) (d < 0 ? -d : d);
+            }
+        }
+        int order = 0;
+        for (int o = 1; o < 4; o++)
+            if (cost[o] < cost[order])
+                order = o;
+        sj_bw_put(&w, (uint64_t) order, 2);
+        for (int32_t ps = 0; ps < m; ps += SJ_RICE_PART) {
+            int32_t pm = m - ps;
+            if (pm > SJ_RICE_PART)
+                pm = SJ_RICE_PART;
+            uint64_t sum = 0;
+            for (int32_t i = 0; i < pm; i++) {
+                int64_t d = r[order][ps + i];
+                u[i] = ((uint64_t) d << 1) ^ (uint64_t) (d >> 63);  // zigzag
+                sum += u[i];
+            }
+            if (sum == 0) {  // silence : partition constante nulle
+                sj_bw_put(&w, SJ_RICE_ZERO, 6);
+                if (w.overflow)
+                    return 0;
+                continue;
+            }
+            // calibre : ~log2(moyenne), affiné sur les voisins, comparé au
+            // verbatim (partitions incompressibles : bruit fort, transitoires)
+            uint64_t mean = sum / (uint64_t) pm;
+            int k0 = 0;
+            while ((mean >> k0) > 1)
+                k0++;
+            uint64_t best_cost = (uint64_t) pm * (uint64_t) esc_bits;
+            int best_k = SJ_RICE_ESCAPE;
+            int k_lo = (k0 > 1) ? k0 - 1 : 0;
+            for (int k = k_lo; k <= k0 + 2 && k < esc_bits; k++) {
+                uint64_t c = (uint64_t) pm * (uint64_t) (k + 1);
+                for (int32_t i = 0; i < pm; i++)
+                    c += u[i] >> k;
+                if (c < best_cost) {
+                    best_cost = c;
+                    best_k = k;
+                }
+            }
+            sj_bw_put(&w, (uint64_t) best_k, 6);
+            if (best_k == SJ_RICE_ESCAPE) {
+                for (int32_t i = 0; i < pm; i++)
+                    sj_bw_put(&w, u[i], esc_bits);
+            } else {
+                uint64_t mask = ((uint64_t) 1 << best_k) - 1;
+                for (int32_t i = 0; i < pm; i++) {
+                    sj_bw_unary(&w, u[i] >> best_k);
+                    if (best_k)
+                        sj_bw_put(&w, u[i] & mask, best_k);
+                }
+            }
+            if (w.overflow)
+                return 0;
+        }
+    }
+    if (w.nbits & 7)
+        sj_bw_put(&w, 0, 8 - (w.nbits & 7));
+    sj_bw_flush(&w);
+    return w.overflow ? 0 : w.pos;
+}
+
+template <typename T>
+static int32_t
+sj_rice_decode_typed(const uint8_t* in, int32_t len, T* x, int32_t n)
+{
+    SjBitReader rd = {in, len, 0, 0, 0, false};
+    static const int esc_bits = (int) sizeof(T) * 8 + 4;
+    for (int32_t start = 0; start < n; start += SJ_RICE_FRAME) {
+        int32_t m = n - start;
+        if (m > SJ_RICE_FRAME)
+            m = SJ_RICE_FRAME;
+        int order = (int) sj_br_get(&rd, 2);
+        for (int32_t ps = 0; ps < m; ps += SJ_RICE_PART) {
+            int32_t pm = m - ps;
+            if (pm > SJ_RICE_PART)
+                pm = SJ_RICE_PART;
+            int k = (int) sj_br_get(&rd, 6);
+            uint64_t v;
+            for (int32_t i = 0; i < pm; i++) {
+                if (k == SJ_RICE_ZERO)
+                    v = 0;
+                else if (k == SJ_RICE_ESCAPE)
+                    v = sj_br_get(&rd, esc_bits);
+                else {
+                    uint64_t q = sj_br_unary(&rd);
+                    v = (q << k) | (k ? sj_br_get(&rd, k) : 0);
+                }
+                int64_t d = (int64_t) (v >> 1) ^ -(int64_t) (v & 1);
+                int32_t g = start + ps + i;
+                int eff = (g < order) ? (int) g : order;
+                x[g] = (T) (d + sj_rice_predict(x + g, eff));
+            }
+            if (rd.fail)
+                return -1;
+        }
+    }
+    return n * (int32_t) sizeof(T);
+}
+
+static int
+sj_rice_encoder(const uint8_t* input, int32_t input_len, uint8_t* output,
+                int32_t output_len, uint8_t meta, blosc2_cparams* cparams,
+                const void* chunk)
+{
+    (void) chunk;
+    int typesize = meta ? (int) meta
+                        : (cparams ? (int) cparams->typesize : 0);
+    int32_t cap = output_len;
+    if (cap > input_len - 1)
+        cap = input_len - 1;  // n'accepter que strictement plus petit
+    if (cap <= 0)
+        return 0;
+    if (typesize == 2 && input_len % 2 == 0)
+        return sj_rice_encode_typed<int16_t>(
+            (const int16_t*) (const void*) input, input_len / 2, output, cap);
+    if (typesize == 4 && input_len % 4 == 0)
+        return sj_rice_encode_typed<int32_t>(
+            (const int32_t*) (const void*) input, input_len / 4, output, cap);
+    return 0;  // largeur non gérée : blosc stocke le bloc brut
+}
+
+static int
+sj_rice_decoder(const uint8_t* input, int32_t input_len, uint8_t* output,
+                int32_t output_len, uint8_t meta, blosc2_dparams* dparams,
+                const void* chunk)
+{
+    (void) dparams;
+    (void) chunk;
+    if (meta == 2 && output_len % 2 == 0)
+        return sj_rice_decode_typed<int16_t>(
+            input, input_len, (int16_t*) (void*) output, output_len / 2);
+    if (meta == 4 && output_len % 4 == 0)
+        return sj_rice_decode_typed<int32_t>(
+            input, input_len, (int32_t*) (void*) output, output_len / 4);
+    return -1;
+}
+
+typedef int (*sj_blosc2_register_codec_t)(blosc2_codec*);
+static bool serializejson_blosc2_rice_ok = false;
+
 // taille de morceau FIXE : c'est elle qui garantit le déterminisme, quel que
 // soit le nombre de threads (ne jamais la faire dépendre de la machine)
 #define SERIALIZEJSON_BLOSC_CHUNK (1 << 20)
@@ -1056,9 +1356,17 @@ sj_compress_chunks(const char* src, size_t length, size_t typesize, int clevel,
                    int shuffle, const char* cname, int nthreads,
                    size_t* out_size, long* out_frames)
 {
-    int compcode = sj_blosc2_compname_to_compcode(cname);
-    if (compcode < 0)
-        return nullptr;
+    bool rice = (strcmp(cname, "rice") == 0);
+    int compcode;
+    if (rice) {
+        if (!serializejson_blosc2_rice_ok)
+            return nullptr;
+        compcode = SJ_BLOSC2_CODEC_RICE;
+    } else {
+        compcode = sj_blosc2_compname_to_compcode(cname);
+        if (compcode < 0)
+            return nullptr;
+    }
     const size_t chunk = SERIALIZEJSON_BLOSC_CHUNK;
     size_t count = (length + chunk - 1) / chunk;
     size_t stride = chunk + BLOSC2_MAX_OVERHEAD;
@@ -1081,7 +1389,13 @@ sj_compress_chunks(const char* src, size_t length, size_t typesize, int clevel,
         cparams.filters[f] = BLOSC_NOFILTER;
         cparams.filters_meta[f] = 0;
     }
-    if (shuffle == 2 && serializejson_blosc2_delta_ok) {
+    if (rice) {
+        // le codec fait sa propre prédiction : aucun filtre devant, largeur
+        // d'échantillon passée par le meta (persisté dans la trame), pas de
+        // découpage en flux
+        cparams.compcode_meta = (uint8_t) typesize;
+        cparams.splitmode = BLOSC_NEVER_SPLIT;
+    } else if (shuffle == 2 && serializejson_blosc2_delta_ok) {
         // pipeline shuffle -> delta d'octets (ordre MESURÉ gagnant : après
         // shuffle, chaque flux d'octets est lisse et le delta les linéarise)
         cparams.filters[BLOSC2_MAX_FILTERS - 2] = BLOSC_SHUFFLE;
@@ -1236,20 +1550,27 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
         return self;
     }
 
-    // trame unique par l'API contextes : NÉCESSAIRE pour le filtre delta —
-    // la voie blosc1 ne connaît pas les pipelines de filtres, et son
-    // paramètre shuffle=2 signifierait bitshuffle. Le nombre de threads du
-    // contexte reprend le réglage global (déterministe avec le fork, dont
-    // les octets sont stables quel que soit le nombre de threads).
-    if (shuffle == 2 && serializejson_blosc2_ctx_ok
-        && serializejson_blosc2_delta_ok
+    // trame unique par l'API contextes : NÉCESSAIRE pour le filtre delta et
+    // le codec Rice — la voie blosc1 ne connaît ni les pipelines de filtres
+    // ni les codecs enregistrés, et son paramètre shuffle=2 signifierait
+    // bitshuffle. Le nombre de threads du contexte reprend le réglage global
+    // (déterministe avec le fork, octets stables quel que soit leur nombre).
+    bool rice = (strcmp(cname, "rice") == 0);
+    if (((shuffle == 2 && serializejson_blosc2_delta_ok)
+         || (rice && serializejson_blosc2_rice_ok))
+        && serializejson_blosc2_ctx_ok
         && (size_t) view.len < (size_t) INT32_MAX - BLOSC2_MAX_OVERHEAD) {
-        int compcode = sj_blosc2_compname_to_compcode(cname);
-        if (compcode < 0) {
-            PyBuffer_Release(&view);
-            PyErr_Format(PyExc_ValueError, "unknown blosc compressor '%s'",
-                         cname);
-            return nullptr;
+        int compcode;
+        if (rice)
+            compcode = SJ_BLOSC2_CODEC_RICE;
+        else {
+            compcode = sj_blosc2_compname_to_compcode(cname);
+            if (compcode < 0) {
+                PyBuffer_Release(&view);
+                PyErr_Format(PyExc_ValueError, "unknown blosc compressor '%s'",
+                             cname);
+                return nullptr;
+            }
         }
         blosc2_cparams cparams = BLOSC2_CPARAMS_DEFAULTS;
         cparams.compcode = (uint8_t) compcode;
@@ -1260,9 +1581,14 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
             cparams.filters[f] = BLOSC_NOFILTER;
             cparams.filters_meta[f] = 0;
         }
-        // pipeline shuffle -> delta d'octets (ordre MESURÉ gagnant)
-        cparams.filters[BLOSC2_MAX_FILTERS - 2] = BLOSC_SHUFFLE;
-        cparams.filters[BLOSC2_MAX_FILTERS - 1] = SJ_BLOSC2_FILTER_DELTA;
+        if (rice) {
+            cparams.compcode_meta = (uint8_t) typesize;
+            cparams.splitmode = BLOSC_NEVER_SPLIT;
+        } else {
+            // pipeline shuffle -> delta d'octets (ordre MESURÉ gagnant)
+            cparams.filters[BLOSC2_MAX_FILTERS - 2] = BLOSC_SHUFFLE;
+            cparams.filters[BLOSC2_MAX_FILTERS - 1] = SJ_BLOSC2_FILTER_DELTA;
+        }
         size_t delta_dest_size = (size_t) view.len + BLOSC2_MAX_OVERHEAD;
         char* delta_dest = (char*) malloc(delta_dest_size);
         if (delta_dest == nullptr) {

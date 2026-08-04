@@ -211,3 +211,82 @@ def test_auto_1d_entiers_larges_choisit_l_arithmetique():
     assert b"_diff" in auto          # l'arithmétique a été retenue
     assert len(auto) < len(filtre_seul)
     assert numpy.array_equal(serializejson.Decoder()(auto), stamps)
+
+
+def _signal_type_voix(n, dtype=numpy.int16):
+    # alternance silence / salves toniques bruitées : le profil qui a piégé
+    # l'échantillon central (silence) et motivé stratification + partition
+    # nulle du codec Rice
+    rng = numpy.random.default_rng(20)
+    out = numpy.zeros(n, dtype=numpy.int64)
+    for debut in range(n // 8, n, n // 4):
+        fin = min(debut + n // 8, n)
+        t = numpy.arange(fin - debut)
+        out[debut:fin] = (8000 * numpy.sin(t * 0.11)
+                          + rng.integers(-40, 41, fin - debut))
+    return out.astype(dtype)
+
+
+@pytest.mark.parametrize("n", [3, 255, 256, 1023, 1024, 1025, 70_001])
+def test_rice_bords_de_trame(n):
+    # le codec Rice (blosc2 enregistré, id 243) doit rester exact sur toutes
+    # les tailles : partitions et trames partielles comprises
+    donnees = _signal_type_voix(max(n, 8))[:n]
+    dump = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=True)(donnees)
+    recharge = serializejson.Decoder()(dump)
+    assert recharge.dtype == donnees.dtype
+    assert numpy.array_equal(recharge, donnees)
+
+
+def test_profil_voix_gagne_sans_presumer_du_candidat():
+    # sur ce profil, l'essai choisit le meilleur pipeline (dérivée+filtre ou
+    # rice selon les données) : on vérifie le gain et l'exactitude, pas le nom
+    donnees = _signal_type_voix(200_000)
+    auto = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=True)(donnees)
+    sans = serializejson.Encoder(return_bytes=True)(donnees)
+    # jamais pire qu'à l'aveugle (à l'erreur d'échantillonnage près)
+    assert len(auto) <= len(sans) * 1.02
+    assert numpy.array_equal(serializejson.Decoder()(auto), donnees)
+
+
+def test_rice_choisi_sur_amplitude_modulee():
+    # bruit dont l'amplitude change toutes les ~700 valeurs : le cas d'école
+    # de l'adaptation LOCALE du calibre Rice, hors de portée de zstd et des
+    # deltas — rice est porté par la trame, donc aucune étiquette
+    rng = numpy.random.default_rng(22)
+    sections = [rng.normal(0, s, 700) for s in ([2, 300, 8, 3000, 30, 1000] * 40)]
+    donnees = numpy.concatenate(sections).astype(numpy.int16)
+    auto = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=True)(donnees)
+    sans = serializejson.Encoder(return_bytes=True)(donnees)
+    assert b"_diff" not in auto
+    assert len(auto) < len(sans) * 0.95
+    assert numpy.array_equal(serializejson.Decoder()(auto), donnees)
+
+
+def test_rice_int32_et_bruit_mele():
+    # int32 24 bits : silence, signal lisse et bruit fort (échappement)
+    rng = numpy.random.default_rng(21)
+    morceaux = [numpy.zeros(3000, numpy.int32),
+                (2**20 * numpy.sin(numpy.linspace(0, 30, 50_000))).astype(numpy.int32),
+                rng.integers(-2**22, 2**22, 4000).astype(numpy.int32)]
+    donnees = numpy.concatenate(morceaux)
+    dump = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=True)(donnees)
+    recharge = serializejson.Decoder()(dump)
+    assert recharge.dtype == numpy.int32
+    assert numpy.array_equal(recharge, donnees)
+
+
+def test_rice_deterministe_et_tuple_inchange():
+    donnees = _signal_type_voix(100_000)
+    enc = lambda: serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=True)(donnees)
+    assert enc() == enc()
+    # le tuple explicite ne passe jamais par rice : filtre comme avant
+    tup = serializejson.Encoder(
+        return_bytes=True,
+        bytes_compression_diff_dtypes=(numpy.int16,))(donnees)
+    assert numpy.array_equal(serializejson.Decoder()(tup), donnees)

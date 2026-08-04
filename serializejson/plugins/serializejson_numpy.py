@@ -150,22 +150,28 @@ else:
     constructors["numpyB64"] = numpyB64
 
     def _diff_sample(contiguous):
-        # échantillon pour l'essai automatique de dérivée : 1/8e du tableau,
-        # borné entre 4 Ko (en dessous, la taille compressée n'est plus qu'un
-        # bruit d'en-têtes et la décision ne veut rien dire — on prend alors
-        # le tableau entier, que la compression gagnante réutilise) et 256 Ko.
-        # Des lignes ENTIÈRES (l'essai d'axe 0 l'exige), prélevées au MILIEU :
-        # le début d'un signal est souvent atypique (silence, rampe de départ)
+        # échantillon pour l'essai automatique : 1/8e du tableau, borné entre
+        # 4 Ko (en dessous, la taille compressée n'est plus qu'un bruit
+        # d'en-têtes et la décision ne veut rien dire — on prend alors le
+        # tableau entier, que la compression gagnante réutilise) et 256 Ko.
+        # STRATIFIÉ en quatre bandes réparties, de lignes ENTIÈRES (l'essai
+        # d'axe 0 l'exige) : un prélèvement unique peut tomber sur une zone
+        # atypique — le milieu de la voix de référence était du silence, et
+        # la décision basculait du mauvais côté
         target = min(max(contiguous.nbytes // 8, 1 << 12), 1 << 18)
-        if contiguous.ndim > 1:
-            row_bytes = contiguous.nbytes // contiguous.shape[0]
-            rows = max(2, target // row_bytes)
-            start = (contiguous.shape[0] - rows) // 2 if rows < contiguous.shape[0] else 0
-            sample = contiguous[start: start + rows]
-            return sample, sample.size // sample.shape[0]
-        n = max(1, target // contiguous.itemsize)
-        start = (len(contiguous) - n) // 2 if n < len(contiguous) else 0
-        return contiguous[start: start + n], 1
+        axis_len = contiguous.shape[0]
+        unit = contiguous.nbytes // axis_len if axis_len else 1
+        per = max(1, target // (4 * unit))
+        if 4 * per >= axis_len:
+            sample = contiguous
+        else:
+            step = axis_len // 4
+            offset = (step - per) // 2
+            sample = numpy.concatenate(
+                [contiguous[i * step + offset: i * step + offset + per]
+                 for i in range(4)])
+        return (sample, sample.size // sample.shape[0]) \
+            if sample.ndim > 1 else (sample, 1)
 
     def serializejson_ndarray(inst):
 
@@ -252,25 +258,37 @@ else:
                         # entiers larges (int32 -13 %, timestamps int64 -16 %),
                         # perdante sur int16 où le filtre reste devant
                         sample, cols = _diff_sample(contiguous)
-                        candidates = [(1, False), (2, False)]
+                        candidates = [(1, False, None), (2, False, None)]
                         if (contiguous.dtype.kind in "iu"
                                 and sample.shape[0] > 1):
-                            candidates += [(1, True), (2, True)]
+                            candidates += [(1, True, None), (2, True, None)]
+                        if (contiguous.dtype.kind in "iu"
+                                and contiguous.itemsize in (2, 4)):
+                            # codec Rice enregistré (243) : prédicteurs fixes
+                            # d'ordre 0-3 + Rice adapté par partition — fait
+                            # sa propre prédiction, donc ni pré-passe ni
+                            # filtre devant
+                            candidates.append((0, False, "rice"))
                         best = None
-                        for cand_shuffle, cand_diff0 in candidates:
+                        for cand_shuffle, cand_diff0, cand_cname in candidates:
                             buf = (_diff_axis0(sample.data, sample.itemsize,
                                                cols)
                                    if cand_diff0 else sample)
-                            cand = BloscToBase64(
-                                buf, sample.itemsize, level, cand_shuffle,
-                                blosc2_compression, 1,
-                            )
+                            try:
+                                cand = BloscToBase64(
+                                    buf, sample.itemsize, level, cand_shuffle,
+                                    cand_cname or blosc2_compression, 1,
+                                )
+                            except ValueError:
+                                if cand_cname is None:
+                                    raise
+                                continue  # codec absent (lib sans registre)
                             # à taille égale, le candidat le plus simple
                             # (listé en premier) l'emporte : déterministe
                             if best is None or cand.compressed_size < best[0]:
                                 best = (cand.compressed_size, cand_shuffle,
-                                        cand_diff0, cand)
-                        _, shuffle, diff0, payload = best
+                                        cand_diff0, cand_cname, cand)
+                        _, shuffle, diff0, cname_gagnant, payload = best
                         # si l'échantillon était le tableau ENTIER, la
                         # compression gagnante est déjà faite : on la garde
                         # (trame unique, octets identiques quel que soit le
@@ -278,6 +296,7 @@ else:
                         if sample.nbytes != contiguous.nbytes:
                             payload = None
                     else:
+                        cname_gagnant = None
                         payload = None
                     if payload is None:
                         if diff0:
@@ -293,7 +312,7 @@ else:
                             data.itemsize,
                             level,
                             shuffle,
-                            blosc2_compression,
+                            cname_gagnant or blosc2_compression,
                             nthreads if type(nthreads) is int else 1,
                         )
                     # le filtre est porté par la trame ; seule la dérivée
