@@ -7340,7 +7340,140 @@ register_serializejson_fn(PyObject* Py_UNUSED(module), PyObject* args)
 }
 
 
+// scanner C des fichiers d'objets appendés (« [obj\n,\nobj...] ») : la
+// machine à états de _json_object_file_iterator.read(), portée telle
+// quelle (l'équivalent moderne du « passer en cython ? » des notes).
+// Entrée : (tampon bytes, in_chunk_start, in_quotes, in_curlys, in_squares,
+// in_simple, in_object, backslash_escape). Sortie : (ret_start, ret_end,
+// mêmes états mis à jour, in_chunk_start, shedule_break) — ret_start -1 =
+// fin de la liste (« "" »), sinon tranche [ret_start:ret_end] du tampon.
+static PyObject*
+sj_scan_appended(PyObject* Py_UNUSED(module), PyObject* args)
+{
+    Py_buffer view;
+    Py_ssize_t in_chunk_start;
+    int in_quotes;
+    Py_ssize_t in_curlys;
+    Py_ssize_t in_squares;
+    int in_simple;
+    int in_object;
+    int backslash_escape;
+    if (!PyArg_ParseTuple(args, "y*npnnppp:_scan_appended", &view,
+                          &in_chunk_start, &in_quotes, &in_curlys,
+                          &in_squares, &in_simple, &in_object,
+                          &backslash_escape))
+        return nullptr;
+    const unsigned char* s = (const unsigned char*) view.buf;
+    const Py_ssize_t n = view.len;
+    Py_ssize_t ret_start = -2;      // -2 : continuation de fin de tampon
+    Py_ssize_t ret_end = n;
+    int shedule_break = 0;
+    // la fin de liste rend les états d'ENTRÉE tels quels, comme le scanner
+    // Python d'origine (états morts : plus rien ne sera lu ensuite)
+    const Py_ssize_t entry_chunk_start = in_chunk_start;
+    const int entry_quotes = in_quotes;
+    const Py_ssize_t entry_curlys = in_curlys;
+    const Py_ssize_t entry_squares = in_squares;
+    const int entry_simple = in_simple;
+    const int entry_object = in_object;
+    const int entry_escape = backslash_escape;
+    for (Py_ssize_t i = in_chunk_start; i < n; i++) {
+        const unsigned char ch = s[i];
+        // dans une chaîne, le caractère qui suit un antislash est consommé
+        // QUEL QU'IL SOIT (le scanner d'origine ne consommait le drapeau que
+        // sur les caractères « intéressants » : une chaîne finissant par \n
+        // avalait son guillemet fermant et faussait toutes les bornes)
+        if (in_quotes && backslash_escape) {
+            backslash_escape = 0;
+            continue;
+        }
+        if (in_simple) {
+            if (ch == ',' || ch == ' ' || ch == '\t' || ch == '\n'
+                || ch == '\r' || ch == ']') {
+                if (in_chunk_start < i)
+                    shedule_break = 1;
+                ret_start = in_chunk_start;
+                ret_end = i;
+                in_chunk_start = (i + 1) % n;
+                in_quotes = 0;
+                in_curlys = 0;      // in_squares conservé (quirk d'origine)
+                in_simple = 0;
+                in_object = 0;
+                goto done;
+            }
+        } else if (ch == '\\' || ch == '"' || ch == '{' || ch == '}'
+                   || ch == '[' || ch == ']') {
+            int check = 0;
+            if (in_quotes) {
+                if (ch == '\\')
+                    backslash_escape = 1;
+                else if (ch == '"') {
+                    in_quotes = 0;
+                    check = 1;
+                }
+            } else if (ch == '"') {
+                in_quotes = 1;
+                in_object = 1;
+            } else if (ch == '{') {
+                in_curlys++;
+                in_object = 1;
+            } else if (ch == '}') {
+                in_curlys--;
+                check = 1;
+            } else if (ch == '[') {
+                in_squares++;
+                if (in_squares > 1)
+                    in_object = 1;
+                else
+                    in_chunk_start = (i + 1) % n;
+            } else {                // ']'
+                in_squares--;
+                check = 1;
+                if (in_squares == 0) {
+                    // fin de la liste json : états d'entrée rendus tels quels
+                    PyBuffer_Release(&view);
+                    return Py_BuildValue("nninniiini", (Py_ssize_t) -1,
+                                         (Py_ssize_t) -1, entry_quotes,
+                                         entry_curlys, entry_squares,
+                                         entry_simple, entry_object,
+                                         entry_escape, entry_chunk_start, 0);
+                }
+            }
+            if (check && !in_quotes && !in_curlys && in_squares < 2) {
+                if (in_chunk_start < i + 1)
+                    shedule_break = 1;
+                ret_start = in_chunk_start;
+                ret_end = i + 1;
+                in_chunk_start = (i + 1) % n;
+                in_quotes = 0;
+                in_curlys = 0;
+                in_simple = 0;
+                in_object = 0;
+                goto done;
+            }
+        } else if (!in_object) {
+            if (ch == ',' || ch == ' ' || ch == '\t' || ch == '\n'
+                || ch == '\r')
+                in_chunk_start = i + 1;
+            else
+                in_simple = 1;
+        }
+    }
+    // fin de tampon sans borne : continuation depuis le curseur courant
+    ret_start = in_chunk_start;
+    ret_end = n;
+    in_chunk_start = 0;
+done:
+    PyBuffer_Release(&view);
+    return Py_BuildValue("nninniiini", ret_start, ret_end, in_quotes,
+                         in_curlys, in_squares, in_simple, in_object,
+                         backslash_escape, in_chunk_start, shedule_break);
+}
+
 static PyMethodDef functions[] = {
+    {"_scan_appended", (PyCFunction) sj_scan_appended, METH_VARARGS,
+     "Scanner C des fichiers d'objets appendés (machine à états de"
+     " _json_object_file_iterator.read())."},
     {"register_serializejson", (PyCFunction) register_serializejson_fn,
      METH_VARARGS,
      "Enregistre (Encoder, Decoder, serialize_parameters) : leurs __call__"

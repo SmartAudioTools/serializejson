@@ -1,0 +1,92 @@
+# Itération sur un fichier d'objets appendés (append + for obj in Decoder).
+# Ce chemin n'avait AUCUN test : il a cassé silencieusement pendant la
+# migration des __call__ en C (état volatil jamais posé), et son scanner
+# avalait le guillemet fermant après un échappement (\n en fin de chaîne).
+# Les deux sont corrigés le 04/08/2026 — et le scanner est porté en C.
+import io
+import os
+
+import pytest
+
+import serializejson
+from serializejson import _json_object_file_iterator
+
+
+@pytest.fixture
+def chemin(tmp_path):
+    return str(tmp_path / "appended.json")
+
+
+def test_iteration_formes_variees(chemin):
+    partage = {"x": 1}
+    objets = [
+        {"num": 1, "nom": "objet"},
+        [1, "deux", None],
+        5,
+        "texte",
+        "",
+        {"a": partage, "b": partage},
+    ]
+    for objet in objets:
+        serializejson.append(objet, chemin)
+    relus = list(serializejson.Decoder(chemin))
+    assert relus == objets
+    # le partage interne est restauré ($ref résolu après le parse)
+    assert relus[5]["a"] is relus[5]["b"]
+
+
+def test_iteration_echappements(chemin):
+    # le scanner d'origine avalait le guillemet fermant après \n ou \\ :
+    # toutes les bornes d'objets suivantes étaient fausses
+    objets = [
+        "fin\n",
+        "anti\\",
+        'gu"illemets',
+        {"k": "a\nb", "vide": ""},
+        ["avec ]crochet", "avec }accolade"],
+        "suivant",
+    ]
+    for objet in objets:
+        serializejson.append(objet, chemin)
+    assert list(serializejson.Decoder(chemin)) == objets
+
+
+def test_scanner_c_identique_boucle_python(chemin):
+    # le scanner C et la boucle Python de repli rendent les mêmes tranches
+    # et les mêmes états, y compris sur des tailles de lecture hostiles
+    for objet in ({"k%d" % i: "v\n" % () for i in range(4)}, [1, [2, "]"]],
+                  7, "fin\\", ""):
+        serializejson.append(objet, chemin)
+
+    class ScannerPython(_json_object_file_iterator):
+        def read(self, size=-1):
+            if self.shedule_break:
+                self.shedule_break = False
+                return ""
+            if self.in_chunk_start == 0:
+                self.s = io.FileIO.read(self, size)
+            return self._read_python(self.s)
+
+    def etat(x):
+        return (x.in_chunk_start, bool(x.in_quotes), int(x.in_curlys),
+                int(x.in_squares), bool(x.in_simple), bool(x.in_object),
+                bool(x.backslash_escape), bool(x.shedule_break))
+
+    for taille in (1, 7, 4096):
+        a = _json_object_file_iterator(chemin, mode="rb")
+        b = ScannerPython(chemin, mode="rb")
+        vides = 0
+        while vides < 50:
+            ca = a.read(taille)
+            cb = b.read(taille)
+            assert ca == cb
+            assert etat(a) == etat(b)
+            vides = vides + 1 if ca in ("", b"") else 0
+        a.close()
+        b.close()
+
+
+def test_fichier_absent(chemin):
+    # fichier absent : un seul élément, la valeur par défaut du décodeur
+    assert not os.path.exists(chemin)
+    assert list(serializejson.Decoder(chemin, default_value=None)) == [None]

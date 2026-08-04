@@ -2010,7 +2010,9 @@ class Decoder(rapidjson.Decoder):
         file = self.file
         if isinstance(file, str):
             if not os.path.exists(file):
-                return [self.default_value]
+                # iter() exige un ITÉRATEUR : la liste nue d'origine levait
+                # TypeError (défaut préexistant, jamais testé)
+                return iter([self.default_value])
             self.file_iter = _json_object_file_iterator(file, mode="rb")
         else:
             raise Exception("not yet able to load_iter on %s" % str(type(file)))
@@ -2225,8 +2227,22 @@ class Decoder(rapidjson.Decoder):
         return sequence
 
     def __next__(self):
+        # état volatil par décodage : ce chemin appelle _decode BRUT, sans le
+        # tp_call C qui pose ces attributs — l'itération n'avait aucun test,
+        # elle a cassé silencieusement pendant la migration ($ref/root), et
+        # est réparée ici (04/08/2026)
+        self.converted_numpy_array_from_lists = set()
+        self.not_authorized_classes = set()
+        self._updating = False
+        self.root = None
+        self.duplicates_to_replace = []
+        # False : la racine n'est pas supposée connue pendant le parse — les
+        # $ref éventuels passent par les marqueurs, résolus après coup (le
+        # chemin général, correct que l'objet appendé soit dict, liste ou
+        # scalaire)
+        self.json_startswith_curly = False
         try:
-            return rapidjson.Decoder._decode(
+            loaded = rapidjson.Decoder._decode(
                 self, self.file_iter, chunk_size=self.chunk_size
             )
         except rapidjson.JSONDecodeError as error:
@@ -2235,6 +2251,9 @@ class Decoder(rapidjson.Decoder):
                 raise StopIteration
             else:
                 raise
+        if self.duplicates_to_replace:
+            return self._resolve_duplicates(loaded)
+        return loaded
 
 
 # le C prend en charge le protocole des __call__ (poussée amortie, attributs
@@ -2627,6 +2646,44 @@ class _json_object_file_iterator(io.FileIO):
             self.shedule_break = False
             # print("read(1): empty")
             return ""
+        # tampon bytes : machine à états portée en C (~200x plus rapide que
+        # la boucle Python ci-dessous, conservée pour le mode texte)
+        if self.in_chunk_start == 0:
+            s = self.s = io.FileIO.read(self, size)
+        else:
+            s = self.s
+        if isinstance(s, bytes):
+            if not s:
+                return s
+            (
+                ret_start,
+                ret_end,
+                self.in_quotes,
+                self.in_curlys,
+                self.in_squares,
+                self.in_simple,
+                self.in_object,
+                self.backslash_escape,
+                self.in_chunk_start,
+                shedule_break,
+            ) = rapidjson._scan_appended(
+                s,
+                self.in_chunk_start,
+                self.in_quotes,
+                self.in_curlys,
+                self.in_squares,
+                self.in_simple,
+                self.in_object,
+                self.backslash_escape,
+            )
+            if shedule_break:
+                self.shedule_break = True
+            if ret_start == -1:
+                return ""
+            return s[ret_start:ret_end]
+        return self._read_python(s)
+
+    def _read_python(self, s):
         (
             backslash,
             doublecote,
@@ -2644,12 +2701,15 @@ class _json_object_file_iterator(io.FileIO):
         in_object = self.in_object
         backslash_escape = self.backslash_escape  # true if we just saw a backslash
         in_chunk_start = self.in_chunk_start
-        if in_chunk_start == 0:
-            s = self.s = io.FileIO.read(self, size)
-        else:
-            s = self.s
         for i in range(in_chunk_start, len(s)):
             ch = s[i]
+            # dans une chaîne, le caractère qui suit un antislash est
+            # consommé QUEL QU'IL SOIT (l'ancien scanner ne consommait le
+            # drapeau que sur les caractères « intéressants » : une chaîne
+            # finissant par \\n avalait son guillemet fermant)
+            if in_quotes and backslash_escape:
+                backslash_escape = False
+                continue
             if in_simple:
                 if ch in separators or ch in ("]", 93):
                     if in_chunk_start < i:
@@ -2662,15 +2722,13 @@ class _json_object_file_iterator(io.FileIO):
                     self.in_squares = in_squares
                     self.in_simple = False
                     self.in_object = False
+                    self.backslash_escape = False
                     # print("read(2): ",s[in_chunk_start:i])
                     return s[in_chunk_start:i]
             elif ch in interesting:
                 check = False
                 if in_quotes:
-                    if backslash_escape:
-                        # we must have just seen a backslash; reset that flag and continue
-                        backslash_escape = False
-                    elif ch == backslash:
+                    if ch == backslash:
                         # we are in a quote and we see a backslash; escape next char:
                         backslash_escape = True
                     elif ch == doublecote:
@@ -2708,6 +2766,7 @@ class _json_object_file_iterator(io.FileIO):
                     self.in_squares = in_squares
                     self.in_simple = False
                     self.in_object = False
+                    self.backslash_escape = False
                     # print("read(3): ",s[in_chunk_start: i + 1])
                     return s[in_chunk_start : i + 1]
             elif not in_object:
