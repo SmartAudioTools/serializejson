@@ -130,6 +130,49 @@ static PyObject* ref_key_name = nullptr;
 // marqueur one-shot « la prochaine valeur est le résultat de default() »
 // pour les dumps sans pathTracker (toujours manipulé sous GIL)
 static bool sj_next_dict_is_attrs_noplan = false;
+
+// enrichit l'AttributeError d'une restauration d'attribut au chargement :
+// la classe et la clé fautive, avec l'erreur d'origine en cause — le
+// message brut de setattr ne disait pas OÙ chercher (slot manquant,
+// property sans setter, attribut renommé...)
+static void
+sj_enrich_setattr_error(PyObject* inst, PyObject* attr_key)
+{
+    if (!PyErr_ExceptionMatches(PyExc_AttributeError))
+        return;
+    PyObject* etype;
+    PyObject* evalue;
+    PyObject* etraceback;
+    PyErr_Fetch(&etype, &evalue, &etraceback);
+    PyErr_NormalizeException(&etype, &evalue, &etraceback);
+    // format ASCII pur : PyUnicode_FromFormat refuse un format non-ascii
+    PyObject* message = PyUnicode_FromFormat(
+        "serializejson : impossible de poser l'attribut %R en rechargeant "
+        "un objet %s (cle du JSON sans slot ni setter correspondant ? "
+        "attribut renomme ?) : %S",
+        attr_key, Py_TYPE(inst)->tp_name,
+        evalue ? evalue : Py_None);
+    if (message == nullptr) {
+        PyErr_Restore(etype, evalue, etraceback);
+        return;
+    }
+    PyObject* enriched = PyObject_CallFunctionObjArgs(
+        PyExc_AttributeError, message, nullptr);
+    Py_DECREF(message);
+    if (enriched == nullptr) {
+        PyErr_Restore(etype, evalue, etraceback);
+        return;
+    }
+    if (evalue != nullptr) {
+        Py_INCREF(evalue);
+        PyException_SetCause(enriched, evalue);  // vole la référence
+    }
+    Py_XDECREF(etype);
+    Py_XDECREF(evalue);
+    Py_XDECREF(etraceback);
+    PyErr_SetObject(PyExc_AttributeError, enriched);
+    Py_DECREF(enriched);
+}
 static PyObject* init_key_name = nullptr;
 static PyObject* new_key_name = nullptr;
 static PyObject* state_key_name = nullptr;
@@ -1884,6 +1927,7 @@ struct PyHandler {
                                            &attr_key, &attr_value)) {
                             if (PyObject_SetAttr(inst, attr_key,
                                                  attr_value) == -1) {
+                                sj_enrich_setattr_error(inst, attr_key);
                                 Py_DECREF(inst);
                                 Py_DECREF(mapping);
                                 return false;
@@ -1909,6 +1953,8 @@ struct PyHandler {
                                                    &attr_key, &attr_value)) {
                                     if (PyObject_SetAttr(inst, attr_key,
                                                          attr_value) == -1) {
+                                        sj_enrich_setattr_error(inst,
+                                                                attr_key);
                                         Py_DECREF(inst);
                                         Py_DECREF(mapping);
                                         return false;

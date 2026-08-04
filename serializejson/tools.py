@@ -522,7 +522,16 @@ def setstate(
         for attribut, value in state.items():
             if attribut in setattr_:
                 # marche pour les attribut de __dict__, slots et properties :
-                setattr(self, attribut, value)
+                try:
+                    setattr(self, attribut, value)
+                except AttributeError as erreur:
+                    raise AttributeError(
+                        f"serializejson : impossible de poser l'attribut "
+                        f"{attribut!r} en rechargeant un objet "
+                        f"{type(self).__name__} (clé du JSON sans slot ni "
+                        f"setter correspondant ? attribut renommé ?) : "
+                        f"{erreur}"
+                    ) from erreur
             elif attribut in attribut_to_multi_attributs:
                 attributs = attribut_to_multi_attributs[attribut]
                 if attributs:
@@ -540,7 +549,16 @@ def setstate(
             value = state.popitem(attribut)
             if attribut in setattr_:
                 # marche pour les attribut de __dict__, slots et properties
-                setattr(self, attribut, value)
+                try:
+                    setattr(self, attribut, value)
+                except AttributeError as erreur:
+                    raise AttributeError(
+                        f"serializejson : impossible de poser l'attribut "
+                        f"{attribut!r} en rechargeant un objet "
+                        f"{type(self).__name__} (clé du JSON sans slot ni "
+                        f"setter correspondant ? attribut renommé ?) : "
+                        f"{erreur}"
+                    ) from erreur
             elif attribut in attribut_to_multi_attributs:
                 attributs = attribut_to_multi_attributs[attribut]
                 if attributs:

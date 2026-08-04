@@ -106,3 +106,32 @@ def test_objet_sain_reste_aplati():
     objet.b = "x"
     dump = serializejson.Encoder(return_bytes=True)(objet)
     assert b"__state__" not in dump
+
+
+class SlotsStricts:
+    __slots__ = ("x",)
+
+
+class ProprieteSansSetter:
+    @property
+    def v(self):
+        return 0
+
+
+def test_erreur_setattr_enrichie():
+    # les échecs de restauration (slot inconnu, property sans setter)
+    # doivent dire la classe et la clé fautive, avec la cause chaînée
+    import pytest
+    cas = [
+        ('{"__class__": "%s.SlotsStricts", "zombie": 9}' % __name__,
+         [f"{__name__}.SlotsStricts"], "zombie"),
+        ('{"__class__": "%s.ProprieteSansSetter", "v": 5}' % __name__,
+         [f"{__name__}.ProprieteSansSetter"], "v"),
+    ]
+    for json, classes, cle in cas:
+        with pytest.raises(AttributeError) as excinfo:
+            serializejson.Decoder(authorized_classes=classes)(json)
+        message = str(excinfo.value)
+        assert "serializejson" in message
+        assert repr(cle) in message
+        assert excinfo.value.__cause__ is not None
