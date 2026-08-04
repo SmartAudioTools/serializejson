@@ -67,5 +67,8 @@ Sad, so it's just a coincidence if blocks + zstd and zstandard are compatible fo
 \pard\sl240\slmult1\b suite du 4/08 apr\'e8s-midi : le filtre blosc2 maison\b0\par
 {\cf4 [FAIT (2b5fa58) : la d\'e9riv\'e9e de la voie blosc2 est devenue un FILTRE utilisateur enregistr\'e9 (id 242) \'ab shuffle PUIS delta d'octets \'bb \'97 l'ordre d\'e9couvert par la mesure : shuffl\'e9s, les flux d'octets sont lisses et le delta les lin\'e9arise tous. Signal int16 : 28,2 %% du brut (36,2 %% pour la d\'e9riv\'e9e globale, 51,6 %% shuffle seul) ; par bloc, multithread\'e9 par blosc2 des deux c\'f4t\'e9s, trame auto-descriptive, bit-exact pour TOUT dtype \'97 flottants d\'e9sormais accept\'e9s dans l'opt-in. Dump 0,89 ms, load 0,90 ms : la d\'e9riv\'e9e est devenue quasi gratuite. Voir rapport \'a716]}\par
 \par
+\par
+\pard\sl240\slmult1\b soir\'e9e du 4/08 : l'essai automatique et le codec Rice\b0\par
+{\cf4 [FAIT (01d58be, 5843c85, 5a03ea8) : bytes_compression_diff_dtypes=True = essai automatique par \'e9chantillon stratifi\'e9 (4 bandes, 1/8 born\'e9 [4 Ko, 256 Ko]), candidats shuffle / filtre 242 / d\'e9riv\'e9e axe 0 / codec Rice, gagnant en taille, d\'e9terministe. Codec Rice enregistr\'e9 (id 243) : le mode \'ab fixed \'bb de FLAC dans blosc2 (pr\'e9dicteur polynomial 0-3 par trame de 1024, calibre par partition de 256, partition nulle pour le silence, pr\'e9diction PAR CANAL). Audio r\'e9el : ~10 points de mieux que le meilleur pipeline d'octets, \'e0 ~10-14 %% de FLAC, 3\'d7 plus rapide que lui. Un bug C ind\'e9fini (d\'e9calage de 64 bits) trouv\'e9 par la vraie st\'e9r\'e9o et corrig\'e9. Niveau zstd par d\'e9faut harmonis\'e9 \'e0 1 (78d8cb6). Voir rapport \'a717]}\par
 }
  

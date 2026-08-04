@@ -1839,3 +1839,74 @@ l'étiquette _diff, entiers seulement ; tous les fichiers _diff existants
 se rechargent. Restent ouverts dans la note Compression : le choix d'axe
 (sans objet pour le delta d'octets ?), l'audio stéréo, les images, le
 zip global, la compression itérative.
+
+## 17. Soirée du 4/08 — l'essai automatique, le codec Rice, et les leçons de mesure
+
+Suite directe du §16, en trois commits de fond (01d58be, 5843c85,
+5a03ea8) plus un de réglage (78d8cb6).
+
+1. **Essai automatique** (`bytes_compression_diff_dtypes=True`,
+   01d58be) : au lieu de dériver sur foi d'un dtype, chaque tableau est
+   sondé sur un ÉCHANTILLON (1/8 du tableau borné [4 Ko, 256 Ko], en
+   4 bandes de lignes entières réparties — une bande unique au milieu
+   tombait en plein silence d'un wav et faisait perdre le bon candidat)
+   et le gagnant en taille est appliqué au tout. Candidats : shuffle,
+   filtre 242, dérivée arithmétique axe 0 (entiers, étiquette `_diff`)
+   en version shuffle et filtre, et le codec Rice (entiers 2/4 octets).
+   Égalité → le plus simple ; échantillon == tableau → trame réutilisée
+   telle quelle. Déterministe (sondes nthreads=1, choix par taille).
+2. **Codec Rice enregistré (id 243**, 5843c85, stéréo 5a03ea8) : le
+   mode « fixed » de FLAC dans le pipeline blosc2 — par trame de 1024
+   échantillons, meilleur prédicteur polynomial fixe d'ordre 0-3, puis
+   résidus zigzag codés en Rice, calibre k réajusté par partition de
+   256 (escape verbatim pour le bruit, partition « tout zéro » à 6 bits
+   pour le silence — sans elle le silence coûtait 1 bit/éch là où zstd
+   fait du RLE). Canaux entrelacés gérés par prédiction PAR CANAL (pas
+   c dans le quartet haut du meta ; nibble 0 = mono, trames antérieures
+   lisibles). Adaptation locale = exactement ce que zstd n'a pas : zstd
+   atteint déjà l'entropie GLOBALE d'ordre 0 des résidus, FLAC descend
+   dessous en réajustant par trame — c'est de là que Rice tire ses
+   ~10 points sur l'audio réel.
+3. **Bug C de fond trouvé par la stéréo** (5a03ea8) : `acc >>= (t+1)`
+   avec t+1 == 64 est INDÉFINI — x86 masque le décalage modulo 64,
+   l'accumulateur ne bouge pas, un bit fantôme décale tout le flux. Ne
+   se déclenche que si un unaire finit PILE en haut de la fenêtre de
+   64 bits : de la vraie voix stéréo l'a produit, le mono quasi jamais.
+   Méthode qui a marché : bissection à 64 échantillons, simulation
+   Python au niveau des jetons (spec OK), comparaison d'octets flux C
+   contre flux simulé (encodeur OK), sondes fprintf (décodeur faux dès
+   l'échantillon 1), relecture bit à bit du flux réel (flux OK) → le
+   lecteur était le coupable. Correction : décalage conditionnel.
+4. **Leçons de mesure du soir** (bancs refaits proprement) :
+   - Mes tailles « audio » de l'après-midi comptaient l'inflation
+     base64 (×4/3). Les ratios restaient justes, les valeurs non.
+   - Le wav stéréo du banc était un FAUX stéréo (canaux identiques) :
+     zstd exploite cette redondance inter-canaux, Rice par canal non —
+     seul cas où il perd (+43 %). Sur de la vraie musique (corrélation
+     0,73), égalité de poids ; c'est le trou que le mid/side comblera.
+   - Le duel des vitesses dépend entièrement du NIVEAU zstd : niveau 1
+     (le défaut réel) Rice écrit ~2× plus lent que dérivée+filtre ;
+     niveau 5, il est 3-7× plus RAPIDE ; niveau 9, 30-80×. Monter le
+     niveau zstd n'achète que ~2 points de poids sur l'audio. En
+     lecture, égalité partout (le cumsum de reconstruction est le
+     goulot du camp zstd ; Rice lit même +25-40 % sur le 24 bits).
+   - Sur le rock chargé, FLAC 60 % contre 74 % pour nos deux meilleurs :
+     son avance restante = LPC adaptatif + mid/side, pas un défaut de
+     notre Rice (74,4 % mesuré = 76 % prédit par l'entropie d'ordre 2).
+   - PIÈGE d'outil : libsndfile PCM_24 écrit les 3 octets HAUTS d'un
+     int32 — sans `<<8` la troncature est silencieuse et donne des
+     taux « impossibles » (attrapé par l'argument du plancher
+     d'entropie).
+5. **Réglage harmonisé** (78d8cb6) : le niveau par défaut n'est plus
+   défini qu'à UN endroit (le repli, niveau 1) ; le défaut de l'Encoder
+   est la chaîne nue `"blosc2_zstd"`, et le nom est validé aussi pour
+   les chaînes nues (avant, seule la forme tuple l'était). Octets
+   produits inchangés (vérifié run fraîche contre run fraîche).
+
+Décisions restées ouvertes : faire de l'essai automatique le DÉFAUT de
+`bytes_compression_diff_dtypes` (posée plusieurs fois, non tranchée —
+effets : les octets des tableaux lisses changent, petits dumps ×1,5-3,9) ;
+la grille à 8 pipelines (`_diff1`/`_diff01`, ne paie que sur les entiers
+larges 2D) ; la transposition en pré-passe ; une option `"flac"`.
+Autorisé ce soir pour la nuit : le mid/side pour Rice (canaux == 2,
+choix par trame entre G/D et mid/side, celui qui pèse le moins).
