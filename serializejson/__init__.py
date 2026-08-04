@@ -505,7 +505,7 @@ class Encoder(rapidjson.Encoder):
             Compression for bytes, bytesarray and numpy arrays:
 
             - `None` : no compression, use only base 64.
-            - `str` : compression name with maximum compression level 9:
+            - `str` : compression name, with the default compression level (1):
               "blosc2_zstd", "blosc2", "blosc2_lz4", "blosc2_lz4hc" or "blosc2_zlib"
               (compression done in C without any Python round trip, needs a
               loadable libblosc2 — the bundled deterministic fork or the
@@ -665,7 +665,7 @@ class Encoder(rapidjson.Encoder):
         single_line_new=True,
         single_line_list_numbers=True,
         sort_keys=False,
-        bytes_compression=("blosc2_zstd", 1) if use_blosc2_cpp else ("blosc_zstd", 1),  #
+        bytes_compression="blosc2_zstd" if use_blosc2_cpp else "blosc_zstd",
         bytes_compression_diff_dtypes=tuple(),
         bytes_size_compression_threshold=512,
         bytes_compression_threads="determinist",
@@ -733,18 +733,18 @@ class Encoder(rapidjson.Encoder):
         self._dump_one_line = indent is None
         self.dumped_classes = set()
         self.chunk_size = chunk_size
-        bytes_compression_level = 9
+        bytes_compression_level = 1  # niveau par défaut, défini ici et nulle part ailleurs (un tuple explicite le remplace)
         if bytes_compression is not None:
             if isinstance(bytes_compression, (list, tuple)):
                 bytes_compression, bytes_compression_level = bytes_compression
-                if (
-                    bytes_compression not in blosc_compressions
-                    and bytes_compression not in blosc2_compressions
-                ):
-                    raise Exception(
-                        f"{bytes_compression} compression unknown. Available values for bytes_compression are "
-                        f"{', '.join(blosc_compressions)}, {', '.join(blosc2_compressions)}"
-                    )
+            if (
+                bytes_compression not in blosc_compressions
+                and bytes_compression not in blosc2_compressions
+            ):
+                raise Exception(
+                    f"{bytes_compression} compression unknown. Available values for bytes_compression are "
+                    f"{', '.join(blosc_compressions)}, {', '.join(blosc2_compressions)}"
+                )
         self.bytes_compression = bytes_compression
         self.bytes_compression_threads = bytes_compression_threads
         self.bytes_compression_diff_dtypes = bytes_compression_diff_dtypes
