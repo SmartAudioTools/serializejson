@@ -153,5 +153,14 @@ puis il y a une recopie lors de la convertions bytes -> bytearray , pour avoir u
 \pard\sl240\slmult1 serializeRepr ; eviter de faire un repr() sur des encodedB64\par
 \pard\li720\sl240\slmult1{\cf4 [OBSOL\'c8TE, par la note elle-m\'eame : \'ab je n'utiliserai plus d'objets encodedB64 \'bb \'97 plus rien \'e0 optimiser ici, d\'e9plac\'e9 le 04/08/2026]}\par
 \par
+\pard\sl240\slmult1\b liste d'objets : dump_iter = append ? voir pour ne pas fermer le fichier \'e0 chaque fois ?\b0\par
+\pard\li720\sl240\slmult1{\cf4 [D\'c9J\'c0 SATISFAIT par le code, v\'e9rifi\'e9 le 04/08/2026 : Encoder.append garde le fichier OUVERT entre les appels (close=False par d\'e9faut, m\'eame objet fichier r\'e9utilis\'e9, fermeture par encoder.close()) ; seule la fonction module append(chemin), sans \'e9tat, rouvre \'e0 chaque appel. En prime le m\'eame jour : les \'e9l\'e9ments appendés sont indent\'e9s d'un niveau, le fichier est octet pour octet identique \'e0 la s\'e9rialisation directe de la liste (6d666f6)]}\par
+\par
+\pard\sl240\slmult1\b Ecriture et lecture de fichier json non-bloquante ?\b0  (compresser pendant qu'il \'e9crit sur le disque ; en bloquant on additionne les temps, en non-bloquant c'est le maillon le plus faible)\par
+\pard\li720\sl240\slmult1{\cf4 [LECTURE : fait (les blobs base64 sont d\'e9cod\'e9s en diff\'e9r\'e9-parall\'e8le pendant que le parse continue). \'c9CRITURE : mesur\'e9 SANS ENJEU le 04/08/2026 \'97 dump de 17 Mo : 19 ms vers bytes, 16 ms vers fichier (le write() ne co\'fbte rien, le cache de pages du noyau absorbe l'\'e9criture ; il n'y a RIEN \'e0 recouvrir par du non-bloquant sur un disque local). Ne redeviendrait une piste que pour un support lent \'e9crit en synchrone (r\'e9seau, USB, fsync)]}\par
+\par
+\pard\sl240\slmult1\b Optimisation numpy.array / Encoding, cas .tolist()\b0  (check d'homog\'e9n\'e9it\'e9 inutile ; n'utilise pas NM_NAN pour int/bool ; \'ab s'il \'bb inachev\'e9 ; pybase64)\par
+\pard\li720\sl240\slmult1{\cf4 [OBSOL\'c8TE, d\'e9plac\'e9 le 04/08/2026 : le chemin tolist() n'est plus qu'un repli de configurations rares (une ligne, ou single_line_list_numbers d\'e9sactiv\'e9) \'97 les tableaux passent par base64+blosc2 par d\'e9faut, ou par ArrayRows (\'e9criture C directe depuis le buffer, sans tolist ni aller-retour Python) en mode lisible, qui choisit d\'e9j\'e0 NM_NATIVE pour les dtypes non flottants. Optimiser le repli n'a plus d'enjeu mesurable ; pybase64 est utilis\'e9 partout depuis longtemps]}\par
+\par
 }
  
