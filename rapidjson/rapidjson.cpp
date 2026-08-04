@@ -4780,6 +4780,16 @@ dumps_internal(
             char* key_end = rapidjson::internal::i64toa(key_value, key_buf);
             SizeType key_length = (SizeType) (key_end - key_buf);
             writer->Key(key_buf, key_length);
+            // littéraux inline : un scalaire n'est jamais cible de $ref ni
+            // parent d'un conteneur, le segment de chemin serait du vide
+            if (int_item == Py_None) {
+                writer->Null();
+                continue;
+            }
+            if (int_item == Py_True || int_item == Py_False) {
+                writer->Bool(int_item == Py_True);
+                continue;
+            }
             PATH_PUSH_KEY(key_buf, key_length)
             bool r = RECURSE(int_item);
             PATH_POP()
@@ -4839,6 +4849,14 @@ dumps_internal(
                         writer->RawValue(shape.fragments[i].data(),
                                          shape.fragments[i].size());
                         PyObject* shape_item = shape_values[i];
+                        if (shape_item == Py_None) {
+                            writer->Null();
+                            continue;
+                        }
+                        if (shape_item == Py_True || shape_item == Py_False) {
+                            writer->Bool(shape_item == Py_True);
+                            continue;
+                        }
                         if (PyUnicode_CheckExact(shape_item)) {
                             Py_ssize_t inline_length;
                             const char* inline_str = PyUnicode_AsUTF8AndSize(
@@ -5716,6 +5734,15 @@ dumps_internal(
                         attrsDict = true;  // segments de chemin en style ".attr"
                         for (const FastAttr& attr : attrs) {
                             writer->Key(attr.key, (SizeType) attr.len);
+                            if (attr.value == Py_None) {
+                                writer->Null();
+                                continue;
+                            }
+                            if (attr.value == Py_True
+                                || attr.value == Py_False) {
+                                writer->Bool(attr.value == Py_True);
+                                continue;
+                            }
                             if (PyUnicode_CheckExact(attr.value)) {
                                 Py_ssize_t inline_length;
                                 const char* inline_str = PyUnicode_AsUTF8AndSize(
