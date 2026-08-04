@@ -1778,9 +1778,22 @@ Le danger réel est le cas RENOMMAGE : silencieux au chargement, l'objet
 est incomplet et l'erreur éclate loin, à l'usage. Les cas slots/property
 échouent bruyamment mais sans dire OÙ (ni chemin JSON ni classe).
 
-Pistes (décisions d'API, non implémentées) :
-1. option de politique `unknown_keys` : "set" (comportement actuel),
-   "ignore", "warn", "error" — le défaut actuel resterait "set" ;
-2. enrichir les AttributeError slots/property du chemin JSON et de la
+⚠ Objection utilisateur (12:24), qui invalide la piste 1 dans le cas
+général : pour une classe à __dict__, il n'existe AUCUNE référence de ce
+qu'est un attribut « connu » — Python n'exige aucune déclaration, un
+attribut peut être légitimement ajouté à chaud, hors __init__ (que le
+chargement ne rappelle d'ailleurs pas). Une politique « clé inconnue »
+n'a donc de sens que là où une déclaration EXISTE : les __slots__ (et
+c'est justement là que ça échoue déjà bruyamment), ou une déclaration
+explicite fournie par l'utilisateur (annotations de classe, liste par
+classe). Le « poser silencieusement » actuel n'est pas un défaut mais le
+SEUL comportement correct par défaut pour les classes à __dict__.
+
+Pistes restantes (décisions d'API, non implémentées) :
+1. enrichir les AttributeError slots/property du chemin JSON et de la
    classe (amélioration de message, sans changement d'API) ;
-3. table de renommage par classe (migration de schéma) — API nouvelle.
+2. table de renommage par classe (migration de schéma) — API nouvelle,
+   opt-in ;
+3. politique « clé inconnue » SEULEMENT opt-in et seulement pour les
+   classes offrant une référence déclarée (slots, annotations, liste
+   explicite).
