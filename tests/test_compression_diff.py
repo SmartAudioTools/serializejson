@@ -290,3 +290,34 @@ def test_rice_deterministe_et_tuple_inchange():
         return_bytes=True,
         bytes_compression_diff_dtypes=(numpy.int16,))(donnees)
     assert numpy.array_equal(serializejson.Decoder()(tup), donnees)
+
+
+def test_rice_stereo_par_canal():
+    # (N, 2) : rice prédit chaque canal depuis lui-même (pas de c en mémoire,
+    # canaux portés par le quartet haut du meta) — sans cela la prédiction
+    # enjambait les canaux et rice perdait en stéréo
+    rng = numpy.random.default_rng(23)
+    t = numpy.linspace(0, 40, 60_000)
+    stereo = numpy.stack([
+        (9000 * numpy.sin(t) + rng.integers(-30, 31, len(t))),
+        (7000 * numpy.cos(t * 1.3) + rng.integers(-30, 31, len(t)))],
+        1).astype(numpy.int16)
+    dump = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=True)(stereo)
+    recharge = serializejson.Decoder()(dump)
+    assert recharge.shape == stereo.shape
+    assert numpy.array_equal(recharge, stereo)
+
+
+def test_rice_unaire_64_bits():
+    # régression : un q unaire finissant PILE en haut du tampon de 64 bits
+    # déclenchait un décalage C indéfini (acc >>= 64 : acc inchangé sur x86,
+    # bit fantôme relu plus loin) — canal pair lisse + canal impair fou
+    # fabrique ces q extrêmes en rafale
+    rng = numpy.random.default_rng(24)
+    a = rng.integers(-30000, 30000, 200_000).astype(numpy.int16)
+    a[::2] = rng.integers(-5, 5, 100_000)
+    for donnees in (a, a.reshape(-1, 2)):
+        dump = serializejson.Encoder(
+            return_bytes=True, bytes_compression_diff_dtypes=True)(donnees)
+        assert numpy.array_equal(serializejson.Decoder()(dump), donnees)

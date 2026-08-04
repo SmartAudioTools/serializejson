@@ -242,6 +242,12 @@ else:
                     # côtés, trame auto-descriptive — aucune étiquette)
                     contiguous = numpy.ascontiguousarray(data)
                     level = serialize_parameters.bytes_compression_level
+                    # audio entrelacé (N, canaux) : le codec rice prédit alors
+                    # chaque canal depuis lui-même (pas de c en mémoire)
+                    rice_channels = (contiguous.shape[1]
+                                     if contiguous.ndim == 2
+                                     and 2 <= contiguous.shape[1] <= 15
+                                     else 1)
                     shuffle = 2 if use_diff else 1  # 2 = filtre delta + shuffle
                     diff0 = False  # dérivée d'axe 0 (passe C + étiquette _diff)
                     if auto_diff:
@@ -278,6 +284,7 @@ else:
                                 cand = BloscToBase64(
                                     buf, sample.itemsize, level, cand_shuffle,
                                     cand_cname or blosc2_compression, 1,
+                                    rice_channels,
                                 )
                             except ValueError:
                                 if cand_cname is None:
@@ -314,6 +321,7 @@ else:
                             shuffle,
                             cname_gagnant or blosc2_compression,
                             nthreads if type(nthreads) is int else 1,
+                            rice_channels,
                         )
                     # le filtre est porté par la trame ; seule la dérivée
                     # d'axe 0 garde l'étiquette _diff (et sa somme cumulée
