@@ -1,0 +1,14 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset0 Arial;}{\f2\fswiss\fprq2\fcharset0 Arial;}}
+{\colortbl ;\red255\green0\blue0;\red204\green204\blue204;\red0\green176\blue80;\red255\green105\blue180;\red155\green0\blue211;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1\lang12\b\f0\fs22 Debug & tests \'97 items trait\'e9s\b0\par
+\par
+\pard\li720\sl240\slmult1\b PySide2 :\b0  j'ai pas r\'e9ussi \'e0 remetre SmartPython avec PySide2 ...\par
+{\cf5 [R\'c9SOLU DEPUIS, constat\'e9 le 04/08/2026 : PySide2 est bel et bien PR\'c9SENT dans le venv SmartPython 3.10 (import v\'e9rifi\'e9) \'97 le \'ab remettre \'bb a donc fini par \'eatre fait ; il est absent des venvs r\'e9cents (3.14), o\'f9 PyQt5 (via qtpy) sert partout, et rien dans serializejson ne d\'e9pend de PySide2]}\par
+\par
+\b pb infinity\b0  (quand martin exporte des param\'e8tres de model on a des "nbJacIter": Inf, alors que la vraie syntaxe json \'e9tendue est Infinity ; hacks matlabToJavascript/javascriptToMatlab avec "_Inf_")\par
+{\cf5 [C\'f4t\'e9 serializejson : CLOS, v\'e9rifi\'e9 par l'exp\'e9rience le 04/08/2026 \'97 le parse accepte D\'c9J\'c0 les graphies de Martin telles quelles : \'ab Inf \'bb et \'ab -Inf \'bb sont lus comme les infinis, au m\'eame titre que Infinity/-Infinity/NaN (extension du lecteur rapidjson, revalid\'e9e bit-\'e0-bit pendant la campagne, conversions parall\'e8les comprises). Les fichiers de Martin se chargent donc sans hack. \'ab _Inf_ \'bb reste une CHA\'ceNE au parse \'97 c'est la convention de compilation vers Matlab, externe \'e0 serializejson ; sa v\'e9rification c\'f4t\'e9 jsonLab reste dans le fichier source]}\par
+\par
+__init__ ?\par
+{\cf5 [fragment inachev\'e9 sans contexte, d\'e9plac\'e9 le 04/08/2026]}\par
+\par
+}
