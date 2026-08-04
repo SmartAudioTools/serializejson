@@ -126,6 +126,10 @@ static PyObject* fast_start_object_name = nullptr;
 static PyObject* fast_plain_end_object_name = nullptr;
 static PyObject* root_attr_name = nullptr;
 static PyObject* class_key_name = nullptr;
+static PyObject* ref_key_name = nullptr;
+// marqueur one-shot « la prochaine valeur est le résultat de default() »
+// pour les dumps sans pathTracker (toujours manipulé sous GIL)
+static bool sj_next_dict_is_attrs_noplan = false;
 static PyObject* init_key_name = nullptr;
 static PyObject* new_key_name = nullptr;
 static PyObject* state_key_name = nullptr;
@@ -3754,6 +3758,17 @@ all_keys_are_string(PyObject* dict) {
     return true;
 }
 
+// un dict utilisateur contenant une clé RÉSERVÉE du format (__class__,
+// $ref) serait relu comme un objet ou une référence : il doit passer par
+// l'enveloppe {"__class__": "dict", ...} avec la clé échappée entre
+// apostrophes (voie Python), comme les dicts à clés non-str
+static bool
+sj_dict_has_reserved_key(PyObject* dict)
+{
+    return PyDict_GetItem(dict, class_key_name) != nullptr
+        || PyDict_GetItem(dict, ref_key_name) != nullptr;
+}
+
 
 // Écrit une valeur numérique du buffer (code de format du protocole buffer).
 // Retourne false pour un NaN/Inf refusé par numberMode ou un format inconnu.
@@ -3889,6 +3904,13 @@ dumps_internal(
     if (pathTracker) {
         attrsDict = pathTracker->next_dict_is_attrs;
         pathTracker->next_dict_is_attrs = false;
+    } else {
+        // dumps SANS pathTracker (encodage des clés complexes, API brute) :
+        // même marqueur one-shot, porté par un drapeau de module sous GIL —
+        // sans lui, l'enveloppe produite par default() (qui contient
+        // "__class__" par construction) serait renvoyée à default() en boucle
+        attrsDict = sj_next_dict_is_attrs_noplan;
+        sj_next_dict_is_attrs_noplan = false;
     }
 
     // Consomme une unité du budget de récursion de CPython à chaque niveau,
@@ -4738,7 +4760,12 @@ dumps_internal(
                 ||
                 (mappingMode & MM_COERCE_KEYS_TO_STRINGS)
                 ||
-                all_keys_are_string(object))) {
+                (all_keys_are_string(object)
+                 // les enveloppes produites par default() (attrsDict)
+                 // contiennent "__class__" par construction : elles
+                 // s'écrivent telles quelles — sans cette garde, la
+                 // détection les renverrait à default() en boucle
+                 && (attrsDict || !sj_dict_has_reserved_key(object))))) {
         // les dicts d'attributs construits par default() sont uniques par
         // construction : inutile de les mémoïser (le VRAI __dict__ de l'objet
         // est, lui, enregistré par memo_state_dict au moment de l'aplatissement)
@@ -5685,9 +5712,13 @@ dumps_internal(
         // ses clés sont des attributs pour le chemin JSON (".attr")
         if (pathTracker)
             pathTracker->next_dict_is_attrs = true;
+        else
+            sj_next_dict_is_attrs_noplan = true;
         bool r = RECURSE(retval);
         if (pathTracker)
             pathTracker->next_dict_is_attrs = false;
+        else
+            sj_next_dict_is_attrs_noplan = false;
         Py_LeaveRecursiveCall();
         Py_DECREF(retval);
         if (!r)
@@ -7442,6 +7473,7 @@ module_exec(PyObject* m)
         return -1;
 
     class_key_name = PyUnicode_InternFromString("__class__");
+    ref_key_name = PyUnicode_InternFromString("$ref");
     if (class_key_name == nullptr)
         return -1;
 

@@ -1180,6 +1180,12 @@ class Encoder(rapidjson.Encoder):
                     # pas mis les float pour garder -inf et inf (nan ca déconne dans les dictionnaires)
                     new_key = str(key)
                 elif type_key is str:
+                    if key in ("__class__", "$ref"):
+                        # clés réservées du format : toujours échappées —
+                        # nue, la clé utilisateur écraserait l'étiquette de
+                        # l'enveloppe ou serait relue comme objet/référence
+                        init_dict[f"'{key}'"] = value
+                        continue
                     try:
                         rapidjson.loads(key)
                     except:
