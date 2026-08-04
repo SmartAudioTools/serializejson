@@ -1608,3 +1608,51 @@ insensible au bruit de disposition), reste neutre.
 7. **PGO élargi** : le profil actuel vient de la batterie + pgo_workload ;
    y ajouter les benchs officiels pourrait déplacer 2-3 % (à essayer une
    fois, mesure par ratios).
+
+
+---
+
+## 12. Matin du 4/08 — deux décisions de format tranchées et appliquées
+
+### Enveloppe des dicts à clés non-str : nom court (a401e39)
+Décision utilisateur (critère : « le format le plus consistant avec les
+conventions de serializejson, et lisible ») après examen des variantes
+($dict compact, __items__ en paires — la plus pure mais moins lisible,
+__dict__ imbriqué — propre mais sans gain) : la forme à plat
+`{"__class__": "dict", "0": null, ...}` — même chapeau que tous les
+objets, clés codées inchangées, 13 octets gagnés par dict. L'ancien nom
+`dict_non_str_keys` reste lu POUR TOUJOURS.
+
+### Collision des clés réservées : échappement (b9115c7)
+Question utilisateur « comment résoudre élégamment la collision d'un dict
+légitime portant une clé __class__ ». Mesure préalable : TROIS corruptions
+préexistantes (dict {"__class__": ...} relu comme objet ; clé utilisateur
+écrasant silencieusement l'étiquette dans un dict mixte ; {"$ref": ...}
+relu comme référence). La piste positionnelle (« __class__ toujours
+premier ») a été écartée : sensible à sort_keys et aux outils tiers qui
+réordonnent, et elle n'aurait de toute façon pas couvert le cas premier —
+l'échappement est nécessaire, donc suffisant partout. Solution retenue :
+ces dicts passent par l'enveloppe avec la clé RÉSERVÉE échappée entre
+apostrophes (`"'__class__'"`), c'est-à-dire le mécanisme d'échappement de
+clés DÉJÀ dans le format — zéro changement côté lecture, et les anciennes
+versions relisent ces fichiers correctement.
+
+Deux pièges d'implémentation, tous deux attrapés par les tests avant
+commit :
+- l'enveloppe produite par default() contient `__class__` par
+  construction : sans garde, la détection la renvoyait à default() en
+  boucle infinie. Garde = le marqueur « résultat de default() »
+  (attrsDict) ;
+- ce marqueur vivait sur le pathTracker, or les dumps SANS pathTracker
+  (encodage des clés complexes par rapidjson.dumps brut) rebouclaient
+  quand même (pile épuisée sur le golden des clés mélangées) → repli du
+  marqueur en drapeau de module sous GIL.
+
+Trou RESTANT, consigné : un attribut d'OBJET nommé `__class__` (état
+aplati dans la même enveloppe que l'étiquette de l'objet) — traitable par
+la règle « état non aplati » (`__state__`) le jour où le cas se présente.
+
+Couverture : tests/test_dict_court.py, tests/test_cles_reservees.py,
+600 fuzz orientés collisions ; 58 tests × 5 versions, goldens du
+changement de nom vérifiés ligne à ligne (seule l'étiquette), goldens de
+l'échappement inchangés (aucune donnée saine n'était concernée).
