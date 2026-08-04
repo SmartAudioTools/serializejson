@@ -250,6 +250,7 @@ authorized_classes.update(
         "range",
         "set",
         "slice",
+        "dict",
         "dict_non_str_keys",
         "collections.Counter",
         "collections.defaultdict",
@@ -1166,7 +1167,9 @@ class Encoder(rapidjson.Encoder):
     def _dict_from_instance(self, inst):
 
         if type(inst) is dict:  # dictionnary with non string key
-            d = {"__class__": "dict_non_str_keys"}
+            # nom court depuis le 04/08/2026 (décision de format) ; les
+            # fichiers portant l'ancien nom "dict_non_str_keys" restent lus
+            d = {"__class__": "dict"}
             init_dict = d
             for key, value in inst.items():
                 # if type(key) is tuple :
@@ -2014,7 +2017,7 @@ class Decoder(rapidjson.Decoder):
                         inst[key] = (inst[key],)
 
             if (
-                inst["__class__"] == "dict_non_str_keys"
+                inst["__class__"] in ("dict", "dict_non_str_keys")
             ):  # je l'ai mis ici car trop specifique à json pour etre dans tools (qui est partagé avec serializePython et serializeRepr)
                 return dict_non_str_keys(inst)
             return instance(**inst)

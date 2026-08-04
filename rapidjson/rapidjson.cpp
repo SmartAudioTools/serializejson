@@ -4697,7 +4697,7 @@ dumps_internal(
     }
 
 	// dictionnaire à clés toutes entières (int exacts, 64 bits) : forme
-	// {"__class__": "dict_non_str_keys", "<entier>": valeur, ...} écrite
+	// {"__class__": "dict", "<entier>": valeur, ...} écrite
 	// directement en C++, à l'octet près du chemin Python historique — les
 	// autres clés non-str (bool, tuples, mixtes, >64 bits) restent en Python
 	else if (PyDict_CheckExact(object) && (mappingMode & MM_ONLY_DICTS)
@@ -4708,7 +4708,7 @@ dumps_internal(
         CALL_CONTAINER_HOOK(defaultDictFn, " while JSONifying dict object")
         writer->StartObject();
         writer->Key("__class__", 9);
-        writer->String("dict_non_str_keys", 17);
+        writer->String("dict", 4);
         Py_ssize_t int_pos = 0;
         PyObject* int_key;
         PyObject* int_item;
