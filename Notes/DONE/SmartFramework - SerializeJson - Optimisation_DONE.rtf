@@ -140,5 +140,18 @@ puis il y a une recopie lors de la convertions bytes -> bytearray , pour avoir u
 \pard\sl240\slmult1\b0\par
 \pard\sa200\sl276\slmult1\par
 \par
+\pard\sl240\slmult1\b def _json_object_file_iterator -> passer en cython ?\b0\par
+\pard\li720\sl240\slmult1{\cf4 [FAIT 04/08/2026, en C dans le fork plut\'f4t qu'en cython : la machine \'e0 \'e9tats de read() est port\'e9e telle quelle (_scan_appended), la boucle Python restant le repli du mode texte. \'c9quivalence STRICTE tranche \'e0 tranche et \'e9tat \'e0 \'e9tat v\'e9rifi\'e9e sur des chunks de 1, 7, 97 et 4096 octets ; it\'e9ration 15 -> 6,4 \'b5s/objet (-57 %). En route, TROIS d\'e9fauts corrig\'e9s : l'it\'e9ration \'e9tait cass\'e9e net depuis la migration des __call__ en C (\'e9tat volatil jamais pos\'e9 \'97 aucun test ne couvrait ce chemin) ; le scanner avalait le guillemet fermant apr\'e8s un \'e9chappement (une cha\'eene finissant par \\n faussait toutes les bornes suivantes) ; __iter__ sur fichier absent levait TypeError. Tests : tests/test_append_iter.py. Commit 7591c4d]}\par
+\par
+\pard\sl240\slmult1\ul\b array_to_list et array_from_list\ulnone\b0\par
+\pard\li720\sl240\slmult1 array_from_list : probl\'e8me : les __init__ de certains objets peuvent etre convertis en tableau numpy, si un ou plusieurs float ou int (solutions 1/2/3 esquiss\'e9es)\par
+{\cf4 [R\'c9SOLU de longue date dans le code, constat\'e9 le 04/08/2026 : le d\'e9codeur trace les tableaux cr\'e9\'e9s par le hook end_array (converted_numpy_array_from_lists, par id) et les RECONVERTIT en listes quand ils atterrissent dans __init__/__new__/__items__ (end_object) \'97 l'esprit de la solution 2, sans re-dispatch. Exerc\'e9 par la batterie numpy]}\par
+\par
+\pard\sl240\slmult1\b load_iter \b0 (3 solutions, \'ab je suis parti sur la 2 : compter les "\{[]\} \'bb, \'ab faut que je porte le code en Cython \'bb)\par
+\pard\li720\sl240\slmult1{\cf4 [FAIT : la solution 2 \'e9tait impl\'e9ment\'e9e depuis longtemps (_json_object_file_iterator + for obj in Decoder(fichier)) ; le portage \'ab Cython \'bb est d\'e9sormais fait en C, voir l'item ci-dessus \'97 m\'eame commit, m\'eames tests]}\par
+\par
+\pard\sl240\slmult1 serializeRepr ; eviter de faire un repr() sur des encodedB64\par
+\pard\li720\sl240\slmult1{\cf4 [OBSOL\'c8TE, par la note elle-m\'eame : \'ab je n'utiliserai plus d'objets encodedB64 \'bb \'97 plus rien \'e0 optimiser ici, d\'e9plac\'e9 le 04/08/2026]}\par
+\par
 }
  

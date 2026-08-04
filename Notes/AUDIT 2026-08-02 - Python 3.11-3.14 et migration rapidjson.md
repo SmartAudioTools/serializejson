@@ -1706,3 +1706,42 @@ lecture d'une clé courte ne coûte presque plus rien à contourner.
 5. extraction MT des entiers : mur mémoire, couvert par numpy ;
 6. fusion clé-valeur : écartée (ci-dessus) ;
 7. PGO élargi : écarté (ci-dessus).
+
+
+---
+
+## 14. Matin du 4/08, fin — la note Optimisation.rtf traitée (itération des fichiers appendés)
+
+En travaillant l'item « _json_object_file_iterator → passer en cython ? »
+de la note, TROIS défauts sont apparus, tous corrigés (7591c4d) :
+
+1. **L'itération était cassée net** (`for obj in Decoder(fichier)` →
+   AttributeError) depuis la migration des __call__ en C : `__next__`
+   appelle `_decode` brut, et l'état volatil par décodage (root,
+   converted_numpy..., duplicates_to_replace...) n'était jamais posé.
+   AUCUN test ne couvrait ce chemin (la note Tests le réclamait).
+   `__next__` pose désormais l'état et résout les $ref après le parse
+   (chemin général, correct pour dict/liste/scalaire appendu).
+2. **Le scanner avalait le guillemet fermant après un échappement** (bug
+   d'origine) : après `\x`, le drapeau restait levé jusqu'au prochain
+   caractère « intéressant » — une chaîne finissant par `\n` faussait
+   TOUTES les bornes d'objets suivantes. Le caractère qui suit un
+   antislash est maintenant consommé quel qu'il soit, et le drapeau est
+   persisté aux bornes.
+3. **`__iter__` sur fichier absent** retournait une liste nue → TypeError.
+
+Puis l'item lui-même : la machine à états de read() portée en C
+(`rapidjson._scan_appended`), boucle Python conservée comme repli du mode
+texte. Équivalence STRICTE tranche à tranche ET état à état vérifiée
+sur des chunks de 1, 7, 97 et 4096 octets (le harnais a d'ailleurs mis au
+jour deux sous-écarts : drapeau non persisté aux bornes, états non sauvés
+en fin de liste — alignés). Itération : 15 → 6,4 µs/objet (−57 %).
+Tests : tests/test_append_iter.py (formes variées, échappements, $ref
+partagés, équivalence C/Python, fichier absent). 65 tests × 5 versions.
+
+Autres items de la note tranchés en même temps (déplacés au _DONE) :
+array_from_list/__init__ (résolu de longue date par
+converted_numpy_array_from_lists, constaté), load_iter (existait, portage
+fait), serializeRepr/encodedB64 (obsolète par sa propre conclusion).
+Restent dans la note : dump_iter sans fermeture de fichier, écriture
+non-bloquante (piste), sous-items numpy tolist.
