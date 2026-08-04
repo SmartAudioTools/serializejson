@@ -7278,6 +7278,24 @@ load_blosc_library(PyObject* Py_UNUSED(self), PyObject* arg)
             serializejson_blosc2_ctx_ok = true;
     }
 
+    // filtre « delta arithmétique par bloc » : enregistré dans la lib
+    // chargée (fork ou roue) — nécessaire à la compression ET à la
+    // décompression des trames qui l'utilisent
+    serializejson_blosc2_delta_ok = false;
+    if (serializejson_blosc2_ctx_ok) {
+        sj_blosc2_register_filter_t register_filter =
+            (sj_blosc2_register_filter_t) dlsym(handle,
+                                                "blosc2_register_filter");
+        if (register_filter != nullptr) {
+            static char sj_delta_name[] = "serializejson_delta";
+            static blosc2_filter sj_delta_filter = {
+                SJ_BLOSC2_FILTER_DELTA, sj_delta_name, 1,
+                sj_delta_filter_forward, sj_delta_filter_backward};
+            if (register_filter(&sj_delta_filter) == 0)
+                serializejson_blosc2_delta_ok = true;
+        }
+    }
+
     Py_RETURN_TRUE;
 }
 
@@ -7385,6 +7403,10 @@ blosc_set_nthreads_fn(PyObject* Py_UNUSED(self), PyObject* arg)
     long nthreads = PyLong_AsLong(arg);
     if (nthreads == -1 && PyErr_Occurred())
         return nullptr;
+    // retenu pour les compressions par contexte (le filtre delta) : le
+    // réglage global blosc1 ne s'applique pas aux contextes
+    serializejson_blosc2_nthreads_global =
+        (int) (nthreads > 0 ? nthreads : 1);
     if (serializejson_blosc2_set_nthreads == nullptr)
         Py_RETURN_NONE;
     return PyLong_FromLong(
@@ -7566,74 +7588,6 @@ sj_cumsum_rows(T* data, Py_ssize_t rows, Py_ssize_t cols)
     }
 }
 
-#ifdef RAPIDJSON_SSE42
-// préfixe 1D vectorisé (le scalaire bute sur la chaîne de dépendance,
-// ~1,5 ns/élément) : somme de préfixe EN REGISTRE par décalages-additions,
-// puis propagation du report (dernier élément diffusé à tout le vecteur)
-static void
-sj_prefix_u16(uint16_t* d, Py_ssize_t n)
-{
-    Py_ssize_t i = 0;
-    __m128i carry = _mm_setzero_si128();
-    for (; i + 8 <= n; i += 8) {
-        __m128i v = _mm_loadu_si128((__m128i*) (d + i));
-        v = _mm_add_epi16(v, _mm_slli_si128(v, 2));
-        v = _mm_add_epi16(v, _mm_slli_si128(v, 4));
-        v = _mm_add_epi16(v, _mm_slli_si128(v, 8));
-        v = _mm_add_epi16(v, carry);
-        _mm_storeu_si128((__m128i*) (d + i), v);
-        carry = _mm_shufflehi_epi16(v, _MM_SHUFFLE(3, 3, 3, 3));
-        carry = _mm_unpackhi_epi64(carry, carry);
-    }
-    uint16_t last = i ? d[i - 1] : 0;
-    for (; i < n; i++) {
-        last = (uint16_t) (last + d[i]);
-        d[i] = last;
-    }
-}
-
-static void
-sj_prefix_u32(uint32_t* d, Py_ssize_t n)
-{
-    Py_ssize_t i = 0;
-    __m128i carry = _mm_setzero_si128();
-    for (; i + 4 <= n; i += 4) {
-        __m128i v = _mm_loadu_si128((__m128i*) (d + i));
-        v = _mm_add_epi32(v, _mm_slli_si128(v, 4));
-        v = _mm_add_epi32(v, _mm_slli_si128(v, 8));
-        v = _mm_add_epi32(v, carry);
-        _mm_storeu_si128((__m128i*) (d + i), v);
-        carry = _mm_shuffle_epi32(v, _MM_SHUFFLE(3, 3, 3, 3));
-    }
-    uint32_t last = i ? d[i - 1] : 0;
-    for (; i < n; i++) {
-        last += d[i];
-        d[i] = last;
-    }
-}
-
-static void
-sj_prefix_u8(uint8_t* d, Py_ssize_t n)
-{
-    Py_ssize_t i = 0;
-    __m128i carry = _mm_setzero_si128();
-    for (; i + 16 <= n; i += 16) {
-        __m128i v = _mm_loadu_si128((__m128i*) (d + i));
-        v = _mm_add_epi8(v, _mm_slli_si128(v, 1));
-        v = _mm_add_epi8(v, _mm_slli_si128(v, 2));
-        v = _mm_add_epi8(v, _mm_slli_si128(v, 4));
-        v = _mm_add_epi8(v, _mm_slli_si128(v, 8));
-        v = _mm_add_epi8(v, carry);
-        _mm_storeu_si128((__m128i*) (d + i), v);
-        carry = _mm_set1_epi8((char) _mm_extract_epi8(v, 15));
-    }
-    uint8_t last = i ? d[i - 1] : 0;
-    for (; i < n; i++) {
-        last = (uint8_t) (last + d[i]);
-        d[i] = last;
-    }
-}
-#endif
 
 // dérivée le long de l'axe 0, en UNE allocation (le bytes retourné) et une
 // passe : out[0] = src[0] (le « prepend 0 » de numpy fusionné), puis

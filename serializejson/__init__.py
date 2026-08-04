@@ -518,12 +518,17 @@ class Encoder(rapidjson.Encoder):
             For the highest compression (but with slower dumping) use "blosc2_zstd" with compression level 9
 
         bytes_compression_diff_dtypes (tuple of dtype)
-            tuple of dtype for wich serialize json encode the first element followed by the differences between consecutive elements of an array (along the first axis) before the compression.
-            A cumulative sum will be used for the decompression.
-            Only integer dtypes are diffed : floating point differences would
-            not round-trip exactly, so float dtypes in this tuple are ignored.
-            Can reduce a lot the compressed size of smooth data (signals,
-            gradients, sorted values, timestamps...).
+            tuple of dtype for wich a delta stage is added before the entropy
+            coder, reducing a lot the compressed size of smooth data
+            (signals, gradients, sorted values, timestamps...).
+            With a blosc2 compression, this is done by a registered blosc2
+            FILTER (byte delta after shuffle), per block, multithreaded on
+            both sides, bit-exact for ALL dtypes (floats included) — the
+            frame is self-describing, no format tag involved.
+            With the legacy python-blosc compressions, the array is diffed
+            along its first axis before compression (with a "_diff" tag and
+            a cumulative sum at load) : integer dtypes only there, floating
+            point differences would not round-trip exactly.
 
 
         bytes_compression_threads (int,str):

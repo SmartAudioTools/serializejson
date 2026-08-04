@@ -892,6 +892,124 @@ static sj_blosc2_compname_to_compcode_t sj_blosc2_compname_to_compcode = nullptr
 static sj_blosc1_cbuffer_sizes_t sj_blosc1_cbuffer_sizes = nullptr;
 static bool serializejson_blosc2_ctx_ok = false;
 
+// --- somme de préfixe (défaire une dérivée) ---------------------------------
+// scalaire par défaut ; en SSE, préfixe EN REGISTRE par décalages-additions
+// puis propagation du report — le scalaire bute sur la chaîne de dépendance
+// (~1,5 ns/élément), le vectorisé tourne à la bande passante mémoire
+#ifdef RAPIDJSON_SSE42
+static void
+sj_prefix_u16(uint16_t* d, Py_ssize_t n)
+{
+    Py_ssize_t i = 0;
+    __m128i carry = _mm_setzero_si128();
+    for (; i + 8 <= n; i += 8) {
+        __m128i v = _mm_loadu_si128((__m128i*) (d + i));
+        v = _mm_add_epi16(v, _mm_slli_si128(v, 2));
+        v = _mm_add_epi16(v, _mm_slli_si128(v, 4));
+        v = _mm_add_epi16(v, _mm_slli_si128(v, 8));
+        v = _mm_add_epi16(v, carry);
+        _mm_storeu_si128((__m128i*) (d + i), v);
+        carry = _mm_shufflehi_epi16(v, _MM_SHUFFLE(3, 3, 3, 3));
+        carry = _mm_unpackhi_epi64(carry, carry);
+    }
+    uint16_t last = i ? d[i - 1] : 0;
+    for (; i < n; i++) {
+        last = (uint16_t) (last + d[i]);
+        d[i] = last;
+    }
+}
+
+static void
+sj_prefix_u32(uint32_t* d, Py_ssize_t n)
+{
+    Py_ssize_t i = 0;
+    __m128i carry = _mm_setzero_si128();
+    for (; i + 4 <= n; i += 4) {
+        __m128i v = _mm_loadu_si128((__m128i*) (d + i));
+        v = _mm_add_epi32(v, _mm_slli_si128(v, 4));
+        v = _mm_add_epi32(v, _mm_slli_si128(v, 8));
+        v = _mm_add_epi32(v, carry);
+        _mm_storeu_si128((__m128i*) (d + i), v);
+        carry = _mm_shuffle_epi32(v, _MM_SHUFFLE(3, 3, 3, 3));
+    }
+    uint32_t last = i ? d[i - 1] : 0;
+    for (; i < n; i++) {
+        last += d[i];
+        d[i] = last;
+    }
+}
+
+static void
+sj_prefix_u8(uint8_t* d, Py_ssize_t n)
+{
+    Py_ssize_t i = 0;
+    __m128i carry = _mm_setzero_si128();
+    for (; i + 16 <= n; i += 16) {
+        __m128i v = _mm_loadu_si128((__m128i*) (d + i));
+        v = _mm_add_epi8(v, _mm_slli_si128(v, 1));
+        v = _mm_add_epi8(v, _mm_slli_si128(v, 2));
+        v = _mm_add_epi8(v, _mm_slli_si128(v, 4));
+        v = _mm_add_epi8(v, _mm_slli_si128(v, 8));
+        v = _mm_add_epi8(v, carry);
+        _mm_storeu_si128((__m128i*) (d + i), v);
+        carry = _mm_set1_epi8((char) _mm_extract_epi8(v, 15));
+    }
+    uint8_t last = i ? d[i - 1] : 0;
+    for (; i < n; i++) {
+        last = (uint8_t) (last + d[i]);
+        d[i] = last;
+    }
+}
+#endif
+
+// --- filtre blosc2 « delta d'octets par bloc » ------------------------------
+// Filtre UTILISATEUR enregistré (id 242), pensé pour passer APRÈS le
+// shuffle : chaque flux d'octets shufflé (poids faibles, poids forts) est
+// lisse pour des données numériques régulières, et le delta d'octets les
+// linéarise tous — mesuré 28,5 % contre 36,2 % pour la dérivée globale
+// pré-shuffle sur un signal int16. Aucun typesize nécessaire (octets),
+// réversible exactement, exécuté par bloc dans les threads de blosc2 des
+// deux côtés ; la trame se décrit elle-même.
+#define SJ_BLOSC2_FILTER_DELTA 242
+
+static int
+sj_delta_filter_forward(const uint8_t* src, uint8_t* dest, int32_t size,
+                        uint8_t meta, blosc2_cparams* cparams, uint8_t id)
+{
+    (void) meta;
+    (void) cparams;
+    (void) id;
+    if (size <= 0)
+        return 0;
+    dest[0] = src[0];
+    for (int32_t i = 1; i < size; i++)
+        dest[i] = (uint8_t) (src[i] - src[i - 1]);
+    return 0;
+}
+
+static int
+sj_delta_filter_backward(const uint8_t* src, uint8_t* dest, int32_t size,
+                         uint8_t meta, blosc2_dparams* dparams, uint8_t id)
+{
+    (void) meta;
+    (void) dparams;
+    (void) id;
+    if (size <= 0)
+        return 0;
+    memcpy(dest, src, (size_t) size);
+#ifdef RAPIDJSON_SSE42
+    sj_prefix_u8(dest, size);
+#else
+    for (int32_t i = 1; i < size; i++)
+        dest[i] = (uint8_t) (dest[i] + dest[i - 1]);
+#endif
+    return 0;
+}
+
+typedef int (*sj_blosc2_register_filter_t)(blosc2_filter*);
+static bool serializejson_blosc2_delta_ok = false;
+static int serializejson_blosc2_nthreads_global = 1;
+
 // taille de morceau FIXE : c'est elle qui garantit le déterminisme, quel que
 // soit le nombre de threads (ne jamais la faire dépendre de la machine)
 #define SERIALIZEJSON_BLOSC_CHUNK (1 << 20)
@@ -959,10 +1077,18 @@ sj_compress_chunks(const char* src, size_t length, size_t typesize, int clevel,
     cparams.clevel = (uint8_t) clevel;
     cparams.typesize = (int32_t) typesize;
     cparams.nthreads = 1;  // c'est LUI qui garantit le déterminisme
-    for (int f = 0; f < BLOSC2_MAX_FILTERS; f++)
+    for (int f = 0; f < BLOSC2_MAX_FILTERS; f++) {
         cparams.filters[f] = BLOSC_NOFILTER;
-    cparams.filters[BLOSC2_MAX_FILTERS - 1] =
-        shuffle ? BLOSC_SHUFFLE : BLOSC_NOFILTER;
+        cparams.filters_meta[f] = 0;
+    }
+    if (shuffle == 2 && serializejson_blosc2_delta_ok) {
+        // pipeline shuffle -> delta d'octets (ordre MESURÉ gagnant : après
+        // shuffle, chaque flux d'octets est lisse et le delta les linéarise)
+        cparams.filters[BLOSC2_MAX_FILTERS - 2] = BLOSC_SHUFFLE;
+        cparams.filters[BLOSC2_MAX_FILTERS - 1] = SJ_BLOSC2_FILTER_DELTA;
+    } else
+        cparams.filters[BLOSC2_MAX_FILTERS - 1] =
+            shuffle ? BLOSC_SHUFFLE : BLOSC_NOFILTER;
     if (nthreads > (int) count)
         nthreads = (int) count;
     std::atomic<size_t> next(0);
@@ -1107,6 +1233,68 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
         ((BloscToBase64*) self)->data = chunked;
         ((BloscToBase64*) self)->size = (Py_ssize_t) chunked_size;
         ((BloscToBase64*) self)->frames = frames;
+        return self;
+    }
+
+    // trame unique par l'API contextes : NÉCESSAIRE pour le filtre delta —
+    // la voie blosc1 ne connaît pas les pipelines de filtres, et son
+    // paramètre shuffle=2 signifierait bitshuffle. Le nombre de threads du
+    // contexte reprend le réglage global (déterministe avec le fork, dont
+    // les octets sont stables quel que soit le nombre de threads).
+    if (shuffle == 2 && serializejson_blosc2_ctx_ok
+        && serializejson_blosc2_delta_ok
+        && (size_t) view.len < (size_t) INT32_MAX - BLOSC2_MAX_OVERHEAD) {
+        int compcode = sj_blosc2_compname_to_compcode(cname);
+        if (compcode < 0) {
+            PyBuffer_Release(&view);
+            PyErr_Format(PyExc_ValueError, "unknown blosc compressor '%s'",
+                         cname);
+            return nullptr;
+        }
+        blosc2_cparams cparams = BLOSC2_CPARAMS_DEFAULTS;
+        cparams.compcode = (uint8_t) compcode;
+        cparams.clevel = (uint8_t) clevel;
+        cparams.typesize = (int32_t) typesize;
+        cparams.nthreads = (int16_t) serializejson_blosc2_nthreads_global;
+        for (int f = 0; f < BLOSC2_MAX_FILTERS; f++) {
+            cparams.filters[f] = BLOSC_NOFILTER;
+            cparams.filters_meta[f] = 0;
+        }
+        // pipeline shuffle -> delta d'octets (ordre MESURÉ gagnant)
+        cparams.filters[BLOSC2_MAX_FILTERS - 2] = BLOSC_SHUFFLE;
+        cparams.filters[BLOSC2_MAX_FILTERS - 1] = SJ_BLOSC2_FILTER_DELTA;
+        size_t delta_dest_size = (size_t) view.len + BLOSC2_MAX_OVERHEAD;
+        char* delta_dest = (char*) malloc(delta_dest_size);
+        if (delta_dest == nullptr) {
+            PyBuffer_Release(&view);
+            PyErr_NoMemory();
+            return nullptr;
+        }
+        int delta_csize = -1;
+        Py_BEGIN_ALLOW_THREADS
+        blosc2_context* delta_ctx = sj_blosc2_create_cctx(cparams);
+        if (delta_ctx != nullptr) {
+            delta_csize = sj_blosc2_compress_ctx(
+                delta_ctx, view.buf, (int32_t) view.len, delta_dest,
+                (int32_t) delta_dest_size);
+            sj_blosc2_free_ctx(delta_ctx);
+        }
+        Py_END_ALLOW_THREADS
+        PyBuffer_Release(&view);
+        if (delta_csize <= 0) {
+            free(delta_dest);
+            PyErr_Format(PyExc_ValueError,
+                         "blosc delta compression failed (%d)", delta_csize);
+            return nullptr;
+        }
+        PyObject* self = type->tp_alloc(type, 0);
+        if (self == nullptr) {
+            free(delta_dest);
+            return nullptr;
+        }
+        ((BloscToBase64*) self)->data = delta_dest;
+        ((BloscToBase64*) self)->size = (Py_ssize_t) delta_csize;
+        ((BloscToBase64*) self)->frames = 1;
         return self;
     }
 

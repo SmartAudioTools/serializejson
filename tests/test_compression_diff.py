@@ -1,7 +1,8 @@
-# bytes_compression_diff_dtypes : la dérivée avant compression (opt-in par
-# dtype), réactivée et fiabilisée le 04/08/2026 — l'encode était désactivé
-# en dur, le decode oubliait le cumsum, et le repli non-compressé aurait
-# écrit la dérivée sans étiquette.
+# bytes_compression_diff_dtypes (opt-in par dtype), réactivé et fiabilisé
+# le 04/08/2026. Voie blosc2 : FILTRE enregistré « shuffle puis delta
+# d'octets » porté par la trame (aucune étiquette, bit-exact pour tout
+# dtype, multithreadé par blosc2 des deux côtés). Voie python-blosc v1 :
+# dérivée globale C + étiquette _diff, entiers seulement.
 import numpy
 import pytest
 
@@ -16,7 +17,8 @@ def test_aller_retour_exact(dtype):
     encoder = serializejson.Encoder(return_bytes=True,
                                     bytes_compression_diff_dtypes=(dtype,))
     dump = encoder(donnees)
-    assert b"_diff" in dump
+    # voie blosc2 : le filtre est porté par la trame, plus d'étiquette
+    assert b"_diff" not in dump
     recharge = serializejson.Decoder()(dump)
     assert recharge.dtype == donnees.dtype
     assert numpy.array_equal(recharge, donnees)
@@ -35,24 +37,50 @@ def test_2d_axe_0():
     assert numpy.array_equal(recharge, rampe)
 
 
-def test_floats_ignores():
-    # les différences flottantes ne se retournent pas au bit près : ignorées
+def test_floats_bit_exacts_via_filtre():
+    # sur la voie blosc2, la dérivée est un FILTRE d'octets (après shuffle) :
+    # réversible au bit près pour TOUT contenu, flottants compris — et sans
+    # étiquette, la trame se décrit elle-même
     rng = numpy.random.default_rng(2)
-    donnees = rng.random(20_000)
+    donnees = numpy.sin(numpy.linspace(0, 60, 20_000)) + rng.random(20_000) * 1e-3
     dump = serializejson.Encoder(
         return_bytes=True,
         bytes_compression_diff_dtypes=(numpy.float64,))(donnees)
     assert b"_diff" not in dump
-    assert numpy.array_equal(serializejson.Decoder()(dump), donnees)
+    recharge = serializejson.Decoder()(dump)
+    assert numpy.array_equal(recharge.view(numpy.uint8),
+                             donnees.view(numpy.uint8))
 
 
-def test_dtype_non_liste_inchange():
-    donnees = numpy.arange(30_000, dtype=numpy.int16)
-    dump_sans = serializejson.Encoder(return_bytes=True)(donnees)
-    dump_autre = serializejson.Encoder(
+def test_filtre_sans_etiquette_et_plus_compact():
+    # la voie blosc2 n'étiquette plus : le filtre est porté par la trame,
+    # et le pipeline shuffle->delta bat la dérivée globale d'hier
+    rng = numpy.random.default_rng(5)
+    signal = (10000 * numpy.sin(numpy.linspace(0, 60, 200_000))
+              + rng.integers(-5, 5, 200_000)).astype(numpy.int16)
+    sans = serializejson.Encoder(return_bytes=True)(signal)
+    avec = serializejson.Encoder(
         return_bytes=True,
-        bytes_compression_diff_dtypes=(numpy.int64,))(donnees)
-    assert dump_sans == dump_autre        # dtype non listé : octets inchangés
+        bytes_compression_diff_dtypes=(numpy.int16,))(signal)
+    assert b"_diff" not in avec
+    assert len(avec) < len(sans) * 0.75
+    assert numpy.array_equal(serializejson.Decoder()(avec), signal)
+
+
+def test_ancienne_etiquette_diff_toujours_lue():
+    # les fichiers étiquetés _diff (dérivée globale de la voie v1, et ceux
+    # écrits ce matin par la voie blosc2 d'alors) se rechargent toujours :
+    # étiquette retirée, somme cumulée appliquée
+    donnees = numpy.cumsum(
+        numpy.random.default_rng(6).integers(0, 5, 30_000)).astype(numpy.int32)
+    dump = serializejson.Encoder(
+        return_bytes=True,
+        bytes_compression="blosc_zstd",
+        bytes_compression_diff_dtypes=(numpy.int32,))(donnees)
+    assert b"_diff" in dump
+    recharge = serializejson.Decoder()(dump)
+    assert recharge.dtype == numpy.int32
+    assert numpy.array_equal(recharge, donnees)
 
 
 def test_diff_cumsum_c_identiques_a_numpy():
@@ -77,13 +105,14 @@ def test_diff_cumsum_c_identiques_a_numpy():
             assert numpy.array_equal(d, a)
 
 
-def test_int8_sans_promotion():
+def test_int8_voie_v1_sans_promotion():
     # numpy.diff(prepend=uint8) promouvait int8 en int16 (corruption
-    # latente) : la dérivée C reste au dtype
+    # latente) : la dérivée C de la voie v1 reste au dtype
     rng = numpy.random.default_rng(4)
     donnees = (numpy.cumsum(rng.integers(-1, 2, 50_000)) % 100).astype(numpy.int8)
     dump = serializejson.Encoder(
         return_bytes=True,
+        bytes_compression="blosc_zstd",
         bytes_compression_diff_dtypes=(numpy.int8,))(donnees)
     assert b"_diff" in dump
     recharge = serializejson.Decoder()(dump)

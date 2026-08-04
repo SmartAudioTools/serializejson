@@ -198,23 +198,7 @@ else:
                 # vaut pas le coup, le repli non-compressé repart des données
                 # d'ORIGINE (data), jamais de la dérivée.
                 diff_dtypes = serialize_parameters.bytes_compression_diff_dtypes
-                use_diff = bool(
-                    diff_dtypes
-                    and data.dtype.kind in "iu"
-                    and data.dtype in diff_dtypes
-                )
-                if use_diff:
-                    # dérivée C du fork : une seule allocation (le bytes
-                    # rendu, déjà contigu), prepend fusionné — numpy.diff
-                    # en faisait deux
-                    contiguous = numpy.ascontiguousarray(data)
-                    data_to_compress = _diff_axis0(
-                        contiguous.data,
-                        data.itemsize,
-                        data.size // data.shape[0] if data.ndim > 1 else 1,
-                    )
-                else:
-                    data_to_compress = numpy.ascontiguousarray(data)
+                use_diff = bool(diff_dtypes and data.dtype in diff_dtypes)
                 blosc2_compression = blosc2_compressions.get(compression, None)
                 if blosc2_compression:
                     # compression faite en C (libblosc2), sans repasser par Python
@@ -227,17 +211,39 @@ else:
                         # fork déterministe : le multi-thread INTERNE de la lib
                         # produit déjà des octets stables -> trame unique
                         nthreads = 1
+                    # dérivée : FILTRE blosc2 enregistré (delta arithmétique
+                    # PAR BLOC, dans le pipeline multithreadé des deux côtés,
+                    # trame auto-descriptive) — plus de passe séparée ni
+                    # d'étiquette _diff sur ce chemin
                     payload = BloscToBase64(
-                        data_to_compress,
+                        numpy.ascontiguousarray(data),
                         data.itemsize,
                         serialize_parameters.bytes_compression_level,
-                        1,  # SHUFFLE, comme blosc.compress par défaut
+                        2 if use_diff else 1,  # 2 = delta+shuffle, 1 = shuffle
                         blosc2_compression,
                         nthreads if type(nthreads) is int else 1,
                     )
+                    use_diff = False   # porté par la trame, pas par l'étiquette
                     compressed_size = payload.compressed_size
                     compression = "blosc2p" if payload.frames > 1 else "blosc2"
                 else:
+                    # voie python-blosc v1 (pas de filtres) : dérivée C en
+                    # une passe + étiquette _diff historique — ENTIERS
+                    # seulement (la dérivée arithmétique flottante ne se
+                    # retourne pas au bit près, contrairement au filtre
+                    # d'octets de la voie blosc2)
+                    if use_diff and data.dtype.kind not in "iu":
+                        use_diff = False
+                    if use_diff:
+                        contiguous = numpy.ascontiguousarray(data)
+                        data_to_compress = _diff_axis0(
+                            contiguous.data,
+                            data.itemsize,
+                            data.size // data.shape[0]
+                            if data.ndim > 1 else 1,
+                        )
+                    else:
+                        data_to_compress = numpy.ascontiguousarray(data)
                     blosc_compression = blosc_compressions.get(compression, None)
                     if blosc_compression:
                         compressed = blosc.compress(
