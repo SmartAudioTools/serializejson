@@ -7640,16 +7640,46 @@ sj_prefix_u8(uint8_t* d, Py_ssize_t n)
 // out[i] = src[i] - src[i-1]. Même arithmétique non-signée que le cumsum.
 template <typename T>
 static void
-sj_diff_rows(const T* src, T* out, Py_ssize_t rows, Py_ssize_t cols)
+sj_diff_range(const T* src, T* out, Py_ssize_t row_begin, Py_ssize_t row_end,
+              Py_ssize_t cols)
 {
-    for (Py_ssize_t j = 0; j < cols; j++)
-        out[j] = src[j];
-    for (Py_ssize_t i = 1; i < rows; i++) {
+    if (row_begin == 0) {
+        for (Py_ssize_t j = 0; j < cols; j++)
+            out[j] = src[j];
+        row_begin = 1;
+    }
+    for (Py_ssize_t i = row_begin; i < row_end; i++) {
         const T* prev = src + (i - 1) * cols;
         const T* cur = src + i * cols;
         T* dst = out + i * cols;
         for (Py_ssize_t j = 0; j < cols; j++)
             dst[j] = (T) (cur[j] - prev[j]);
+    }
+}
+
+// chaque sortie ne dépend que de src[i] et src[i-1] (lecture seule) : la
+// dérivée se découpe par plages de lignes sans aucune dépendance
+static void
+sj_diff_dispatch(const void* src, void* out, Py_ssize_t itemsize,
+                 Py_ssize_t row_begin, Py_ssize_t row_end, Py_ssize_t cols)
+{
+    switch (itemsize) {
+    case 1:
+        sj_diff_range((const uint8_t*) src, (uint8_t*) out, row_begin,
+                      row_end, cols);
+        break;
+    case 2:
+        sj_diff_range((const uint16_t*) src, (uint16_t*) out, row_begin,
+                      row_end, cols);
+        break;
+    case 4:
+        sj_diff_range((const uint32_t*) src, (uint32_t*) out, row_begin,
+                      row_end, cols);
+        break;
+    default:
+        sj_diff_range((const uint64_t*) src, (uint64_t*) out, row_begin,
+                      row_end, cols);
+        break;
     }
 }
 
@@ -7677,23 +7707,34 @@ sj_diff_axis0(PyObject* Py_UNUSED(module), PyObject* args)
     }
     Py_ssize_t rows = (view.len / itemsize) / row_elems;
     void* dst = PyBytes_AS_STRING(out);
-    switch (itemsize) {
-    case 1:
-        sj_diff_rows((const uint8_t*) view.buf, (uint8_t*) dst, rows,
-                     row_elems);
-        break;
-    case 2:
-        sj_diff_rows((const uint16_t*) view.buf, (uint16_t*) dst, rows,
-                     row_elems);
-        break;
-    case 4:
-        sj_diff_rows((const uint32_t*) view.buf, (uint32_t*) dst, rows,
-                     row_elems);
-        break;
-    default:
-        sj_diff_rows((const uint64_t*) view.buf, (uint64_t*) dst, rows,
-                     row_elems);
-        break;
+    // multithread par plages de lignes au-delà de 1 Mo (en dessous, les
+    // threads coûtent plus qu'ils ne rapportent)
+    int nthreads = 1;
+    if (view.len >= (Py_ssize_t) (1 << 20)) {
+        unsigned hardware = std::thread::hardware_concurrency();
+        nthreads = (int) (hardware ? (hardware > 8 ? 8 : hardware) : 1);
+        if ((Py_ssize_t) nthreads > rows)
+            nthreads = (int) rows;
+    }
+    if (nthreads <= 1) {
+        sj_diff_dispatch(view.buf, dst, itemsize, 0, rows, row_elems);
+    } else {
+        Py_BEGIN_ALLOW_THREADS
+        Py_ssize_t per = (rows + nthreads - 1) / nthreads;
+        std::vector<std::thread> pool;
+        for (int t = 1; t < nthreads; t++) {
+            Py_ssize_t r0 = t * per;
+            Py_ssize_t r1 = std::min<Py_ssize_t>(r0 + per, rows);
+            if (r0 >= r1)
+                break;
+            pool.emplace_back(sj_diff_dispatch, view.buf, dst, itemsize,
+                              r0, r1, row_elems);
+        }
+        sj_diff_dispatch(view.buf, dst, itemsize, 0,
+                         std::min<Py_ssize_t>(per, rows), row_elems);
+        for (std::thread& worker : pool)
+            worker.join();
+        Py_END_ALLOW_THREADS
     }
     PyBuffer_Release(&view);
     return out;
