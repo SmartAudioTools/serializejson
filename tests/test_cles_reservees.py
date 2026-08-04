@@ -56,3 +56,53 @@ def test_cles_complexes_contenant_du_json_objet():
     donnees = {'{"__class__":"frozenset","__init__":[8,7]}': "value", 2: "v"}
     dump = serializejson.Encoder(return_bytes=True)(donnees)
     assert serializejson.Decoder()(dump) == donnees
+
+
+class ObjetFautif:
+    pass
+
+
+class ObjetSetstate:
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
+
+def test_attribut_au_nom_porteur():
+    # un ATTRIBUT d'objet nommé comme un champ d'enveloppe (__class__,
+    # __init__, ..., $ref) ne peut pas être aplati : l'état part sous
+    # __state__, et l'enveloppe dict échappe la clé au besoin
+    noms = ("__class__", "__init__", "__new__", "__state__", "__items__",
+            "__dict__", "$ref")
+    encoder = serializejson.Encoder(return_bytes=True,
+                                    attributes_filter=False)
+    decoder = serializejson.Decoder(
+        authorized_classes=[f"{__name__}.ObjetFautif",
+                            f"{__name__}.ObjetSetstate"])
+    for classe in (ObjetFautif, ObjetSetstate):
+        for nom in noms:
+            objet = classe()
+            objet.__dict__[nom] = "valeur piégée"
+            objet.__dict__["normal"] = 42
+            recharge = decoder(encoder([objet, objet]))
+            assert recharge[0].__dict__ == objet.__dict__, (classe, nom)
+            assert recharge[0] is recharge[1]
+
+
+def test_attribut_ref_passe_le_filtre_par_defaut():
+    # "$ref" ne commence pas par "_" : il échappe au filtre d'attributs par
+    # défaut et doit quand même revenir intact
+    objet = ObjetFautif()
+    objet.__dict__["$ref"] = "piégé"
+    objet.normal = 42
+    decoder = serializejson.Decoder(
+        authorized_classes=[f"{__name__}.ObjetFautif"])
+    recharge = decoder(serializejson.Encoder(return_bytes=True)(objet))
+    assert recharge.__dict__ == objet.__dict__
+
+
+def test_objet_sain_reste_aplati():
+    objet = ObjetFautif()
+    objet.a = 1
+    objet.b = "x"
+    dump = serializejson.Encoder(return_bytes=True)(objet)
+    assert b"__state__" not in dump

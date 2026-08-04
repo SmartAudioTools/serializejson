@@ -3769,6 +3769,44 @@ sj_dict_has_reserved_key(PyObject* dict)
         || PyDict_GetItem(dict, ref_key_name) != nullptr;
 }
 
+// noms PORTEURS d'une enveloppe d'objet : un attribut ainsi nommé ne peut
+// pas être aplati à côté de l'étiquette (il l'écraserait au rechargement) —
+// l'état part alors sous "__state__" (via la voie Python, qui décide)
+static inline bool
+sj_name_is_reserved(const char* s, Py_ssize_t len)
+{
+    return (len == 9 && (memcmp(s, "__class__", 9) == 0
+                         || memcmp(s, "__state__", 9) == 0
+                         || memcmp(s, "__items__", 9) == 0))
+        || (len == 8 && (memcmp(s, "__init__", 8) == 0
+                         || memcmp(s, "__dict__", 8) == 0))
+        || (len == 7 && memcmp(s, "__new__", 7) == 0)
+        || (len == 4 && memcmp(s, "$ref", 4) == 0);
+}
+
+// pré-passe filtrée au premier octet : seules les clés commençant par '_'
+// ou '$' paient une comparaison ; au moindre doute (clé illisible), vrai
+static bool
+sj_state_key_reserved(PyObject* state)
+{
+    Py_ssize_t pos = 0;
+    PyObject* key;
+    while (PyDict_Next(state, &pos, &key, nullptr)) {
+        if (!PyUnicode_Check(key))
+            continue;
+        Py_ssize_t len;
+        const char* s = PyUnicode_AsUTF8AndSize(key, &len);
+        if (s == nullptr) {
+            PyErr_Clear();
+            return true;
+        }
+        if (len >= 4 && (s[0] == '_' || s[0] == '$')
+            && sj_name_is_reserved(s, len))
+            return true;
+    }
+    return false;
+}
+
 
 // Écrit une valeur numérique du buffer (code de format du protocole buffer).
 // Retourne false pour un NaN/Inf refusé par numberMode ou un format inconnu.
@@ -5105,6 +5143,8 @@ dumps_internal(
                     if (PyTuple_CheckExact(state_obj)
                         && PyTuple_GET_SIZE(state_obj) == 2)
                         gs_fallback = true;
+                    if (gs_flat && sj_state_key_reserved(state_obj))
+                        gs_fallback = true;   // nom porteur -> voie Python
                     if (gs_flat) {
                         Py_ssize_t gs_pos = 0;
                         PyObject* gs_key;
@@ -5386,7 +5426,8 @@ dumps_internal(
                     if (wrote_ok && state_obj != Py_None
                         && state_obj != nullptr
                         && PyObject_IsTrue(state_obj) == 1) {
-                        bool flat = PyDict_CheckExact(state_obj);
+                        bool flat = PyDict_CheckExact(state_obj)
+                            && !sj_state_key_reserved(state_obj);
                         if (flat
                             && PyObject_HasAttrString(object, "__setstate__")) {
                             Py_ssize_t key_pos = 0;
@@ -5546,6 +5587,16 @@ dumps_internal(
                                 && key_str[0] == '_') {
                                 all_kept = false;
                                 continue;
+                            }
+                            // APRÈS le filtre : un nom porteur écarté par le
+                            // filtre ne déclenche pas de repli inutile
+                            if (key_length >= 4
+                                && (key_str[0] == '_' || key_str[0] == '$')
+                                && sj_name_is_reserved(key_str, key_length)) {
+                                // attribut au nom porteur : voie Python,
+                                // qui route l'état sous "__state__"
+                                eligible = false;
+                                break;
                             }
                             if (!PyUnicode_IS_ASCII(key))
                                 writer->MarkMaybeNonAscii();

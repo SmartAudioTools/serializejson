@@ -1105,8 +1105,11 @@ class Encoder(rapidjson.Encoder):
                     return None
                 # mêmes noms que le __getstate__ par défaut (héritage et name
                 # mangling compris), triés une fois pour toutes : le C écrit
-                # dans cet ordre
+                # dans cet ordre. Un slot au nom porteur de l'enveloppe
+                # (improbable mais légal pour __init__ etc.) : voie Python
                 slots_names = tuple(sorted(copyreg._slotnames(class_)))
+                if any(name in _reserved_state_keys for name in slots_names):
+                    return None
             # getters/properties : gating PAR CLASSE, mêmes résolutions que la
             # voie Python (tools.reduce) — le plan ne tombe que si CETTE classe
             # a réellement des getters/properties effectifs, au lieu de couper
@@ -1269,8 +1272,13 @@ class Encoder(rapidjson.Encoder):
         elif dictitems:
             dictionnaire["__items__"] = dictitems
         if state:
-            if (type(state) is not dict) or (
-                hasattr(inst, "__setstate__") and not all_keys_are_str(state)
+            if (
+                (type(state) is not dict)
+                or (
+                    hasattr(inst, "__setstate__")
+                    and not all_keys_are_str(state)
+                )
+                or _state_has_reserved_key(state)
             ):
                 dictionnaire["__state__"] = state
             else:
@@ -2356,6 +2364,24 @@ def dict_non_str_keys(dict_):
                 key = tuple(key)
         d[key] = value
     return d
+
+
+# noms PORTEURS d'une enveloppe d'objet : un attribut ainsi nommé ne peut
+# pas être aplati à côté de l'étiquette (il l'écraserait au rechargement) —
+# l'état part alors sous "__state__". Filtre premier caractère : seules les
+# clés commençant par "_" ou "$" paient le test d'appartenance.
+_reserved_state_keys = frozenset(
+    ("__class__", "__init__", "__new__", "__state__", "__items__",
+     "__dict__", "$ref")
+)
+
+
+def _state_has_reserved_key(state):
+    for key in state:
+        if type(key) is str and key and key[0] in "_$" \
+                and key in _reserved_state_keys:
+            return True
+    return False
 
 
 def all_keys_are_str(dict_):
