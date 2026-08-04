@@ -1745,3 +1745,13 @@ converted_numpy_array_from_lists, constaté), load_iter (existait, portage
 fait), serializeRepr/encodedB64 (obsolète par sa propre conclusion).
 Restent dans la note : dump_iter sans fermeture de fichier, écriture
 non-bloquante (piste), sous-items numpy tolist.
+
+
+### Complément (6d666f6) : append aligné sur la sérialisation directe
+Décision utilisateur : un fichier construit par `append` est désormais
+octet pour octet ce que donnerait la sérialisation directe de la liste
+complète (éléments indentés d'un niveau via un proxy d'écriture — sûr,
+un saut de ligne réel n'existant que dans la mise en forme JSON). Compact
+inchangé ; anciens fichiers lus et appendables (mixité valide). Repéré au
+passage, non corrigé : appendre à une liste vide `[\n]` produit une
+virgule de tête invalide (cas limite préexistant, `[]` compact est sain).
