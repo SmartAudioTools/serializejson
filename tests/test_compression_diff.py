@@ -53,3 +53,39 @@ def test_dtype_non_liste_inchange():
         return_bytes=True,
         bytes_compression_diff_dtypes=(numpy.int64,))(donnees)
     assert dump_sans == dump_autre        # dtype non listé : octets inchangés
+
+
+def test_diff_cumsum_c_identiques_a_numpy():
+    # les portages C (diff une-allocation, cumsum SIMD) rendent exactement
+    # les octets de numpy à même dtype, restes SIMD et enroulements compris
+    import rapidjson as rj
+    rng = numpy.random.default_rng(9)
+    for dtype in (numpy.int8, numpy.uint16, numpy.int32, numpy.uint64):
+        itemsize = numpy.dtype(dtype).itemsize
+        for forme in [(1,), (17,), (1000,), (50, 40), (13, 7, 5)]:
+            n = int(numpy.prod(forme))
+            a = numpy.frombuffer(rng.bytes(n * itemsize),
+                                 dtype=dtype).reshape(forme).copy()
+            cols = a.size // a.shape[0] if a.ndim > 1 else 1
+            c = a.copy()
+            rj._cumsum_axis0(c.data, itemsize, cols)
+            assert numpy.array_equal(
+                c, numpy.cumsum(a, axis=0, dtype=dtype))
+            d = numpy.frombuffer(rj._diff_axis0(a.data, itemsize, cols),
+                                 dtype=dtype).reshape(forme).copy()
+            rj._cumsum_axis0(d.data, itemsize, cols)
+            assert numpy.array_equal(d, a)
+
+
+def test_int8_sans_promotion():
+    # numpy.diff(prepend=uint8) promouvait int8 en int16 (corruption
+    # latente) : la dérivée C reste au dtype
+    rng = numpy.random.default_rng(4)
+    donnees = (numpy.cumsum(rng.integers(-1, 2, 50_000)) % 100).astype(numpy.int8)
+    dump = serializejson.Encoder(
+        return_bytes=True,
+        bytes_compression_diff_dtypes=(numpy.int8,))(donnees)
+    assert b"_diff" in dump
+    recharge = serializejson.Decoder()(dump)
+    assert recharge.dtype == numpy.int8
+    assert numpy.array_equal(recharge, donnees)

@@ -9,7 +9,8 @@ else:
     from pybase64 import b64decode_as_bytearray
 
     # base64 écrit directement dans la sortie, et compression blosc2 faite en C
-    from rapidjson import RawBytesToBase64, BloscToBase64
+    from rapidjson import (RawBytesToBase64, BloscToBase64, _cumsum_axis0,
+                           _diff_axis0)
     import sys
 
     try:
@@ -114,9 +115,14 @@ else:
                 array = frombuffer(decoded_bytearray, dtype)  # pas de recopie
             else:
                 array = ndarray(shape_len, dtype, decoded_bytearray)  # pas de recopie
-            if use_diff:
-                # numpy.cumsum(array.flat,out=array.ravel())
-                numpy.cumsum(array, axis=0, dtype=array.dtype, out=array)
+            if use_diff and array.size:
+                # cumsum C du fork, en place : ~10x numpy.cumsum sur les
+                # petits entiers (le tampon vient d'un bytearray, toujours
+                # contigu et écrivable ; enroulement identique à numpy)
+                _cumsum_axis0(array.data,
+                              array.itemsize,
+                              array.size // array.shape[0]
+                              if array.ndim > 1 else 1)
             if (
                 nb_bits == 32
                 and serialize_parameters.numpyB64_convert_int64_to_int32_and_align_in_Python_32Bit
@@ -198,11 +204,17 @@ else:
                     and data.dtype in diff_dtypes
                 )
                 if use_diff:
-                    data_to_compress = numpy.diff(
-                        data, axis=0, prepend=numpy.uint8(0)
+                    # dérivée C du fork : une seule allocation (le bytes
+                    # rendu, déjà contigu), prepend fusionné — numpy.diff
+                    # en faisait deux
+                    contiguous = numpy.ascontiguousarray(data)
+                    data_to_compress = _diff_axis0(
+                        contiguous.data,
+                        data.itemsize,
+                        data.size // data.shape[0] if data.ndim > 1 else 1,
                     )
                 else:
-                    data_to_compress = data
+                    data_to_compress = numpy.ascontiguousarray(data)
                 blosc2_compression = blosc2_compressions.get(compression, None)
                 if blosc2_compression:
                     # compression faite en C (libblosc2), sans repasser par Python
@@ -216,7 +228,7 @@ else:
                         # produit déjà des octets stables -> trame unique
                         nthreads = 1
                     payload = BloscToBase64(
-                        numpy.ascontiguousarray(data_to_compress),
+                        data_to_compress,
                         data.itemsize,
                         serialize_parameters.bytes_compression_level,
                         1,  # SHUFFLE, comme blosc.compress par défaut
@@ -229,7 +241,7 @@ else:
                     blosc_compression = blosc_compressions.get(compression, None)
                     if blosc_compression:
                         compressed = blosc.compress(
-                            numpy.ascontiguousarray(data_to_compress),
+                            data_to_compress,
                             data.itemsize,
                             cname=blosc_compression,
                             clevel=serialize_parameters.bytes_compression_level,

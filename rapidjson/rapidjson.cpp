@@ -7550,7 +7550,213 @@ done:
                          backslash_escape, in_chunk_start, shedule_break);
 }
 
+// somme cumulée EN PLACE le long de l'axe 0 (défaire la dérivée _diff au
+// chargement) : ~10x numpy.cumsum sur les petits entiers. Arithmétique en
+// NON-SIGNÉ (l'enroulement 2-complément est identique à celle de numpy à
+// même dtype, et l'addition signée déborderait en comportement indéfini).
+template <typename T>
+static void
+sj_cumsum_rows(T* data, Py_ssize_t rows, Py_ssize_t cols)
+{
+    for (Py_ssize_t i = 1; i < rows; i++) {
+        T* prev = data + (i - 1) * cols;
+        T* cur = data + i * cols;
+        for (Py_ssize_t j = 0; j < cols; j++)
+            cur[j] = (T) (cur[j] + prev[j]);
+    }
+}
+
+#ifdef RAPIDJSON_SSE42
+// préfixe 1D vectorisé (le scalaire bute sur la chaîne de dépendance,
+// ~1,5 ns/élément) : somme de préfixe EN REGISTRE par décalages-additions,
+// puis propagation du report (dernier élément diffusé à tout le vecteur)
+static void
+sj_prefix_u16(uint16_t* d, Py_ssize_t n)
+{
+    Py_ssize_t i = 0;
+    __m128i carry = _mm_setzero_si128();
+    for (; i + 8 <= n; i += 8) {
+        __m128i v = _mm_loadu_si128((__m128i*) (d + i));
+        v = _mm_add_epi16(v, _mm_slli_si128(v, 2));
+        v = _mm_add_epi16(v, _mm_slli_si128(v, 4));
+        v = _mm_add_epi16(v, _mm_slli_si128(v, 8));
+        v = _mm_add_epi16(v, carry);
+        _mm_storeu_si128((__m128i*) (d + i), v);
+        carry = _mm_shufflehi_epi16(v, _MM_SHUFFLE(3, 3, 3, 3));
+        carry = _mm_unpackhi_epi64(carry, carry);
+    }
+    uint16_t last = i ? d[i - 1] : 0;
+    for (; i < n; i++) {
+        last = (uint16_t) (last + d[i]);
+        d[i] = last;
+    }
+}
+
+static void
+sj_prefix_u32(uint32_t* d, Py_ssize_t n)
+{
+    Py_ssize_t i = 0;
+    __m128i carry = _mm_setzero_si128();
+    for (; i + 4 <= n; i += 4) {
+        __m128i v = _mm_loadu_si128((__m128i*) (d + i));
+        v = _mm_add_epi32(v, _mm_slli_si128(v, 4));
+        v = _mm_add_epi32(v, _mm_slli_si128(v, 8));
+        v = _mm_add_epi32(v, carry);
+        _mm_storeu_si128((__m128i*) (d + i), v);
+        carry = _mm_shuffle_epi32(v, _MM_SHUFFLE(3, 3, 3, 3));
+    }
+    uint32_t last = i ? d[i - 1] : 0;
+    for (; i < n; i++) {
+        last += d[i];
+        d[i] = last;
+    }
+}
+
+static void
+sj_prefix_u8(uint8_t* d, Py_ssize_t n)
+{
+    Py_ssize_t i = 0;
+    __m128i carry = _mm_setzero_si128();
+    for (; i + 16 <= n; i += 16) {
+        __m128i v = _mm_loadu_si128((__m128i*) (d + i));
+        v = _mm_add_epi8(v, _mm_slli_si128(v, 1));
+        v = _mm_add_epi8(v, _mm_slli_si128(v, 2));
+        v = _mm_add_epi8(v, _mm_slli_si128(v, 4));
+        v = _mm_add_epi8(v, _mm_slli_si128(v, 8));
+        v = _mm_add_epi8(v, carry);
+        _mm_storeu_si128((__m128i*) (d + i), v);
+        carry = _mm_set1_epi8((char) _mm_extract_epi8(v, 15));
+    }
+    uint8_t last = i ? d[i - 1] : 0;
+    for (; i < n; i++) {
+        last = (uint8_t) (last + d[i]);
+        d[i] = last;
+    }
+}
+#endif
+
+// dérivée le long de l'axe 0, en UNE allocation (le bytes retourné) et une
+// passe : out[0] = src[0] (le « prepend 0 » de numpy fusionné), puis
+// out[i] = src[i] - src[i-1]. Même arithmétique non-signée que le cumsum.
+template <typename T>
+static void
+sj_diff_rows(const T* src, T* out, Py_ssize_t rows, Py_ssize_t cols)
+{
+    for (Py_ssize_t j = 0; j < cols; j++)
+        out[j] = src[j];
+    for (Py_ssize_t i = 1; i < rows; i++) {
+        const T* prev = src + (i - 1) * cols;
+        const T* cur = src + i * cols;
+        T* dst = out + i * cols;
+        for (Py_ssize_t j = 0; j < cols; j++)
+            dst[j] = (T) (cur[j] - prev[j]);
+    }
+}
+
+static PyObject*
+sj_diff_axis0(PyObject* Py_UNUSED(module), PyObject* args)
+{
+    Py_buffer view;
+    Py_ssize_t itemsize;
+    Py_ssize_t row_elems;
+    if (!PyArg_ParseTuple(args, "y*nn:_diff_axis0", &view, &itemsize,
+                          &row_elems))
+        return nullptr;
+    if ((itemsize != 1 && itemsize != 2 && itemsize != 4 && itemsize != 8)
+        || row_elems <= 0 || view.len % itemsize != 0
+        || (view.len / itemsize) % row_elems != 0) {
+        PyBuffer_Release(&view);
+        PyErr_SetString(PyExc_ValueError,
+                        "_diff_axis0: itemsize (1/2/4/8) ou forme invalide");
+        return nullptr;
+    }
+    PyObject* out = PyBytes_FromStringAndSize(nullptr, view.len);
+    if (out == nullptr) {
+        PyBuffer_Release(&view);
+        return nullptr;
+    }
+    Py_ssize_t rows = (view.len / itemsize) / row_elems;
+    void* dst = PyBytes_AS_STRING(out);
+    switch (itemsize) {
+    case 1:
+        sj_diff_rows((const uint8_t*) view.buf, (uint8_t*) dst, rows,
+                     row_elems);
+        break;
+    case 2:
+        sj_diff_rows((const uint16_t*) view.buf, (uint16_t*) dst, rows,
+                     row_elems);
+        break;
+    case 4:
+        sj_diff_rows((const uint32_t*) view.buf, (uint32_t*) dst, rows,
+                     row_elems);
+        break;
+    default:
+        sj_diff_rows((const uint64_t*) view.buf, (uint64_t*) dst, rows,
+                     row_elems);
+        break;
+    }
+    PyBuffer_Release(&view);
+    return out;
+}
+
+static PyObject*
+sj_cumsum_axis0(PyObject* Py_UNUSED(module), PyObject* args)
+{
+    Py_buffer view;
+    Py_ssize_t itemsize;
+    Py_ssize_t row_elems;
+    if (!PyArg_ParseTuple(args, "w*nn:_cumsum_axis0", &view, &itemsize,
+                          &row_elems))
+        return nullptr;
+    if ((itemsize != 1 && itemsize != 2 && itemsize != 4 && itemsize != 8)
+        || row_elems <= 0 || view.len % itemsize != 0
+        || (view.len / itemsize) % row_elems != 0) {
+        PyBuffer_Release(&view);
+        PyErr_SetString(PyExc_ValueError,
+                        "_cumsum_axis0: itemsize (1/2/4/8) ou forme invalide");
+        return nullptr;
+    }
+    Py_ssize_t rows = (view.len / itemsize) / row_elems;
+    switch (itemsize) {
+    case 1:
+#ifdef RAPIDJSON_SSE42
+        if (row_elems == 1)
+            sj_prefix_u8((uint8_t*) view.buf, rows);
+        else
+#endif
+        sj_cumsum_rows((uint8_t*) view.buf, rows, row_elems);
+        break;
+    case 2:
+#ifdef RAPIDJSON_SSE42
+        if (row_elems == 1)
+            sj_prefix_u16((uint16_t*) view.buf, rows);
+        else
+#endif
+        sj_cumsum_rows((uint16_t*) view.buf, rows, row_elems);
+        break;
+    case 4:
+#ifdef RAPIDJSON_SSE42
+        if (row_elems == 1)
+            sj_prefix_u32((uint32_t*) view.buf, rows);
+        else
+#endif
+        sj_cumsum_rows((uint32_t*) view.buf, rows, row_elems);
+        break;
+    default:
+        sj_cumsum_rows((uint64_t*) view.buf, rows, row_elems);
+        break;
+    }
+    PyBuffer_Release(&view);
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef functions[] = {
+    {"_cumsum_axis0", (PyCFunction) sj_cumsum_axis0, METH_VARARGS,
+     "Somme cumulée en place le long de l'axe 0 (tampon, itemsize,"
+     " éléments par ligne) — défait la dérivée _diff au chargement."},
+    {"_diff_axis0", (PyCFunction) sj_diff_axis0, METH_VARARGS,
+     "Dérivée le long de l'axe 0 (tampon, itemsize, éléments par ligne),"
+     " rendue en un bytes d'une seule allocation — prepend 0 fusionné."},
     {"_scan_appended", (PyCFunction) sj_scan_appended, METH_VARARGS,
      "Scanner C des fichiers d'objets appendés (machine à états de"
      " _json_object_file_iterator.read())."},
