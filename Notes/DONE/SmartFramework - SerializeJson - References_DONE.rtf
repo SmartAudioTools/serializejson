@@ -1,0 +1,326 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset2 Symbol;}}
+{\colortbl ;\red0\green176\blue80;\red255\green0\blue0;\red0\green0\blue255;\red0\green0\blue0;\red255\green105\blue180;\red155\green0\blue211;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1\lang12\b\f0\fs22 References \'97 items trait\'e9s\b0\par
+\par
+\pard\li720\sl240\slmult1\cf2 Je ne teste pas si id d\'e9j\'e0 rencontr\'e9 dans def _default_one_line(self, inst): A REVOIR \cf0\par
+{\cf6 [CLOS par raisonnement le 04/08/2026 : _default_one_line n'encode que des CL\'c9S de dictionnaires (documents d'une ligne, minuscules). Un cycle y est impossible \'97 une cl\'e9 doit \'eatre hachable, et un conteneur qui se contient (m\'eame via tuple) contient forc\'e9ment une liste, donc n'est pas hachable ; le pire cas est une DUPLICATION de contenu dans une cl\'e9, born\'e9e et acceptable. Aucun m\'e9mo n\'e9cessaire]}\par
+\par
+\pard\sl240\slmult1{\cf6 [Section ci-dessous d\'e9plac\'e9e le 04/08/2026 : journal de conception du probl\'e8me doublons/r\'e9f\'e9rences, SUPPLANT\'c9 INT\'c9GRALEMENT par la migration des 2-3/08/2026 \'97 m\'e9mo C++ par chemins (PathTracker, plus aucun gc.get_referrers), $ref \'e9mis \'e0 l'\'e9criture d\'e8s la deuxi\'e8me rencontre, r\'e9solution imm\'e9diate au chargement quand root est connu et diff\'e9r\'e9e sinon (duplicates_to_replace + _resolve_duplicates, y compris r\'e9f\'e9rences en avant et cha\'eenes de $ref), __dict__ physiquement partag\'e9s r\'e9assign\'e9s (au-del\'e0 de pickle). Couverture : tests/test_references.py (17 tests). Les strat\'e9gies a \'e0 g de rechargement esquiss\'e9es ici correspondent \'e0 ce qui a \'e9t\'e9 retenu : remplacement imm\'e9diat si possible, sinon marqueur r\'e9solu en fin de parse]}\par
+\par
+\par
+Duplications d'objets et R\'e9f\'e9rences circulaires , views : \par
+\par
+\pard\li720\sl240\slmult1\cf2\ulnone /!\\ Il n'ya pas que les r\'e9f\'e9rences circulares mais aussi les duplication . \par
+\cf0\b0 exemple A->B , A->C et B-> C . C va \'eatre dupliqu\'e9 dans le json , ou aura deux objects C disctincts \'e0 la d\'e9serialisation\ul\b\par
+\par
+\par
+\pard\li2160\sl240\slmult1\cf1\ulnone\b0\par
+\pard\li720\sl240\slmult1\cf0\b Questions \b0\par
+\pard\li1440\sl240\slmult1\b plus gal\'e8re avec serializejson ou serializePython ? \par
+\b0\par
+\b Dans la vraie vie comment on construit un r\'e9f\'e9rence circulaire ? \par
+\pard\li2160\sl240\slmult1\b0 soit 2 objects A & B avec r\'e9f\'e9rence circulaire  A <-> B \par
+il faut bien construir avec New l'un avant l'autre , mais de fa\'e7on incompl\'e8te , car sans avoir encore instanti\'e9 l'autre. \par
+. on commence par construire celui qui n'a pas besoin de l'autre dans le new \par
+. puis \'e0 initer celui qui n'a pas besoin de l'autre dans le init\par
+\par
+\pard\li1440\sl240\slmult1\b Faut-il syst\'e9matiquemnt serializer la 1\'e8re occurance ? \par
+\pard\li720\sl240\slmult1\b0\par
+\pard\li1440\sl240\slmult1\b construire branches avant feuilles ? \par
+\pard\li2160\sl240\slmult1\b0 P\par
+A = []\par
+A.append (tuple([A]))\par
+A = [(A,)]\par
+on ne peut pas modifier le tuple , il faut construire A avant a cr\'e9ation du tuple ! m\'eame de facon incompl\'e8te\par
+\pard\li1440\sl240\slmult1  \par
+\b On peut utiliser l'objet R\'e9f\'e9rence pour :\par
+\pard\li2160\sl240\slmult1\b0 . couper ou on veut ? \par
+\pard\li2880\sl240\slmult1 a priorir si on force \'e0 couper c'est que l'objet point\'e9 n'a pas encore \'e9t\'e9 serialize \par
+-> comment va-t-on obtenir son chemin en serialisant ?  il faut le rentre en dur ?\par
+-> comment va-t-on y acceder en loadant , car \'e0 n'existera pas encore . On peut la mettre dans self.duplicates_to_replace et la remplacer \'e0 la fin de la d\'e9serialisation (d\'e9j\'e0 le cas ? ) \par
+\pard\li2160\sl240\slmult1 . ou ajouter str derri\'e8re une r\'e9f\'e9r\'e9nce \par
+\par
+\pard\li2880\sl240\slmult1\par
+\pard\li1440\sl240\slmult1\b peut t-il un probl\'e8me si dismatche entre nome attribut objects et keys des dictionnaires json ? \ul\par
+\pard\li720\sl240\slmult1\par
+\par
+\pard\sl240\slmult1\par
+\pard\li720\sl240\slmult1\ulnone Serialization : \par
+\pard\li1440\sl240\slmult1\cf1 Voir ce que font pickle et  jsonpickle !!!! \par
+\cf0\b0\par
+\b 1) stocker tous les identifiant des objects serializ\'e9s \ul ou en cours de serialisation \par
+\b0\par
+\pard\li2160\sl240\slmult1\cf2\ulnone\b pb d'identifiant pour les listes et dictionnaires \par
+\pard\li2880\sl240\slmult1\b0 rapid json n'appelle aucune methode/ fonction "\cf0 default " \cf2 lors de la serialisation de list et dictionnaires \par
+-> on ne pourra sauvegarder leur id pour detecter duplication\par
+on aurra donc une solution uniquement pour les autres objets pour l'instant ..\par
+\par
+\cf1 modifier python-rapidjson pour au choix : \par
+. apppeller methode poru chaque liste et dictionnaire afin de pouvoir checker id \par
+ ou \par
+. checker id en interne et appeller methode sp\'e9ciale si id d\'e9j\'e0 rencontr\'e9 \par
+\par
+\par
+\pard\li3600\sl240\slmult1\par
+\pard\li2160\sl240\slmult1\cf0\b probl\'e8me de r\'e9-utilisation de id() par python ou de memoire si on stock les ids pour \'e9viter r\'e9utilisation  :\cf1\par
+\pard\li2880\sl240\slmult1\cf0 avec test_PyQt.py : NumberOptions qu'il pense avoir d\'e9j\'e0 serializ\'e9 alors qu'en vrait jamais... \par
+\b0 il semblerait qu'il r\'e9utilise l'id d'un PyQt5.QtCore.QPoint(1402, 1155) \par
+obj.setCursor(instance(\par
+                qtpy.QtGui.QCursor(),\par
+                pos=qtpy.QtCore.QPoint(2138,1134),\par
+                shape=PyQt5.sip._unpickle_enum('PyQt5.QtCore','CursorShape',0)\par
+        ))\par
+=> \par
+si id jamais crois\'e9 \par
+\tab alors on n'a jamais crois\'e9 l'objet \par
+else ; \par
+\tab par contre si si id d\'e9j\'e0 crois\'e9 , pas dis que ce soit le m\'eame objet .. il faudrait v\'e9rifier ... mais comment ? \par
+{\field{\*\fldinst{HYPERLINK "https://stackoverflow.com/questions/52096582/how-unique-is-pythons-id"}}{\fldrslt{\ul\cf3 https://stackoverflow.com/questions/52096582/how-unique-is-pythons-id}}}\f0\fs22\par
+\pard\li2160\sl240\slmult1\b\par
+\par
+solution 1 :\b0  \cf1\b STOCKAGE D'UN DICTIONNAIRE \{id : object) \par
+\pard\li2880\sl240\slmult1 => \cf2 RESTE GROS PROBLEM DE LA MEMOIRE NON LIBEREE QUI PEUT POTENTIELLEMENT DEVENIR ENORME SI BYTES \cf0 (garde byte compress\'e9 et en base 64 en m\'e9moire ? ) \b0\par
+eviter de stocker des id et object si correspond \'e0 des objects que l'on sait pertinament avoir construit nous-meme pour la serialisation : ajouter un set "dont_stock_ids" ?\par
+verifier de temps en temps que les dernier objets sont toujours utilis\'e9  (refcount > 1) et suprimer ceux qui ne le sont pas pour eviter de consomer trop de m\'e9moier \par
+\par
+\par
+\pard\li2160\sl240\slmult1\b soution  2 : \par
+\pard\li2880\sl240\slmult1\b0{\field{\*\fldinst{HYPERLINK "https://docs.python.org/3/library/weakref.html"}}{\fldrslt{\ul\cf3 https://docs.python.org/3/library/weakref.html}}}\f0\fs22\par
+utisiser weakref sur les object qui le supportent, avec un callback qui va suprimer l'id du dictionnaire ? \par
+ou en chackant si m\'eame i que le weekreaf n'est pas None\b\par
+\pard\li2160\sl240\slmult1\par
+solutio 3 (actuelle) \par
+\pard\li2880\sl240\slmult1\b0 je ne stock que l'id en le rajoutant au set self._already_serialized\par
+si l'id est r\'e9utilis\'e9\'e9 \'e0 priori c'est pour un objet qui a \'e9t\'e9 cr\'e9e apr\'e8s la supression d'un autre objet temporaire , cet objet et donc lui aussi temporaire\par
+il ne trouvera donc pas de path pour y acceder depuis le root \par
+-> s'il ne trouve pas de path depuis le root , je consid\'e8re que c'est un nouvel objet\par
+\cf2 par contre peut \'eatre qu'il va sans cesse chercher des path si on construit plein de petit objet lors de la serialisation ...\par
+\pard\li2160\sl240\slmult1\cf0\b\par
+solution pickle \par
+\pard\li2880\sl240\slmult1\b0     def save(self, obj, save_persistent_id=True):\par
+        ....\par
+        # Check the memo\par
+        \ul x = self.memo.get(id(obj))\ulnone\par
+        if x is not None:\par
+            self.write(self.get(x[0]))\par
+            return\par
+\b\par
+\b0     def memoize(self, obj):\par
+        """Store an object in the memo."""\par
+\par
+        # The Pickler memo is a dictionary mapping object ids to 2-tuples\par
+        # that contain the Unpickler memo key and the object being memoized.\par
+        # The memo key is written to the pickle and will become\par
+        # the key in the Unpickler's memo.  The object is stored in the\par
+        # Pickler memo so that transient objects are kept alive during\par
+        # pickling.\par
+\par
+        # The use of the Unpickler memo length as the memo key is just a\par
+        # convention.  The only requirement is that the memo values be unique.\par
+        # But there appears no advantage to any other scheme, and this\par
+        # scheme allows the Unpickler memo to be implemented as a plain (but\par
+        # growable) array, indexed by memo key.\par
+        if self.fast:\par
+            return\par
+        assert id(obj) not in self.memo\par
+        idx = len(self.memo)\par
+        self.write(self.put(idx))\par
+        \ul self.memo[id(obj)] = idx, obj\ulnone\b\par
+\pard\li2160\sl240\slmult1\par
+serpent ? \par
+\pard\li2880\sl240\slmult1\b0     def ser_default_class(self, obj, out, level):\par
+        if id(obj) in self.serialized_obj_ids:\par
+            raise ValueError("Circular reference detected (class)")\par
+        self.serialized_obj_ids.add(id(obj))\par
+        ...\par
+        self.serialized_obj_ids.discard(id(obj))\b\par
+\pard\li2160\sl240\slmult1 jsonpickle ? \par
+\par
+\pard\li3600\sl240\slmult1\cf1\b0\par
+\pard\li2880\sl240\slmult1\par
+\par
+\cf0\ul\par
+\pard\li1440\sl240\slmult1\b\par
+\ulnone 2) si un nouvel objet \'e0 serializer a d\'e9j\'e0 son identifiant dans les objets serialis\'e9 ou en cours de serialisation:\par
+\pard\li1800\sl240\slmult1\b0 ->  on le replace par  un dictionnaire qui va contenir les infos pour retrouver l'objet . \par
+\'e7a peut \'eatre :\par
+\pard\li2160\sl240\slmult1\par
+\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li2160\sl240\slmult1\b un identifiant (string ou int)  fix\'e9 manuellement \'e0 l'avance par l'utilisateur dans un attribut  ,  stock\'e9 dans la r\'e9f\'e9rence :  \par
+\pard\fi-720\li2880\sl240\slmult1\b0 "_id" \tab ce n'est pas une variable priv\'e9e ? risque de pause pb avec le filtre \par
+"id" \tab pas au debut de l'ordre alphab\'e9tique -> key va \'eatre noy\'e9 au milieu des autre ? \par
+\tab non si on le place manuellemnet au debut\line le mot id est resrv\'e9 par python va \'eatre merdique dans le code ? \par
+"id_"\par
+"identifiant" : \par
+"__id__"\tab\par
+"$id"\tab ne peut pas \'eatre stock\'e9 dans un attribut \par
+\par
+\{"$ref" : identifiant \}\par
+\pard\li1800\sl240\slmult1\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li2160\sl240\slmult1\b un identifiant ajout\'e9 dynamiquement \'e0 la premi\'e8r serialisation et utilis\'e9 dans la r\'e9f\'e9rence :\par
+\pard\fi-720\li2880\sl240\slmult1\cf2\b0 probl\'e8me : il faut \'eatre sur qu'il n'a pas commenc\'e9 \'e0 transformer le dictionnaire de la premi\'e8re serialisation en string ... j'ai pas test\'e9 mais rien ne me l'assure \'e0 priori\par
+sinon il va falloir sauver dans le json l'identifant pour toutes occurances de l'objet pour savoir que c'est le m\'eame ..\cf0\par
+\pard\fi-720\li3600\sl240\slmult1\b\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li2160\sl240\slmult1 un entier correspondant au num\'e9ro de sa premi\'e8re serialisation , compt\'e9 grace un compteur,  stock\'e9 uniquement dans la r\'e9f\'e9rence :  \par
+\pard\li2160\sl240\slmult1\b0 pb 1) il va falloir compter exactement de la m\'eame fa\'e7on \'e0 la d\'e9serialisation .\par
+\pard\li2880\sl240\slmult1 + \'e7a exclue la posibilit\'e9 de pouvoir editer le fichier , car si on rajoute ou suprime un objet \'e7a p\'e8te tout \line + approche rapide \'e0 la serialization (il suffit de regarder si id dans un set et incrementer un compteur)\par
+- gal\'e8re de compter de la m\'eame fa\'e7on \'e0 la deserialiseation:\par
+\pard\li2160\sl240\slmult1 pb 2)  le compteur \'e0 la serialisation compte les objet \'e0 l'allez et n'a pas compt\'e9 les dictionnaire ni les listes . \cf1\par
+\pard\li2880\sl240\slmult1 -> avoir deux nouvelles methodes \'e0 rapidjson.Encoder: "default_dict" et "default_array"  \par
+- > ou  un compter d'objet serialis\'e9z plus une methode default_duplicated , pour les objet en double \par
+\cf0 . compter les dictionnaire et les listes et les tuples  \'e0 la serialisation \par
+. pouvoir detecter les doublons pour les dictionnaires et listes et retourner un dictionnaire \{__path__ : "\{root\}.xxw"\}\par
+\pard\li2160\sl240\slmult1 pb 3) \'e0 la d\'e9serialisation c'est begin_object qui est compt\'e9 \'e0 l'allez , mais ils est \'e9galement appell\'e9 par des dictionnaires qui n'ont pas \'e9t\'e9 compt\'e9s \'e0 la serialisation ...\par
+\pard\li2880\sl240\slmult1\cf1 - > avoir deux nouvelles methodes \'e0 rapidjson.D\'e9codeur : "begin_dict" et "begin_array"  ou  un compter d'objet d\'e9serialis\'e9z plus un  dictionnaire qui associe num\'e9ro_de_deserialisation -> dictionaire ou list . \par
+\cf0\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li2160\sl240\slmult1\b le chemin % root de sa premi\'e8re serialisation\par
+\pard\li2160\sl240\slmult1\b0  pour les elements dupliqu\'e9s , ils faut pouvoir retrouver le chemin de la premi\'e8re serialization \par
+\pard\fi-720\li2880\sl240\slmult1 solution 1 : on re parcourt en profondeur tout l'objet \'e0 partir de la premi\'e8re occurance de l'id...\par
+solution 2 : pour chaque objet (qu'on reduirat \'e0 son id pour pouvoir \'eatre un cl\'e9e d'un dictionnaire) , on stock son premier parent serializ\'e9.\line ATTENTION , il  faut le stocker dans l'ordre de serialization et faut pas l'ecraser \par
+\b solution 3 :  (cod\'e9e dans\i  serializeJson_doublon.py\i0 )\b0\par
+\tab pour chaque objet (qu'on reduirat \'e0 son id pour pouvoir \'eatre un cl\'e9e d'un dictionnaire) , on stock son parent et le champ concern\'e9 si le parent est un dictionnaire ou l'index concern\'e9 si le parent est une liste\line\pard\fi-720\li2160\sl240\slmult1\par
+\pard\fi-720\li3600\sl240\slmult1 par contre GROS PROBLEME , je fait un parcours en largeur d'abord et pas en profondeur pour stocker le parent .. \par
+A prori  corrig\'e9 le pb dans rec_parent_id_and_key_for_childrens en faisant parcourt en sens inverse et en ecrasant sauf si a d\'e9j\'e0 \'e9t\'e9 transform\'e9 en dictionnaire (test\'e9 avec if id_value not in _already_serialize)\par
+\pard\fi-720\li4320\sl240\slmult1\par
+\pard\fi-720\li3600\sl240\slmult1 -> avoir deux nouvelles methodes \'e0 rapidjson.Encoder: "default_dict" ,"default_array" \par
+\pard\li2880\sl240\slmult1 . permetrait de pouvoir detecter les doublons de dictionnaires et listes \par
+. permetrait de metre \'e0 jour plus facilement   self._first_serialized_parent_id_and_keysans avoir \'e0 parcourir \'e0 chaque fois tout les attribut des objets \'e0 la recherhce de listes, tuples et dictionnaires \'e0 explorer en elevant :\par
+                    if type_value in (list, dict, tuple):\par
+                        self.rec_parent_id_and_key_for_childrens(id_value, value)\par
+\par
+\pard\li2160\sl240\slmult1\b solution 4 : (cod\'e9e dans  serializeJson_doublon3.py) \par
+\pard\li2880\sl240\slmult1\b0 on essaie d'allourdir un minimum la serialisation pour les objet sans doublon (on evite de parcourir et stocker plein de truc ) \par
+on fait tout le boulot uniquement quand on rencontre r\'e9element un doublon avec l'aide de gc.get_referrers(obj)\par
+il y a plusieurs chemins pour arriver \'e0 remonter jusqu'au root . le probl\'e8me c'est de savoir lequel a d\'e9j\'e0 \'e9t\'e9 (ou va \'eatre?) serializ\'e9...\par
+pour le bon chemin tous les ancetres qui sont des objets sont d\'e9j\'e0 pass\'e9 dans  self.default()\par
+mais \'e7a ne suffit pas , en effet le p\'e8re du doublon est aussi pass\'e9 dans self.default()\par
+exempe 4 : \par
+    A = Node()\par
+    B = Node()\par
+    C = Node()\par
+    A.child1 = C\par
+    C.child = B\par
+    A.child2 = B\par
+    return A\par
+\par
+en faisant  gc.get_referrers(B) lorsqu'on va renvontre B la 2\'e8me fois , on va optenir A.__dict__ qui contient \{"child1":C, "child2":B\} et il va trouver \par
+pathElements = ['root.child2', 'root.child1.child'] \par
+\cf1\b => je recherche tous les chemins jusqu'au root , puis les tris par ordre alphabetique (sorted(pathElements)[0])  et prend le premier \par
+\pard\li3600\sl240\slmult1\cf2\par
+\pard\li2880\sl240\slmult1 pb 2 : ne marche pas si on n'a pas trier les clefs par ordre alphabetique \par
+\pard\li3600\sl240\slmult1\b0 (en utilisant un __getstate__ et __setstate__ qui oblige \'e0 garder l'ordre non -alphabetique ...)\par
+probl\'e8me hyper gal\'e8re \'e0 regler. J'ai essay\'e9 puis laiss\'e9 tomber en me disant que c'\'e9tait un truc sur lequel je reviendrais peut \'eatre un jour \par
+en fait il ne faut pas trier les diff\'e9rents paths pour un doublons par ordre alphab\'e9tique , mais dans l'ordre dans lequel ils sont enregistr\'e9e dans les dictionnaire json . \par
+j'ai essaye d'arreter de concatener sous forme de string les diff\'e9rentes parties d'un path \par
+le probl\'e8me est plus apr\'e8s quand on veut les trier , c'est gal\'e8re d'acceder aux dictionnaires pour avoir l'ordre des attributs. \par
+\par
+\b  \line\pard\li4320\sl240\slmult1\cf0\b0\fs16     def _searchSerializedParent(self, obj, already_explored=set(), all_already_explored = set()):  # ,list_deep = 10):\par
+        root = self._root\par
+        if obj is root:\par
+            return [[]]\par
+        id_obj = id(obj)\par
+        if id_obj in already_explored:\par
+            return []\par
+        already_explored = already_explored.copy()\par
+        already_explored.add(id_obj)\par
+        \par
+        pathElements = list()\par
+        for parent_test in gc.get_referrers(obj):\par
+            id_parent_test = id(parent_test)\par
+            if id_parent_test not in already_explored:\par
+                type_parent_test = type(parent_test)\par
+                if type_parent_test is dict:\par
+                    if id_parent_test in self._already_serialized_id_dic_to_obj_dic:\par
+                        parent_inst, parent_dict = self._already_serialized_id_dic_to_obj_dic[id_parent_test]\par
+                        if self.sort_keys : \par
+                            parent_test_keys = sorted(parent_test) \par
+                        else : \par
+                            parent_test_keys = parent_test.keys()\par
+                        for key in parent_test_keys : #sorted(parent_test):\par
+                            value = parent_test[key]\par
+                            if value is obj:\par
+                                pathElement = [key]\par
+                                for elt in self._searchSerializedParent(parent_inst, already_explored):\par
+                                    pathElements.append(elt + pathElement)\par
+                                all_already_explored.add(id_obj)\par
+                                break\par
+                            elif value in all_already_explored : \par
+                                return []\par
+                if type_parent_test is list and not type(parent_test[-1]) is list_iterator:\par
+                    for key, value in enumerate(parent_test):\par
+                        if value is obj:\par
+                            for elt in self._searchSerializedParent(parent_test, already_explored):\par
+                                pathElements.append(elt + [key])\par
+                            break\par
+        return pathElements\par
+\par
+    def _get_path(self, obj):\par
+        pathElements = self._searchSerializedParent(obj)\par
+        #if self.sort_keys :\par
+        path_list = sorted(pathElements)[0]\par
+        #else : \par
+        #    i  = 0\par
+        #    branches = []\par
+        #    for pathElement in pathElements : \par
+        #        branches.append(pathElement[i])\par
+        #    node = self._root\par
+        #    for key, value in node : \par
+        #        if value in branches : \par
+        #            break\par
+        #    pathElements = [ pathElement for pathElement in pathElements if pathElement[i] == value ]\par
+        #    i+=1\par
+                    \par
+                    \par
+                \par
+        return "root"+"".join((f'[\{e\}]' if isinstance(e,int) else f'.\{e\}' for e in path_list))\par
+        \par
+        #return sorted(pathElements)[0] \cf2\b\fs22\par
+\pard\li2880\sl240\slmult1 pb 3 :  si la premi\'e8re occurence est stock\'e9e dans un champ "__init__" ou "__state__" : \par
+\pard\li3600\sl240\slmult1\b0 la s\'e9rialization va se faire sans r\'e9el probl\'e8me , elle est bas\'e9 sur chemin dans le disctionnaire json\par
+-> il va stocker un chemin de type root.__init__['champ']\par
+les probl\'e8mes sont plus \par
+. pour "interpreter"\par
+.  \'e0 la lecture le fait qu'on ne va peut aller rehcher element dans un objet qui a \'e9t\'e9 recr\'e9er au lieu du dictionnaire json ... -> TypeError: 'method' object is not subscriptable\par
+\par
+\pard\li2880\sl240\slmult1\par
+\pard\li720\sl240\slmult1\cf0\b deserialization : \par
+\b0  \tab pour les dictionnaires json contenant "__class__" : "ref" \par
+\pard\li1440\sl240\slmult1 1) j'essaye remplacer im\'e9diatement l'objet.\par
+\tab\par
+\pard\li2160\sl240\slmult1 si root n'est pas None, le chemin existera normalement \par
+\pard\li2880\sl240\slmult1 root est d\'e9j\'e0 peupl\'e9 d'elements au fur et \'e0 mesure \par
+et meme le champ correpondant \'e0 un objet qui va \'eatre recr\'e9er contient d\'e9j\'e0 le dictionnaire qui va \'eatre transformer en objet  (!?)\par
+si l'objet vis\'e9 a \'e0 d\'e9j\'e0 \'e9t\'e9 recr\'e9er ( n'est pas un dictionnaire ou n'a pas de champ __class__ ):  je le prend directement \par
+\cf1 sinon : => je cr\'e9er tout de suite l'objet vis\'e9 en utilisant le dictionnaire partiel, qui a priori contient d\'e9j\'e0 __init__ et __new__ (certain ?) \line et le met dans le champs __class__ du dictionnaire vis\'e9 , instance() va savoir le r\'e9cuperer et finir de le construire plus tard !\par
+\pard\li2160\sl240\slmult1\cf0 sinon c'est que c'est que root est une liste ? \par
+\par
+\pard\li1440\sl240\slmult1 2) si j'ai pas pu remplacer im\'e9diatement l'objet par le bon : \par
+\pard\li2160\sl240\slmult1 => il faut coder exemples \par
+a) je l'ajoute \'e0 self.duplicates_to_replace. \par
+b) je laisse le dictionnaire tel quel  ? \{"__class__" : "ref","__init__":"root.xxxx"\} \line\pard\li2880\sl240\slmult1\cf2\ul\b pb 1: certain objets vont \'eatre reconstruit avec des dictionnaire en attribut au lieu de d'objet \b0\par
+\pard\li3600\sl240\slmult1\ulnone -> risque de poser probl\'e8me si y'a du code execut\'e9 qui s'attent \'e0 des objets.. (\b properties, setters, __setstate__, __init__)\b0\par
+\cf4 -> il faut peut etre eviter de reconstruire objets qui contiennent un descendant "ref" ?\par
+\cf2\ul\par
+\cf4\ulnone en fait si l'objet est rest\'e9 sous forme de dictionnaire \'e0 priori c'est parceque \cf0 je n'ai pas pu retrouver l'objet car c'est un objet parent ? (ou un liste ? ) \par
+du coup  si A contient B qui contient ref de A , il faut bien commencer par en reconstruire un des deux .... j'ai d\'e9cid\'e9 de reconstruire B meme avec A sous forme de dictionnaire \cf1\b non reconstruit \par
+\pard\li2160\sl240\slmult1\cf0\b0 c) je remplce le dictionaire par le dictionnaire vis\'e9 ? \par
+\pard\li2880\sl240\slmult1\cf2 -> risque de poser probl\'e8me si y'a du code execut\'e9 qui s'attent \'e0 des objets du bon type  (\b properties, setters, __setstate__, __init__)\cf0\b0\par
+\pard\li2160\sl240\slmult1 d) je premplace le dictionnaire par un objet Fake (ou Refercence) construit \'e0 partir du dictionnaire vis\'e9 \par
+\pard\li2880\sl240\slmult1 -> permetant acc\'e9s qualifi\'e9 \'e0 ses attributs\par
+\cf2 -> risque de poser probl\'e8me si y'a du code execut\'e9 qui s'attent \'e0 des objets du bon type  (\b properties, setters, __setstate__, __init__)\cf0\b0\par
+\pard\li2160\sl240\slmult1 e) je suprime cet element du dictionnaire parent ? (possible ? ) pour le remetre \'e0 la fin ? \par
+\pard\li3600\sl240\slmult1\cf1\b Si corresond \'e0 une propri\'e9t\'e9 ou un setter ou un truc qui d\'e9clanche une execution de code qui attend l'objet reconstruit  , il faut le mettre de cot\'e9 et ne pas l'utiliser pour l'isntant ?!!!!\cf0\b0  \par
+pb : comment le suprimer du dictionnaire parent ? \par
+\pard\li2160\sl240\slmult1\cf1 g) j'ignor ce champ lors de la creation de l'objet parent \cf0\par
+\pard\li1800\sl240\slmult1\par
+\par
+\pard\li1440\sl240\slmult1 3) \'e0 la fin de la deserialisation, pour tous les dictionnaire json laiss\'e9 tels quels dans self.duplicates_to_replace :\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li2160\sl240\slmult1 recherche l'objet referenc\'e9 \par
+{\pntext\f1\'B7\tab}avec le gargbage collector  cherche l'objet ( dictionnaire, list ou objet avec slots ) qui reference le dictionaire \{"__class__" : "ref","__init__":"root.xxxx"\} \par
+{\pntext\f1\'B7\tab}cherche le champ de cet objet correspondant au dictionnaire \{"__class__" : "ref","__init__":"root.xxxx"\} \par
+\pard\li1800\sl240\slmult1\par
+\cf2\b pb : ne g\'e8re pas les properties, setters, __setstate__, __init__\par
+\pard\li1440\sl240\slmult1\cf0\b0\par
+\b\par
+\pard\sa200\sl276\slmult1\b0\par
+\par}
