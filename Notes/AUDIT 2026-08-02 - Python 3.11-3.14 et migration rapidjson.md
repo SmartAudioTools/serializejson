@@ -1648,9 +1648,21 @@ commit :
   quand même (pile épuisée sur le golden des clés mélangées) → repli du
   marqueur en drapeau de module sous GIL.
 
-Trou RESTANT, consigné : un attribut d'OBJET nommé `__class__` (état
-aplati dans la même enveloppe que l'étiquette de l'objet) — traitable par
-la règle « état non aplati » (`__state__`) le jour où le cas se présente.
+Trou de l'attribut d'objet au nom porteur : TRAITÉ dans la foulée
+(0769c28). Un attribut nommé comme un champ d'enveloppe (__class__,
+__init__, __new__, __state__, __items__, __dict__, $ref) écrasait
+l'étiquette à l'aplatissement. Détection hybride au niveau le moins
+coûteux : par CLASSE pour les slots (class_plan, coût par objet nul),
+pré-passe filtrée au premier octet pour les états dict — placée APRÈS le
+filtre d'attributs, découverte en testant : avec le filtre par défaut les
+attributs _xxx sont déjà écartés PAR CONCEPTION, seul $ref était donc
+réellement exposé ; sans filtre, les 7 noms l'étaient. L'état fautif part
+sous __state__, où l'échappement des dicts du même matin le couvre — les
+deux mécanismes composent :
+    {"__class__": "module.Classe",
+     "__state__": {"__class__": "dict", "'__class__'": "piégé", "x": 1}}
+Ratios officiels inchangés (contrôle en ratio, méthode fiable) ; 61 tests
+× 5 versions, goldens intacts.
 
 Couverture : tests/test_dict_court.py, tests/test_cles_reservees.py,
 600 fuzz orientés collisions ; 58 tests × 5 versions, goldens du
