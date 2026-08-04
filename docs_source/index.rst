@@ -53,6 +53,49 @@ Custom object serialization
 ===========================
 
 
+Choosing your method (overview)
+-------------------------------
+
+    Making your objects serializable is best done in **two steps**:
+
+    **STEP 1 : make your object picklable** (if it is not already, or if it does
+    not contain the information needed for its restoration).
+    Making it picklable first means you can always come back to pickle if needed.
+
+    * If you can modify the object's code : add pickle methods to it
+      (see ref:`"Method 1"<Method-1-label>`).
+      All inheriting classes will benefit from these methods.
+    * If you can't : write a pickle plugin module (see "Method 2"), either by
+      monkey patching the methods (inheriting classes will benefit) or through
+      `copyreg.dispatch_table` (inheriting classes **will not** benefit).
+
+    **STEP 2 : make the json nicer**, only if the pickle-compatible rendering is
+    too verbose or not easily readable. Do not change the way pickle serializes
+    the object : add a serializejson-specific rendering on top of it.
+
+    * If you can modify the object's code : add a `__serializejson__` method
+      (inheriting classes will benefit). Try not to make it depend on a
+      serializejson-specific `__setstate__`, so that the object stays loadable
+      by pickle.
+    * If you can't : write a serializejson plugin module (see
+      ref:`"Method 3"<add-plugins-label>`), either by monkey patching
+      `__serializejson__` (inheriting classes will benefit) or through the
+      `serializejson_` dictionary (inheriting classes **will not** benefit).
+
+    .. note::
+
+        Even if you plan to come back to pickle for production, serializejson
+        is much more practical for **seeing what happens and debugging** a
+        serialization : the json is readable, diffable, and the
+        `attributes_filter` parameter can be used to temporarily filter
+        attributes while you identify where a problem comes from.
+
+    .. note::
+
+        Data dumped with serializejson is robust to attributes being later
+        turned into `__slots__` in your code (and vice versa), contrary to
+        pickle whose default protocol stores them differently.
+
 .. _Method-1-label:
 
 Method 1: Adding pickle methods to object for custom serialization
@@ -112,15 +155,30 @@ Method 1: Adding pickle methods to object for custom serialization
                          
         
         * Call `__init__()` with positional arguments and restore state from attributes filtered and sorted alphabetically.
-        
-        
+
+
             .. code-block:: python
-            
-            
+
+
                 def __reduce__(self):
                     init_args_tuple = (1,) # tuple with 1 element need comma
                     state = serializejson.getstate(self)
                     return self.__class__, init_args_tuple, state
+
+            .. note::
+
+                If you want subclasses to be able to redefine `__getstate__()`,
+                call it **explicitly** in your `__reduce__()` instead of calling
+                `serializejson.getstate(self)` directly (verified : a direct
+                call bypasses the subclass's `__getstate__`) :
+
+                .. code-block:: python
+
+                    def __reduce__(self):
+                        return self.__class__, (self.arg,), self.__getstate__()
+
+                    def __getstate__(self):
+                        return serializejson.getstate(self)
         
         * Call `__init__()` with named arguments and restore state from attributes filtered and sorted alphabetically.
         
@@ -149,9 +207,16 @@ Method 1: Adding pickle methods to object for custom serialization
         or in alphabetic order.
         
         .. code-block:: python
-        
+
             def __getstate__(self):
                 return {"attribut_1" : "value_1","attribut_2" : "value_2",....}
+
+        .. note::
+
+            Returning `None` from `__getstate__()` gives an **empty state**,
+            including for the attributes added by subclasses (same behavior
+            as pickle) : subclasses inherit the empty state unless they
+            redefine `__getstate__()` themselves.
 
                   
         You can use the helping function `serializejson.getstate(self)` in your `__getstate__` methode in order to select attribut to keep, add or remove, automaticaly sort_keys, filter attribut with "_", retrieve slots, properties, getters , and remove attribut with same value as default value. 
@@ -268,7 +333,7 @@ Method 3: Adding plugins to serializejson for custom serialization
             import serializejson_module_name 
 
             
-    **3. make imports in in your `serializejson_module_name.py`** 
+    **2. Make imports in your `serializejson_module_name.py`** 
     
        .. code-block:: python
        
@@ -307,7 +372,7 @@ Method 3: Adding plugins to serializejson for custom serialization
                         )  
                         
                         
-    **5. Authorize automaticaly classes to be loaded without having to precise it in the Decoder's or load's `authorized_classes` parameter.** 
+    **3. Authorize automaticaly classes to be loaded without having to precise it in the Decoder's or load's `authorized_classes` parameter.** 
         
         .. warning::
         
@@ -355,7 +420,7 @@ Method 3: Adding plugins to serializejson for custom serialization
                     return self.__class__,{"init_arg1" : 1,"init_arg1" : 2},None
                 serializejson_[MyModule.XXX] = XXX_serializejson
                 
-    **5. Define class  properties and attributs getters and setters**
+    **5. Define class properties and attributs getters and setters**
 
         .. code-block:: python
         
@@ -374,7 +439,7 @@ Method 3: Adding plugins to serializejson for custom serialization
             # or 
             setters[MyClass] = {'attribut_name':'setter_name',...}
         
-    **5. Automatically add new parameters to Encoder/dump/dumps or Decoder/load/loads for control your plugins options if needed**
+    **6. Automatically add new parameters to Encoder/dump/dumps or Decoder/load/loads for control your plugins options if needed**
        
            
            .. code-block:: python
@@ -425,7 +490,7 @@ Method 3: Adding plugins to serializejson for custom serialization
                 decoder = serializejson.Decoder(module_name_decoder_option_name = True)
                 print(encoder.loads(dumped))
             
-    **5. Customise the constructor, if needed** 
+    **7. Customise the constructor, if needed** 
   
           By default the json "__class__" field correspond to the class .
           but sometimes you want to use a different constructor without changing the json "__class__" field 
@@ -447,7 +512,7 @@ Method 3: Adding plugins to serializejson for custom serialization
                 constructors['custom_name'] = constuctor # class or function called for object creation you should use `self.__class__` or string `"module.submodule.name"`
 
                     
-    **7. Share your plugin with serializejson developer**
+    **8. Share your plugin with serializejson developer**
     
         if your plugin is for a wild user library, for include in serializejson next release.
         Avoiding you to manualy import it after `import serializejson` each time you want to use it. 
