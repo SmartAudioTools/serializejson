@@ -87,6 +87,7 @@ else:
         if compression:
             if compression.endswith("_diff"):
                 compression = compression[:-5]
+                use_diff = True
             if compression in ("blosc", "blosc2"):
                 decoded_bytearray = blosc_decompress(
                     decoded_bytearray, as_bytearray=True
@@ -185,11 +186,23 @@ else:
                 and data.nbytes >= serialize_parameters.bytes_size_compression_threshold
             ):
 
-                use_diff = False
-                # (data.dtype in serialize_parameters.bytes_compression_diff_dtypes)
+                # dérivée avant compression (opt-in par dtype) : réservée aux
+                # ENTIERS, dont diff/cumsum se retournent exactement (arrondis
+                # flottants non réversibles au bit près). Si la compression ne
+                # vaut pas le coup, le repli non-compressé repart des données
+                # d'ORIGINE (data), jamais de la dérivée.
+                diff_dtypes = serialize_parameters.bytes_compression_diff_dtypes
+                use_diff = bool(
+                    diff_dtypes
+                    and data.dtype.kind in "iu"
+                    and data.dtype in diff_dtypes
+                )
                 if use_diff:
-                    data = numpy.diff(data, axis=0, prepend=numpy.uint8(0))
-                    # data = numpy.ediff1d(data,to_begin=data.flat[0])
+                    data_to_compress = numpy.diff(
+                        data, axis=0, prepend=numpy.uint8(0)
+                    )
+                else:
+                    data_to_compress = data
                 blosc2_compression = blosc2_compressions.get(compression, None)
                 if blosc2_compression:
                     # compression faite en C (libblosc2), sans repasser par Python
@@ -203,7 +216,7 @@ else:
                         # produit déjà des octets stables -> trame unique
                         nthreads = 1
                     payload = BloscToBase64(
-                        numpy.ascontiguousarray(data),
+                        numpy.ascontiguousarray(data_to_compress),
                         data.itemsize,
                         serialize_parameters.bytes_compression_level,
                         1,  # SHUFFLE, comme blosc.compress par défaut
@@ -216,7 +229,7 @@ else:
                     blosc_compression = blosc_compressions.get(compression, None)
                     if blosc_compression:
                         compressed = blosc.compress(
-                            numpy.ascontiguousarray(data),
+                            numpy.ascontiguousarray(data_to_compress),
                             data.itemsize,
                             cname=blosc_compression,
                             clevel=serialize_parameters.bytes_compression_level,
