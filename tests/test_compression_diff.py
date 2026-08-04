@@ -321,3 +321,58 @@ def test_rice_unaire_64_bits():
         dump = serializejson.Encoder(
             return_bytes=True, bytes_compression_diff_dtypes=True)(donnees)
         assert numpy.array_equal(serializejson.Decoder()(dump), donnees)
+
+
+def _rice_direct(donnees, canaux):
+    # trame rice forcée (sans l'essai automatique, qui pourrait élire un
+    # autre candidat) : la taille et l'aller-retour exact du codec lui-même
+    from base64 import b64decode
+
+    import rapidjson
+
+    a = numpy.ascontiguousarray(donnees)
+    frame = b64decode(rapidjson.dumps(rapidjson.BloscToBase64(
+        a.data, a.itemsize, 1, 0, "rice", 1, canaux))[1:-1])
+    assert bytes(rapidjson.blosc_decompress_chunks(frame, 1)) == a.tobytes()
+    return len(frame)
+
+
+def test_rice_mid_side_canaux_correles():
+    # deux canaux identiques : side nul, la trame doit choisir mid/side et
+    # battre nettement le codage gauche/droite (c'était le seul cas où rice
+    # perdait, la redondance inter-canaux lui étant invisible)
+    rng = numpy.random.default_rng(25)
+    mono = (3000 * numpy.sin(numpy.linspace(0, 120, 80_000))
+            + rng.integers(-200, 201, 80_000)).astype(numpy.int16)
+    faux_stereo = numpy.stack([mono, mono], 1)
+    # référence : mêmes canaux mais décorrélés (l'un renversé) — le mid/side
+    # n'y gagne rien, l'écart mesure donc bien la transformée
+    decorrele = numpy.stack([mono, mono[::-1]], 1)
+    assert _rice_direct(faux_stereo, 2) < _rice_direct(decorrele, 2) * 0.75
+
+
+def test_rice_mid_side_bascule_par_trame():
+    # première moitié canaux identiques (mid/side), seconde indépendants
+    # (gauche/droite) : la décision est PAR TRAME, l'aller-retour doit rester
+    # exact à la frontière des deux régimes
+    rng = numpy.random.default_rng(26)
+    mono = (2000 * numpy.sin(numpy.linspace(0, 60, 50_000))).astype(numpy.int16)
+    identiques = numpy.stack([mono, mono], 1)
+    independants = rng.integers(-3000, 3000, (50_000, 2)).astype(numpy.int16)
+    _rice_direct(numpy.concatenate([identiques, independants]), 2)
+
+
+def test_rice_mid_side_bords():
+    # side extrême (un bit plus large que la source : escape élargi),
+    # et longueurs impaires (paire finale incomplète)
+    extreme = numpy.empty((4_000, 2), numpy.int16)
+    extreme[:, 0] = 32767
+    extreme[:, 1] = -32768
+    extreme[::2, 0] = -32768
+    extreme[::2, 1] = 32767
+    _rice_direct(extreme, 2)
+    rng = numpy.random.default_rng(27)
+    for n in (1023, 1025, 2049):
+        lisse = numpy.cumsum(
+            rng.integers(-8, 9, n * 2 + 1)).astype(numpy.int32)
+        _rice_direct(lisse, 2)  # longueur impaire : paire finale incomplète

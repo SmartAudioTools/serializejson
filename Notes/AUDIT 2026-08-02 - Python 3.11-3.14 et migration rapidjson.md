@@ -1908,5 +1908,39 @@ Décisions restées ouvertes : faire de l'essai automatique le DÉFAUT de
 effets : les octets des tableaux lisses changent, petits dumps ×1,5-3,9) ;
 la grille à 8 pipelines (`_diff1`/`_diff01`, ne paie que sur les entiers
 larges 2D) ; la transposition en pré-passe ; une option `"flac"`.
-Autorisé ce soir pour la nuit : le mid/side pour Rice (canaux == 2,
-choix par trame entre G/D et mid/side, celui qui pèse le moins).
+
+### 17 bis. Nuit du 4 au 5/08 — le mid/side dans Rice
+
+Autorisé à 20 h 29, livré dans la nuit. Mesure préalable (numpy) : le
+mid/side en pré-transformée GÉNÉRALE ne paie pas pour les pipelines
+d'octets (en 16 bits il faut élargir en 32, tout perd ; en 24/96 ± 1
+point) — il n'est rentable QUE dans Rice. Implémentation retenue, la
+plus simple qui gagne : canaux == 2 seulement, UN bit par trame
+(gauche/droite ou mid/side), décision par une passe bon marché sur les
+résidus d'ordre 1, recherche complète du prédicteur sur le seul domaine
+élu. Transformée exacte mid = (L+R)>>1, side = L−R (la parité de side
+rend la paire), historique recalculé des deux côtés depuis les paires
+déjà vues — aucun état, aucune trame de contexte. L'escape s'élargit
+d'un bit côté M/S (le side occupe un bit de plus que la source).
+
+Deux pièges rencontrés et réglés :
+  - **Les partitions mélangeaient mid et side entrelacés** : un side
+    quasi nul payait le calibre k des mids actifs, le gain fondait
+    (8 % au lieu de 25 sur canaux identiques). Correctif : dans une
+    trame M/S, TOUS les mids d'abord, puis les sides — partitions
+    homogènes, comme FLAC sépare ses canaux. C'est ce réordonnancement
+    qui a donné les vrais chiffres.
+  - **Les appels « à la volée » coûtaient 2× en vitesse** (transformée
+    recalculée par échantillon et par ordre) : valeurs matérialisées
+    une fois par trame (+ 6 d'historique), vitesse remontée de 0,16 à
+    0,21 Go/s (mono 0,30 : le surcoût stéréo net est ×1,4).
+
+Résultats (trames binaires, zstd hors jeu) : vraie stéréo 16 bits
+74,5 → **67,1 %** (FLAC 59,9 — écart ramené de 24 à 12 %) ; faux
+stéréo (canaux identiques) 56,2 → **28,4 %**, le SEUL cas perdant de
+Rice devient 11 points DEVANT le meilleur pipeline zstd (39,3) ; 24
+bits/96 kHz 56,0 → **52,0 %**. Mono strictement inchangé (le bit de
+mode n'existe que pour c == 2). ⚠ Compat : les trames c == 2 écrites
+entre 5a03ea8 (après-midi) et ce commit ne se relisent plus (le bit de
+mode s'insère avant les bits d'ordre) — aucune n'existe hors bancs
+d'essai, rien n'a été livré.

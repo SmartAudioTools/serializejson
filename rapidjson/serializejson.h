@@ -1152,6 +1152,23 @@ sj_rice_predict(const T* h, int eff, int32_t c)
     }
 }
 
+// mid/side (c == 2 seulement) : valeur transformée à la position g, calculée
+// à la volée depuis la paire d'échantillons — mid = (L+R)>>1 aux positions
+// paires, side = L-R aux impaires. Le décodeur ayant toujours reconstruit x
+// pour les paires passées, l'historique se recalcule des deux côtés sans
+// tampon ni état. Un échantillon final non appairé vaut sa propre valeur.
+template <typename T>
+static inline int64_t
+sj_rice_ms_value(const T* x, int32_t g, int32_t n)
+{
+    int32_t b = g & ~1;
+    if (b + 1 >= n)
+        return (int64_t) x[b];
+    if (g & 1)
+        return (int64_t) x[b] - (int64_t) x[b + 1];
+    return ((int64_t) x[b] + (int64_t) x[b + 1]) >> 1;
+}
+
 template <typename T>
 static int32_t
 sj_rice_encode_typed(const T* x, int32_t n, uint8_t* out, int32_t cap,
@@ -1165,6 +1182,33 @@ sj_rice_encode_typed(const T* x, int32_t n, uint8_t* out, int32_t cap,
         int32_t m = n - start;
         if (m > SJ_RICE_FRAME)
             m = SJ_RICE_FRAME;
+        // stéréo : gauche/droite ou mid/side, un bit par trame — les valeurs
+        // transformées sont matérialisées UNE fois (trame + 6 d'historique,
+        // les appels à la volée par échantillon et par ordre coûtaient 2× en
+        // vitesse), puis décision par une passe bon marché sur les résidus
+        // d'ordre 1 ; la recherche complète ne tourne que sur le domaine élu
+        bool ms = false;
+        int64_t tw[SJ_RICE_FRAME + 6];
+        int64_t* t6 = tw + 6;
+        if (c == 2) {
+            for (int32_t i = -6; i < m; i++) {
+                int32_t g = start + i;
+                t6[i] = (g >= 0) ? sj_rice_ms_value(x, g, n) : 0;
+            }
+            uint64_t clr = 0, cms = 0;
+            for (int32_t i = 0; i < m; i++) {
+                int32_t g = start + i;
+                int64_t dlr = (g >= 2) ? (int64_t) x[g] - (int64_t) x[g - 2]
+                                       : (int64_t) x[g];
+                int64_t dms = (g >= 2) ? t6[i] - t6[i - 2] : t6[i];
+                clr += (uint64_t) (dlr < 0 ? -dlr : dlr);
+                cms += (uint64_t) (dms < 0 ? -dms : dms);
+            }
+            ms = cms < clr;  // égalité -> gauche/droite (déterministe)
+            sj_bw_put(&w, ms ? 1 : 0, 1);
+        }
+        // le side occupe un bit de plus que la source : escape élargi d'autant
+        int eb = ms ? esc_bits + 1 : esc_bits;
         // résidus des quatre ordres (la prédiction traverse les trames :
         // l'historique est le signal déjà vu, le décodeur fait pareil)
         uint64_t cost[4] = {0, 0, 0, 0};
@@ -1172,7 +1216,9 @@ sj_rice_encode_typed(const T* x, int32_t n, uint8_t* out, int32_t cap,
             for (int32_t i = 0; i < m; i++) {
                 int32_t g = start + i;
                 int eff = (g < o * c) ? (int) (g / c) : o;
-                int64_t d = (int64_t) x[g] - sj_rice_predict(x + g, eff, c);
+                int64_t d = ms ? t6[i] - sj_rice_predict(t6 + i, eff, 2)
+                               : (int64_t) x[g]
+                                     - sj_rice_predict(x + g, eff, c);
                 r[o][i] = d;
                 cost[o] += (uint64_t) (d < 0 ? -d : d);
             }
@@ -1182,13 +1228,26 @@ sj_rice_encode_typed(const T* x, int32_t n, uint8_t* out, int32_t cap,
             if (cost[o] < cost[order])
                 order = o;
         sj_bw_put(&w, (uint64_t) order, 2);
+        // mid/side : mids d'abord, sides ensuite — sans ce réordonnancement,
+        // chaque partition mélange les deux flux et le calibre k d'un side
+        // quasi nul est imposé par les mids actifs (le gain disparaissait)
+        int64_t ro[SJ_RICE_FRAME];
+        const int64_t* rr = r[order];
+        if (ms) {
+            int32_t j = 0;
+            for (int32_t i = 0; i < m; i += 2)
+                ro[j++] = r[order][i];
+            for (int32_t i = 1; i < m; i += 2)
+                ro[j++] = r[order][i];
+            rr = ro;
+        }
         for (int32_t ps = 0; ps < m; ps += SJ_RICE_PART) {
             int32_t pm = m - ps;
             if (pm > SJ_RICE_PART)
                 pm = SJ_RICE_PART;
             uint64_t sum = 0;
             for (int32_t i = 0; i < pm; i++) {
-                int64_t d = r[order][ps + i];
+                int64_t d = rr[ps + i];
                 u[i] = ((uint64_t) d << 1) ^ (uint64_t) (d >> 63);  // zigzag
                 sum += u[i];
             }
@@ -1204,10 +1263,10 @@ sj_rice_encode_typed(const T* x, int32_t n, uint8_t* out, int32_t cap,
             int k0 = 0;
             while ((mean >> k0) > 1)
                 k0++;
-            uint64_t best_cost = (uint64_t) pm * (uint64_t) esc_bits;
+            uint64_t best_cost = (uint64_t) pm * (uint64_t) eb;
             int best_k = SJ_RICE_ESCAPE;
             int k_lo = (k0 > 1) ? k0 - 1 : 0;
-            for (int k = k_lo; k <= k0 + 2 && k < esc_bits; k++) {
+            for (int k = k_lo; k <= k0 + 2 && k < eb; k++) {
                 uint64_t c = (uint64_t) pm * (uint64_t) (k + 1);
                 for (int32_t i = 0; i < pm; i++)
                     c += u[i] >> k;
@@ -1219,7 +1278,7 @@ sj_rice_encode_typed(const T* x, int32_t n, uint8_t* out, int32_t cap,
             sj_bw_put(&w, (uint64_t) best_k, 6);
             if (best_k == SJ_RICE_ESCAPE) {
                 for (int32_t i = 0; i < pm; i++)
-                    sj_bw_put(&w, u[i], esc_bits);
+                    sj_bw_put(&w, u[i], eb);
             } else {
                 uint64_t mask = ((uint64_t) 1 << best_k) - 1;
                 for (int32_t i = 0; i < pm; i++) {
@@ -1249,7 +1308,15 @@ sj_rice_decode_typed(const uint8_t* in, int32_t len, T* x, int32_t n,
         int32_t m = n - start;
         if (m > SJ_RICE_FRAME)
             m = SJ_RICE_FRAME;
+        bool ms = (c == 2) && sj_br_get(&rd, 1) != 0;
+        int eb = ms ? esc_bits + 1 : esc_bits;
         int order = (int) sj_br_get(&rd, 2);
+        // mid/side : les mids arrivent d'abord, puis les sides (partitions
+        // homogènes, voir l'encodeur). tv[] garde les valeurs t de la trame :
+        // pendant le décodage réordonné, x n'est pas encore reconstruit, donc
+        // l'historique intra-trame se lit ici et l'inter-trame dans x
+        int64_t tv[SJ_RICE_FRAME];
+        int32_t nmid = (m + 1) / 2;
         for (int32_t ps = 0; ps < m; ps += SJ_RICE_PART) {
             int32_t pm = m - ps;
             if (pm > SJ_RICE_PART)
@@ -1260,18 +1327,46 @@ sj_rice_decode_typed(const uint8_t* in, int32_t len, T* x, int32_t n,
                 if (k == SJ_RICE_ZERO)
                     v = 0;
                 else if (k == SJ_RICE_ESCAPE)
-                    v = sj_br_get(&rd, esc_bits);
+                    v = sj_br_get(&rd, eb);
                 else {
                     uint64_t q = sj_br_unary(&rd);
                     v = (q << k) | (k ? sj_br_get(&rd, k) : 0);
                 }
                 int64_t d = (int64_t) (v >> 1) ^ -(int64_t) (v & 1);
-                int32_t g = start + ps + i;
-                int eff = (g < order * c) ? (int) (g / c) : order;
-                x[g] = (T) (d + sj_rice_predict(x + g, eff, c));
+                int32_t j = ps + i;
+                if (ms) {
+                    int32_t fi = (j < nmid) ? 2 * j : 2 * (j - nmid) + 1;
+                    int32_t g = start + fi;
+                    int eff = (g < order * 2) ? (int) (g / 2) : order;
+                    int64_t p = 0;
+                    for (int o = 1; o <= eff; o++) {
+                        static const int64_t coef[4][3] = {
+                            {0, 0, 0}, {1, 0, 0}, {2, -1, 0}, {3, -3, 1}};
+                        int32_t gg = g - 2 * o;
+                        int64_t h = (gg >= start)
+                                        ? tv[gg - start]
+                                        : sj_rice_ms_value(x, gg, n);
+                        p += coef[eff][o - 1] * h;
+                    }
+                    tv[fi] = d + p;
+                } else {
+                    int32_t g = start + j;
+                    int eff = (g < order * c) ? (int) (g / c) : order;
+                    x[g] = (T) (d + sj_rice_predict(x + g, eff, c));
+                }
             }
             if (rd.fail)
                 return -1;
+        }
+        if (ms) {  // reconstruction des paires depuis mid/side
+            for (int32_t i = 0; i + 1 < m; i += 2) {
+                int64_t s = tv[i + 1];
+                int64_t L = tv[i] + ((s + (s & 1)) >> 1);
+                x[start + i] = (T) L;
+                x[start + i + 1] = (T) (L - s);
+            }
+            if (m & 1)  // échantillon final non appairé : mid = valeur
+                x[start + m - 1] = (T) tv[m - 1];
         }
     }
     return n * (int32_t) sizeof(T);
