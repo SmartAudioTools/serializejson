@@ -1797,3 +1797,45 @@ Pistes restantes (décisions d'API, non implémentées) :
 3. politique « clé inconnue » SEULEMENT opt-in et seulement pour les
    classes offrant une référence déclarée (slots, annotations, liste
    explicite).
+
+
+---
+
+## 16. Après-midi du 4/08 — la dérivée de compression, du paramètre mort au filtre blosc2
+
+Chantier déroulé en quatre temps sur bytes_compression_diff_dtypes,
+chaque étape mesurée avant la suivante (commits 19f925e, 386d16d,
+60a0686, 2b5fa58) :
+
+1. **Réactivation** : le paramètre était documenté mais MORT (encode
+   désactivé en dur, cumsum oublié au décodage — un fichier _diff se
+   relisait avec les différences —, repli non-compressé corrupteur).
+   Revue commune, entiers seulement, 7 tests.
+2. **Portages C** : _diff_axis0 (une allocation, prepend fusionné, et la
+   corruption latente int8 de numpy.diff(prepend=uint8) supprimée) ;
+   _cumsum_axis0 en préfixe SIMD (décalages-additions + report, ×13 sur
+   int16). Puis dérivée MULTITHREAD par plages (aucune dépendance).
+   La décompression était déjà MT (vérifié avant d'y toucher).
+3. **Exploration du delta natif blosc2** : écarté chiffres à l'appui
+   (delta d'octets sans retenue AVANT shuffle : quasi nul), et un bug de
+   la lib trouvé (pipeline shuffle→delta du filtre NATIF corrompt).
+4. **Filtre utilisateur enregistré (id 242)** : la sonde de balayage a
+   révélé le VRAI pipeline gagnant — « shuffle PUIS delta d'octets » :
+   une fois shufflé, chaque flux d'octets (poids faibles, poids forts)
+   est lisse et le delta les linéarise TOUS. Signal int16 : **28,2 % du
+   brut** contre 36,2 % (dérivée globale) et 51,6 % (shuffle seul). Par
+   bloc, dans les threads de blosc2 des deux côtés, trame
+   auto-descriptive (plus d'étiquette sur ce chemin), bit-exact pour
+   tout dtype → l'opt-in s'ouvre aux FLOTTANTS (−6 à −9 % mesurés).
+   Bout en bout : dump 0,89 ms (2,24 avant), load 0,90 ms = le
+   sans-dérivée. Pièges consignés : la trame unique passait par l'API
+   blosc1 qui ignorait les cparams et lisait shuffle=2 comme BITSHUFFLE
+   (démasqué par une sonde fprintf dans le filtre — trois hypothèses de
+   corruption émulées avant de sonder, aucune ne collait) ; le nombre de
+   threads des contextes reprend le réglage global retenu.
+
+La voie python-blosc v1 (sans filtres) garde la dérivée globale C et
+l'étiquette _diff, entiers seulement ; tous les fichiers _diff existants
+se rechargent. Restent ouverts dans la note Compression : le choix d'axe
+(sans objet pour le delta d'octets ?), l'audio stéréo, les images, le
+zip global, la compression itérative.
