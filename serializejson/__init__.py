@@ -333,7 +333,7 @@ def append(obj, file=None, *, indent="\t", **argsDict):
         **argsDict: other parameters passed to the Encoder (see documentation).
     """
     file = _open_for_append(file, indent)
-    Encoder(**argsDict)(obj, file)
+    Encoder(**argsDict)(obj, _wrap_append_indent(file, indent))
     _close_for_append(file, indent)
 
 
@@ -829,7 +829,7 @@ class Encoder(rapidjson.Encoder):
             self.fp = fp = _open_for_append(file, self.indent)
         # chaque append est un dump indépendant : le protocole du tp_call C
         # (poussée amortie, mémo des doublons) se rejoue à chaque appel
-        self.__call__(obj, fp=fp)
+        self.__call__(obj, fp=_wrap_append_indent(fp, self.indent))
         _close_for_append(fp, self.indent)
         if close:
             fp.close()
@@ -2485,6 +2485,38 @@ def _close_for_append(fp, indent):
             fp.write("\n]")
 
 
+def _append_indent_unit(indent):
+    return " " * indent if isinstance(indent, int) else indent
+
+
+class _AppendIndenter:
+    # décale d'un niveau chaque ligne de l'élément appendé (depuis le
+    # 04/08/2026) : les octets du fichier restent IDENTIQUES à la
+    # sérialisation directe de la liste complète. Sûr : dans du JSON, un
+    # saut de ligne réel n'existe que dans la mise en forme (jamais dans le
+    # contenu des chaînes, où il est échappé en \\n)
+    def __init__(self, fp, unit):
+        self._fp = fp
+        self._unit = unit
+        self._unit_bytes = unit.encode()
+
+    def write(self, data):
+        if isinstance(data, bytes):
+            return self._fp.write(
+                data.replace(b"\n", b"\n" + self._unit_bytes)
+            )
+        return self._fp.write(data.replace("\n", "\n" + self._unit))
+
+    def __getattr__(self, name):
+        return getattr(self._fp, name)
+
+
+def _wrap_append_indent(fp, indent):
+    if indent is None:
+        return fp
+    return _AppendIndenter(fp, _append_indent_unit(indent))
+
+
 def _open_for_append(fp, indent):
     length = 0
     remove_last_square_close = True
@@ -2539,7 +2571,7 @@ def _open_for_append(fp, indent):
         if indent is None:
             fp.write(b"[")
         else:
-            fp.write(b"[\n")
+            fp.write(b"[\n" + _append_indent_unit(indent).encode())
     elif length > 2:
         if indent is None:
             try:
@@ -2547,10 +2579,11 @@ def _open_for_append(fp, indent):
             except TypeError:
                 fp.write(",")
         else:
+            unit = _append_indent_unit(indent)
             try:
-                fp.write(b",\n")
+                fp.write(b",\n" + unit.encode())
             except TypeError:
-                fp.write(",\n")
+                fp.write(",\n" + unit)
     return fp
 
 

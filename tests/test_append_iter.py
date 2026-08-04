@@ -90,3 +90,26 @@ def test_fichier_absent(chemin):
     # fichier absent : un seul élément, la valeur par défaut du décodeur
     assert not os.path.exists(chemin)
     assert list(serializejson.Decoder(chemin, default_value=None)) == [None]
+
+
+def test_append_octets_identiques_a_la_serialisation_directe(chemin):
+    # depuis le 04/08/2026, les éléments appendés sont indentés d'un
+    # niveau : le fichier est octet pour octet ce que donnerait la
+    # sérialisation directe de la liste complète
+    objets = [{"a": 1}, [1, 2], "texte", {"imbrique": {"n": [1, {"p": "q"}]}}]
+    for objet in objets:
+        serializejson.append(objet, chemin)
+    with open(chemin, encoding="utf-8") as f:
+        assert f.read() == serializejson.dumps(objets)
+    assert list(serializejson.Decoder(chemin)) == objets
+
+
+def test_append_compact_inchange(chemin):
+    encoder = serializejson.Encoder(chemin, indent=None)
+    for objet in [1, "a", [2, 3]]:
+        encoder.append(objet)
+    encoder.close()
+    with open(chemin, encoding="utf-8") as f:
+        contenu = f.read()
+    assert "\n" not in contenu and "\t" not in contenu
+    assert list(serializejson.Decoder(chemin)) == [1, "a", [2, 3]]
