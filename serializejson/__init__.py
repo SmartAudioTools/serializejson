@@ -2247,7 +2247,7 @@ class Decoder(rapidjson.Decoder):
             )
         except rapidjson.JSONDecodeError as error:
             self.file_iter.close()
-            if error.args[0] == "Parse error at offset 0: The document is empty.":
+            if error.args[0].endswith("The document is empty."):
                 raise StopIteration
             else:
                 raise

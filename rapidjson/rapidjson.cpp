@@ -3323,6 +3323,27 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
     if (reader.HasParseError()) {
         size_t offset = reader.GetErrorOffset();
 
+        // ligne et colonne (base 1, colonne en CARACTÈRES) calculées sur
+        // l'entrée INTACTE (jsonStr : l'original n'est jamais muté — le
+        // dés-échappement travaille sur la copie, et le sans-copie n'a par
+        // construction aucun antislash). Indisponible pour les flux, dont
+        // le texte n'est pas retenu : l'offset seul y reste.
+        size_t err_line = 0;
+        size_t err_col = 0;
+        if (jsonStr != nullptr && offset <= (size_t) jsonStrLen) {
+            err_line = 1;
+            err_col = 1;
+            for (size_t k = 0; k < offset; k++) {
+                unsigned char c = (unsigned char) jsonStr[k];
+                if (c == '\n') {
+                    err_line++;
+                    err_col = 1;
+                } else if ((c & 0xC0) != 0x80) {
+                    err_col++;   // les octets de continuation utf-8 ne comptent pas
+                }
+            }
+        }
+
         if (PyErr_Occurred()) {
             PyObject* etype;
             PyObject* evalue;
@@ -3333,7 +3354,14 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
             // value is a string.  Otherwise, use the original exception since
             // we can't be sure the exception type takes a single string.
             if (evalue != nullptr && PyUnicode_Check(evalue)) {
-                PyErr_Format(etype, "Parse error at offset %zu: %S", offset, evalue);
+                if (err_line)
+                    PyErr_Format(etype,
+                                 "Parse error at offset %zu (line %zu,"
+                                 " column %zu): %S",
+                                 offset, err_line, err_col, evalue);
+                else
+                    PyErr_Format(etype, "Parse error at offset %zu: %S",
+                                 offset, evalue);
                 Py_DECREF(etype);
                 Py_DECREF(evalue);
                 Py_XDECREF(etraceback);
@@ -3341,6 +3369,12 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
             else
                 PyErr_Restore(etype, evalue, etraceback);
         }
+        else if (err_line)
+            PyErr_Format(decode_error,
+                         "Parse error at offset %zu (line %zu, column %zu):"
+                         " %s",
+                         offset, err_line, err_col,
+                         GetParseError_En(reader.GetParseErrorCode()));
         else
             PyErr_Format(decode_error, "Parse error at offset %zu: %s",
                          offset, GetParseError_En(reader.GetParseErrorCode()));
