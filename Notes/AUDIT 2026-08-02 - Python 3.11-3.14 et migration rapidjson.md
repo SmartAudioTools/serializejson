@@ -1668,3 +1668,41 @@ Couverture : tests/test_dict_court.py, tests/test_cles_reservees.py,
 600 fuzz orientés collisions ; 58 tests × 5 versions, goldens du
 changement de nom vérifiés ligne à ligne (seule l'étiquette), goldens de
 l'échappement inchangés (aucune donnée saine n'était concernée).
+
+
+---
+
+## 13. Matin du 4/08, suite — les pistes restantes du §11, chacune tranchée
+
+### Littéraux inline dans les boucles de dicts (3edb2a9) : ADOPTÉ, pickle_dict ×2,2 → ×1,7
+Un scalaire n'est jamais cible de $ref ni parent d'un conteneur : le
+segment de chemin poussé avant sa récursion (deux push_back + deux pop
+par valeur) était du travail à vide. None/True/False s'écrivent
+maintenant inline dans les trois boucles chaudes (dict à clés entières,
+plan de forme, recette plate). Mesure en ratio : pickle_dict −18 % en
+plain (6/6 sans recouvrement), ×1,68-1,73 en PGO contre ×2,17-2,19 le
+matin même. Extension naturelle si besoin : ints/floats inline (portent
+numberMode et débordements — non fait, gain résiduel faible).
+
+### PGO élargi aux formes des benchmarks officiels : ESSAYÉ, ÉCARTÉ
+Profil enrichi (enregistrements bm_pickle, micro-dicts, petites listes
+imbriquées, lots de littéraux et chaînes courtes) : pickle −3 % mais
+unpickle_list +7 % (5/6) — le profil déplace plus qu'il ne gagne.
+Workload restauré.
+
+### Fusion clé-valeur au parse d'objets : ESSAYÉ, ÉCARTÉ
+Clé courte propre lue en un passage SWAR (guillemets, blancs, « : »
+compris) sans la mécanique ParseString. Neutre en ratio sur unpickle et
+les micros : depuis la réactivation SSE et la tête SWAR de la nuit, la
+lecture d'une clé courte ne coûte presque plus rien à contourner.
+800 fuzz de clés pathologiques verts avant retrait.
+
+### État des pistes restantes du §11 après cette passe
+1. micro-dicts : nom court FAIT (§12) + littéraux inline FAITS — l'écart
+   restant (×1,7) est l'enveloppe elle-même et le par-clé résiduel ;
+2. mémo de chaînes dans le format : décision de format, en attente ;
+3. multi-thread free-threaded : gros chantier, builds ft hors batterie ;
+4. flottants au dump : plancher structurel (texte vs memcpy), Ryu fait ;
+5. extraction MT des entiers : mur mémoire, couvert par numpy ;
+6. fusion clé-valeur : écartée (ci-dessus) ;
+7. PGO élargi : écarté (ci-dessus).
