@@ -2,6 +2,7 @@
 {\colortbl ;\red0\green176\blue80;\red255\green0\blue0;\red0\green0\blue255;\red0\green0\blue0;\red255\green105\blue180;\red155\green0\blue211;}
 {\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1\cf1\lang12\b\f0\fs22 TODO : \b0\par
 \pard\li720\sl240\slmult1\cf2 peut t-il un probl\'e8me si dismatche entre nome attribut objects et keys des dictionnaires json ? \par
+{\cf6 [CREUS\'c9 le 04/08/2026, r\'e9ponse : OUI, deux familles de d\'e9fauts mesur\'e9es. (1) Objets \'e0 __dict__ : la cl\'e9 orpheline est pos\'e9e SILENCIEUSEMENT comme attribut fant\'f4me, et comme __init__ n'est pas rappel\'e9, un attribut RENOMM\'c9 laisse l'objet sans le nouveau nom \'97 l'erreur n'\'e9clate que loin du chargement, \'e0 l'usage. (2) __slots__ et properties sans setter : AttributeError BRUTE au chargement, sans le chemin JSON ni la classe fautive dans le message. Avec setters=True, la correspondance setV est bien utilis\'e9e. Pistes consign\'e9es (d\'e9cisions d'API \'e0 trancher) : une option de politique unknown_keys (poser / ignorer / avertir / erreur), enrichir le message d'erreur slots/properties avec le chemin, et une table de renommage par classe pour les migrations. Voir rapport d'audit \'a715]}\par
 \par
 \pard\sl240\slmult1\cf0\b\par
 \par

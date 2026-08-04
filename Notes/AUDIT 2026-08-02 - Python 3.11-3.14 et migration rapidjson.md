@@ -1755,3 +1755,32 @@ un saut de ligne réel n'existant que dans la mise en forme JSON). Compact
 inchangé ; anciens fichiers lus et appendables (mixité valide). Repéré au
 passage, non corrigé : appendre à une liste vide `[\n]` produit une
 virgule de tête invalide (cas limite préexistant, `[]` compact est sain).
+
+
+---
+
+## 15. Question creusée : dismatch entre clés JSON et attributs de classe
+
+Vieille question de References.rtf (« peut-il y avoir un problème si les
+clés du JSON ne correspondent plus aux attributs ? »). Réponse mesurée :
+OUI, deux familles de défauts.
+
+| Cas | Comportement actuel |
+|---|---|
+| objet à __dict__, clé orpheline | posée SILENCIEUSEMENT (attribut fantôme) |
+| attribut renommé | vieux nom posé, nouveau nom ABSENT (init non rappelé) — erreur différée à l'usage |
+| clé non-identifiant | posée dans __dict__ (accessible par getattr seulement) |
+| __slots__, clé inconnue | AttributeError BRUTE au chargement, sans chemin ni contexte |
+| property sans setter | AttributeError brute idem |
+| setters=True | la correspondance v→setV fonctionne |
+
+Le danger réel est le cas RENOMMAGE : silencieux au chargement, l'objet
+est incomplet et l'erreur éclate loin, à l'usage. Les cas slots/property
+échouent bruyamment mais sans dire OÙ (ni chemin JSON ni classe).
+
+Pistes (décisions d'API, non implémentées) :
+1. option de politique `unknown_keys` : "set" (comportement actuel),
+   "ignore", "warn", "error" — le défaut actuel resterait "set" ;
+2. enrichir les AttributeError slots/property du chemin JSON et de la
+   classe (amélioration de message, sans changement d'API) ;
+3. table de renommage par classe (migration de schéma) — API nouvelle.
