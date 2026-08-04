@@ -325,6 +325,11 @@ def append(obj, file=None, *, indent="\t", **argsDict):
     """
     Append an object into json file.
 
+    The file stays a valid json list, byte-for-byte identical to what the
+    direct serialization of the complete list would produce (appended
+    elements are indented one level). It can be reloaded in one call with
+    `load()`, or element by element with `for element in Decoder(file)`.
+
     Args:
         obj: object to dump.
         file (str or file-like):
@@ -787,6 +792,16 @@ class Encoder(rapidjson.Encoder):
         #    raise Exception("json file already closed")
 
     def clear(self, close=False):
+        """
+        Empty the json file (truncate to zero length) and reset the encoder.
+
+        Useful to restart from scratch a file filled with `append()`.
+
+        Args:
+            close (optional bool):
+                whether the file must be closed after clearing (False by
+                default : the file stays open, ready for `append()`).
+        """
         self._reset()
         self._update_serialize_parameters()
 
@@ -808,6 +823,11 @@ class Encoder(rapidjson.Encoder):
     def append(self, obj, file=None, close=False):
         """
         Append object into json file.
+
+        The file stays a valid json list, byte-for-byte identical to what
+        the direct serialization of the complete list would produce. It can
+        be reloaded in one call with `load()`, or element by element with
+        `for element in Decoder(file)`.
 
         Args:
             obj: object to dump.
