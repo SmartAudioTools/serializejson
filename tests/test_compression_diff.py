@@ -118,3 +118,96 @@ def test_int8_voie_v1_sans_promotion():
     recharge = serializejson.Decoder()(dump)
     assert recharge.dtype == numpy.int8
     assert numpy.array_equal(recharge, donnees)
+
+def test_auto_1d_lisse_choisit_le_filtre():
+    # bytes_compression_diff_dtypes=True : décision par échantillon.
+    # Signal 1D lisse -> le filtre delta doit gagner (trame, pas d'étiquette)
+    rng = numpy.random.default_rng(10)
+    signal = (10000 * numpy.sin(numpy.linspace(0, 60, 200_000))
+              + rng.integers(-5, 5, 200_000)).astype(numpy.int16)
+    sans = serializejson.Encoder(return_bytes=True)(signal)
+    auto = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=True)(signal)
+    assert b"_diff" not in auto
+    assert len(auto) < len(sans) * 0.75
+    assert numpy.array_equal(serializejson.Decoder()(auto), signal)
+
+
+def test_auto_2d_choisit_l_axe_0():
+    # données lisses le long de l'AXE 0 seulement (chaque colonne est une
+    # rampe, les lignes sont du bruit) : la dérivée d'axe 0 doit gagner
+    # contre le filtre (qui suit l'ordre mémoire, donc l'axe 1)
+    rng = numpy.random.default_rng(11)
+    base = rng.integers(0, 32000, (1, 64)).astype(numpy.int32)
+    donnees = base + numpy.arange(20_000, dtype=numpy.int32)[:, None]
+    auto = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=True)(donnees)
+    filtre_seul = serializejson.Encoder(
+        return_bytes=True,
+        bytes_compression_diff_dtypes=(numpy.int32,))(donnees)
+    assert b"_diff" in auto            # l'axe 0 a été retenu
+    assert len(auto) < len(filtre_seul) / 2
+    recharge = serializejson.Decoder()(auto)
+    assert recharge.shape == donnees.shape
+    assert numpy.array_equal(recharge, donnees)
+
+
+def test_auto_floats_et_bruit():
+    # flottants : le filtre reste candidat (bit-exact), la dérivée d'axe 0
+    # arithmétique non ; et sur du bruit pur, aucun delta ne doit être retenu
+    rng = numpy.random.default_rng(12)
+    lisse = numpy.sin(numpy.linspace(0, 60, 100_000))
+    dump = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=True)(lisse)
+    assert b"_diff" not in dump
+    recharge = serializejson.Decoder()(dump)
+    assert numpy.array_equal(recharge.view(numpy.uint8), lisse.view(numpy.uint8))
+    bruit = numpy.frombuffer(rng.bytes(200_000), dtype=numpy.int16).copy()
+    dump_bruit = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=True)(bruit)
+    assert b"_diff" not in dump_bruit
+    assert numpy.array_equal(serializejson.Decoder()(dump_bruit), bruit)
+
+
+def test_auto_deterministe():
+    rng = numpy.random.default_rng(13)
+    donnees = numpy.cumsum(rng.integers(-3, 4, (5000, 16)),
+                           axis=0).astype(numpy.int16)
+    encode = lambda: serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=True)(donnees)
+    assert encode() == encode()
+
+
+def test_auto_voie_v1():
+    # voie python-blosc (pas de filtre) : l'essai porte sur la seule dérivée
+    # d'axe 0 — retenue sur du lisse, écartée sur du bruit
+    rng = numpy.random.default_rng(14)
+    lisse = numpy.cumsum(rng.integers(0, 5, 50_000)).astype(numpy.int32)
+    dump = serializejson.Encoder(
+        return_bytes=True, bytes_compression="blosc_zstd",
+        bytes_compression_diff_dtypes=True)(lisse)
+    assert b"_diff" in dump
+    assert numpy.array_equal(serializejson.Decoder()(dump), lisse)
+    bruit = numpy.frombuffer(rng.bytes(100_000), dtype=numpy.int32).copy()
+    dump_bruit = serializejson.Encoder(
+        return_bytes=True, bytes_compression="blosc_zstd",
+        bytes_compression_diff_dtypes=True)(bruit)
+    assert b"_diff" not in dump_bruit
+    assert numpy.array_equal(serializejson.Decoder()(dump_bruit), bruit)
+
+
+def test_auto_1d_entiers_larges_choisit_l_arithmetique():
+    # en 1D la dérivée arithmétique (retenues, avant shuffle) est candidate
+    # aussi : sur des entiers larges elle bat le filtre d'octets — mesuré
+    # -16 % sur des timestamps int64 triés
+    rng = numpy.random.default_rng(15)
+    stamps = (numpy.cumsum(rng.integers(100, 200, 500_000))
+              + 1_700_000_000_000_000).astype(numpy.int64)
+    auto = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=True)(stamps)
+    filtre_seul = serializejson.Encoder(
+        return_bytes=True,
+        bytes_compression_diff_dtypes=(numpy.int64,))(stamps)
+    assert b"_diff" in auto          # l'arithmétique a été retenue
+    assert len(auto) < len(filtre_seul)
+    assert numpy.array_equal(serializejson.Decoder()(auto), stamps)

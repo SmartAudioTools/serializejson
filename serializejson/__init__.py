@@ -517,10 +517,20 @@ class Encoder(rapidjson.Encoder):
             (falling back to "blosc_zstd" when no libblosc2 is loadable).
             For the highest compression (but with slower dumping) use "blosc2_zstd" with compression level 9
 
-        bytes_compression_diff_dtypes (tuple of dtype)
+        bytes_compression_diff_dtypes (tuple of dtype, or True)
             tuple of dtype for wich a delta stage is added before the entropy
             coder, reducing a lot the compressed size of smooth data
             (signals, gradients, sorted values, timestamps...).
+            If `True`, the choice is made automatically PER ARRAY: a small
+            sample (whole rows, ~256 KB) is compressed with each candidate
+            pipeline — no delta, the delta filter (byte delta after shuffle,
+            along the last axis: memory neighbours), and for integer arrays
+            the arithmetic axis-0 derivative, alone or combined with the
+            filter (in 2D the perpendicular direction; in 1D the same
+            direction as the filter but with carries, which wins on wide
+            integers) — and the winner is applied to the whole array. The
+            double compression only ever costs the sample, and the decision
+            is deterministic.
             With a blosc2 compression, this is done by a registered blosc2
             FILTER (byte delta after shuffle), per block, multithreaded on
             both sides, bit-exact for ALL dtypes (floats included) — the

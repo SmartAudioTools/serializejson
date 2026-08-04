@@ -149,6 +149,24 @@ else:
 
     constructors["numpyB64"] = numpyB64
 
+    def _diff_sample(contiguous):
+        # échantillon pour l'essai automatique de dérivée : 1/8e du tableau,
+        # borné entre 4 Ko (en dessous, la taille compressée n'est plus qu'un
+        # bruit d'en-têtes et la décision ne veut rien dire — on prend alors
+        # le tableau entier, que la compression gagnante réutilise) et 256 Ko.
+        # Des lignes ENTIÈRES (l'essai d'axe 0 l'exige), prélevées au MILIEU :
+        # le début d'un signal est souvent atypique (silence, rampe de départ)
+        target = min(max(contiguous.nbytes // 8, 1 << 12), 1 << 18)
+        if contiguous.ndim > 1:
+            row_bytes = contiguous.nbytes // contiguous.shape[0]
+            rows = max(2, target // row_bytes)
+            start = (contiguous.shape[0] - rows) // 2 if rows < contiguous.shape[0] else 0
+            sample = contiguous[start: start + rows]
+            return sample, sample.size // sample.shape[0]
+        n = max(1, target // contiguous.itemsize)
+        start = (len(contiguous) - n) // 2 if n < len(contiguous) else 0
+        return contiguous[start: start + n], 1
+
     def serializejson_ndarray(inst):
 
         # inst = numpy.ascontiguousarray(inst)
@@ -198,7 +216,9 @@ else:
                 # vaut pas le coup, le repli non-compressé repart des données
                 # d'ORIGINE (data), jamais de la dérivée.
                 diff_dtypes = serialize_parameters.bytes_compression_diff_dtypes
-                use_diff = bool(diff_dtypes and data.dtype in diff_dtypes)
+                auto_diff = diff_dtypes is True
+                use_diff = auto_diff or bool(
+                    diff_dtypes and data.dtype in diff_dtypes)
                 blosc2_compression = blosc2_compressions.get(compression, None)
                 if blosc2_compression:
                     # compression faite en C (libblosc2), sans repasser par Python
@@ -211,19 +231,75 @@ else:
                         # fork déterministe : le multi-thread INTERNE de la lib
                         # produit déjà des octets stables -> trame unique
                         nthreads = 1
-                    # dérivée : FILTRE blosc2 enregistré (delta arithmétique
-                    # PAR BLOC, dans le pipeline multithreadé des deux côtés,
-                    # trame auto-descriptive) — plus de passe séparée ni
-                    # d'étiquette _diff sur ce chemin
-                    payload = BloscToBase64(
-                        numpy.ascontiguousarray(data),
-                        data.itemsize,
-                        serialize_parameters.bytes_compression_level,
-                        2 if use_diff else 1,  # 2 = delta+shuffle, 1 = shuffle
-                        blosc2_compression,
-                        nthreads if type(nthreads) is int else 1,
-                    )
-                    use_diff = False   # porté par la trame, pas par l'étiquette
+                    # dérivée : FILTRE blosc2 enregistré (delta d'octets après
+                    # shuffle, PAR BLOC, dans le pipeline multithreadé des deux
+                    # côtés, trame auto-descriptive — aucune étiquette)
+                    contiguous = numpy.ascontiguousarray(data)
+                    level = serialize_parameters.bytes_compression_level
+                    shuffle = 2 if use_diff else 1  # 2 = filtre delta + shuffle
+                    diff0 = False  # dérivée d'axe 0 (passe C + étiquette _diff)
+                    if auto_diff:
+                        # décision par ESSAI : un échantillon (lignes entières,
+                        # ~256 Ko) est compressé avec chaque candidat, le
+                        # gagnant s'applique au tableau entier. Candidats :
+                        # shuffle seul, filtre delta (delta d'octets APRÈS
+                        # shuffle, le long du dernier axe — les voisins en
+                        # mémoire) et, pour les entiers, la dérivée
+                        # arithmétique d'axe 0 — seule ou combinée au filtre.
+                        # En 2D l'axe 0 est la direction perpendiculaire au
+                        # filtre ; en 1D c'est la MÊME direction mais AVEC les
+                        # retenues et avant shuffle : mesurée gagnante sur les
+                        # entiers larges (int32 -13 %, timestamps int64 -16 %),
+                        # perdante sur int16 où le filtre reste devant
+                        sample, cols = _diff_sample(contiguous)
+                        candidates = [(1, False), (2, False)]
+                        if (contiguous.dtype.kind in "iu"
+                                and sample.shape[0] > 1):
+                            candidates += [(1, True), (2, True)]
+                        best = None
+                        for cand_shuffle, cand_diff0 in candidates:
+                            buf = (_diff_axis0(sample.data, sample.itemsize,
+                                               cols)
+                                   if cand_diff0 else sample)
+                            cand = BloscToBase64(
+                                buf, sample.itemsize, level, cand_shuffle,
+                                blosc2_compression, 1,
+                            )
+                            # à taille égale, le candidat le plus simple
+                            # (listé en premier) l'emporte : déterministe
+                            if best is None or cand.compressed_size < best[0]:
+                                best = (cand.compressed_size, cand_shuffle,
+                                        cand_diff0, cand)
+                        _, shuffle, diff0, payload = best
+                        # si l'échantillon était le tableau ENTIER, la
+                        # compression gagnante est déjà faite : on la garde
+                        # (trame unique, octets identiques quel que soit le
+                        # nombre de threads) ; sinon on recompresse tout
+                        if sample.nbytes != contiguous.nbytes:
+                            payload = None
+                    else:
+                        payload = None
+                    if payload is None:
+                        if diff0:
+                            to_compress = _diff_axis0(
+                                contiguous.data,
+                                contiguous.itemsize,
+                                contiguous.size // contiguous.shape[0],
+                            )
+                        else:
+                            to_compress = contiguous
+                        payload = BloscToBase64(
+                            to_compress,
+                            data.itemsize,
+                            level,
+                            shuffle,
+                            blosc2_compression,
+                            nthreads if type(nthreads) is int else 1,
+                        )
+                    # le filtre est porté par la trame ; seule la dérivée
+                    # d'axe 0 garde l'étiquette _diff (et sa somme cumulée
+                    # d'axe 0 au chargement, chemin de lecture inchangé)
+                    use_diff = diff0
                     compressed_size = payload.compressed_size
                     compression = "blosc2p" if payload.frames > 1 else "blosc2"
                 else:
@@ -234,6 +310,21 @@ else:
                     # d'octets de la voie blosc2)
                     if use_diff and data.dtype.kind not in "iu":
                         use_diff = False
+                    blosc_compression = blosc_compressions.get(compression, None)
+                    if use_diff and auto_diff and blosc_compression:
+                        # décision par essai sur échantillon (seule la dérivée
+                        # d'axe 0 existe sur cette voie, pas de filtre)
+                        contiguous = numpy.ascontiguousarray(data)
+                        sample, cols = _diff_sample(contiguous)
+                        level = serialize_parameters.bytes_compression_level
+                        plain_size = len(blosc.compress(
+                            sample, sample.itemsize,
+                            cname=blosc_compression, clevel=level))
+                        diff_size = len(blosc.compress(
+                            _diff_axis0(sample.data, sample.itemsize, cols),
+                            sample.itemsize,
+                            cname=blosc_compression, clevel=level))
+                        use_diff = diff_size < plain_size
                     if use_diff:
                         contiguous = numpy.ascontiguousarray(data)
                         data_to_compress = _diff_axis0(
@@ -244,7 +335,6 @@ else:
                         )
                     else:
                         data_to_compress = numpy.ascontiguousarray(data)
-                    blosc_compression = blosc_compressions.get(compression, None)
                     if blosc_compression:
                         compressed = blosc.compress(
                             data_to_compress,
