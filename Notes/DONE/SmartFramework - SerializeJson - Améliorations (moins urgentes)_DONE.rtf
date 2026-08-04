@@ -1,0 +1,15 @@
+{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil\fcharset2 Symbol;}}
+{\colortbl ;\red255\green0\blue0;\red204\green204\blue204;\red0\green176\blue80;\red0\green0\blue255;\red255\green105\blue180;\red155\green0\blue211;}
+{\*\generator Msftedit 5.41.21.2510;}\viewkind4\uc1\pard\sl240\slmult1\lang12\b\f0\fs22 PB de s\'e9curit\'e9 (items trait\'e9s) :\b0\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li720\sl240\slmult1 avant de mettre le state au meme niveau que __class__ et __init__ v\'e9rifier qu'ils ne sont pas dedans ! et qu'on va rien \'e9craser , avec serializeJson mais aussi serializeRepr\par
+{\pntext\f1\'B7\tab}ou alors tout metre dans __getstate__\par
+\pard\li720\sl240\slmult1{\cf6 [FAIT 04/08/2026 (c\'f4t\'e9 serializeJson) : un attribut d'objet au nom porteur (__class__, __init__, __new__, __state__, __items__, __dict__, $ref) n'est plus aplati \'97 son \'e9tat part sous "__state__", exactement la solution \'ab tout mettre dans __getstate__ \'bb envisag\'e9e ici (commit 0769c28, d\'e9tection par classe pour les slots et pr\'e9-passe filtr\'e9e au premier octet, co\'fbt nul \'e0 n\'e9gligeable). Et les dicts UTILISATEUR contenant __class__ ou $ref sont \'e9chapp\'e9s entre apostrophes dans l'enveloppe (b9115c7) \'97 trois corruptions pr\'e9existantes corrig\'e9es, m\'eame les anciennes versions relisent ces fichiers. Tests : tests/test_cles_reservees.py (17 combinaisons + 600 fuzz). Reste OUVERT c\'f4t\'e9 serializeRepr, et le versant JSON FORG\'c9 (d\'e9cision authorized_classes) reste dans le fichier source]}\par
+\par
+\pard{\pntext\f1\'B7\tab}{\*\pn\pnlvlblt\pnf1\pnindent0{\pntxtb\'B7}}\fi-360\li720\sl240\slmult1 voir ce qui se passe si getstate retourne un dictionnaire avec des clefs qui ne sont pas des strings et que y'a pas de __setstate__ : a priorir ne devrait pas arriv\'e9 , mais checker quand meme ?\par
+\pard\li720\sl240\slmult1{\cf6 [V\'c9RIFI\'c9 03-04/08/2026 : cas couvert et test\'e9 \'97 sans __setstate__ l'\'e9tat part en enveloppe de dict \'e0 cl\'e9s cod\'e9es, avec __setstate__ il part sous "__state__" ; le golden getstate_no_string_keys et la recette C __getstate__ (aplatissement refus\'e9 sur cl\'e9 non-str ou nom porteur) l'exercent \'e0 chaque batterie]}\par
+\par
+\pard\sl240\slmult1\cf2 recarray ? DONE\cf0\par
+\cf2 // fonctions :  enregistre le nom  \cf0\par
+{\cf6 [d\'e9plac\'e9s ici le 04/08/2026 : marqu\'e9s faits de longue date dans la note source ; les fonctions passent d\'e9sormais aussi par une recette C (16b065a)]}\par
+\par
+}
