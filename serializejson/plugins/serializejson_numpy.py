@@ -10,7 +10,7 @@ else:
 
     # base64 écrit directement dans la sortie, et compression blosc2 faite en C
     from rapidjson import (RawBytesToBase64, BloscToBase64, _cumsum_axis0,
-                           _diff_axis0)
+                           _diff_axis0, blosc_decompress_chunks)
     import sys
 
     try:
@@ -85,11 +85,39 @@ else:
         else:
             shape_len = shape_len_compression
         use_diff = False
+        diff_block_rows = 0
         if compression:
-            if compression.endswith("_diff"):
+            if "_diffb" in compression:
+                # dérivée par BLOCS indépendants : l'étiquette porte la taille
+                # de bloc en lignes, la somme cumulée se parallélise par bloc
+                compression, _, bloc = compression.rpartition("_diffb")
+                diff_block_rows = int(bloc)
+                use_diff = True
+            elif compression.endswith("_diff"):
                 compression = compression[:-5]
                 use_diff = True
-            if compression in ("blosc", "blosc2"):
+            fusionne = (
+                use_diff
+                and use_blosc2_cpp
+                and compression in ("blosc2", "blosc2p")
+                and dtype not in ("bool", bool)
+                and not isinstance(dtype, list)
+            )
+            if fusionne:
+                # dérivée défaite PENDANT la décompression : somme cumulée
+                # fusionnée dans le postfiltre par bloc (chaud en cache)
+                # quand les blocs de la trame sont ceux de la dérivée,
+                # post-passe C par blocs sinon — une seule passe RAM
+                cols_diff = (
+                    int(numpy.prod(shape_len[1:]))
+                    if isinstance(shape_len, (list, tuple)) and len(shape_len) > 1
+                    else 1
+                )
+                decoded_bytearray = blosc_decompress_chunks(
+                    decoded_bytearray, 1, 0,
+                    numpy_dtype(dtype).itemsize, cols_diff, diff_block_rows)
+                use_diff = False  # déjà défait
+            elif compression in ("blosc", "blosc2"):
                 decoded_bytearray = blosc_decompress(
                     decoded_bytearray, as_bytearray=True
                 )
@@ -122,7 +150,8 @@ else:
                 _cumsum_axis0(array.data,
                               array.itemsize,
                               array.size // array.shape[0]
-                              if array.ndim > 1 else 1)
+                              if array.ndim > 1 else 1,
+                              diff_block_rows)
             if (
                 nb_bits == 32
                 and serialize_parameters.numpyB64_convert_int64_to_int32_and_align_in_Python_32Bit
@@ -225,6 +254,7 @@ else:
                 auto_diff = diff_dtypes is True
                 use_diff = auto_diff or bool(
                     diff_dtypes and data.dtype in diff_dtypes)
+                diff_suffix = "_diff"  # _diffb<lignes> si dérivée par blocs
                 blosc2_compression = blosc2_compressions.get(compression, None)
                 if blosc2_compression:
                     # compression faite en C (libblosc2), sans repasser par Python
@@ -312,11 +342,30 @@ else:
                         cname_gagnant = None
                         payload = None
                     if payload is None:
+                        blocksize = 0
                         if diff0:
+                            # dérivée par BLOCS de lignes entières : chaque
+                            # bloc redémarre, la somme cumulée de lecture
+                            # devient indépendante par bloc — et les blocs
+                            # blosc2 sont CALÉS dessus (blocksize), pour que
+                            # la lecture la fusionne dans le postfiltre,
+                            # pendant que le bloc décompressé est chaud en
+                            # cache. 1 Mo avec le bitshuffle (ses plans de
+                            # bits veulent des blocs larges), 512 Ko sinon
+                            cols = contiguous.size // contiguous.shape[0]
+                            row_bytes = cols * contiguous.itemsize
+                            cible = (1 << 20) if shuffle == 3 else (1 << 19)
+                            block_rows = max(1, cible // row_bytes)
+                            if block_rows < contiguous.shape[0]:
+                                diff_suffix = f"_diffb{block_rows}"
+                                blocksize = block_rows * row_bytes
+                            else:
+                                block_rows = 0
                             to_compress = _diff_axis0(
                                 contiguous.data,
                                 contiguous.itemsize,
-                                contiguous.size // contiguous.shape[0],
+                                cols,
+                                block_rows,
                             )
                         else:
                             to_compress = contiguous
@@ -328,6 +377,7 @@ else:
                             cname_gagnant or blosc2_compression,
                             nthreads if type(nthreads) is int else 1,
                             rice_channels,
+                            blocksize,
                         )
                     # le filtre est porté par la trame ; seule la dérivée
                     # d'axe 0 garde l'étiquette _diff (et sa somme cumulée
@@ -381,7 +431,7 @@ else:
                     else:
                         raise Exception(f"{compression} compression unknow")
                 if use_diff:
-                    compression += "_diff"
+                    compression += diff_suffix
                 if compressed_size < data.nbytes:
                     if len_or_shape is None:
                         return (

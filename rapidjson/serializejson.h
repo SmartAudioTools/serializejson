@@ -898,12 +898,12 @@ static bool serializejson_blosc2_ctx_ok = false;
 // (~1,5 ns/élément), le vectorisé tourne à la bande passante mémoire
 #ifdef RAPIDJSON_SSE42
 static void
-sj_prefix_u16(uint16_t* d, Py_ssize_t n)
+sj_prefix_u16(uint16_t* d, const uint16_t* s, Py_ssize_t n)
 {
     Py_ssize_t i = 0;
     __m128i carry = _mm_setzero_si128();
     for (; i + 8 <= n; i += 8) {
-        __m128i v = _mm_loadu_si128((__m128i*) (d + i));
+        __m128i v = _mm_loadu_si128((const __m128i*) (s + i));
         v = _mm_add_epi16(v, _mm_slli_si128(v, 2));
         v = _mm_add_epi16(v, _mm_slli_si128(v, 4));
         v = _mm_add_epi16(v, _mm_slli_si128(v, 8));
@@ -914,18 +914,18 @@ sj_prefix_u16(uint16_t* d, Py_ssize_t n)
     }
     uint16_t last = i ? d[i - 1] : 0;
     for (; i < n; i++) {
-        last = (uint16_t) (last + d[i]);
+        last = (uint16_t) (last + s[i]);
         d[i] = last;
     }
 }
 
 static void
-sj_prefix_u32(uint32_t* d, Py_ssize_t n)
+sj_prefix_u32(uint32_t* d, const uint32_t* s, Py_ssize_t n)
 {
     Py_ssize_t i = 0;
     __m128i carry = _mm_setzero_si128();
     for (; i + 4 <= n; i += 4) {
-        __m128i v = _mm_loadu_si128((__m128i*) (d + i));
+        __m128i v = _mm_loadu_si128((const __m128i*) (s + i));
         v = _mm_add_epi32(v, _mm_slli_si128(v, 4));
         v = _mm_add_epi32(v, _mm_slli_si128(v, 8));
         v = _mm_add_epi32(v, carry);
@@ -934,18 +934,73 @@ sj_prefix_u32(uint32_t* d, Py_ssize_t n)
     }
     uint32_t last = i ? d[i - 1] : 0;
     for (; i < n; i++) {
-        last += d[i];
+        last += s[i];
         d[i] = last;
     }
 }
 
+// préfixes À ENJAMBÉE 2 (stéréo entrelacée) : même cascade décalages-additions
+// en sautant la première passe — les lanes paires ne reçoivent que des lanes
+// paires, les canaux ne se mélangent jamais ; le report est le dernier COUPLE
 static void
-sj_prefix_u8(uint8_t* d, Py_ssize_t n)
+sj_prefix_u16_s2(uint16_t* d, const uint16_t* s, Py_ssize_t n)
+{
+    Py_ssize_t i = 0;
+    __m128i carry = _mm_setzero_si128();
+    for (; i + 8 <= n; i += 8) {
+        __m128i v = _mm_loadu_si128((const __m128i*) (s + i));
+        v = _mm_add_epi16(v, _mm_slli_si128(v, 4));
+        v = _mm_add_epi16(v, _mm_slli_si128(v, 8));
+        v = _mm_add_epi16(v, carry);
+        _mm_storeu_si128((__m128i*) (d + i), v);
+        // dernier couple (lanes 6-7) diffusé sur les quatre couples
+        carry = _mm_shuffle_epi32(v, _MM_SHUFFLE(3, 3, 3, 3));
+    }
+    uint16_t lastA = (i >= 2) ? d[i - 2] : 0;
+    uint16_t lastB = (i >= 1) ? d[i - 1] : 0;
+    for (; i < n; i++) {
+        if ((i & 1) == 0) {
+            lastA = (uint16_t) (lastA + s[i]);
+            d[i] = lastA;
+        } else {
+            lastB = (uint16_t) (lastB + s[i]);
+            d[i] = lastB;
+        }
+    }
+}
+
+static void
+sj_prefix_u32_s2(uint32_t* d, const uint32_t* s, Py_ssize_t n)
+{
+    Py_ssize_t i = 0;
+    __m128i carry = _mm_setzero_si128();
+    for (; i + 4 <= n; i += 4) {
+        __m128i v = _mm_loadu_si128((const __m128i*) (s + i));
+        v = _mm_add_epi32(v, _mm_slli_si128(v, 8));
+        v = _mm_add_epi32(v, carry);
+        _mm_storeu_si128((__m128i*) (d + i), v);
+        carry = _mm_unpackhi_epi64(v, v);  // dernier couple (lanes 2-3)
+    }
+    uint32_t lastA = (i >= 2) ? d[i - 2] : 0;
+    uint32_t lastB = (i >= 1) ? d[i - 1] : 0;
+    for (; i < n; i++) {
+        if ((i & 1) == 0) {
+            lastA += s[i];
+            d[i] = lastA;
+        } else {
+            lastB += s[i];
+            d[i] = lastB;
+        }
+    }
+}
+
+static void
+sj_prefix_u8(uint8_t* d, const uint8_t* s, Py_ssize_t n)
 {
     Py_ssize_t i = 0;
     __m128i carry = _mm_setzero_si128();
     for (; i + 16 <= n; i += 16) {
-        __m128i v = _mm_loadu_si128((__m128i*) (d + i));
+        __m128i v = _mm_loadu_si128((const __m128i*) (s + i));
         v = _mm_add_epi8(v, _mm_slli_si128(v, 1));
         v = _mm_add_epi8(v, _mm_slli_si128(v, 2));
         v = _mm_add_epi8(v, _mm_slli_si128(v, 4));
@@ -956,11 +1011,92 @@ sj_prefix_u8(uint8_t* d, Py_ssize_t n)
     }
     uint8_t last = i ? d[i - 1] : 0;
     for (; i < n; i++) {
-        last = (uint8_t) (last + d[i]);
+        last = (uint8_t) (last + s[i]);
         d[i] = last;
     }
 }
 #endif
+
+// somme cumulée EN PLACE le long de l'axe 0 (défaire la dérivée _diff au
+// chargement) : ~10x numpy.cumsum sur les petits entiers. Arithmétique en
+// NON-SIGNÉ (l'enroulement 2-complément est identique à celle de numpy à
+// même dtype, et l'addition signée déborderait en comportement indéfini).
+template <typename T>
+static void
+sj_cumsum_rows(T* dst, const T* src, Py_ssize_t rows, Py_ssize_t cols)
+{
+    if (dst != src)
+        for (Py_ssize_t j = 0; j < cols; j++)
+            dst[j] = src[j];
+    for (Py_ssize_t i = 1; i < rows; i++) {
+        const T* s = src + i * cols;
+        T* prev = dst + (i - 1) * cols;
+        T* cur = dst + i * cols;
+        for (Py_ssize_t j = 0; j < cols; j++)
+            cur[j] = (T) (s[j] + prev[j]);
+    }
+}
+
+static void
+sj_cumsum_slice(void* dst, const void* src, Py_ssize_t itemsize,
+                Py_ssize_t rows, Py_ssize_t row_elems)
+{
+    switch (itemsize) {
+    case 1:
+#ifdef RAPIDJSON_SSE42
+        if (row_elems == 1)
+            sj_prefix_u8((uint8_t*) dst, (const uint8_t*) src, rows);
+        else
+#endif
+        sj_cumsum_rows((uint8_t*) dst, (const uint8_t*) src, rows, row_elems);
+        break;
+    case 2:
+#ifdef RAPIDJSON_SSE42
+        if (row_elems == 1)
+            sj_prefix_u16((uint16_t*) dst, (const uint16_t*) src, rows);
+        else if (row_elems == 2)  // stéréo : préfixe à enjambée 2
+            sj_prefix_u16_s2((uint16_t*) dst, (const uint16_t*) src, rows * 2);
+        else
+#endif
+        sj_cumsum_rows((uint16_t*) dst, (const uint16_t*) src, rows, row_elems);
+        break;
+    case 4:
+#ifdef RAPIDJSON_SSE42
+        if (row_elems == 1)
+            sj_prefix_u32((uint32_t*) dst, (const uint32_t*) src, rows);
+        else if (row_elems == 2)  // stéréo : préfixe à enjambée 2
+            sj_prefix_u32_s2((uint32_t*) dst, (const uint32_t*) src, rows * 2);
+        else
+#endif
+        sj_cumsum_rows((uint32_t*) dst, (const uint32_t*) src, rows, row_elems);
+        break;
+    default:
+        sj_cumsum_rows((uint64_t*) dst, (const uint64_t*) src, rows, row_elems);
+        break;
+    }
+}
+
+// FUSION CACHE : postfiltre blosc2 exécuté par BLOC, dans les threads de la
+// lib, juste après la décompression du bloc — la somme cumulée se fait
+// pendant que le bloc est chaud en cache, au lieu d'une seconde passe RAM.
+// Exige des blocs alignés aux lignes et une dérivée redémarrée par bloc
+// (l'écriture cale blocksize = block_rows * octets_par_ligne).
+struct SjPostCumsum {
+    Py_ssize_t itemsize;
+    Py_ssize_t row_elems;
+};
+
+static int
+sj_cumsum_postfilter(blosc2_postfilter_params* p)
+{
+    const SjPostCumsum* u = (const SjPostCumsum*) p->user_data;
+    // pas de memcpy : la somme cumulée LIT le tampon de bloc et ÉCRIT la
+    // sortie en une seule passe — c'est elle, la copie
+    Py_ssize_t rb = u->itemsize * u->row_elems;
+    sj_cumsum_slice(p->output, p->input, u->itemsize,
+                    (Py_ssize_t) p->size / rb, u->row_elems);
+    return 0;
+}
 
 // --- filtre blosc2 « delta d'octets par bloc » ------------------------------
 // Filtre UTILISATEUR enregistré (id 242), pensé pour passer APRÈS le
@@ -996,12 +1132,12 @@ sj_delta_filter_backward(const uint8_t* src, uint8_t* dest, int32_t size,
     (void) id;
     if (size <= 0)
         return 0;
-    memcpy(dest, src, (size_t) size);
 #ifdef RAPIDJSON_SSE42
-    sj_prefix_u8(dest, size);
+    sj_prefix_u8(dest, src, size);  // la somme de préfixe EST la copie
 #else
+    dest[0] = src[0];
     for (int32_t i = 1; i < size; i++)
-        dest[i] = (uint8_t) (dest[i] + dest[i - 1]);
+        dest[i] = (uint8_t) (src[i] + dest[i - 1]);
 #endif
     return 0;
 }
@@ -1539,7 +1675,7 @@ sj_compress_worker(std::vector<SjCompressJob>* jobs, std::atomic<size_t>* next,
 static char*
 sj_compress_chunks(const char* src, size_t length, size_t typesize, int clevel,
                    int shuffle, const char* cname, int nthreads, int channels,
-                   size_t* out_size, long* out_frames)
+                   int32_t blocksize, size_t* out_size, long* out_frames)
 {
     bool rice = (strcmp(cname, "rice") == 0);
     int compcode;
@@ -1597,6 +1733,9 @@ sj_compress_chunks(const char* src, size_t length, size_t typesize, int clevel,
     } else
         cparams.filters[BLOSC2_MAX_FILTERS - 1] =
             shuffle ? BLOSC_SHUFFLE : BLOSC_NOFILTER;
+    if (blocksize > 0)
+        cparams.blocksize = blocksize;  // blocs = blocs de dérivée (fusion
+                                        // cache de la somme cumulée en lecture)
     if (nthreads > (int) count)
         nthreads = (int) count;
     std::atomic<size_t> next(0);
@@ -1641,13 +1780,22 @@ struct SjDecompressJob {
 
 static void
 sj_decompress_worker(std::vector<SjDecompressJob>* jobs, std::atomic<size_t>* next,
-                     int inner_threads)
+                     int inner_threads, const SjPostCumsum* post)
 {
     // inner_threads > 1 quand il y a moins de trames que de coeurs (cas
     // courant : UNE grosse trame compressée par le MT interne du fork) —
     // la décompression est déterministe par nature, aucune contrainte d'ordre
     blosc2_dparams dparams = BLOSC2_DPARAMS_DEFAULTS;
     dparams.nthreads = (int16_t) inner_threads;
+    blosc2_postfilter_params pparams;
+    if (post != nullptr) {
+        // fusion cache : la somme cumulée se fait bloc par bloc dans les
+        // threads de blosc2, pendant que le bloc décompressé est chaud
+        memset(&pparams, 0, sizeof(pparams));
+        pparams.user_data = (void*) post;
+        dparams.postfilter = sj_cumsum_postfilter;
+        dparams.postparams = &pparams;
+    }
     blosc2_context* ctx = sj_blosc2_create_dctx(dparams);
     while (true) {
         size_t index = next->fetch_add(1);
@@ -1692,6 +1840,7 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
         "cname",
         "nthreads",
         "channels",
+        "blocksize",
         nullptr
     };
     PyObject* value = nullptr;
@@ -1701,10 +1850,11 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
     const char* cname = "blosclz";
     int nthreads = 1;
     int channels = 1;  // canaux entrelacés (codec rice seulement)
+    int blocksize = 0;  // blocs blosc2 = blocs de dérivée (fusion cache)
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|niisii", (char**) kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|niisiii", (char**) kwlist,
                                      &value, &typesize, &clevel, &shuffle,
-                                     &cname, &nthreads, &channels))
+                                     &cname, &nthreads, &channels, &blocksize))
         return nullptr;
     if (channels < 1 || channels > 15)
         channels = 1;  // le quartet du meta est la limite du format
@@ -1737,8 +1887,8 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
         Py_BEGIN_ALLOW_THREADS
         chunked = sj_compress_chunks((const char*) view.buf, (size_t) view.len,
                                      (size_t) typesize, clevel, shuffle, cname,
-                                     nthreads, channels, &chunked_size,
-                                     &frames);
+                                     nthreads, channels, blocksize,
+                                     &chunked_size, &frames);
         Py_END_ALLOW_THREADS
         PyBuffer_Release(&view);
         if (chunked == nullptr) {
@@ -1765,7 +1915,8 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
     bool rice = (strcmp(cname, "rice") == 0);
     if (((shuffle == 2 && serializejson_blosc2_delta_ok)
          || (shuffle == 3 && serializejson_blosc2_zigzag_ok)
-         || (rice && serializejson_blosc2_rice_ok))
+         || (rice && serializejson_blosc2_rice_ok)
+         || blocksize > 0)  // blocs calés (fusion cache) : exige les contextes
         && serializejson_blosc2_ctx_ok
         && (size_t) view.len < (size_t) INT32_MAX - BLOSC2_MAX_OVERHEAD) {
         int compcode;
@@ -1799,11 +1950,17 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
             cparams.filters[BLOSC2_MAX_FILTERS - 1] = BLOSC_BITSHUFFLE;
             cparams.splitmode = BLOSC_NEVER_SPLIT;
             cparams.blocksize = 1 << 20;
-        } else {
+        } else if (shuffle == 2) {
             // pipeline shuffle -> delta d'octets (ordre MESURÉ gagnant)
             cparams.filters[BLOSC2_MAX_FILTERS - 2] = BLOSC_SHUFFLE;
             cparams.filters[BLOSC2_MAX_FILTERS - 1] = SJ_BLOSC2_FILTER_DELTA;
+        } else {
+            // shuffle simple (ou aucun) routé ici pour caler les blocs
+            cparams.filters[BLOSC2_MAX_FILTERS - 1] =
+                shuffle ? BLOSC_SHUFFLE : BLOSC_NOFILTER;
         }
+        if (blocksize > 0)
+            cparams.blocksize = blocksize;  // blocs = blocs de dérivée
         size_t delta_dest_size = (size_t) view.len + BLOSC2_MAX_OVERHEAD;
         char* delta_dest = (char*) malloc(delta_dest_size);
         if (delta_dest == nullptr) {

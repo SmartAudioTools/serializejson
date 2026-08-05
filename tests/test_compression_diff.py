@@ -362,6 +362,42 @@ def test_rice_mid_side_bascule_par_trame():
     _rice_direct(numpy.concatenate([identiques, independants]), 2)
 
 
+def test_diff_par_blocs_exactitude():
+    # dérivée par blocs indépendants (chaque bloc redémarre, première ligne
+    # brute) : identité dérivée -> somme cumulée pour toutes les formes et
+    # toutes les tailles de bloc, y compris dégénérées (1 ligne, plus grand
+    # que le tableau)
+    import rapidjson
+    from serializejson.plugins.serializejson_numpy import _diff_axis0
+
+    rng = numpy.random.default_rng(30)
+    for shape, cols in [((100_003,), 1), ((50_000, 2), 2), ((300, 500), 500)]:
+        a = numpy.ascontiguousarray(numpy.cumsum(
+            rng.integers(-3, 4, int(numpy.prod(shape)))).astype(
+                numpy.int16).reshape(shape))
+        for block_rows in (0, 1, 7, 4096, 10**9):
+            d = bytearray(_diff_axis0(a.data, a.itemsize, cols, block_rows))
+            rapidjson._cumsum_axis0(d, a.itemsize, cols, block_rows)
+            assert bytes(d) == a.tobytes(), (shape, block_rows)
+
+
+def test_diff_par_blocs_etiquette():
+    # au-delà d'un bloc (~512 Ko de lignes), l'étiquette devient
+    # _diffb<lignes> et la lecture se parallélise par bloc ; en dessous,
+    # l'étiquette _diff historique reste inchangée
+    rng = numpy.random.default_rng(31)
+    gros = numpy.cumsum(rng.integers(-3, 4, 2_000_000)).astype(numpy.int64)
+    dump = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=True)(gros)
+    if b"_diffb" in dump:  # la dérivée doit avoir gagné l'essai sur ce profil
+        assert numpy.array_equal(serializejson.Decoder()(dump), gros)
+    petit = numpy.cumsum(rng.integers(-3, 4, 20_000)).astype(numpy.int64)
+    dump2 = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=True)(petit)
+    assert b"_diffb" not in dump2
+    assert numpy.array_equal(serializejson.Decoder()(dump2), petit)
+
+
 def test_zigzag_bitshuffle_toutes_largeurs():
     # filtre 244 (zigzag) chaîné au bitshuffle natif (shuffle=3) : replie
     # ±epsilon pour que les plans de bits restent propres — aller-retour

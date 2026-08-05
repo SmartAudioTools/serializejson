@@ -1299,6 +1299,13 @@ struct PyHandler {
         unsigned char* dest;
         size_t destsize;
         PyObject* destobj;          // référence forte, ou nullptr
+        // étage optionnel : défaire la dérivée _diff/_diffb pendant la
+        // décompression (postfiltre par bloc si les blocs sont calés, sinon
+        // post-passe par blocs) — b64, zstd et cumsum en UNE traversée
+        Py_ssize_t cs_itemsize;     // 0 : pas de dérivée
+        Py_ssize_t cs_cols;
+        Py_ssize_t cs_block_rows;   // 0 : dérivée globale (_diff historique)
+        bool cs_fused;              // blocs de trame == blocs de dérivée
     };
     std::vector<PendingB64> pendingB64;
     bool deferB64;
@@ -1524,6 +1531,9 @@ struct PyHandler {
         if (job.destobj != nullptr)
             return;
         Py_ssize_t label_index;
+        Py_ssize_t cs_itemsize = 0;
+        Py_ssize_t cs_cols = 1;
+        Py_ssize_t cs_block_rows = 0;
         if (kind == 2) {
             if (nargs < 3)
                 return;
@@ -1532,17 +1542,78 @@ struct PyHandler {
                 && PyUnicode_CompareWithASCIIString(dtype_arg, "bool") == 0)
                 return;
             label_index = -1;
+            bool diff = false;
             for (Py_ssize_t i = 2; i < nargs; i++) {
                 PyObject* item = PyList_GET_ITEM(ctor_args, i);
                 if (PyUnicode_CheckExact(item)) {
-                    if (PyUnicode_CompareWithASCIIString(item, "blosc2") != 0)
-                        return;   // blosc v1, blosc2p, *_diff... : voie normale
+                    const char* label = PyUnicode_AsUTF8(item);
+                    if (label == nullptr) {
+                        PyErr_Clear();
+                        return;
+                    }
+                    if (strncmp(label, "blosc2", 6) != 0)
+                        return;   // blosc v1 : voie normale
+                    const char* reste = label + 6;
+                    if (*reste == '\0') {
+                        // trame blosc2 nue : chemin historique
+                    } else if (strcmp(reste, "_diff") == 0) {
+                        diff = true;  // dérivée globale
+                    } else if (strncmp(reste, "_diffb", 6) == 0
+                               && reste[6] >= '1' && reste[6] <= '9') {
+                        char* fin = nullptr;
+                        cs_block_rows = (Py_ssize_t) strtoll(reste + 6, &fin,
+                                                             10);
+                        if (*fin != '\0')
+                            return;
+                        diff = true;  // dérivée par blocs
+                    } else
+                        return;   // blosc2p, autre variante : voie normale
                     label_index = i;
                     break;
                 }
             }
             if (label_index == -1)
                 return;
+            if (diff) {
+                // largeur d'élément depuis le nom du dtype (entiers seuls :
+                // la dérivée n'est écrite que pour eux)
+                if (!PyUnicode_CheckExact(dtype_arg))
+                    return;
+                const char* dt = PyUnicode_AsUTF8(dtype_arg);
+                if (dt == nullptr) {
+                    PyErr_Clear();
+                    return;
+                }
+                if (dt[0] == 'u')
+                    dt++;
+                if (strcmp(dt, "int8") == 0)
+                    cs_itemsize = 1;
+                else if (strcmp(dt, "int16") == 0)
+                    cs_itemsize = 2;
+                else if (strcmp(dt, "int32") == 0)
+                    cs_itemsize = 4;
+                else if (strcmp(dt, "int64") == 0)
+                    cs_itemsize = 8;
+                else
+                    return;  // dtype inattendu : voie Python
+                // colonnes = produit des dimensions après la première
+                if (label_index > 2) {
+                    PyObject* shape = PyList_GET_ITEM(ctor_args, 2);
+                    if (PyList_CheckExact(shape)) {
+                        for (Py_ssize_t i = 1; i < PyList_GET_SIZE(shape);
+                             i++) {
+                            PyObject* dim = PyList_GET_ITEM(shape, i);
+                            if (!PyLong_CheckExact(dim))
+                                return;
+                            cs_cols *= PyLong_AsSsize_t(dim);
+                        }
+                        if (cs_cols <= 0) {
+                            PyErr_Clear();
+                            return;
+                        }
+                    }
+                }
+            }
         } else {
             PyObject* label = PyList_GET_ITEM(ctor_args, 1);
             if (!PyUnicode_CheckExact(label)
@@ -1564,6 +1635,8 @@ struct PyHandler {
                                 &blocksize);
         if (cbytes < 16 || cbytes != job.decoded_length)
             return;                     // trames multiples (blosc2p) : voie normale
+        if (cs_itemsize > 0 && nbytes % (size_t) (cs_itemsize * cs_cols) != 0)
+            return;                     // forme incohérente : voie Python
         PyObject* dest = (kind == 0)
             ? PyBytes_FromStringAndSize(nullptr, (Py_ssize_t) nbytes)
             : PyByteArray_FromStringAndSize(nullptr, (Py_ssize_t) nbytes);
@@ -1591,6 +1664,16 @@ struct PyHandler {
             : (unsigned char*) PyByteArray_AS_STRING(dest);
         job.destsize = nbytes;
         job.destobj = dest;
+        if (cs_itemsize > 0) {
+            job.cs_itemsize = cs_itemsize;
+            job.cs_cols = cs_cols;
+            job.cs_block_rows = cs_block_rows;
+            // fusion par postfiltre si les blocs de la trame SONT les blocs
+            // de la dérivée (l'écriture a calé blocksize) ; post-passe sinon
+            job.cs_fused = (cs_block_rows > 0
+                            && (Py_ssize_t) blocksize
+                                   == cs_block_rows * cs_itemsize * cs_cols);
+        }
         Py_DECREF(dest);                // compense le double INCREF ci-dessus
     }
 
@@ -1625,16 +1708,57 @@ struct PyHandler {
                         continue;
                     }
                     if (job.destobj != nullptr) {
-                        if (dctx == nullptr) {
+                        int written = -1;
+                        if (job.cs_fused) {
+                            // fusion complète : b64 -> zstd -> somme cumulée
+                            // par bloc dans le postfiltre, une seule traversée
+                            SjPostCumsum post = {job.cs_itemsize, job.cs_cols};
+                            blosc2_postfilter_params pparams;
+                            memset(&pparams, 0, sizeof(pparams));
+                            pparams.user_data = (void*) &post;
                             blosc2_dparams dparams = BLOSC2_DPARAMS_DEFAULTS;
                             dparams.nthreads = (int16_t) inner_threads;
-                            dctx = sj_blosc2_create_dctx(dparams);
+                            dparams.postfilter = sj_cumsum_postfilter;
+                            dparams.postparams = &pparams;
+                            blosc2_context* fctx = sj_blosc2_create_dctx(
+                                dparams);
+                            if (fctx != nullptr) {
+                                written = sj_blosc2_decompress_ctx(
+                                    fctx, job.dst,
+                                    (int32_t) job.decoded_length,
+                                    job.dest, (int32_t) job.destsize);
+                                sj_blosc2_free_ctx(fctx);
+                            }
+                        } else {
+                            if (dctx == nullptr) {
+                                blosc2_dparams dparams =
+                                    BLOSC2_DPARAMS_DEFAULTS;
+                                dparams.nthreads = (int16_t) inner_threads;
+                                dctx = sj_blosc2_create_dctx(dparams);
+                            }
+                            written = (dctx == nullptr) ? -1
+                                : sj_blosc2_decompress_ctx(
+                                      dctx, job.dst,
+                                      (int32_t) job.decoded_length,
+                                      job.dest, (int32_t) job.destsize);
+                            if (written == (int) job.destsize
+                                && job.cs_itemsize > 0) {
+                                // dérivée sans blocs calés : post-passe par
+                                // blocs (SIMD), le tampon sort du L2/L3
+                                Py_ssize_t rb = job.cs_itemsize * job.cs_cols;
+                                Py_ssize_t rows =
+                                    (Py_ssize_t) job.destsize / rb;
+                                Py_ssize_t br = (job.cs_block_rows > 0)
+                                    ? job.cs_block_rows : rows;
+                                for (Py_ssize_t r0 = 0; r0 < rows; r0 += br) {
+                                    char* p = (char*) job.dest + r0 * rb;
+                                    sj_cumsum_slice(
+                                        p, p, job.cs_itemsize,
+                                        std::min<Py_ssize_t>(br, rows - r0),
+                                        job.cs_cols);
+                                }
+                            }
                         }
-                        int written = (dctx == nullptr) ? -1
-                            : sj_blosc2_decompress_ctx(
-                                  dctx, job.dst,
-                                  (int32_t) job.decoded_length,
-                                  job.dest, (int32_t) job.destsize);
                         if (written != (int) job.destsize)
                             good.store(false, std::memory_order_relaxed);
                     }
@@ -2714,7 +2838,8 @@ struct PyHandler {
                                         pendingB64.push_back(
                                             {str, (size_t) length, out_length,
                                              dst, dest,
-                                             nullptr, 0, nullptr});
+                                             nullptr, 0, nullptr,
+                                             0, 0, 0, false});
                                         return Handle(dest);
                                     }
                                 } else {
@@ -7328,10 +7453,14 @@ load_blosc_library(PyObject* Py_UNUSED(self), PyObject* arg)
 
 
 PyDoc_STRVAR(blosc_decompress_chunks_docstring,
-             "blosc_decompress_chunks(data, as_bytearray=0, nthreads=0)\n\n"
+             "blosc_decompress_chunks(data, as_bytearray=0, nthreads=0,"
+             " itemsize=0, row_elems=0, block_rows=0)\n\n"
              "Décompresse une concaténation ordonnée de trames blosc"
              " (compression parallèle déterministe) — en parallèle aussi,"
-             " chaque trame vers sa position finale. nthreads=0 : automatique.");
+             " chaque trame vers sa position finale. nthreads=0 : automatique."
+             " itemsize > 0 : défait aussi la dérivée _diff/_diffb (somme"
+             " cumulée FUSIONNÉE dans le postfiltre par bloc quand la trame"
+             " s'y prête, en post-passe par blocs sinon).");
 
 static PyObject*
 blosc_decompress_chunks_fn(PyObject* Py_UNUSED(self), PyObject* args)
@@ -7339,7 +7468,11 @@ blosc_decompress_chunks_fn(PyObject* Py_UNUSED(self), PyObject* args)
     Py_buffer view;
     int as_bytearray = 0;
     int nthreads = 0;
-    if (!PyArg_ParseTuple(args, "y*|ii", &view, &as_bytearray, &nthreads))
+    Py_ssize_t cs_itemsize = 0;
+    Py_ssize_t cs_row_elems = 0;
+    Py_ssize_t cs_block_rows = 0;
+    if (!PyArg_ParseTuple(args, "y*|iinnn", &view, &as_bytearray, &nthreads,
+                          &cs_itemsize, &cs_row_elems, &cs_block_rows))
         return nullptr;
     if (!serializejson_blosc2_ctx_ok) {
         PyBuffer_Release(&view);
@@ -7353,6 +7486,7 @@ blosc_decompress_chunks_fn(PyObject* Py_UNUSED(self), PyObject* args)
     std::vector<SjDecompressJob> jobs;
     size_t offset = 0;
     size_t total = 0;
+    size_t first_blocksize = 0;
     bool valid = true;
     while (offset < length) {
         if (length - offset < 16) {
@@ -7365,6 +7499,8 @@ blosc_decompress_chunks_fn(PyObject* Py_UNUSED(self), PyObject* args)
             valid = false;
             break;
         }
+        if (jobs.empty())
+            first_blocksize = blocksize;
         jobs.push_back({base + offset, (int32_t) cbytes, nullptr,
                         (int32_t) nbytes, 0});
         total += nbytes;
@@ -7401,18 +7537,45 @@ blosc_decompress_chunks_fn(PyObject* Py_UNUSED(self), PyObject* args)
         inner_threads = nthreads / (int) jobs.size();
         nthreads = (int) jobs.size();
     }
+    // somme cumulée demandée (étiquettes _diff/_diffb) : FUSIONNÉE dans le
+    // postfiltre par bloc quand la trame est unique et que ses blocs sont
+    // exactement les blocs de la dérivée (l'écriture a calé blocksize sur
+    // block_rows lignes) ; sinon post-passe par blocs après décompression
+    SjPostCumsum post_cfg = {cs_itemsize, cs_row_elems};
+    const SjPostCumsum* post = nullptr;
+    bool post_pass = false;
+    if (cs_itemsize > 0 && cs_row_elems > 0) {
+        Py_ssize_t rb = cs_itemsize * cs_row_elems;
+        if (jobs.size() == 1 && cs_block_rows > 0
+            && (Py_ssize_t) first_blocksize == cs_block_rows * rb)
+            post = &post_cfg;
+        else
+            post_pass = true;
+    }
     bool failed = false;
     Py_BEGIN_ALLOW_THREADS
     std::atomic<size_t> next(0);
     std::vector<std::thread> threads;
     for (int t = 1; t < nthreads; t++)
-        threads.emplace_back(sj_decompress_worker, &jobs, &next, inner_threads);
-    sj_decompress_worker(&jobs, &next, inner_threads);
+        threads.emplace_back(sj_decompress_worker, &jobs, &next, inner_threads,
+                             post);
+    sj_decompress_worker(&jobs, &next, inner_threads, post);
     for (std::thread& worker : threads)
         worker.join();
     for (SjDecompressJob& job : jobs)
         if (job.result != job.destsize)
             failed = true;
+    if (!failed && post_pass) {
+        char* buf = as_bytearray ? PyByteArray_AS_STRING(result)
+                                 : PyBytes_AS_STRING(result);
+        Py_ssize_t rb = cs_itemsize * cs_row_elems;
+        Py_ssize_t rows = (Py_ssize_t) total / rb;
+        Py_ssize_t br = (cs_block_rows > 0) ? cs_block_rows : rows;
+        for (Py_ssize_t r0 = 0; r0 < rows; r0 += br)
+            sj_cumsum_slice(buf + r0 * rb, buf + r0 * rb, cs_itemsize,
+                            std::min<Py_ssize_t>(br, rows - r0),
+                            cs_row_elems);
+    }
     Py_END_ALLOW_THREADS
     PyBuffer_Release(&view);
     if (failed) {
@@ -7599,22 +7762,8 @@ done:
                          backslash_escape, in_chunk_start, shedule_break);
 }
 
-// somme cumulée EN PLACE le long de l'axe 0 (défaire la dérivée _diff au
-// chargement) : ~10x numpy.cumsum sur les petits entiers. Arithmétique en
-// NON-SIGNÉ (l'enroulement 2-complément est identique à celle de numpy à
-// même dtype, et l'addition signée déborderait en comportement indéfini).
-template <typename T>
-static void
-sj_cumsum_rows(T* data, Py_ssize_t rows, Py_ssize_t cols)
-{
-    for (Py_ssize_t i = 1; i < rows; i++) {
-        T* prev = data + (i - 1) * cols;
-        T* cur = data + i * cols;
-        for (Py_ssize_t j = 0; j < cols; j++)
-            cur[j] = (T) (cur[j] + prev[j]);
-    }
-}
-
+// (sj_cumsum_rows et sj_cumsum_slice vivent dans serializejson.h, où le
+// postfiltre de fusion cache et le worker de décompression les utilisent)
 
 // dérivée le long de l'axe 0, en UNE allocation (le bytes retourné) et une
 // passe : out[0] = src[0] (le « prepend 0 » de numpy fusionné), puis
@@ -7664,14 +7813,34 @@ sj_diff_dispatch(const void* src, void* out, Py_ssize_t itemsize,
     }
 }
 
+// plage de blocs : chaque bloc redémarre sa dérivée (première ligne brute),
+// pour que la somme cumulée de lecture soit indépendante par bloc
+static void
+sj_diff_blocks(const void* src, void* out, Py_ssize_t itemsize,
+               Py_ssize_t rows, Py_ssize_t row_elems, Py_ssize_t block_rows,
+               Py_ssize_t b_begin, Py_ssize_t b_end)
+{
+    Py_ssize_t row_bytes = row_elems * itemsize;
+    for (Py_ssize_t b = b_begin; b < b_end; b++) {
+        Py_ssize_t r0 = b * block_rows;
+        Py_ssize_t rn = rows - r0;
+        if (rn > block_rows)
+            rn = block_rows;
+        sj_diff_dispatch((const char*) src + r0 * row_bytes,
+                         (char*) out + r0 * row_bytes, itemsize, 0, rn,
+                         row_elems);
+    }
+}
+
 static PyObject*
 sj_diff_axis0(PyObject* Py_UNUSED(module), PyObject* args)
 {
     Py_buffer view;
     Py_ssize_t itemsize;
     Py_ssize_t row_elems;
-    if (!PyArg_ParseTuple(args, "y*nn:_diff_axis0", &view, &itemsize,
-                          &row_elems))
+    Py_ssize_t block_rows = 0;  // 0 = dérivée globale (comportement historique)
+    if (!PyArg_ParseTuple(args, "y*nn|n:_diff_axis0", &view, &itemsize,
+                          &row_elems, &block_rows))
         return nullptr;
     if ((itemsize != 1 && itemsize != 2 && itemsize != 4 && itemsize != 8)
         || row_elems <= 0 || view.len % itemsize != 0
@@ -7688,31 +7857,46 @@ sj_diff_axis0(PyObject* Py_UNUSED(module), PyObject* args)
     }
     Py_ssize_t rows = (view.len / itemsize) / row_elems;
     void* dst = PyBytes_AS_STRING(out);
-    // multithread par plages de lignes au-delà de 1 Mo (en dessous, les
-    // threads coûtent plus qu'ils ne rapportent)
+    // multithread au-delà de 1 Mo (en dessous, les threads coûtent plus
+    // qu'ils ne rapportent) — par plages de lignes (dérivée globale, aucune
+    // dépendance en écriture) ou par plages de blocs (dérivée par blocs)
+    bool blocked = (block_rows > 0 && block_rows < rows);
+    Py_ssize_t unites = blocked ? (rows + block_rows - 1) / block_rows : rows;
     int nthreads = 1;
     if (view.len >= (Py_ssize_t) (1 << 20)) {
         unsigned hardware = std::thread::hardware_concurrency();
         nthreads = (int) (hardware ? (hardware > 8 ? 8 : hardware) : 1);
-        if ((Py_ssize_t) nthreads > rows)
-            nthreads = (int) rows;
+        if ((Py_ssize_t) nthreads > unites)
+            nthreads = (int) unites;
     }
     if (nthreads <= 1) {
-        sj_diff_dispatch(view.buf, dst, itemsize, 0, rows, row_elems);
+        if (blocked)
+            sj_diff_blocks(view.buf, dst, itemsize, rows, row_elems,
+                           block_rows, 0, unites);
+        else
+            sj_diff_dispatch(view.buf, dst, itemsize, 0, rows, row_elems);
     } else {
         Py_BEGIN_ALLOW_THREADS
-        Py_ssize_t per = (rows + nthreads - 1) / nthreads;
+        Py_ssize_t per = (unites + nthreads - 1) / nthreads;
         std::vector<std::thread> pool;
         for (int t = 1; t < nthreads; t++) {
-            Py_ssize_t r0 = t * per;
-            Py_ssize_t r1 = std::min<Py_ssize_t>(r0 + per, rows);
-            if (r0 >= r1)
+            Py_ssize_t u0 = t * per;
+            Py_ssize_t u1 = std::min<Py_ssize_t>(u0 + per, unites);
+            if (u0 >= u1)
                 break;
-            pool.emplace_back(sj_diff_dispatch, view.buf, dst, itemsize,
-                              r0, r1, row_elems);
+            if (blocked)
+                pool.emplace_back(sj_diff_blocks, view.buf, dst, itemsize,
+                                  rows, row_elems, block_rows, u0, u1);
+            else
+                pool.emplace_back(sj_diff_dispatch, view.buf, dst, itemsize,
+                                  u0, u1, row_elems);
         }
-        sj_diff_dispatch(view.buf, dst, itemsize, 0,
-                         std::min<Py_ssize_t>(per, rows), row_elems);
+        if (blocked)
+            sj_diff_blocks(view.buf, dst, itemsize, rows, row_elems,
+                           block_rows, 0, std::min<Py_ssize_t>(per, unites));
+        else
+            sj_diff_dispatch(view.buf, dst, itemsize, 0,
+                             std::min<Py_ssize_t>(per, unites), row_elems);
         for (std::thread& worker : pool)
             worker.join();
         Py_END_ALLOW_THREADS
@@ -7721,14 +7905,33 @@ sj_diff_axis0(PyObject* Py_UNUSED(module), PyObject* args)
     return out;
 }
 
+// plage de blocs indépendants : chaque bloc a redémarré sa dérivée (première
+// ligne brute), sa somme cumulée ne dépend donc de rien d'autre
+static void
+sj_cumsum_blocks(void* buf, Py_ssize_t itemsize, Py_ssize_t rows,
+                 Py_ssize_t row_elems, Py_ssize_t block_rows,
+                 Py_ssize_t b_begin, Py_ssize_t b_end)
+{
+    Py_ssize_t row_bytes = row_elems * itemsize;
+    for (Py_ssize_t b = b_begin; b < b_end; b++) {
+        Py_ssize_t r0 = b * block_rows;
+        Py_ssize_t rn = rows - r0;
+        if (rn > block_rows)
+            rn = block_rows;
+        char* p = (char*) buf + r0 * row_bytes;
+        sj_cumsum_slice(p, p, itemsize, rn, row_elems);
+    }
+}
+
 static PyObject*
 sj_cumsum_axis0(PyObject* Py_UNUSED(module), PyObject* args)
 {
     Py_buffer view;
     Py_ssize_t itemsize;
     Py_ssize_t row_elems;
-    if (!PyArg_ParseTuple(args, "w*nn:_cumsum_axis0", &view, &itemsize,
-                          &row_elems))
+    Py_ssize_t block_rows = 0;  // 0 = global (fichiers _diff historiques)
+    if (!PyArg_ParseTuple(args, "w*nn|n:_cumsum_axis0", &view, &itemsize,
+                          &row_elems, &block_rows))
         return nullptr;
     if ((itemsize != 1 && itemsize != 2 && itemsize != 4 && itemsize != 8)
         || row_elems <= 0 || view.len % itemsize != 0
@@ -7739,34 +7942,41 @@ sj_cumsum_axis0(PyObject* Py_UNUSED(module), PyObject* args)
         return nullptr;
     }
     Py_ssize_t rows = (view.len / itemsize) / row_elems;
-    switch (itemsize) {
-    case 1:
-#ifdef RAPIDJSON_SSE42
-        if (row_elems == 1)
-            sj_prefix_u8((uint8_t*) view.buf, rows);
-        else
-#endif
-        sj_cumsum_rows((uint8_t*) view.buf, rows, row_elems);
-        break;
-    case 2:
-#ifdef RAPIDJSON_SSE42
-        if (row_elems == 1)
-            sj_prefix_u16((uint16_t*) view.buf, rows);
-        else
-#endif
-        sj_cumsum_rows((uint16_t*) view.buf, rows, row_elems);
-        break;
-    case 4:
-#ifdef RAPIDJSON_SSE42
-        if (row_elems == 1)
-            sj_prefix_u32((uint32_t*) view.buf, rows);
-        else
-#endif
-        sj_cumsum_rows((uint32_t*) view.buf, rows, row_elems);
-        break;
-    default:
-        sj_cumsum_rows((uint64_t*) view.buf, rows, row_elems);
-        break;
+    if (block_rows <= 0 || block_rows >= rows) {
+        sj_cumsum_slice(view.buf, view.buf, itemsize, rows, row_elems);
+        PyBuffer_Release(&view);
+        Py_RETURN_NONE;
+    }
+    // blocs indépendants : multithread au-delà de 1 Mo (le gain de la
+    // dérivée par blocs est justement de rendre la lecture parallèle)
+    Py_ssize_t blocks = (rows + block_rows - 1) / block_rows;
+    int nthreads = 1;
+    if (view.len >= (Py_ssize_t) (1 << 20)) {
+        unsigned hardware = std::thread::hardware_concurrency();
+        nthreads = (int) (hardware ? (hardware > 8 ? 8 : hardware) : 1);
+        if ((Py_ssize_t) nthreads > blocks)
+            nthreads = (int) blocks;
+    }
+    if (nthreads <= 1) {
+        sj_cumsum_blocks(view.buf, itemsize, rows, row_elems, block_rows, 0,
+                         blocks);
+    } else {
+        Py_BEGIN_ALLOW_THREADS
+        Py_ssize_t per = (blocks + nthreads - 1) / nthreads;
+        std::vector<std::thread> pool;
+        for (int t = 1; t < nthreads; t++) {
+            Py_ssize_t b0 = t * per;
+            Py_ssize_t b1 = std::min<Py_ssize_t>(b0 + per, blocks);
+            if (b0 >= b1)
+                break;
+            pool.emplace_back(sj_cumsum_blocks, view.buf, itemsize, rows,
+                              row_elems, block_rows, b0, b1);
+        }
+        sj_cumsum_blocks(view.buf, itemsize, rows, row_elems, block_rows, 0,
+                         std::min<Py_ssize_t>(per, blocks));
+        for (std::thread& worker : pool)
+            worker.join();
+        Py_END_ALLOW_THREADS
     }
     PyBuffer_Release(&view);
     Py_RETURN_NONE;

@@ -1987,3 +1987,113 @@ lisse 2 axes 4,4, signal 2M 26,0 ; perd : timestamps (12,3 contre
 10,5 au d0+shuffle), RVB, stéréo 16 bits où rice M/S reste roi.
 ~1,2 Go/s mono-thread. Sans repli silencieux : shuffle=3 sans
 libblosc2 lève ValueError, que l'essai automatique saute.
+
+### Tableau de performance globale (approches EN PLACE, 05/08 matin)
+
+Convention demandée par Baptiste, désormais permanente : chaque case
+donne « poids % · ×écriture / ×lecture » rapportés à la référence
+zstd seul niveau 1 (100 % · ×1,00 par définition ; valeurs absolues
+de la référence entre parenthèses). Mesures mono-thread ; ± ~20 % sur
+les vitesses (machine partagée) — depuis ce chapitre : machine calme
+et CPU réveillé par un burst avant chaque chronométrage.
+
+| Chaîne | voix 16b (70 % · 1,3 Go/s · 0,7) | stéréo 16b (97 % · 1,4 · 7,0) | 24b/96k (86 % · 1,2 · 7,3) | timestamps i64 (23 % · 0,6 · 4,1) | signal 2M i16 (80 % · 0,7 · 5,0) | camera u8 (71 % · 0,5 · 1,2) | surface lisse i32 (34 % · 0,5 · 4,8) |
+|---|---|---|---|---|---|---|---|
+| octet_shuffle → zstd | 80 % · ×0,4/×0,9 | 93 % · ×0,9/×1,0 | 79 % · ×1,0/×1,1 | 69 % · ×4,5/×2,4 | 64 % · ×3,8/×2,2 | 100 % · ×0,6/×1,1 | 63 % · ×2,7/×1,9 |
+| octet_shuffle → delta (242) → zstd | 73 % · ×0,7/×0,7 | 84 % · ×0,8/×0,6 | 73 % · ×0,9/×0,7 | 54 % · ×3,6/×1,2 | 33 % · ×2,7/×1,2 | 80 % · ×1,0/×0,8 | 17 % · ×2,6/×1,1 |
+| dérivée axe 0 → octet_shuffle → zstd | 73 % · ×0,3/×0,8 | 80 % · ×0,7/×0,2 | 71 % · ×0,7/×0,4 | 45 % · ×4,5/×1,8 | 44 % · ×0,9/×0,6 | 80 % · ×1,0/×1,0 | 14 % · ×3,2/×1,3 |
+| dérivée axe 0 → 242 → zstd | 71 % · ×0,6/×0,7 | 76 % · ×0,6/×0,2 | 66 % · ×0,6/×0,3 | 50 % · ×5,6/×1,3 | 51 % · ×0,9/×0,6 | 81 % · ×0,9/×0,8 | 15 % · ×3,0/×1,0 |
+| dérivée axe 0 → zigzag (244) → bitshuffle → zstd | 63 % · ×0,8/×0,7 | 76 % · ×0,7/×0,2 | 61 % · ×0,8/×0,3 | 53 % · ×2,2/×0,8 | 33 % · ×1,2/×0,5 | 78 % · ×0,7/×0,5 | 10 % · ×4,3/×0,8 |
+| rice M/S auto (243) | 58 % · ×0,3/×0,6 | 69 % · ×0,2/×0,2 | 61 % · ×0,4/×0,3 | — | 34 % · ×0,5/×0,3 | — | 22 % · ×1,6/×0,8 |
+
+(La matrice EXHAUSTIVE — 19 approches × 15 profils, écartées comprises
+— est archivée dans la conversation du 05/08 ; les lignes ci-dessus
+sont les six en production.)
+
+Même tableau rapporté à **cPickle protocole 5** (référence demandée le
+05/08 — pickle d'un tableau numpy ≈ recopie mémoire brute : poids en %
+du brut, vitesses en fraction d'un memcpy ; mono-thread, dérivée par
+blocs et fusion cache comprises) :
+
+| Chaîne | voix 16b (réf. d 18,6 · l 28,3 Go/s) | stéréo 16b (15,8 · 29,0) | 24b/96k (3,9 · 20,0) | timestamps i64 (24,6 · 24,9) | signal 2M i16 (25,1 · 26,7) | camera u8 (24,0 · 33,4) | surface lisse i32 (20,4 · 22,3) |
+|---|---|---|---|---|---|---|---|
+| pickle (réf.) | 100 % · ×1,00/×1,00 | 100 % | 100 % | 100 % | 100 % | 100 % | 100 % |
+| octet_shuffle → zstd | 56 % · ×0,05/×0,02 | 90 % · ×0,08/×0,22 | 68 % · ×0,29/×0,40 | 16 % · ×0,10/×0,37 | 51 % · ×0,10/×0,36 | 71 % · ×0,02/×0,02 | 3 % · ×0,12/×0,39 |
+| octet_shuffle → 242 → zstd | 51 % · ×0,04/×0,01 | 82 % · ×0,07/×0,16 | 63 % · ×0,27/×0,27 | 12 % · ×0,09/×0,17 | 26 % · ×0,07/×0,21 | 57 % · ×0,02/×0,02 | 1 % · ×0,16/×0,33 |
+| dérivée blocs → octet_shuffle → zstd | 51 % · ×0,03/×0,02 | 77 % · ×0,07/×0,20 | 61 % · ×0,18/×0,28 | 11 % · ×0,16/×0,28 | 35 % · ×0,02/×0,14 | 57 % · ×0,02/×0,03 | 0,3 % · ×0,35/×0,35 |
+| dérivée blocs → 242 → zstd | 50 % · ×0,03/×0,01 | 75 % · ×0,06/×0,13 | 56 % · ×0,19/×0,21 | 12 % · ×0,15/×0,20 | 41 % · ×0,03/×0,12 | 57 % · ×0,02/×0,02 | 0,3 % · ×0,17/×0,25 |
+| dérivée blocs → zigzag (244) → bitshuffle → zstd | 44 % · ×0,05/×0,02 | 74 % · ×0,06/×0,11 | 52 % · ×0,26/×0,18 | 12 % · ×0,10/×0,11 | 26 % · ×0,05/×0,10 | 55 % · ×0,02/×0,02 | 0,2 % · ×0,13/×0,18 |
+| rice M/S auto | 41 % · ×0,02/×0,01 | 67 % · ×0,02/×0,05 | 52 % · ×0,11/×0,12 | — | 27 % · ×0,01/×0,06 | — | 8 % · ×0,04/×0,17 |
+
+Lecture : face à pickle (une recopie), toute compression paie sa
+vitesse — de ×0,4 à ×0,01 selon le profil — et achète du poids (jusqu'à
+÷300 sur les surfaces lisses). Les rapports contre pickle sont durs sur
+les PETITS tableaux (la référence tient en cache : 18-33 Go/s).
+
+⚠ MÉTHODE (leçon du 05/08, complète celle du §11 sur le bruit de
+build) : une comparaison de vitesses n'a de sens qu'entre mesures
+prises SOUS LA MÊME CHARGE — même passe, A/B immédiat, référence
+mesurée une fois et réutilisée. Les chiffres pris à des moments
+différents ont divergé du simple au quadruple sur cette machine
+partagée ; le « deux fois plus rapide que pickle » de la nuit de
+migration mesurait un pickle écrasé par la charge (0,48 Go/s pour une
+recopie de 96 Mo ; 3,9 à vide). Les TAILLES, elles, sont
+déterministes : toutes les décisions de candidates reposaient dessus
+et tiennent. Discipline désormais appliquée : machine calme, burst de
+réveil CPU avant chaque chronométrage. Et sur machine calme, pickle
+sur un tableau tenant en L3 est une recopie en cache (19-25 Go/s) :
+imbattable en vitesse pure — nos gains contre lui sont le POIDS
+(÷4-7), et la vitesse seulement au-delà du cache (timestamps 32 Mo :
+dumps ×1,12) ou dès qu'un disque/réseau entre en jeu.
+
+### 17 quater. Matin du 5/08 — la dérivée par BLOCS : la lecture parallèle
+
+Idée de Baptiste (« des dérivées et des cumsum sur des blocs
+indépendants ») : la dérivée d'axe 0 globale imposait à la lecture une
+somme cumulée en chaîne — série pure en 1D, à 2 chaînes striées en
+stéréo (2,2 Go/s, le goulot des lectures _diff). Désormais chaque bloc
+de ~512 Ko de lignes ENTIÈRES redémarre sa dérivée (première ligne
+brute) : les sommes cumulées deviennent indépendantes, multithread par
+blocs + SSE dans chaque bloc. L'étiquette `_diffb<lignes>` porte la
+taille de bloc ; `_diff` historique = globale, toujours lue (compat
+descendante) ; en dessous d'un bloc, rien ne change (mêmes octets,
+même étiquette). Coût en poids : une ligne brute par 512 Ko,
+négligeable. Mesuré (machine calme, burst de réveil avant chaque
+chrono) : somme cumulée stéréo 2,22 → **6,77 Go/s** (×3,05), 1D int16
+7,94 → 9,88 (×1,25 — le SSE série était déjà bon en 1D). Nota : sur
+l'audio réel l'essai élit rice, l'étiquette blocs sert donc surtout
+aux profils où la dérivée gagne (timestamps, signaux, 2D).
+
+Complété dans la foulée (demandes de Baptiste, même matinée) :
+
+  - **Préfixe SIMD à enjambée 2** (stéréo entrelacée) : la cascade
+    décalages-additions de Hillis-Steele en sautant la première passe
+    (les lanes paires ne reçoivent que des lanes paires — les canaux
+    ne se mélangent jamais), report par dernier COUPLE. La somme
+    cumulée stéréo passe de 2,2 à **10,1 Go/s en un seul thread**
+    (int32 : 8,6) — le SIMD seul bat les huit threads d'avant, on est
+    à la bande passante RAM. int16 et int32, enjambée 2 seulement (le
+    cas au-delà reste au code générique vectorisé par colonne).
+  - **FUSION CACHE de la lecture** (« se rapprocher du L1 de blosc2 ») :
+    la somme cumulée n'est plus une seconde passe RAM — elle est un
+    POSTFILTRE blosc2, exécuté par bloc dans les threads de la lib,
+    pendant que le bloc décompressé est chaud. Pour cela l'écriture
+    CALE les blocs blosc2 sur les blocs de dérivée
+    (cparams.blocksize = block_rows × octets_par_ligne, paramètre
+    `blocksize` de BloscToBase64 ; la trame unique passe par l'API
+    contextes pour tous les gagnants à dérivée). Deux pièges résolus :
+    le postfiltre reçoit un TAMPON temporaire et doit écrire la sortie
+    — un memcpy + cumsum en place rendait le gain nul (×1,02) ; la
+    somme de préfixe est devenue LA copie (toutes les passes refactorées
+    en (destination, source), l'appel en place = deux fois le même
+    pointeur) → ×1,20 au niveau de la trame. Le filtre 242 y gagne
+    aussi (son inverse n'a plus de memcpy).
+  - **Fusion base64 comprise** : la voie C++ différée du parseur (qui
+    fusionnait déjà b64 → zstd pour les trames « blosc2 » nues) est
+    étendue aux étiquettes `_diff`/`_diffb` — dtype, forme et taille
+    de bloc analysés en C++, cumsum par postfiltre si les blocs sont
+    calés, post-passe par blocs sinon, repli voie Python dans tous les
+    autres cas. Un chargement `_diffb` fait donc : parse → b64 → zstd
+    → cumsum en UNE traversée C++ multithread, zéro passage Python.
+    Bout en bout : timestamps 6,6 → **7,3 Go/s**, signal 1D 3,4 → 3,5
+    (zstd domine désormais ce profil).
