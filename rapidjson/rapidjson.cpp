@@ -232,6 +232,18 @@ struct HandlerContext {
     // dicts SANS clé spéciale peuvent sauter le end_object Python quand le
     // décodeur l'a certifié (_fast_plain_end_object)
     bool specialKey;
+    // reconnaissance des ENVELOPPES au parse : {"__class__": nom,
+    // "__new__"/"__init__": args} capturé au vol SANS remplir le dict — la
+    // fin d'objet instancie directement (EnvelopeConstruct) ; au moindre
+    // écart de forme, EnvFlush verse la capture dans le dict et la voie
+    // classique reprend, octets et sémantique inchangés.
+    //   0 : dict normal ; 1 : "__class__" vu, valeur attendue ;
+    //   2 : classe capturée ; 3 : "__new__"/"__init__" vu, args attendus ;
+    //   4 : args capturés
+    uint8_t envState;
+    uint8_t envSlot;          // 1 : __new__ ; 2 : __init__
+    PyObject* envClass;       // référence possédée (ou nullptr)
+    PyObject* envArgs;        // référence possédée (ou nullptr)
 };
 
 
@@ -1547,11 +1559,13 @@ struct PyHandler {
 
     ~PyHandler() {
         while (!stack.empty()) {
-            const HandlerContext& ctx = stack.back();
+            HandlerContext& ctx = stack.back();
             if (ctx.copiedKey)
                 PyMem_Free((void*) ctx.key);
             if (ctx.object != nullptr)
                 Py_DECREF(ctx.object);
+            Py_CLEAR(ctx.envClass);
+            Py_CLEAR(ctx.envArgs);
             stack.pop_back();
         }
         Py_CLEAR(decoderStartObject);
@@ -1935,6 +1949,36 @@ struct PyHandler {
     bool Handle(PyObject* value) {
 
         if (root) {
+            HandlerContext& env = stack.back();
+            if (env.envState == 1) {
+                // valeur de "__class__" : une chaîne, sinon l'enveloppe est
+                // démentie. numpyB64 est exclu de la capture : son différé
+                // (TryDeferDecompress) lit le dict pendant le parse
+                if (PyUnicode_CheckExact(value)
+                    && !(PyUnicode_GET_LENGTH(value) == 8
+                         && PyUnicode_CompareWithASCIIString(
+                                value, "numpyB64") == 0)) {
+                    env.envClass = value;   // référence consommée
+                    env.envState = 2;
+                    return true;
+                }
+                if (!EnvFlush(env)) {
+                    Py_DECREF(value);
+                    return false;
+                }
+            } else if (env.envState == 3) {
+                // les arguments (scalaire, chaîne, liste ou dict en cours de
+                // construction) : capturés hors du dict d'enveloppe
+                env.envArgs = value;        // référence consommée
+                env.envState = 4;
+                return true;
+            } else if (env.envState != 0) {
+                // valeur inattendue pour l'état (JSON exotique) : repli
+                if (!EnvFlush(env)) {
+                    Py_DECREF(value);
+                    return false;
+                }
+            }
             const HandlerContext& current = stack.back();
 
             if (current.isObject) {
@@ -1982,9 +2026,38 @@ struct PyHandler {
     bool Key(const char* str, SizeType length, bool copy) {
         HandlerContext& current = stack.back();
 
-        if ((length == 9 && memcmp(str, "__class__", 9) == 0)
-            || (length == 4 && memcmp(str, "$ref", 4) == 0))
+        if (length == 9 && memcmp(str, "__class__", 9) == 0) {
             current.specialKey = true;
+            // enveloppe candidate : "__class__" en PREMIÈRE clé d'un dict
+            // vierge (gaté par le décodeur : jamais en mode update)
+            if (fastPlainEndObject && current.envState == 0
+                && current.envClass == nullptr && current.key == nullptr
+                && PyDict_CheckExact(current.object)
+                && PyDict_GET_SIZE(current.object) == 0)
+                current.envState = 1;
+            else if (current.envState != 0 && !EnvFlush(current))
+                return false;
+        } else if (length == 4 && memcmp(str, "$ref", 4) == 0) {
+            current.specialKey = true;
+            // une référence peut viser l'INTÉRIEUR d'une enveloppe encore
+            // ouverte (doublon mémoïsé dans les args __init__) : toutes les
+            // captures de la pile sont versées, la résolution pendant le
+            // parse retrouve alors les dicts vivants de la voie classique
+            for (HandlerContext& ouverte : stack)
+                if (ouverte.envState != 0 && !EnvFlush(ouverte))
+                    return false;
+        } else if (current.envState == 2
+                   && ((length == 7 && memcmp(str, "__new__", 7) == 0)
+                       || (length == 8 && memcmp(str, "__init__", 8) == 0))) {
+            // le slot d'arguments attendu : capture à venir dans Handle
+            current.envSlot = (length == 7) ? 1 : 2;
+            current.envState = 3;
+        } else if (current.envState != 0) {
+            // toute autre clé (état, items, dict d'attributs, attribut
+            // libre...) : l'enveloppe stricte est démentie
+            if (!EnvFlush(current))
+                return false;
+        }
 
         // This happens when operating in stream mode and kParseInsituFlag is not set: we
         // must copy the incoming string in the context, and destroy the duplicate when
@@ -2061,6 +2134,10 @@ struct PyHandler {
         ctx.key = nullptr;
         ctx.copiedKey = false;
         ctx.specialKey = false;
+        ctx.envState = 0;
+        ctx.envSlot = 0;
+        ctx.envClass = nullptr;
+        ctx.envArgs = nullptr;
         Py_INCREF(mapping);
 
         stack.push_back(ctx);
@@ -2068,7 +2145,196 @@ struct PyHandler {
         return true;
     }
 
+    // verse la capture d'enveloppe dans le dict (écart de forme constaté) :
+    // la voie classique reprend avec un dict identique à ce qu'elle aurait
+    // construit — l'ordre d'insertion (__class__ puis argument) est celui
+    // du document, les clés viennent des interned globaux
+    bool EnvFlush(HandlerContext& ctx) {
+        if (ctx.envClass != nullptr) {
+            if (PyDict_SetItem(ctx.object, class_key_name, ctx.envClass) < 0)
+                return false;
+            Py_CLEAR(ctx.envClass);
+        }
+        if (ctx.envArgs != nullptr) {
+            if (PyDict_SetItem(ctx.object,
+                               ctx.envSlot == 1 ? new_key_name
+                                                : init_key_name,
+                               ctx.envArgs) < 0)
+                return false;
+            Py_CLEAR(ctx.envArgs);
+        }
+        ctx.envState = 0;
+        ctx.envSlot = 0;
+        return true;
+    }
+
+
+    // instancie les enveloppes de base {"__class__": nom, "__new__"/"__init__"
+    // : args} — mêmes sémantiques que les constructeurs python (tuple(liste),
+    // set(liste), date(bytes de reduce), bytes pré-décodés ou ascii,
+    // complex/range/slice, valeurs de type via le cache partagé). Rend une
+    // NOUVELLE référence, ou nullptr = déclin (au moindre doute sur la forme,
+    // voie classique inchangée ; toute erreur interne est effacée, la voie
+    // python la reproduira proprement si elle est réelle). Partagée entre la
+    // reconnaissance d'enveloppe AU PARSE et la chaîne de fin d'objet.
+    PyObject* EnvelopeConstruct(PyObject* cls_value, PyObject* ctor_args,
+                                bool from_new) {
+        (void) from_new;
+        PyObject* replacement = nullptr;
+        int as_bytearray = -1;
+        if (PyUnicode_CompareWithASCIIString(cls_value, "bytes") == 0)
+            as_bytearray = 0;
+        else if (PyUnicode_CompareWithASCIIString(cls_value,
+                                                  "bytearray") == 0)
+            as_bytearray = 1;
+        if (as_bytearray != -1) {
+            // bytes / bytearray pré-décodés : [payload, "b64"] où le payload
+            // a déjà été décodé par l'interception base64 -> le payload EST
+            // l'objet final (le greffon python accepte les charges
+            // pré-décodées telles quelles, sans copie)
+            if (PyList_CheckExact(ctor_args)
+                && PyList_GET_SIZE(ctor_args) == 2) {
+                PyObject* payload = PyList_GET_ITEM(ctor_args, 0);
+                PyObject* label = PyList_GET_ITEM(ctor_args, 1);
+                bool type_ok = as_bytearray
+                    ? PyByteArray_CheckExact(payload)
+                    : PyBytes_CheckExact(payload);
+                if (type_ok && PyUnicode_CheckExact(label)
+                    && PyUnicode_CompareWithASCIIString(label, "b64") == 0) {
+                    Py_INCREF(payload);
+                    replacement = payload;
+                }
+            } else if (as_bytearray == 0 && PyUnicode_CheckExact(ctor_args)
+                       && PyUnicode_IS_ASCII(ctor_args)) {
+                // forme chaîne ascii : même sémantique que le constructeur
+                // python bytes(s, "ascii"), garanti par le test IS_ASCII
+                Py_ssize_t lg;
+                const char* u8 = PyUnicode_AsUTF8AndSize(ctor_args, &lg);
+                if (u8 != nullptr)
+                    replacement = PyBytes_FromStringAndSize(u8, lg);
+            }
+        } else if (PyUnicode_CompareWithASCIIString(cls_value,
+                                                    "tuple") == 0) {
+            if (PyList_CheckExact(ctor_args))
+                replacement = PyList_AsTuple(ctor_args);
+        } else if (PyUnicode_CompareWithASCIIString(cls_value, "type") == 0) {
+            // valeurs de type : servies depuis le cache partagé seulement
+            // (un HIT rend la classe déjà résolue par python ; un miss reste
+            // en voie python, qui importe et remplit le cache)
+            if (typeValuesCache != nullptr
+                && PyUnicode_CheckExact(ctor_args)) {
+                if (PyUnicode_CompareWithASCIIString(ctor_args,
+                                                     "NoneType") == 0) {
+                    // cas spécial d'instance() : jamais en cache côté python
+                    replacement = (PyObject*) Py_TYPE(Py_None);
+                    Py_INCREF(replacement);
+                } else {
+                    PyObject* classe = PyDict_GetItem(typeValuesCache,
+                                                      ctor_args);
+                    if (classe != nullptr) {
+                        Py_INCREF(classe);
+                        replacement = classe;
+                    }
+                }
+            }
+        } else if (PyUnicode_CompareWithASCIIString(cls_value, "set") == 0) {
+            if (PyList_CheckExact(ctor_args))
+                replacement = PySet_New(ctor_args);
+        } else if (PyUnicode_CompareWithASCIIString(cls_value,
+                                                    "frozenset") == 0) {
+            if (PyList_CheckExact(ctor_args))
+                replacement = PyFrozenSet_New(ctor_args);
+        } else if (PyUnicode_CompareWithASCIIString(
+                       cls_value, "datetime.date") == 0) {
+            if (PyBytes_CheckExact(ctor_args)
+                && PyBytes_GET_SIZE(ctor_args) == 4
+                // ce bâtisseur LIT le contenu : la file différée doit être
+                // vidée d'abord (défense en profondeur, les payloads < 64
+                // octets ne sont plus différés)
+                && (pendingB64.empty() || FlushPendingB64())) {
+                const unsigned char* raw4 =
+                    (const unsigned char*) PyBytes_AS_STRING(ctor_args);
+                replacement = PyDate_FromDate(
+                    (raw4[0] << 8) | raw4[1], raw4[2], raw4[3]);
+            }
+        } else if (PyUnicode_CompareWithASCIIString(
+                       cls_value, "datetime.datetime") == 0) {
+            if (PyList_CheckExact(ctor_args)
+                && PyList_GET_SIZE(ctor_args) == 7) {
+                // appel du TYPE (validation identique à python)
+                PyObject* args_tuple = PyList_AsTuple(ctor_args);
+                if (args_tuple != nullptr) {
+                    replacement = PyObject_CallObject(
+                        (PyObject*) PyDateTimeAPI->DateTimeType, args_tuple);
+                    Py_DECREF(args_tuple);
+                }
+            }
+        } else if (PyUnicode_CompareWithASCIIString(
+                       cls_value, "datetime.time") == 0) {
+            if (PyBytes_CheckExact(ctor_args)
+                && PyBytes_GET_SIZE(ctor_args) == 6
+                && (pendingB64.empty() || FlushPendingB64())) {
+                replacement = PyObject_CallFunctionObjArgs(
+                    (PyObject*) PyDateTimeAPI->TimeType, ctor_args, nullptr);
+            }
+        } else if (PyUnicode_CompareWithASCIIString(cls_value,
+                                                    "complex") == 0) {
+            if (PyList_CheckExact(ctor_args)
+                && PyList_GET_SIZE(ctor_args) == 2) {
+                double re = PyFloat_AsDouble(PyList_GET_ITEM(ctor_args, 0));
+                double im = PyFloat_AsDouble(PyList_GET_ITEM(ctor_args, 1));
+                if (!PyErr_Occurred())
+                    replacement = PyComplex_FromDoubles(re, im);
+            }
+        } else if (PyUnicode_CompareWithASCIIString(cls_value,
+                                                    "range") == 0) {
+            if (PyList_CheckExact(ctor_args)
+                && PyList_GET_SIZE(ctor_args) == 3)
+                replacement = PyObject_CallFunctionObjArgs(
+                    (PyObject*) &PyRange_Type,
+                    PyList_GET_ITEM(ctor_args, 0),
+                    PyList_GET_ITEM(ctor_args, 1),
+                    PyList_GET_ITEM(ctor_args, 2), nullptr);
+        } else if (PyUnicode_CompareWithASCIIString(cls_value,
+                                                    "slice") == 0) {
+            if (PyList_CheckExact(ctor_args)
+                && PyList_GET_SIZE(ctor_args) == 3)
+                replacement = PySlice_New(PyList_GET_ITEM(ctor_args, 0),
+                                          PyList_GET_ITEM(ctor_args, 1),
+                                          PyList_GET_ITEM(ctor_args, 2));
+        }
+        if (replacement == nullptr && PyErr_Occurred())
+            PyErr_Clear();   // voie classique en cas d'échec
+        return replacement;
+    }
+
     bool EndObject(SizeType member_count) {
+        HandlerContext& ctx_ref = stack.back();
+
+        // ----- enveloppe capturée au parse : instanciation directe, sans
+        // dict intermédiaire rempli. Si la table décline (classe ou forme
+        // inconnue), la capture est versée dans le dict et la voie classique
+        // reprend ci-dessous, à l'identique.
+        if (ctx_ref.envState == 4) {
+            PyObject* direct = EnvelopeConstruct(ctx_ref.envClass,
+                                                 ctx_ref.envArgs,
+                                                 ctx_ref.envSlot == 1);
+            if (direct != nullptr) {
+                if (ctx_ref.copiedKey)
+                    PyMem_Free((void*) ctx_ref.key);
+                PyObject* vide = ctx_ref.object;
+                Py_CLEAR(ctx_ref.envClass);
+                Py_CLEAR(ctx_ref.envArgs);
+                stack.pop_back();
+                Py_DECREF(vide);
+                return ReplaceInParent(direct);
+            }
+            if (PyErr_Occurred())
+                return false;
+        }
+        if (ctx_ref.envState != 0 && !EnvFlush(ctx_ref))
+            return false;
+
         const HandlerContext& ctx = stack.back();
 
         if (ctx.copiedKey)
@@ -2267,168 +2533,25 @@ struct PyHandler {
             }
         }
 
-        // ----- bytes / bytearray pré-décodés : {"__class__": "bytes",
-        // "__new__": [payload, "b64"]} où le payload a déjà été décodé par
-        // l'interception base64 -> le payload EST l'objet final (le plugin
-        // Python accepte les charges pré-décodées telles quelles, sans copie).
-        // Gardé par fastPlainEndObject : jamais en mode update.
+        // ----- enveloppes de base {"__class__": nom, "__new__"/"__init__":
+        // args} : instanciation directe par la table partagée avec la
+        // reconnaissance au parse (EnvelopeConstruct). Gardé par
+        // fastPlainEndObject : jamais en mode update.
         if (replacement == nullptr && fastPlainEndObject
             && PyDict_CheckExact(mapping) && PyDict_GET_SIZE(mapping) == 2) {
             PyObject* cls_value = PyDict_GetItem(mapping, class_key_name);
             if (cls_value != nullptr && PyUnicode_CheckExact(cls_value)) {
-                int as_bytearray = -1;
-                if (PyUnicode_CompareWithASCIIString(cls_value, "bytes") == 0)
-                    as_bytearray = 0;
-                else if (PyUnicode_CompareWithASCIIString(cls_value,
-                                                          "bytearray") == 0)
-                    as_bytearray = 1;
+                bool from_new = true;
                 PyObject* ctor_args = PyDict_GetItem(mapping, new_key_name);
-                if (ctor_args == nullptr)
+                if (ctor_args == nullptr) {
                     ctor_args = PyDict_GetItem(mapping, init_key_name);
-                if (as_bytearray != -1) {
-                    if (ctor_args != nullptr && PyList_CheckExact(ctor_args)
-                        && PyList_GET_SIZE(ctor_args) == 2) {
-                        PyObject* payload = PyList_GET_ITEM(ctor_args, 0);
-                        PyObject* label = PyList_GET_ITEM(ctor_args, 1);
-                        bool type_ok = as_bytearray
-                            ? PyByteArray_CheckExact(payload)
-                            : PyBytes_CheckExact(payload);
-                        if (type_ok && PyUnicode_CheckExact(label)
-                            && PyUnicode_CompareWithASCIIString(label, "b64") == 0) {
-                            Py_INCREF(payload);
-                            replacement = payload;
-                            Py_DECREF(mapping);
-                        }
-                    } else if (as_bytearray == 0 && ctor_args != nullptr
-                               && PyUnicode_CheckExact(ctor_args)
-                               && PyUnicode_IS_ASCII(ctor_args)) {
-                        // forme chaîne ascii : {"__class__": "bytes",
-                        // "__new__": "..."} — même sémantique que le
-                        // constructeur Python bytes(s, "ascii"), garanti
-                        // par le test IS_ASCII
-                        Py_ssize_t lg;
-                        const char* u8 = PyUnicode_AsUTF8AndSize(ctor_args,
-                                                                 &lg);
-                        if (u8 != nullptr) {
-                            replacement = PyBytes_FromStringAndSize(u8, lg);
-                            if (replacement != nullptr)
-                                Py_DECREF(mapping);
-                        }
-                        if (replacement == nullptr)
-                            PyErr_Clear();   // voie Python en cas d'échec
-                    }
+                    from_new = false;
                 }
-                // ----- autres classes de base instanciées en C++ (mêmes
-                // sémantiques que les constructeurs Python : tuple(liste),
-                // set(liste), date(bytes de reduce), complex/range/slice) —
-                // au moindre doute sur la forme, voie Python inchangée
-                else if (ctor_args != nullptr) {
-                    if (PyUnicode_CompareWithASCIIString(cls_value,
-                                                         "tuple") == 0) {
-                        if (PyList_CheckExact(ctor_args))
-                            replacement = PyList_AsTuple(ctor_args);
-                    } else if (PyUnicode_CompareWithASCIIString(
-                                   cls_value, "type") == 0) {
-                        // valeurs de type : servies depuis le cache partagé
-                        // seulement (un HIT rend la classe déjà résolue par
-                        // python ; un miss reste en voie python, qui importe
-                        // et remplit le cache)
-                        if (typeValuesCache != nullptr
-                            && PyUnicode_CheckExact(ctor_args)) {
-                            if (PyUnicode_CompareWithASCIIString(
-                                    ctor_args, "NoneType") == 0) {
-                                // cas spécial d'instance() : jamais mis en
-                                // cache côté python
-                                replacement =
-                                    (PyObject*) Py_TYPE(Py_None);
-                                Py_INCREF(replacement);
-                            } else {
-                                PyObject* classe = PyDict_GetItem(
-                                    typeValuesCache, ctor_args);
-                                if (classe != nullptr) {
-                                    Py_INCREF(classe);
-                                    replacement = classe;
-                                }
-                            }
-                        }
-                    } else if (PyUnicode_CompareWithASCIIString(cls_value,
-                                                                "set") == 0) {
-                        if (PyList_CheckExact(ctor_args))
-                            replacement = PySet_New(ctor_args);
-                    } else if (PyUnicode_CompareWithASCIIString(
-                                   cls_value, "frozenset") == 0) {
-                        if (PyList_CheckExact(ctor_args))
-                            replacement = PyFrozenSet_New(ctor_args);
-                    } else if (PyUnicode_CompareWithASCIIString(
-                                   cls_value, "datetime.date") == 0) {
-                        if (PyBytes_CheckExact(ctor_args)
-                            && PyBytes_GET_SIZE(ctor_args) == 4
-                            // ce bâtisseur LIT le contenu : la file différée
-                            // doit être vidée d'abord (défense en profondeur,
-                            // les payloads < 64 octets ne sont plus différés)
-                            && (pendingB64.empty() || FlushPendingB64())) {
-                            const unsigned char* raw4 = (const unsigned char*)
-                                PyBytes_AS_STRING(ctor_args);
-                            replacement = PyDate_FromDate(
-                                (raw4[0] << 8) | raw4[1], raw4[2], raw4[3]);
-                        }
-                    } else if (PyUnicode_CompareWithASCIIString(
-                                   cls_value, "datetime.datetime") == 0) {
-                        if (PyList_CheckExact(ctor_args)
-                            && PyList_GET_SIZE(ctor_args) == 7) {
-                            // appel du TYPE (validation identique à Python)
-                            PyObject* args_tuple = PyList_AsTuple(ctor_args);
-                            if (args_tuple != nullptr) {
-                                replacement = PyObject_CallObject(
-                                    (PyObject*) PyDateTimeAPI->DateTimeType,
-                                    args_tuple);
-                                Py_DECREF(args_tuple);
-                            }
-                        }
-                    } else if (PyUnicode_CompareWithASCIIString(
-                                   cls_value, "datetime.time") == 0) {
-                        if (PyBytes_CheckExact(ctor_args)
-                            && PyBytes_GET_SIZE(ctor_args) == 6
-                            && (pendingB64.empty() || FlushPendingB64())) {
-                            replacement = PyObject_CallFunctionObjArgs(
-                                (PyObject*) PyDateTimeAPI->TimeType,
-                                ctor_args, nullptr);
-                        }
-                    } else if (PyUnicode_CompareWithASCIIString(
-                                   cls_value, "complex") == 0) {
-                        if (PyList_CheckExact(ctor_args)
-                            && PyList_GET_SIZE(ctor_args) == 2) {
-                            double re = PyFloat_AsDouble(
-                                PyList_GET_ITEM(ctor_args, 0));
-                            double im = PyFloat_AsDouble(
-                                PyList_GET_ITEM(ctor_args, 1));
-                            if (!PyErr_Occurred())
-                                replacement = PyComplex_FromDoubles(re, im);
-                            else
-                                PyErr_Clear();
-                        }
-                    } else if (PyUnicode_CompareWithASCIIString(
-                                   cls_value, "range") == 0) {
-                        if (PyList_CheckExact(ctor_args)
-                            && PyList_GET_SIZE(ctor_args) == 3)
-                            replacement = PyObject_CallFunctionObjArgs(
-                                (PyObject*) &PyRange_Type,
-                                PyList_GET_ITEM(ctor_args, 0),
-                                PyList_GET_ITEM(ctor_args, 1),
-                                PyList_GET_ITEM(ctor_args, 2), nullptr);
-                    } else if (PyUnicode_CompareWithASCIIString(
-                                   cls_value, "slice") == 0) {
-                        if (PyList_CheckExact(ctor_args)
-                            && PyList_GET_SIZE(ctor_args) == 3)
-                            replacement = PySlice_New(
-                                PyList_GET_ITEM(ctor_args, 0),
-                                PyList_GET_ITEM(ctor_args, 1),
-                                PyList_GET_ITEM(ctor_args, 2));
-                    }
+                if (ctor_args != nullptr) {
+                    replacement = EnvelopeConstruct(cls_value, ctor_args,
+                                                    from_new);
                     if (replacement != nullptr)
                         Py_DECREF(mapping);
-                    else if (PyErr_Occurred())
-                        PyErr_Clear();   // voie Python en cas d'échec
                 }
             }
         }
@@ -2442,15 +2565,14 @@ struct PyHandler {
             && PyDict_CheckExact(mapping) && PyDict_GET_SIZE(mapping) == 1) {
             PyObject* ref_path = PyDict_GetItem(mapping, ref_key_name);
             if (ref_path != nullptr && PyUnicode_CheckExact(ref_path)) {
-                if (rootObject == nullptr && decoderObject != nullptr) {
-                    rootObject = PyObject_GetAttr(decoderObject,
-                                                  root_attr_name);
-                    if (rootObject == nullptr)
-                        PyErr_Clear();
-                    else if (rootObject == Py_None) {
-                        Py_DECREF(rootObject);
-                        rootObject = nullptr;
-                    }
+                if (rootObject == nullptr && root != nullptr) {
+                    // la racine du HANDLER : elle existe pour les documents
+                    // à racine dict COMME liste (l'attribut .root du décodeur
+                    // n'était posé que pour les dicts — les références des
+                    // racines liste partaient toutes en post-passe python,
+                    // ~6 µs chacune)
+                    rootObject = root;
+                    Py_INCREF(rootObject);
                 }
                 if (rootObject != nullptr) {
                     Py_ssize_t path_length;
@@ -2499,9 +2621,22 @@ struct PyHandler {
                 return false;
         }
 
+        return ReplaceInParent(replacement);
+    }
+
+    // remplace, chez le parent, la valeur que l'objet venait d'y occuper —
+    // ou la CAPTURE d'enveloppe du parent si c'est elle qui le tenait (les
+    // enveloppes reconnues au parse ne passent pas par le dict). Consomme la
+    // référence de replacement.
+    bool ReplaceInParent(PyObject* replacement) {
         if (!stack.empty()) {
             HandlerContext& current = stack.back();
 
+            if (current.envState == 4) {
+                // le parent capturait : l'objet remplacé est sa capture
+                Py_SETREF(current.envArgs, replacement);
+                return true;
+            }
             if (current.isObject) {
                 PyObject* key = KeyString(current.key,
                                           (size_t) current.keyLength);
@@ -2580,6 +2715,10 @@ struct PyHandler {
         ctx.key = nullptr;
         ctx.copiedKey = false;
         ctx.specialKey = false;
+        ctx.envState = 0;
+        ctx.envSlot = 0;
+        ctx.envClass = nullptr;
+        ctx.envArgs = nullptr;
         Py_INCREF(list);
 
         stack.push_back(ctx);
@@ -3040,7 +3179,10 @@ struct PyHandler {
                      && memcmp(parent.key, "__new__", 7) == 0))
             || !PyDict_CheckExact(parent.object))
             return false;
-        PyObject* cls_value = PyDict_GetItem(parent.object, class_key_name);
+        // enveloppe capturée au parse : la classe vit dans la capture
+        PyObject* cls_value = parent.envClass != nullptr
+            ? parent.envClass
+            : PyDict_GetItem(parent.object, class_key_name);
         if (cls_value == nullptr || !PyUnicode_CheckExact(cls_value))
             return false;
         Py_ssize_t cls_length;
@@ -3074,8 +3216,11 @@ struct PyHandler {
                         || (parent.keyLength == 7
                             && memcmp(parent.key, "__new__", 7) == 0))
                     && PyDict_CheckExact(parent.object)) {
-                    PyObject* class_value =
-                        PyDict_GetItem(parent.object, class_key_name);
+                    // enveloppe capturée au parse : la classe vit dans la
+                    // capture, le dict du parent est resté vide
+                    PyObject* class_value = parent.envClass != nullptr
+                        ? parent.envClass
+                        : PyDict_GetItem(parent.object, class_key_name);
                     if (class_value != nullptr
                         && PyUnicode_CheckExact(class_value)) {
                         Py_ssize_t class_length;
