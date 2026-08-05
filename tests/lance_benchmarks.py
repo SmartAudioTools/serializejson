@@ -91,7 +91,11 @@ def _images_classiques(rng):
     dossier = RACINE / "images_benchmarks"
     images = []
     if dossier.is_dir():
-        for chemin in sorted(dossier.iterdir()):
+        # un SOUS-DOSSIER par corpus (classiques/, kodak/, clic/...) : le nom
+        # du corpus préfixe le profil ; les fichiers à la racine passent aussi
+        for chemin in sorted(dossier.rglob("*")):
+            if not chemin.is_file():
+                continue
             try:
                 if chemin.suffix == ".npy":
                     tableau = numpy.load(chemin)
@@ -104,7 +108,9 @@ def _images_classiques(rng):
                     continue
             except Exception:
                 continue
-            nom = chemin.stem.replace("_", " ")
+            corpus = chemin.parent.relative_to(dossier)
+            prefixe = f"{corpus} " if str(corpus) != "." else ""
+            nom = prefixe + chemin.stem.replace("_", " ")
             images.append((f"{nom} ({tableau.nbytes / 1e6:.1f} Mo)",
                            numpy.ascontiguousarray(tableau)))
     if images:
@@ -133,14 +139,18 @@ def _sons_classiques():
     except Exception:
         return []
     sons = []
-    for chemin in sorted(dossier.glob("*")):
-        if chemin.suffix.lower() not in (".wav", ".flac"):
+    # un SOUS-DOSSIER par corpus (sqam/...), comme pour les images
+    for chemin in sorted(dossier.rglob("*")):
+        if not chemin.is_file() or chemin.suffix.lower() not in (".wav",
+                                                                 ".flac"):
             continue
         try:
             donnees, _ = soundfile.read(chemin, dtype="int16")
         except Exception:
             continue
-        sons.append((f"SQAM {chemin.stem} int16"
+        corpus = chemin.parent.relative_to(dossier)
+        prefixe = f"{corpus} " if str(corpus) != "." else ""
+        sons.append((f"{prefixe}{chemin.stem} int16"
                      f" ({donnees.nbytes / 1e6:.1f} Mo)",
                      numpy.ascontiguousarray(donnees)))
     return sons
