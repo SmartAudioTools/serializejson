@@ -7427,9 +7427,12 @@ dumps_internal(
                             Py_ssize_t nargs = PySequence_Fast_GET_SIZE(args);
                             for (Py_ssize_t ai = 0;
                                  ai < nargs && wrote_ok; ai++) {
+                                PyObject* arg_item =
+                                    PySequence_Fast_GET_ITEM(args, ai);
+                                if (sj_write_scalar_inline(writer, arg_item))
+                                    continue;
                                 PATH_PUSH_INDEX(ai)
-                                wrote_ok = RECURSE(
-                                    PySequence_Fast_GET_ITEM(args, ai));
+                                wrote_ok = RECURSE(arg_item);
                                 PATH_POP()
                             }
                             if (wrote_ok)
