@@ -2674,56 +2674,31 @@ struct PyHandler {
                                 bool from_new, PyObject* items = nullptr) {
         (void) from_new;
         PyObject* replacement = nullptr;
+        // aiguillage par LONGUEUR du nom : une seule lecture utf8 puis un
+        // memcmp par candidat de même taille — la chaîne de comparaisons
+        // PyUnicode_CompareWithASCIIString pesait sur CHAQUE fin d'enveloppe
+        Py_ssize_t cls_length;
+        const char* cls = PyUnicode_AsUTF8AndSize(cls_value, &cls_length);
+        if (cls == nullptr) {
+            PyErr_Clear();
+            return nullptr;
+        }
         // les enveloppes à __items__ (capturées au parse seulement) : les
         // quatre collections, sémantique calquée sur instance() — init
-        // liste -> cls(*init), init dict à clés str -> cls(**init), init
-        // scalaire -> cls(init) ; puis update(items), à défaut extend(items)
+        // liste -> cls(*init), init dict -> positionnel (Counter/Ordered)
+        // ou cls(**init), init scalaire -> cls(init) ; puis update/extend
         if (items != nullptr
-            || PyUnicode_Tailmatch(cls_value,
-                                   collections_prefix_str, 0, 12,
-                                   -1) == 1)
+            || (cls_length >= 12 && memcmp(cls, "collections.", 12) == 0))
             return CollectionsConstruct(cls_value, ctor_args, items);
-        int as_bytearray = -1;
-        if (PyUnicode_CompareWithASCIIString(cls_value, "bytes") == 0)
-            as_bytearray = 0;
-        else if (PyUnicode_CompareWithASCIIString(cls_value,
-                                                  "bytearray") == 0)
-            as_bytearray = 1;
-        if (as_bytearray != -1) {
-            // bytes / bytearray pré-décodés : [payload, "b64"] où le payload
-            // a déjà été décodé par l'interception base64 -> le payload EST
-            // l'objet final (le greffon python accepte les charges
-            // pré-décodées telles quelles, sans copie)
-            if (PyList_CheckExact(ctor_args)
-                && PyList_GET_SIZE(ctor_args) == 2) {
-                PyObject* payload = PyList_GET_ITEM(ctor_args, 0);
-                PyObject* label = PyList_GET_ITEM(ctor_args, 1);
-                bool type_ok = as_bytearray
-                    ? PyByteArray_CheckExact(payload)
-                    : PyBytes_CheckExact(payload);
-                if (type_ok && PyUnicode_CheckExact(label)
-                    && PyUnicode_CompareWithASCIIString(label, "b64") == 0) {
-                    Py_INCREF(payload);
-                    replacement = payload;
-                }
-            } else if (as_bytearray == 0 && PyUnicode_CheckExact(ctor_args)
-                       && PyUnicode_IS_ASCII(ctor_args)) {
-                // forme chaîne ascii : même sémantique que le constructeur
-                // python bytes(s, "ascii"), garanti par le test IS_ASCII
-                Py_ssize_t lg;
-                const char* u8 = PyUnicode_AsUTF8AndSize(ctor_args, &lg);
-                if (u8 != nullptr)
-                    replacement = PyBytes_FromStringAndSize(u8, lg);
-            }
-        } else if (PyUnicode_CompareWithASCIIString(cls_value,
-                                                    "tuple") == 0) {
-            if (PyList_CheckExact(ctor_args))
-                replacement = PyList_AsTuple(ctor_args);
-        } else if (PyUnicode_CompareWithASCIIString(cls_value, "type") == 0) {
-            // valeurs de type : servies depuis le cache partagé seulement
-            // (un HIT rend la classe déjà résolue par python ; un miss reste
-            // en voie python, qui importe et remplit le cache)
-            if (typeValuesCache != nullptr
+        switch (cls_length) {
+        case 3:   // set
+            if (memcmp(cls, "set", 3) == 0 && PyList_CheckExact(ctor_args))
+                replacement = PySet_New(ctor_args);
+            break;
+        case 4:   // type : servi depuis le cache partagé seulement (un HIT
+            // rend la classe déjà résolue par python ; un miss reste en
+            // voie python, qui importe et remplit le cache)
+            if (memcmp(cls, "type", 4) == 0 && typeValuesCache != nullptr
                 && PyUnicode_CheckExact(ctor_args)) {
                 if (PyUnicode_CompareWithASCIIString(ctor_args,
                                                      "NoneType") == 0) {
@@ -2739,71 +2714,123 @@ struct PyHandler {
                     }
                 }
             }
-        } else if (PyUnicode_CompareWithASCIIString(cls_value, "set") == 0) {
-            if (PyList_CheckExact(ctor_args))
-                replacement = PySet_New(ctor_args);
-        } else if (PyUnicode_CompareWithASCIIString(cls_value,
-                                                    "frozenset") == 0) {
-            if (PyList_CheckExact(ctor_args))
-                replacement = PyFrozenSet_New(ctor_args);
-        } else if (PyUnicode_CompareWithASCIIString(
-                       cls_value, "datetime.date") == 0) {
-            if (PyBytes_CheckExact(ctor_args)
-                && PyBytes_GET_SIZE(ctor_args) == 4
-                // ce bâtisseur LIT le contenu : la file différée doit être
-                // vidée d'abord (défense en profondeur, les payloads < 64
-                // octets ne sont plus différés)
-                && (pendingB64.empty() || FlushPendingB64())) {
-                const unsigned char* raw4 =
-                    (const unsigned char*) PyBytes_AS_STRING(ctor_args);
-                replacement = PyDate_FromDate(
-                    (raw4[0] << 8) | raw4[1], raw4[2], raw4[3]);
-            }
-        } else if (PyUnicode_CompareWithASCIIString(
-                       cls_value, "datetime.datetime") == 0) {
-            if (PyList_CheckExact(ctor_args)
-                && PyList_GET_SIZE(ctor_args) == 7) {
-                // appel du TYPE (validation identique à python)
-                PyObject* args_tuple = PyList_AsTuple(ctor_args);
-                if (args_tuple != nullptr) {
-                    replacement = PyObject_CallObject(
-                        (PyObject*) PyDateTimeAPI->DateTimeType, args_tuple);
-                    Py_DECREF(args_tuple);
+            break;
+        case 5:   // tuple, bytes, range, slice
+            if (memcmp(cls, "tuple", 5) == 0) {
+                if (PyList_CheckExact(ctor_args))
+                    replacement = PyList_AsTuple(ctor_args);
+            } else if (memcmp(cls, "bytes", 5) == 0) {
+                // pré-décodés : [payload, "b64"] où le payload a déjà été
+                // décodé par l'interception base64 -> le payload EST l'objet
+                // final ; ou forme chaîne ascii (bytes(s, "ascii"))
+                if (PyList_CheckExact(ctor_args)
+                    && PyList_GET_SIZE(ctor_args) == 2) {
+                    PyObject* payload = PyList_GET_ITEM(ctor_args, 0);
+                    PyObject* label = PyList_GET_ITEM(ctor_args, 1);
+                    if (PyBytes_CheckExact(payload)
+                        && PyUnicode_CheckExact(label)
+                        && PyUnicode_CompareWithASCIIString(label,
+                                                            "b64") == 0) {
+                        Py_INCREF(payload);
+                        replacement = payload;
+                    }
+                } else if (PyUnicode_CheckExact(ctor_args)
+                           && PyUnicode_IS_ASCII(ctor_args)) {
+                    Py_ssize_t lg;
+                    const char* u8 = PyUnicode_AsUTF8AndSize(ctor_args, &lg);
+                    if (u8 != nullptr)
+                        replacement = PyBytes_FromStringAndSize(u8, lg);
                 }
+            } else if (memcmp(cls, "range", 5) == 0) {
+                if (PyList_CheckExact(ctor_args)
+                    && PyList_GET_SIZE(ctor_args) == 3)
+                    replacement = PyObject_CallFunctionObjArgs(
+                        (PyObject*) &PyRange_Type,
+                        PyList_GET_ITEM(ctor_args, 0),
+                        PyList_GET_ITEM(ctor_args, 1),
+                        PyList_GET_ITEM(ctor_args, 2), nullptr);
+            } else if (memcmp(cls, "slice", 5) == 0) {
+                if (PyList_CheckExact(ctor_args)
+                    && PyList_GET_SIZE(ctor_args) == 3)
+                    replacement = PySlice_New(PyList_GET_ITEM(ctor_args, 0),
+                                              PyList_GET_ITEM(ctor_args, 1),
+                                              PyList_GET_ITEM(ctor_args, 2));
             }
-        } else if (PyUnicode_CompareWithASCIIString(
-                       cls_value, "datetime.time") == 0) {
-            if (PyBytes_CheckExact(ctor_args)
-                && PyBytes_GET_SIZE(ctor_args) == 6
-                && (pendingB64.empty() || FlushPendingB64())) {
-                replacement = PyObject_CallFunctionObjArgs(
-                    (PyObject*) PyDateTimeAPI->TimeType, ctor_args, nullptr);
-            }
-        } else if (PyUnicode_CompareWithASCIIString(cls_value,
-                                                    "complex") == 0) {
-            if (PyList_CheckExact(ctor_args)
+            break;
+        case 7:   // complex
+            if (memcmp(cls, "complex", 7) == 0
+                && PyList_CheckExact(ctor_args)
                 && PyList_GET_SIZE(ctor_args) == 2) {
                 double re = PyFloat_AsDouble(PyList_GET_ITEM(ctor_args, 0));
                 double im = PyFloat_AsDouble(PyList_GET_ITEM(ctor_args, 1));
                 if (!PyErr_Occurred())
                     replacement = PyComplex_FromDoubles(re, im);
             }
-        } else if (PyUnicode_CompareWithASCIIString(cls_value,
-                                                    "range") == 0) {
-            if (PyList_CheckExact(ctor_args)
-                && PyList_GET_SIZE(ctor_args) == 3)
-                replacement = PyObject_CallFunctionObjArgs(
-                    (PyObject*) &PyRange_Type,
-                    PyList_GET_ITEM(ctor_args, 0),
-                    PyList_GET_ITEM(ctor_args, 1),
-                    PyList_GET_ITEM(ctor_args, 2), nullptr);
-        } else if (PyUnicode_CompareWithASCIIString(cls_value,
-                                                    "slice") == 0) {
-            if (PyList_CheckExact(ctor_args)
-                && PyList_GET_SIZE(ctor_args) == 3)
-                replacement = PySlice_New(PyList_GET_ITEM(ctor_args, 0),
-                                          PyList_GET_ITEM(ctor_args, 1),
-                                          PyList_GET_ITEM(ctor_args, 2));
+            break;
+        case 9:   // bytearray, frozenset
+            if (memcmp(cls, "bytearray", 9) == 0) {
+                if (PyList_CheckExact(ctor_args)
+                    && PyList_GET_SIZE(ctor_args) == 2) {
+                    PyObject* payload = PyList_GET_ITEM(ctor_args, 0);
+                    PyObject* label = PyList_GET_ITEM(ctor_args, 1);
+                    if (PyByteArray_CheckExact(payload)
+                        && PyUnicode_CheckExact(label)
+                        && PyUnicode_CompareWithASCIIString(label,
+                                                            "b64") == 0) {
+                        Py_INCREF(payload);
+                        replacement = payload;
+                    }
+                }
+            } else if (memcmp(cls, "frozenset", 9) == 0) {
+                if (PyList_CheckExact(ctor_args))
+                    replacement = PyFrozenSet_New(ctor_args);
+            }
+            break;
+        case 13:  // datetime.date, datetime.time (formes reduce 4/6 octets ;
+            // ces bâtisseurs LISENT le contenu : file différée vidée d'abord
+            // — défense en profondeur, les payloads < 64 octets ne sont plus
+            // différés)
+            if (memcmp(cls, "datetime.date", 13) == 0) {
+                if (PyBytes_CheckExact(ctor_args)
+                    && PyBytes_GET_SIZE(ctor_args) == 4
+                    && (pendingB64.empty() || FlushPendingB64())) {
+                    const unsigned char* raw4 =
+                        (const unsigned char*) PyBytes_AS_STRING(ctor_args);
+                    replacement = PyDate_FromDate(
+                        (raw4[0] << 8) | raw4[1], raw4[2], raw4[3]);
+                }
+            } else if (memcmp(cls, "datetime.time", 13) == 0) {
+                if (PyBytes_CheckExact(ctor_args)
+                    && PyBytes_GET_SIZE(ctor_args) == 6
+                    && (pendingB64.empty() || FlushPendingB64())) {
+                    replacement = PyObject_CallFunctionObjArgs(
+                        (PyObject*) PyDateTimeAPI->TimeType, ctor_args,
+                        nullptr);
+                }
+            }
+            break;
+        case 17:  // datetime.datetime : forme reduce 10 octets (rapide,
+            // celle de l'encodeur depuis le 06/08), ou l'ancienne forme
+            // 7 entiers (fichiers existants) via le TYPE (validation python)
+            if (memcmp(cls, "datetime.datetime", 17) == 0) {
+                if (PyBytes_CheckExact(ctor_args)
+                    && PyBytes_GET_SIZE(ctor_args) == 10
+                    && (pendingB64.empty() || FlushPendingB64())) {
+                    replacement = PyObject_CallFunctionObjArgs(
+                        (PyObject*) PyDateTimeAPI->DateTimeType, ctor_args,
+                        nullptr);
+                } else if (PyList_CheckExact(ctor_args)
+                           && PyList_GET_SIZE(ctor_args) == 7) {
+                    PyObject* args_tuple = PyList_AsTuple(ctor_args);
+                    if (args_tuple != nullptr) {
+                        replacement = PyObject_CallObject(
+                            (PyObject*) PyDateTimeAPI->DateTimeType,
+                            args_tuple);
+                        Py_DECREF(args_tuple);
+                    }
+                }
+            }
+            break;
         }
         if (replacement == nullptr && PyErr_Occurred())
             PyErr_Clear();   // voie classique en cas d'échec
@@ -5517,10 +5544,28 @@ dumps_internal(
         } else {
             // graphie EXACTE de repr(), sans passer par le __repr__ des
             // sous-classes (numpy 2 float64 donnerait "np.float64(0.0)") :
-            // Ryu en direct (total, jamais d'échec)
-            char repr_buf[40];
-            writer->RawValue(repr_buf,
-                             (size_t) sjdtoa::ReprDouble(d, repr_buf));
+            // Ryu en direct (total, jamais d'échec) — mémoïsé par MOTIF DE
+            // BITS (cache direct 256 entrées, sous GIL) : les documents
+            // répètent massivement les mêmes valeurs (0.0, 1.0, pas de
+            // temps...), ~45 ns la composition contre ~6 ns le hit
+            struct SjFloatRepr { uint64_t bits; uint8_t len; char text[24]; };
+            static SjFloatRepr repr_cache[256];
+            uint64_t bits;
+            memcpy(&bits, &d, 8);
+            SjFloatRepr& slot =
+                repr_cache[(bits ^ (bits >> 17) ^ (bits >> 32)) & 255];
+            if (slot.len != 0 && slot.bits == bits) {
+                writer->RawValue(slot.text, slot.len);
+            } else {
+                char repr_buf[40];
+                size_t repr_len = (size_t) sjdtoa::ReprDouble(d, repr_buf);
+                writer->RawValue(repr_buf, repr_len);
+                if (repr_len <= sizeof(slot.text)) {
+                    slot.bits = bits;
+                    slot.len = (uint8_t) repr_len;
+                    memcpy(slot.text, repr_buf, repr_len);
+                }
+            }
         }
     }
 	
@@ -5826,10 +5871,7 @@ dumps_internal(
 	else if (PyTuple_CheckExact(object) && (iterableMode & IM_ONLY_LISTS)
              && pathTracker != nullptr) {
         CONTAINER_MEMO_OR_REF()
-        writer->StartObject();
-        writer->Key("__class__", 9);
-        writer->String("tuple", 5);
-        writer->Key("__new__", 7);
+        writer->EnvelopeHead("tuple", 5, "__new__", 7);
         // compact si single_line_new, ou si single_line_numbers et tuple
         // homogène de nombres (même règle que les listes)
         bool tuple_numbers = false;
@@ -5889,26 +5931,42 @@ dumps_internal(
 	// [a, mois, j, h, mn, s, µs]} — comme la voie Python actuelle (qui perd
 	// fold et tzinfo : dette pré-existante, répliquée à l'identique)
 	else if (PyDateTime_CheckExact(object) && pathTracker != nullptr
-             && !pathTracker->strictPickle) {
+             && !pathTracker->strictPickle
+             && PyDateTime_DATE_GET_TZINFO(object) == Py_None) {
         CONTAINER_MEMO_OR_REF()
-        writer->StartObject();
-        writer->Key("__class__", 9);
-        writer->String("datetime.datetime", 17);
-        writer->Key("__init__", 8);
-        bool dt_compact = pathTracker->singleLineInit && !writer->InCompact();
+        writer->EnvelopeHead("datetime.datetime", 17, "__init__", 8);
+        writer->EnvelopeHead("bytes", 5, "__new__", 7);
+        bool dt_compact = pathTracker->singleLineNew && !writer->InCompact();
         if (dt_compact)
             writer->PushCompact();
         writer->StartArray();
-        writer->Int64(PyDateTime_GET_YEAR(object));
-        writer->Int64(PyDateTime_GET_MONTH(object));
-        writer->Int64(PyDateTime_GET_DAY(object));
-        writer->Int64(PyDateTime_DATE_GET_HOUR(object));
-        writer->Int64(PyDateTime_DATE_GET_MINUTE(object));
-        writer->Int64(PyDateTime_DATE_GET_SECOND(object));
-        writer->Int64(PyDateTime_DATE_GET_MICROSECOND(object));
+        {
+            // les 10 octets du __reduce_ex__(2) natif (fold non transporté
+            // par le protocole 2, ni ici) — relus par le constructeur
+            // RAPIDE datetime(bytes), comme date et time
+            int year = PyDateTime_GET_YEAR(object);
+            int us = PyDateTime_DATE_GET_MICROSECOND(object);
+            unsigned char raw10[10] = {
+                (unsigned char) ((year >> 8) & 0xFF),
+                (unsigned char) (year & 0xFF),
+                (unsigned char) PyDateTime_GET_MONTH(object),
+                (unsigned char) PyDateTime_GET_DAY(object),
+                (unsigned char) PyDateTime_DATE_GET_HOUR(object),
+                (unsigned char) PyDateTime_DATE_GET_MINUTE(object),
+                (unsigned char) PyDateTime_DATE_GET_SECOND(object),
+                (unsigned char) ((us >> 16) & 0xFF),
+                (unsigned char) ((us >> 8) & 0xFF),
+                (unsigned char) (us & 0xFF),
+            };
+            char b64_buf[17];
+            serializejson_b64_encode(raw10, 10, b64_buf);
+            writer->String(b64_buf, 16);
+            writer->String("b64", 3);
+        }
         writer->EndArray();
         if (dt_compact)
             writer->PopCompact();
+        writer->EndObject();
         writer->EndObject();
     }
 
@@ -5916,17 +5974,14 @@ dumps_internal(
 	// {"__class__": "bytes", "__new__": ["<b64 de 6 octets>","b64"]}} — la
 	// forme reduce native (heure|0x80 si fold, mn, s, µs sur 3 octets)
 	else if (PyTime_CheckExact(object)
-             && ((PyDateTime_Time*) object)->tzinfo == Py_None
+             // PyDateTime_TIME_GET_TZINFO : le champ brut n'existe que si
+             // hastzinfo — le lire directement rendait la branche MORTE
+             // pour les times naïfs (mémoire indéfinie, jamais Py_None)
+             && PyDateTime_TIME_GET_TZINFO(object) == Py_None
              && pathTracker != nullptr) {
         CONTAINER_MEMO_OR_REF()
-        writer->StartObject();
-        writer->Key("__class__", 9);
-        writer->String("datetime.time", 13);
-        writer->Key("__init__", 8);
-        writer->StartObject();
-        writer->Key("__class__", 9);
-        writer->String("bytes", 5);
-        writer->Key("__new__", 7);
+        writer->EnvelopeHead("datetime.time", 13, "__init__", 8);
+        writer->EnvelopeHead("bytes", 5, "__new__", 7);
         bool time_compact = pathTracker->singleLineNew && !writer->InCompact();
         if (time_compact)
             writer->PushCompact();
@@ -5959,14 +6014,8 @@ dumps_internal(
 	// native (année big-endian, mois, jour)
 	else if (PyDate_CheckExact(object) && pathTracker != nullptr) {
         CONTAINER_MEMO_OR_REF()
-        writer->StartObject();
-        writer->Key("__class__", 9);
-        writer->String("datetime.date", 13);
-        writer->Key("__init__", 8);
-        writer->StartObject();
-        writer->Key("__class__", 9);
-        writer->String("bytes", 5);
-        writer->Key("__new__", 7);
+        writer->EnvelopeHead("datetime.date", 13, "__init__", 8);
+        writer->EnvelopeHead("bytes", 5, "__new__", 7);
         bool date_compact = pathTracker->singleLineNew && !writer->InCompact();
         if (date_compact)
             writer->PushCompact();
@@ -5997,16 +6046,13 @@ dumps_internal(
               || Py_TYPE(object) == &PySlice_Type)
              && pathTracker != nullptr) {
         CONTAINER_MEMO_OR_REF()
-        writer->StartObject();
-        writer->Key("__class__", 9);
         bool simple_ok = true;
         if (PyComplex_CheckExact(object))
-            writer->String("complex", 7);
+            writer->EnvelopeHead("complex", 7, "__init__", 8);
         else if (Py_TYPE(object) == &PyRange_Type)
-            writer->String("range", 5);
+            writer->EnvelopeHead("range", 5, "__init__", 8);
         else
-            writer->String("slice", 5);
-        writer->Key("__init__", 8);
+            writer->EnvelopeHead("slice", 5, "__init__", 8);
         bool simple_compact =
             pathTracker->singleLineInit && !writer->InCompact();
         if (simple_compact)
@@ -6734,10 +6780,7 @@ dumps_internal(
                         && PySet_Add(pathTracker->dumpedClasses,
                                      PyTuple_GET_ITEM(type_plan, 3)) < 0)
                         PyErr_Clear();
-                    writer->StartObject();
-                    writer->Key("__class__", 9);
-                    writer->String("type", 4);
-                    writer->Key("__init__", 8);
+                    writer->EnvelopeHead("type", 4, "__init__", 8);
                     Py_ssize_t nom_length;
                     const char* nom_str =
                         PyUnicode_AsUTF8AndSize(nom, &nom_length);
@@ -6795,13 +6838,10 @@ dumps_internal(
                                  PyTuple_GET_ITEM(set_plan, 3)) < 0)
                     PyErr_Clear();
 
-                writer->StartObject();
-                writer->Key("__class__", 9);
                 if (PyFrozenSet_CheckExact(object))
-                    writer->String("frozenset", 9);
+                    writer->EnvelopeHead("frozenset", 9, "__init__", 8);
                 else
-                    writer->String("set", 3);
-                writer->Key("__init__", 8);
+                    writer->EnvelopeHead("set", 3, "__init__", 8);
                 // segments en style ".attr" : le chemin qu'écrivait la
                 // recette (attrsDict actif dans sa branche)
                 if (pathTracker) {

@@ -344,6 +344,25 @@ public:
     // {"__class__":"bytes","__new__":...} — mêmes octets que la suite
     // StartObject/Key/String/EndObject, sans leur coût par appel (mesuré :
     // les 7 appels d'écrivain pesaient ~0,6 µs par objet)
+    //! tête d'enveloppe « {"__class__":"<cls>","<key>" » écrite d'un bloc :
+    //! le niveau objet est empilé avec TROIS jetons déjà comptés, si bien
+    //! que le Prefix de la VALEUR qui suit émet le « : » et que EndObject()
+    //! referme normalement. cls et key : littéraux ascii sans échappement
+    bool EnvelopeHead(const char* cls, size_t cls_length,
+                      const char* key, size_t key_length) {
+        Prefix();
+        WriteRawSmall("{\"__class__\":\"");
+        for (size_t i = 0; i < cls_length; i++)
+            os_->Put(cls[i]);
+        WriteRawSmall("\",\"");
+        for (size_t i = 0; i < key_length; i++)
+            os_->Put(key[i]);
+        os_->Put('"');
+        new (level_stack_.template Push<Level>()) Level(false);
+        level_stack_.template Top<Level>()->valueCount = 3;
+        return true;
+    }
+
     bool BytesEnvelope(const unsigned char* data, size_t length,
                        bool printable, bool is_bytearray) {
         Prefix();

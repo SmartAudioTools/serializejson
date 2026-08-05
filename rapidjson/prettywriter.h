@@ -293,6 +293,40 @@ public:
     // enveloppe complète d'un petit bytes/bytearray en UN passage, forme
     // indentée (la liste [base64,"b64"] reste compacte : single_line_init) —
     // mêmes octets que la suite StartObject/Key/.../EndObject
+    //! tête d'enveloppe (voir Writer::EnvelopeHead) : forme indentée, ou
+    //! compacte à l'identique du Writer dans un sous-arbre PushCompact
+    bool EnvelopeHead(const char* cls, size_t cls_length,
+                      const char* key, size_t key_length) {
+        PrettyPrefix();
+        bool compact = compactDepth_ > 0;
+        new (Base::level_stack_.template Push<typename Base::Level>())
+            typename Base::Level(false);
+        Base::level_stack_.template Top<typename Base::Level>()->valueCount
+            = 3;
+        Base::os_->Put('{');
+        if (!compact) {
+            Base::os_->Put('\n');
+            WriteIndent();
+        }
+        Base::WriteRawSmall("\"__class__\":");
+        if (!compact)
+            Base::os_->Put(' ');
+        Base::os_->Put('"');
+        for (size_t i = 0; i < cls_length; i++)
+            Base::os_->Put(cls[i]);
+        Base::os_->Put('"');
+        Base::os_->Put(',');
+        if (!compact) {
+            Base::os_->Put('\n');
+            WriteIndent();
+        }
+        Base::os_->Put('"');
+        for (size_t i = 0; i < key_length; i++)
+            Base::os_->Put(key[i]);
+        Base::os_->Put('"');
+        return true;
+    }
+
     bool BytesEnvelope(const unsigned char* data, size_t length,
                        bool printable, bool is_bytearray) {
         PrettyPrefix();
