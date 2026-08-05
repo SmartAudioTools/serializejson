@@ -1076,9 +1076,61 @@ sj_cumsum_slice(void* dst, const void* src, Py_ssize_t itemsize,
     }
 }
 
-// FUSION CACHE : postfiltre blosc2 exécuté par BLOC, dans les threads de la
-// lib, juste après la décompression du bloc — la somme cumulée se fait
-// pendant que le bloc est chaud en cache, au lieu d'une seconde passe RAM.
+// FUSION CACHE à l'écriture : PRÉFILTRE blosc2 exécuté par bloc — la dérivée
+// d'axe 0 est calculée par la lib au moment où elle constitue chaque bloc,
+// au lieu d'une pré-passe séparée avec tampon intermédiaire (mesuré : la
+// passe + la remise du tampon coûtaient ~40 % de l'écriture). Chaque bloc
+// blosc2 étant un bloc de dérivée (blocksize calé), le bloc est
+// auto-suffisant : sa première ligne reste brute, comme dans _diff_axis0.
+struct SjPreDiff {
+    Py_ssize_t itemsize;
+    Py_ssize_t row_elems;
+};
+
+template <typename T>
+static void
+sj_diff_block_copy(T* dst, const T* src, Py_ssize_t n, Py_ssize_t cols)
+{
+    Py_ssize_t head = (cols < n) ? cols : n;
+    for (Py_ssize_t i = 0; i < head; i++)
+        dst[i] = src[i];
+    for (Py_ssize_t i = head; i < n; i++)
+        dst[i] = (T) (src[i] - src[i - cols]);
+}
+
+static int
+sj_diff_prefilter(blosc2_prefilter_params* p)
+{
+    const SjPreDiff* u = (const SjPreDiff*) p->user_data;
+    Py_ssize_t n = (Py_ssize_t) p->output_size / u->itemsize;
+    switch (u->itemsize) {
+    case 1:
+        sj_diff_block_copy((uint8_t*) p->output, (const uint8_t*) p->input,
+                           n, u->row_elems);
+        break;
+    case 2:
+        sj_diff_block_copy((uint16_t*) (void*) p->output,
+                           (const uint16_t*) (const void*) p->input, n,
+                           u->row_elems);
+        break;
+    case 4:
+        sj_diff_block_copy((uint32_t*) (void*) p->output,
+                           (const uint32_t*) (const void*) p->input, n,
+                           u->row_elems);
+        break;
+    default:
+        sj_diff_block_copy((uint64_t*) (void*) p->output,
+                           (const uint64_t*) (const void*) p->input, n,
+                           u->row_elems);
+        break;
+    }
+    return 0;
+}
+
+// FUSION CACHE à la lecture : postfiltre blosc2 exécuté par BLOC, dans les
+// threads de la lib, juste après la décompression du bloc — la somme cumulée
+// se fait pendant que le bloc est chaud en cache, au lieu d'une seconde
+// passe RAM.
 // Exige des blocs alignés aux lignes et une dérivée redémarrée par bloc
 // (l'écriture cale blocksize = block_rows * octets_par_ligne).
 struct SjPostCumsum {
@@ -1841,6 +1893,7 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
         "nthreads",
         "channels",
         "blocksize",
+        "diff_cols",
         nullptr
     };
     PyObject* value = nullptr;
@@ -1851,11 +1904,19 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
     int nthreads = 1;
     int channels = 1;  // canaux entrelacés (codec rice seulement)
     int blocksize = 0;  // blocs blosc2 = blocs de dérivée (fusion cache)
+    Py_ssize_t diff_cols = 0;  // > 0 : dérivée d'axe 0 par PRÉFILTRE
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|niisiii", (char**) kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|niisiiin", (char**) kwlist,
                                      &value, &typesize, &clevel, &shuffle,
-                                     &cname, &nthreads, &channels, &blocksize))
+                                     &cname, &nthreads, &channels, &blocksize,
+                                     &diff_cols))
         return nullptr;
+    if (diff_cols > 0 && blocksize <= 0) {
+        PyErr_SetString(PyExc_ValueError,
+                        "diff_cols requires an explicit blocksize (aligned"
+                        " derivative blocks)");
+        return nullptr;
+    }
     if (channels < 1 || channels > 15)
         channels = 1;  // le quartet du meta est la limite du format
 
@@ -1879,7 +1940,9 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
 
     // compression parallèle DÉTERMINISTE par morceaux : que si plusieurs
     // morceaux pleins et l'API par contextes disponible ; sinon trame unique
-    if (nthreads > 1 && serializejson_blosc2_ctx_ok
+    // (le préfiltre dérivée exige la trame unique : les morceaux ne sont pas
+    // alignés aux lignes)
+    if (nthreads > 1 && serializejson_blosc2_ctx_ok && diff_cols == 0
         && (size_t) view.len > SERIALIZEJSON_BLOSC_CHUNK) {
         size_t chunked_size = 0;
         long frames = 0;
@@ -1961,6 +2024,17 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
         }
         if (blocksize > 0)
             cparams.blocksize = blocksize;  // blocs = blocs de dérivée
+        SjPreDiff pre_cfg = {typesize, diff_cols};
+        blosc2_prefilter_params preparams;
+        if (diff_cols > 0) {
+            // fusion écriture : la dérivée par blocs est calculée par la lib
+            // au moment où elle constitue chaque bloc (octets identiques à la
+            // pré-passe _diff_axis0 bloquée, sans tampon intermédiaire)
+            memset(&preparams, 0, sizeof(preparams));
+            preparams.user_data = (void*) &pre_cfg;
+            cparams.prefilter = sj_diff_prefilter;
+            cparams.preparams = &preparams;
+        }
         size_t delta_dest_size = (size_t) view.len + BLOSC2_MAX_OVERHEAD;
         char* delta_dest = (char*) malloc(delta_dest_size);
         if (delta_dest == nullptr) {

@@ -398,6 +398,35 @@ def test_diff_par_blocs_etiquette():
     assert numpy.array_equal(serializejson.Decoder()(dump2), petit)
 
 
+def test_prefiltre_derivee_source_intacte():
+    # fusion écriture : la dérivée par blocs calculée par le PRÉFILTRE blosc2
+    # doit produire les mêmes octets que la pré-passe _diff_axis0, sans
+    # toucher au tableau source — régression du bug de rotation de tampons du
+    # fork (avec préfiltre + deux filtres, le pipeline écrivait DANS le
+    # tampon source de l'appelant)
+    from base64 import b64decode
+
+    import rapidjson
+    from serializejson.plugins.serializejson_numpy import _diff_axis0
+
+    rng = numpy.random.default_rng(32)
+    for dt in (numpy.int16, numpy.int32):
+        a = numpy.ascontiguousarray(
+            numpy.cumsum(rng.integers(-3, 4, 3_000_000)).astype(dt))
+        copie = a.copy()
+        br = (1 << 20) // a.itemsize
+        bs = br * a.itemsize
+        f = b64decode(rapidjson.dumps(rapidjson.BloscToBase64(
+            a.data, a.itemsize, 1, 3, "zstd", 1, 1, bs, 1))[1:-1])
+        assert numpy.array_equal(a, copie)  # source jamais modifiée
+        fp = b64decode(rapidjson.dumps(rapidjson.BloscToBase64(
+            _diff_axis0(a.data, a.itemsize, 1, br), a.itemsize, 1, 3,
+            "zstd", 1, 1, bs))[1:-1])
+        assert f == fp  # octets identiques à la pré-passe
+        raw = rapidjson.blosc_decompress_chunks(f, 1, 0, a.itemsize, 1, br)
+        assert bytes(raw) == a.tobytes()
+
+
 def test_zigzag_bitshuffle_toutes_largeurs():
     # filtre 244 (zigzag) chaîné au bitshuffle natif (shuffle=3) : replie
     # ±epsilon pour que les plans de bits restent propres — aller-retour

@@ -2119,6 +2119,36 @@ Complété dans la foulée (demandes de Baptiste, même matinée) :
     Bout en bout : timestamps 6,6 → **7,3 Go/s**, signal 1D 3,4 → 3,5
     (zstd domine désormais ce profil).
 
+### 17 quinquies. Midi du 5/08 — la fusion ÉCRITURE, et un bug de fond du fork
+
+Symétrique de la lecture : la dérivée par blocs n'est plus une pré-passe
+(qui coûtait ~40 % de l'écriture : la passe + la remise de son tampon à
+cache froid) mais un PRÉFILTRE blosc2 — la lib la calcule au moment où
+elle constitue chaque bloc, octets de sortie STRICTEMENT identiques
+(vérifié trame contre trame). Paramètre `diff_cols` de BloscToBase64
+(exige `blocksize`, trame unique — les morceaux ne sont pas alignés aux
+lignes) ; le plugin l'utilise quand le fork est là, pré-passe sinon.
+Mesuré : écriture de la chaîne 244 sur 32 Mo 1,22 → **1,80 Go/s**
+(×1,47), dumps auto bout en bout 1,97 Go/s.
+
+**BUG DE FOND DU FORK trouvé par ce chantier** (et couvert par test) :
+dans `pipeline_forward`, après un préfiltre, `_cycle_buffers` faisait
+entrer le pointeur SOURCE — le tampon const de l'APPELANT — dans la
+rotation des brouillons : avec DEUX filtres ou plus derrière le
+préfiltre (zigzag puis bitshuffle), le deuxième filtre écrivait ses
+résultats DANS le tableau numpy de l'utilisateur. Symptômes vécus avant
+le diagnostic : échecs NON REPRODUCTIBLES (les scripts qui copiaient
+leurs références avant l'appel « passaient », la boucle de stress
+échouait 60/60), trames de tailles différentes entre deux voies censées
+être identiques. La leçon de méthode : quand un aller-retour échoue,
+VÉRIFIER AUSSI QUE LA SOURCE N'A PAS BOUGÉ — un memcmp source/copie
+aurait montré la corruption au premier essai. Correctif dans le fork
+(`blosc2.c` : le brouillon de thread `tmp4`, inutilisé en compression,
+remplace la source dans la ronde), patch `blosc2_determinisme.patch`
+régénéré, aucune trame modifiée (goldens identiques à l'octet avec
+l'ancien et le nouveau fork), test `test_prefiltre_derivee_source_intacte`
+qui ÉCHOUE sur l'ancien fork (vérifié) et passe sur le corrigé.
+
 Piste examinée et NOTÉE SANS SUITE — entrelacer le base64 bloc par bloc
 avec zstd : aujourd'hui le base64 est un étage séparé (une passe SIMD
 sur la trame COMPRESSÉE, vers/depuis un tampon de travail), pas fondu

@@ -343,15 +343,19 @@ else:
                         payload = None
                     if payload is None:
                         blocksize = 0
+                        diff_cols = 0
                         if diff0:
                             # dérivée par BLOCS de lignes entières : chaque
                             # bloc redémarre, la somme cumulée de lecture
                             # devient indépendante par bloc — et les blocs
                             # blosc2 sont CALÉS dessus (blocksize), pour que
-                            # la lecture la fusionne dans le postfiltre,
-                            # pendant que le bloc décompressé est chaud en
-                            # cache. 1 Mo avec le bitshuffle (ses plans de
-                            # bits veulent des blocs larges), 512 Ko sinon
+                            # les deux sens fusionnent : la dérivée est
+                            # calculée par le PRÉFILTRE au moment où la lib
+                            # constitue chaque bloc (octets identiques, sans
+                            # pré-passe ni tampon), la somme cumulée par le
+                            # postfiltre à la lecture. 1 Mo avec le
+                            # bitshuffle (ses plans de bits veulent des blocs
+                            # larges), 512 Ko sinon
                             cols = contiguous.size // contiguous.shape[0]
                             row_bytes = cols * contiguous.itemsize
                             cible = (1 << 20) if shuffle == 3 else (1 << 19)
@@ -359,14 +363,18 @@ else:
                             if block_rows < contiguous.shape[0]:
                                 diff_suffix = f"_diffb{block_rows}"
                                 blocksize = block_rows * row_bytes
+                                if use_blosc2_fork:
+                                    diff_cols = cols  # fusion par préfiltre
+                                    to_compress = contiguous
+                                else:
+                                    to_compress = _diff_axis0(
+                                        contiguous.data, contiguous.itemsize,
+                                        cols, block_rows)
                             else:
                                 block_rows = 0
-                            to_compress = _diff_axis0(
-                                contiguous.data,
-                                contiguous.itemsize,
-                                cols,
-                                block_rows,
-                            )
+                                to_compress = _diff_axis0(
+                                    contiguous.data, contiguous.itemsize,
+                                    cols)
                         else:
                             to_compress = contiguous
                         payload = BloscToBase64(
@@ -378,6 +386,7 @@ else:
                             nthreads if type(nthreads) is int else 1,
                             rice_channels,
                             blocksize,
+                            diff_cols,
                         )
                     # le filtre est porté par la trame ; seule la dérivée
                     # d'axe 0 garde l'étiquette _diff (et sa somme cumulée
