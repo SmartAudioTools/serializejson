@@ -174,6 +174,7 @@ try:
 except:
     pass
 import os
+import threading
 import types
 import warnings
 import io
@@ -2405,24 +2406,56 @@ def bool_or_dict(value):
         raise TypeError
 
 
+# décodage des clés non-str : un Décodeur PAR THREAD, réutilisé (en
+# construire un par clé — l'ancien loads(key) — coûtait 6 à 9 µs par clé,
+# l'essentiel du x66 mesuré sur les dicts à clés spéciales), et chemins
+# directs pour les clés scalaires, qui évitent le parseur complet
+_decodeur_de_cles = threading.local()
+
+
+def _decode_cle(key):
+    premier = key[0] if key else ""
+    if premier == "'":
+        if key.endswith("'"):
+            return key[1:-1]
+    elif premier == "b":
+        if key.endswith("'"):
+            if key.startswith("b'"):
+                return key[2:-1].encode("ascii_printables")
+            if key.startswith("b64'"):
+                return b64decode(key[4:])
+    elif key == "true":
+        return True
+    elif key == "false":
+        return False
+    elif premier.isdigit() or premier in "-NI":
+        # nombres (int, float, NaN, Infinity) : mêmes résultats que le
+        # parseur — l'encodeur a produit ces clés par dumps, formes
+        # canoniques garanties
+        try:
+            return int(key)
+        except ValueError:
+            try:
+                return float(key)
+            except ValueError:
+                pass
+    decodeur = getattr(_decodeur_de_cles, "instance", None)
+    if decodeur is None:
+        decodeur = _decodeur_de_cles.instance = Decoder()
+    try:
+        key = decodeur(key)
+    except Exception:
+        return key
+    if type(key) is list:
+        return tuple(key)
+    return key
+
+
 def dict_non_str_keys(dict_):
     d = dict()
     del dict_["__class__"]
     for key, value in dict_.items():
-        try:
-            key = loads(key)
-        except:
-            if key.endswith("'"):
-                if key.startswith("'"):
-                    key = key[1:-1]
-                elif key.startswith("b'"):
-                    key = key[2:-1].encode("ascii_printables")
-                elif key.startswith("b64'"):
-                    key = b64decode(key[4:])
-        else:
-            if type(key) is list:
-                key = tuple(key)
-        d[key] = value
+        d[_decode_cle(key)] = value
     return d
 
 
