@@ -252,14 +252,31 @@ def mesure_types_objets():
     # réglages par défaut sont écartées (et nommées dans le rapport)
     from objects import basic_objects  # tests/ est sur le chemin
 
+    # LOTS de N répliques par catégorie, pour mesurer le coût PAR OBJET et
+    # non le coût fixe d'un appel (dominant sur un document minuscule). Le
+    # lot est fabriqué côté JSON (répétition textuelle : aucune référence
+    # $ref possible), puis RECHARGÉ — ce qui donne N objets python égaux
+    # mais distincts, que le mémo de dédoublonnage ne fusionne pas
+    N = 32
     lignes, ecartees = [], []
     for categorie, objets in basic_objects.objects.items():
         try:
-            p = pickle.dumps(objets, protocol=4)
             encodeur = serializejson.Encoder(return_bytes=True)
-            j = encodeur(objets)
+            doc = encodeur(objets)
             decodeur = serializejson.Decoder(
                 authorized_classes=list(encodeur.get_dumped_classes()))
+            lot_json = b"[" + b",".join([doc] * N) + b"]"
+            # côté objets : clones par pickle (objets frais à chaque load,
+            # y compris les immuables — deepcopy rendrait le MÊME bytes et
+            # le cache de valeurs du décodeur les MÊMES str, que le mémo
+            # transformerait en $ref au re-dump)
+            graine = pickle.dumps(objets, protocol=4)
+            lot = [pickle.loads(graine) for _ in range(N)]
+            p = pickle.dumps(lot, protocol=4)
+            j = encodeur(lot)
+            # les singletons du lot (b"", objets type...) sont dédupliqués
+            # par les DEUX camps ($ref chez serializejson, memo chez
+            # pickle) : la comparaison reste équitable, on ne l'interdit pas
             pickle.loads(p)
             decodeur(j)
         except Exception:
@@ -267,8 +284,8 @@ def mesure_types_objets():
             continue
         lignes.append((
             categorie,
-            chrono(lambda: pickle.dumps(objets, protocol=4), plafond=0.4),
-            chrono(lambda: encodeur(objets), plafond=0.4),
+            chrono(lambda: pickle.dumps(lot, protocol=4), plafond=0.4),
+            chrono(lambda: encodeur(lot), plafond=0.4),
             chrono(lambda: pickle.loads(p), plafond=0.4),
             chrono(lambda: decodeur(j), plafond=0.4),
         ))
