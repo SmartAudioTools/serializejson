@@ -130,6 +130,10 @@ static PyObject* ref_key_name = nullptr;
 // marqueur one-shot « la prochaine valeur est le résultat de default() »
 // pour les dumps sans pathTracker (toujours manipulé sous GIL)
 static bool sj_next_dict_is_attrs_noplan = false;
+// cache ÉCRITURE des valeurs de type : classe -> nom émis ("type" inversé
+// du cache de lecture) — rempli au premier passage par la recette python,
+// servi ensuite par la branche native (réfs fortes, durée de vie module)
+static PyObject* sj_type_names_cache = nullptr;
 
 // enrichit l'AttributeError d'une restauration d'attribut au chargement :
 // la classe et la clé fautive, avec l'erreur d'origine en cause — le
@@ -6243,9 +6247,25 @@ dumps_internal(
                         Py_XDECREF(coercedKey);
                         return false;
                     }
+                    // règle du writer (ex-emballage SingleLine de default) :
+                    // les listes __init__/__new__ d'une ENVELOPPE s'écrivent
+                    // compactes selon single_line_init/new — isinstance côté
+                    // init, type exact côté new, comme la voie python
+                    bool env_compact = attrsDict && pathTracker
+                        && !writer->InCompact()
+                        && ((l == 8 && memcmp(key_str, "__init__", 8) == 0
+                             && pathTracker->singleLineInit
+                             && PyList_Check(item))
+                            || (l == 7 && memcmp(key_str, "__new__", 7) == 0
+                                && pathTracker->singleLineNew
+                                && PyList_CheckExact(item)));
+                    if (env_compact)
+                        writer->PushCompact();
                     PATH_PUSH_KEY(key_str, l);
                     bool r = RECURSE(item);
                     PATH_POP();
+                    if (env_compact)
+                        writer->PopCompact();
                     Py_LeaveRecursiveCall();
                     if (!r) {
                         Py_XDECREF(coercedKey);
@@ -6308,9 +6328,24 @@ dumps_internal(
                 }
                 if (Py_EnterRecursiveCall(" while JSONifying dict object"))
                     return false;
+                // même règle que la boucle non triée (ex-SingleLine)
+                bool env_compact = attrsDict && pathTracker
+                    && !writer->InCompact()
+                    && ((items[i].key_size == 8
+                         && memcmp(items[i].key_str, "__init__", 8) == 0
+                         && pathTracker->singleLineInit
+                         && PyList_Check(items[i].item))
+                        || (items[i].key_size == 7
+                            && memcmp(items[i].key_str, "__new__", 7) == 0
+                            && pathTracker->singleLineNew
+                            && PyList_CheckExact(items[i].item)));
+                if (env_compact)
+                    writer->PushCompact();
                 PATH_PUSH_KEY(items[i].key_str, items[i].key_size);
                 bool r = RECURSE(items[i].item);
                 PATH_POP();
+                if (env_compact)
+                    writer->PopCompact();
                 Py_LeaveRecursiveCall();
                 if (!r)
                     return false;
@@ -6633,6 +6668,191 @@ dumps_internal(
                 return PyErr_Occurred() ? false : true;
             }
         }
+        // ----- valeurs de TYPE natives : {"__class__": "type", "__init__":
+        // "<nom>"} servi depuis le cache classe -> nom (rempli au premier
+        // passage par la recette python) — la recette rappelait python à
+        // CHAQUE dump pour les mêmes classes. `type` lui-même reste en
+        // recette (forme sans __init__), comme les classes jamais vues
+        if (Py_TYPE(object) == &PyType_Type
+            && object != (PyObject*) &PyType_Type
+            && sj_type_names_cache != nullptr
+            && pathTracker && pathTracker->classPlanFn
+            && !pathTracker->strictPickle) {
+            PyObject* nom = PyDict_GetItem(sj_type_names_cache, object);
+            if (nom != nullptr) {
+                // aligné sur class_plan : le plan de `type` doit être la
+                // recette marquée (un plugin utilisateur le change)
+                PyObject* type_plan;
+                auto type_plan_it =
+                    pathTracker->classPlans.find(&PyType_Type);
+                if (type_plan_it != pathTracker->classPlans.end()) {
+                    type_plan = type_plan_it->second;
+                } else {
+                    type_plan = PyObject_CallFunctionObjArgs(
+                        pathTracker->classPlanFn, (PyObject*) &PyType_Type,
+                        nullptr);
+                    if (type_plan == nullptr)
+                        return false;
+                    if (type_plan != Py_None
+                        && (!PyTuple_Check(type_plan)
+                            || PyTuple_GET_SIZE(type_plan) < 2
+                            || PyTuple_GET_SIZE(type_plan) > 5)) {
+                        Py_DECREF(type_plan);
+                        type_plan = Py_None;
+                        Py_INCREF(Py_None);
+                    }
+                    pathTracker->classPlans.emplace(&PyType_Type, type_plan);
+                }
+                if (type_plan != Py_None
+                    && PyTuple_GET_SIZE(type_plan) == 4
+                    && PyTuple_GET_ITEM(type_plan, 0) == Py_None
+                    && PyUnicode_Check(PyTuple_GET_ITEM(type_plan, 3))
+                    && PyUnicode_CompareWithASCIIString(
+                           PyTuple_GET_ITEM(type_plan, 3), "type") == 0) {
+                    CONTAINER_MEMO_OR_REF()
+                    if (pathTracker->dumpedClasses != nullptr
+                        && PySet_Add(pathTracker->dumpedClasses,
+                                     PyTuple_GET_ITEM(type_plan, 3)) < 0)
+                        PyErr_Clear();
+                    writer->StartObject();
+                    writer->Key("__class__", 9);
+                    writer->String("type", 4);
+                    writer->Key("__init__", 8);
+                    Py_ssize_t nom_length;
+                    const char* nom_str =
+                        PyUnicode_AsUTF8AndSize(nom, &nom_length);
+                    if (nom_str == nullptr)
+                        return false;
+                    if (!PyUnicode_IS_ASCII(nom))
+                        writer->MarkMaybeNonAscii();
+                    writer->String(nom_str, (SizeType) nom_length);
+                    writer->EndObject();
+                    return PyErr_Occurred() ? false : true;
+                }
+            }
+            // classe jamais vue (ou plan inattendu) : voie recette, qui
+            // remplit le cache
+        }
+        // ----- set / frozenset NATIFS : {"__class__": "set", "__init__":
+        // [éléments]} écrit directement, même règle de compactage que la
+        // branche tuple — la recette générique repassait par la branche
+        // liste entière (mémo d'une liste TEMPORAIRE que rien ne peut
+        // référencer, balayage d'homogénéité sous compact : ~180 ns par set
+        // mesurés). Gardé par le plan de classe (mêmes gardes que la
+        // recette : plugin utilisateur ou strict_pickle -> plan différent,
+        // repli sur la voie recette/python ci-dessous)
+        if ((PySet_CheckExact(object) || PyFrozenSet_CheckExact(object))
+            && pathTracker && pathTracker->classPlanFn
+            && !pathTracker->strictPickle) {
+            PyTypeObject* set_type = Py_TYPE(object);
+            PyObject* set_plan;
+            auto set_plan_it = pathTracker->classPlans.find(set_type);
+            if (set_plan_it != pathTracker->classPlans.end()) {
+                set_plan = set_plan_it->second;
+            } else {
+                set_plan = PyObject_CallFunctionObjArgs(
+                    pathTracker->classPlanFn, (PyObject*) set_type, nullptr);
+                if (set_plan == nullptr)
+                    return false;
+                if (set_plan != Py_None
+                    && (!PyTuple_Check(set_plan)
+                        || PyTuple_GET_SIZE(set_plan) < 2
+                        || PyTuple_GET_SIZE(set_plan) > 5)) {
+                    Py_DECREF(set_plan);
+                    set_plan = Py_None;
+                    Py_INCREF(Py_None);
+                }
+                pathTracker->classPlans.emplace(set_type, set_plan);
+            }
+            if (set_plan != Py_None && PyTuple_GET_SIZE(set_plan) == 4
+                && PyTuple_GET_ITEM(set_plan, 0) == Py_None
+                && PyUnicode_Check(PyTuple_GET_ITEM(set_plan, 3))) {
+                CONTAINER_MEMO_OR_REF()
+
+                // dumped_classes : "set"/"frozenset", comme la recette
+                if (pathTracker->dumpedClasses != nullptr
+                    && PySet_Add(pathTracker->dumpedClasses,
+                                 PyTuple_GET_ITEM(set_plan, 3)) < 0)
+                    PyErr_Clear();
+
+                writer->StartObject();
+                writer->Key("__class__", 9);
+                if (PyFrozenSet_CheckExact(object))
+                    writer->String("frozenset", 9);
+                else
+                    writer->String("set", 3);
+                writer->Key("__init__", 8);
+                // segments en style ".attr" : le chemin qu'écrivait la
+                // recette (attrsDict actif dans sa branche)
+                if (pathTracker) {
+                    pathTracker->segments.push_back(
+                        {PathSegment::ATTR, "__init__", 8, 0});
+                    pathTracker->registered.push_back(-1);
+                }
+                PyObject* elements = PySequence_List(object);
+                if (elements == nullptr)
+                    return false;
+                Py_ssize_t set_size = PyList_GET_SIZE(elements);
+                // compact si single_line_init, ou si single_line_numbers et
+                // éléments homogènes de nombres (règle de la branche liste,
+                // que la recette empruntait pour la forme liste-nue)
+                bool set_numbers = false;
+                if (!pathTracker->singleLineInit
+                    && pathTracker->singleLineNumbers && set_size > 0) {
+                    PyTypeObject* first_type =
+                        Py_TYPE(PyList_GET_ITEM(elements, 0));
+                    if (first_type == &PyFloat_Type
+                        || first_type == &PyLong_Type
+                        || first_type == &PyBool_Type) {
+                        set_numbers = true;
+                        for (Py_ssize_t pi = 1; pi < set_size; pi++)
+                            if (Py_TYPE(PyList_GET_ITEM(elements, pi))
+                                != first_type) {
+                                set_numbers = false;
+                                break;
+                            }
+                    }
+                }
+                bool set_compact =
+                    (pathTracker->singleLineInit || set_numbers)
+                    && !writer->InCompact();
+                if (set_compact)
+                    writer->PushCompact();
+                writer->StartArray();
+                bool set_ok = true;
+                for (Py_ssize_t si = 0; si < set_size && set_ok; si++) {
+                    PyObject* item = PyList_GET_ITEM(elements, si);
+                    if (PyUnicode_CheckExact(item)) {
+                        Py_ssize_t inline_length;
+                        const char* inline_str =
+                            PyUnicode_AsUTF8AndSize(item, &inline_length);
+                        if (inline_str == nullptr) {
+                            set_ok = false;
+                            break;
+                        }
+                        if (!PyUnicode_IS_ASCII(item))
+                            writer->MarkMaybeNonAscii();
+                        writer->String(inline_str,
+                                       (SizeType) inline_length);
+                        continue;
+                    }
+                    PATH_PUSH_INDEX(si)
+                    set_ok = RECURSE(item);
+                    PATH_POP()
+                }
+                if (set_ok)
+                    writer->EndArray();
+                if (set_compact)
+                    writer->PopCompact();
+                Py_DECREF(elements);
+                PATH_POP()
+                if (!set_ok)
+                    return false;
+                writer->EndObject();
+                return PyErr_Occurred() ? false : true;
+            }
+            // plan inattendu : voie recette / python classique ci-dessous
+        }
         // ----- chemin rapide par classe : objet ordinaire écrit tout en C++,
         // sans passer par default()/reduce Python. La décision est prise UNE
         // fois par classe (class_plan), le résultat doit être identique octet
@@ -6816,37 +7036,31 @@ dumps_internal(
                     }
                 } else {
 
-                PyObject* tup;
-                if (PyTuple_GET_SIZE(plan) == 4
-                    && (PySet_CheckExact(object)
-                        || PyFrozenSet_CheckExact(object)
-                        || PyTuple_CheckExact(object))
-                    && PyUnicode_Check(PyTuple_GET_ITEM(plan, 3))) {
-                    // set/frozenset/tuple : la recette est triviale —
-                    // composée ici, sans le rappel python par objet qui
-                    // pesait ~40 % du lot sets (set : (nom, éléments, None) ;
-                    // tuple : forme __new__ (nom, ..., (éléments,)))
-                    PyObject* elements = PySequence_List(object);
-                    if (elements == nullptr)
-                        return false;
-                    if (PyTuple_CheckExact(object)) {
-                        PyObject* new_args = PyTuple_Pack(1, elements);
-                        tup = new_args == nullptr ? nullptr
-                            : PyTuple_Pack(6, PyTuple_GET_ITEM(plan, 3),
-                                           Py_None, Py_None, Py_None,
-                                           Py_None, new_args);
-                        Py_XDECREF(new_args);
-                    } else {
-                        tup = PyTuple_Pack(3, PyTuple_GET_ITEM(plan, 3),
-                                           elements, Py_None);
-                    }
-                    Py_DECREF(elements);
-                } else {
-                    tup = PyObject_CallFunctionObjArgs(
-                        recipe_fn, object, nullptr);
-                }
+                // (set/frozenset ne passent plus ici : branche native en
+                // amont — un plan inattendu retombe sur la recette normale)
+                PyObject* tup = PyObject_CallFunctionObjArgs(
+                    recipe_fn, object, nullptr);
                 if (tup == nullptr)
                     return false;
+                // plan marqué "type" : mémorise classe -> nom émis, la
+                // branche native servira les prochains dumps sans python
+                if (PyTuple_GET_SIZE(plan) == 4
+                    && PyUnicode_Check(PyTuple_GET_ITEM(plan, 3))
+                    && PyUnicode_CompareWithASCIIString(
+                           PyTuple_GET_ITEM(plan, 3), "type") == 0
+                    && PyTuple_Check(tup) && PyTuple_GET_SIZE(tup) >= 2) {
+                    PyObject* targs = PyTuple_GET_ITEM(tup, 1);
+                    if (PyTuple_CheckExact(targs)
+                        && PyTuple_GET_SIZE(targs) == 1
+                        && PyUnicode_CheckExact(PyTuple_GET_ITEM(targs, 0))) {
+                        if (sj_type_names_cache == nullptr)
+                            sj_type_names_cache = PyDict_New();
+                        if (sj_type_names_cache != nullptr
+                            && PyDict_SetItem(sj_type_names_cache, object,
+                                              PyTuple_GET_ITEM(targs, 0)) < 0)
+                            PyErr_Clear();
+                    }
+                }
                 Py_ssize_t tup_size =
                     PyTuple_Check(tup) ? PyTuple_GET_SIZE(tup) : 0;
                 PyObject* class_str_obj =

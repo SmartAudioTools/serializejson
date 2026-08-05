@@ -987,23 +987,13 @@ class Encoder(rapidjson.Encoder):
                 inst
             )  # 8.6 % (correspond au temps pour conversion en b64 avec pybase64.b64encode) du temps sur obj = bytes(numpy.arange(2**20,dtype=numpy.float64).data)
 
-        if not self._dump_one_line:
-            # sous-arbres écrits en compact par le MÊME encodeur (SingleLine) :
-            # contrairement à l'ancienne re-sérialisation par un second encodeur
-            # compact (RawBytes), le mémo des doublons, les hooks et le traqueur
-            # de chemins restent actifs à l'intérieur
-            if self.single_line_init:
-                args = dic.get("__init__", None)
-                if isinstance(args, list):
-                    dic["__init__"] = rapidjson.SingleLine(args)
-            if self.single_line_new:
-                args = dic.get("__new__", None)
-                if type(args) is list:
-                    dic["__new__"] = rapidjson.SingleLine(args)
-
-            # les listes homogènes de nombres sont mises sur une ligne par le
-            # C++ lui-même (single_line_numbers), où qu'elles soient : plus
-            # besoin de balayer les attributs ici
+        # plus d'emballage SingleLine ici (retiré le 06/08/2026) : la mise en
+        # ligne des listes __init__/__new__ d'une enveloppe est une règle du
+        # WRITER (single_line_init/new appliqués par la branche dict du C aux
+        # dicts d'état, mêmes octets) — SingleLine ne sert plus qu'aux
+        # sous-arbres qui portent un number_mode propre (repli numpy).
+        # Les listes homogènes de nombres sont quant à elles mises sur une
+        # ligne par le C++ lui-même (single_line_numbers), où qu'elles soient
         # self._already_serialized_id_dic_to_obj_dic[id(dic)] = (
         # inst,
         #    dic,
@@ -1060,18 +1050,18 @@ class Encoder(rapidjson.Encoder):
             # restant : l'appel du plugin par objet
             builtin_fn = serializejson_builtins.get(class_)
             if builtin_fn is not None:
-                if class_ in (type, types.FunctionType, bytes, bytearray):
+                if class_ is type:
+                    # marqueur "type" : le C mémoïse classe -> nom au premier
+                    # passage recette, puis écrit l'enveloppe sans python
+                    return (None, builtin_fn,
+                            bool(self.numpy_array_to_list), "type")
+                if class_ in (types.FunctionType, bytes, bytearray):
                     return (None, builtin_fn, bool(self.numpy_array_to_list))
                 return None
             # set / frozenset : recette privée « éléments à plat » — la
             # branche recette C écrit alors {"__class__": "set",
             # "__init__": [éléments]}, la même forme que le chemin Python
             # (reduce puis déballage remove_add_braces)
-            if class_ is tuple:
-                # comme set/frozenset : recette triviale composée par le C
-                # (forme __new__ : (list(obj),), déballage remove_add_braces)
-                return (None, _recette_tuple,
-                        bool(self.numpy_array_to_list), "tuple")
             if class_ is set:
                 # 4e élément "set"/"frozenset" : le C compose lui-même le
                 # tuple recette (nom, list(obj), None) sans appel python
@@ -2632,10 +2622,6 @@ _cle_nombre_json = re.compile(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$")
 # du chemin Python)
 def _recette_set(inst):
     return "set", list(inst), None
-
-
-def _recette_tuple(inst):
-    return "tuple", None, None, None, None, (list(inst),)
 
 
 def _recette_frozenset(inst):
