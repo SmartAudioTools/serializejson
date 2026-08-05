@@ -1987,18 +1987,18 @@ struct PyHandler {
         // attributs...} sans clé spéciale -> instanciation directe en C++
         if (decodeClassPlanFn != nullptr && PyDict_CheckExact(mapping)) {
             PyObject* class_value = PyDict_GetItem(mapping, class_key_name);
-            // __init__ accepté s'il est une LISTE exacte (cls(*args), la
-            // seule forme produite par l'encodeur ; un dict ou un scalaire
-            // — accolades retirées, "type" — repasse par la voie Python)
+            // __init__ LISTE exacte : cls(*args) pour tous les plans ;
+            // __init__ SCALAIRE (accolades retirées) : réservé au mode
+            // « constructeur seul » ci-dessous — cls(scalaire), la forme
+            // de instance() ; __init__ dict (kwargs) : voie Python
             PyObject* init_list = nullptr;
-            bool init_ok = true;
+            bool init_is_list = false;
             if (class_value != nullptr) {
                 init_list = PyDict_GetItem(mapping, init_key_name);
-                if (init_list != nullptr && !PyList_CheckExact(init_list))
-                    init_ok = false;
+                init_is_list = init_list != nullptr
+                    && PyList_CheckExact(init_list);
             }
             if (class_value != nullptr && PyUnicode_CheckExact(class_value)
-                && init_ok
                 && PyDict_GetItem(mapping, new_key_name) == nullptr
                 && PyDict_GetItem(mapping, state_key_name) == nullptr
                 && PyDict_GetItem(mapping, items_key_name) == nullptr
@@ -2034,7 +2034,21 @@ struct PyHandler {
                     }
                     decodePlans.emplace(std::move(plan_key), plan);
                 }
-                if (plan != Py_None) {
+                // mode « constructeur seul » (classe, 2) : classes C
+                // (Decimal, datetime, deque...) appelées directement —
+                // uniquement pour l'enveloppe stricte {__class__, __init__} ;
+                // toute autre forme (attributs, __state__, kwargs dict)
+                // reste en voie python
+                bool ctor_only = plan != Py_None && PyTuple_Check(plan)
+                    && PyLong_CheckExact(PyTuple_GET_ITEM(plan, 1));
+                if (ctor_only
+                    && (PyDict_GET_SIZE(mapping) != 2
+                        || init_list == nullptr
+                        || PyDict_CheckExact(init_list))) {
+                    // enveloppe inattendue : voie python
+                } else if (plan != Py_None
+                           && (init_list == nullptr || init_is_list
+                               || ctor_only)) {
                     if (PyDict_DelItem(mapping, class_key_name) == -1) {
                         Py_DECREF(mapping);
                         return false;
@@ -2046,19 +2060,23 @@ struct PyHandler {
                         by_setattr = false;
                     } else {
                         cls = (PyTypeObject*) PyTuple_GET_ITEM(plan, 0);
-                        by_setattr = true;
+                        by_setattr = !ctor_only;
                     }
                     PyObject* inst;
                     if (init_list != nullptr) {
                         // recette constructeur : cls(*args) — la même forme
-                        // que instance() (inst = class_(*__init__))
+                        // que instance() (inst = class_(*__init__) pour une
+                        // liste, class_(__init__) pour un scalaire aux
+                        // accolades retirées)
                         Py_INCREF(init_list);
                         if (PyDict_DelItem(mapping, init_key_name) == -1) {
                             Py_DECREF(init_list);
                             Py_DECREF(mapping);
                             return false;
                         }
-                        PyObject* ctor_args = PyList_AsTuple(init_list);
+                        PyObject* ctor_args = init_is_list
+                            ? PyList_AsTuple(init_list)
+                            : PyTuple_Pack(1, init_list);
                         Py_DECREF(init_list);
                         if (ctor_args == nullptr) {
                             Py_DECREF(mapping);

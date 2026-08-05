@@ -1899,13 +1899,23 @@ class Decoder(rapidjson.Decoder):
                 return None
             if class_str in constructors or class_str in remove_add_braces:
                 return None
+            if class_str == "type":
+                # branche SPÉCIALE de instance() (type à un argument rendrait
+                # la classe de l'argument !) — servie par le cache des valeurs
+                # de type côté C, jamais par un plan constructeur
+                return None
             class_ = class_from_class_str(class_str)
-            if not isinstance(class_, type) or not (
-                class_.__flags__ & _TPFLAGS_HEAPTYPE
-            ):
+            if not isinstance(class_, type):
                 return None
+            if not (class_.__flags__ & _TPFLAGS_HEAPTYPE):
+                # classes C (Decimal, datetime, deque...) : plan
+                # « constructeur seul » (classe, 2) — le C n'y recourt que
+                # pour l'enveloppe stricte {__class__, __init__} et appelle
+                # classe(*args), la forme exacte de instance() ; toute autre
+                # enveloppe (attributs, __state__, kwargs) reste python
+                return (class_, 2)
             if hasattr(class_, "__setstate__"):
-                return None
+                return (class_, 2)
             by_setattr = False
             if hasattr(class_, "__slots__"):
                 if class_.__dictoffset__ != 0:
@@ -1921,7 +1931,7 @@ class Decoder(rapidjson.Decoder):
             if _setters is True:
                 _setters = setters_names_from_class(class_)
             if _setters:
-                return None
+                return (class_, 2)
             _properties = self.properties
             if _properties is True:
                 _properties = _properties_registry.get(class_, True)
@@ -1930,7 +1940,7 @@ class Decoder(rapidjson.Decoder):
             if _properties is True:
                 _properties = slots_properties_getters_setters_from_class(class_)[1]
             if _properties:
-                return None
+                return (class_, 2)
             if by_setattr:
                 return (class_, True)
             return class_
