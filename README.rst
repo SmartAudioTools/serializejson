@@ -100,6 +100,20 @@ fast NVMe drives, pickle stays ahead for barely-compressible data:
    :alt: total read time ratio against storage throughput
    :width: 100%
 
+The CPU matters too: a fast CPU shrinks the compression cost and extends
+serializejson's advantage towards fast NVMe drives, while a small board like
+a Raspberry Pi moves the break-even point down (curves below model popular
+CPUs by scaling both compute times by their approximate relative speed, on
+the "smooth int16 signal" profile):
+
+.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_ecriture_cpu.svg
+   :alt: total write time ratio against storage throughput for popular CPUs
+   :width: 100%
+
+.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_lecture_cpu.svg
+   :alt: total read time ratio against storage throughput for popular CPUs
+   :width: 100%
+
 
 Installation
 ============

@@ -185,6 +185,24 @@ def rendu_markdown(resultats, entete):
 
 BLEU, ORANGE = "#2b6cb0", "#dd6b20"
 
+# supports de stockage POPULAIRES, débits séquentiels constructeurs
+# approximatifs — repères verticaux des graphiques de scénario
+SUPPORTS = [("Seagate BarraCuda\n(disque dur, ~190 Mo/s)", 190e6),
+            ("Samsung 870 EVO\n(SSD SATA, ~560 Mo/s)", 560e6),
+            ("Samsung 970 EVO Plus\n(NVMe PCIe 3, ~3,5 Go/s)", 3.5e9),
+            ("WD Black SN850X\n(NVMe PCIe 4, ~7 Go/s)", 7e9),
+            ("Crucial T705\n(NVMe PCIe 5, ~14 Go/s)", 14e9)]
+
+# CPU modernes POPULAIRES : facteur de vitesse de calcul APPROXIMATIF
+# relatif à la machine de mesure (indices mono/multi-cœur publics) — le
+# modèle divise les deux temps de calcul (pickle et serializejson) par ce
+# facteur, les temps de transfert ne bougent pas
+CPUS = [("Raspberry Pi 5", 0.25),
+        ("portable i5-8250U (2018)", 0.55),
+        ("machine de mesure (i7 mobile)", 1.0),
+        ("Apple M4", 1.7),
+        ("Ryzen 9 9950X", 1.8)]
+
 
 def figure_barres(resultats, sens, titre):
     # deux barres par profil : rapport de mémoire (bleu) et de temps
@@ -233,12 +251,6 @@ def figure_support(resultats, sens, titre):
     import matplotlib.pyplot as plt
 
     debits = numpy.logspace(numpy.log10(80e6), numpy.log10(17e9), 200)
-    # modèles POPULAIRES, débits séquentiels constructeurs approximatifs
-    supports = [("Seagate BarraCuda\n(disque dur, ~190 Mo/s)", 190e6),
-                ("Samsung 870 EVO\n(SSD SATA, ~560 Mo/s)", 560e6),
-                ("Samsung 970 EVO Plus\n(NVMe PCIe 3, ~3,5 Go/s)", 3.5e9),
-                ("WD Black SN850X\n(NVMe PCIe 4, ~7 Go/s)", 7e9),
-                ("Crucial T705\n(NVMe PCIe 5, ~14 Go/s)", 14e9)]
     fig, ax = plt.subplots(figsize=(11.69, 8.27))
     for (nom, m), couleur in zip(
             resultats, plt.cm.tab10(numpy.linspace(0, 1, len(resultats)))):
@@ -248,7 +260,7 @@ def figure_support(resultats, sens, titre):
     ax.axhline(1.0, color="gray", ls="--", lw=1)
     ax.set_xscale("log")
     ax.set_yscale("log")
-    for etiquette, debit in supports:
+    for etiquette, debit in SUPPORTS:
         ax.axvline(debit / 1e6, color="lightgray", lw=0.8)
         ax.annotate(etiquette, (debit / 1e6, 0.015), xycoords=("data",
                     "axes fraction"), fontsize=7, color="gray",
@@ -263,6 +275,43 @@ def figure_support(resultats, sens, titre):
     return fig
 
 
+def figure_cpu(resultats, sens, titre):
+    # même scénario support, mais une courbe par CPU : les temps de calcul
+    # des deux camps sont divisés par le facteur du CPU, le transfert non —
+    # un CPU rapide déplace le point de bascule vers les supports rapides
+    import matplotlib.pyplot as plt
+
+    profil = "signal lisse int16 (4 Mo)"
+    m = dict(resultats)[profil]
+    debits = numpy.logspace(numpy.log10(80e6), numpy.log10(17e9), 200)
+    fig, ax = plt.subplots(figsize=(11.69, 8.27))
+    for (nom, facteur), couleur in zip(
+            CPUS, plt.cm.viridis(numpy.linspace(0.85, 0.1, len(CPUS)))):
+        t_pk = m[f"{sens}_pickle"] / facteur + m["taille_pickle"] / debits
+        t_sj = m[f"{sens}_sj"] / facteur + m["taille_sj"] / debits
+        ax.plot(debits / 1e6, t_sj / t_pk, color=couleur,
+                label=f"{nom}  (calcul ×{facteur:g})")
+    ax.axhline(1.0, color="gray", ls="--", lw=1)
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    for etiquette, debit in SUPPORTS:
+        ax.axvline(debit / 1e6, color="lightgray", lw=0.8)
+        ax.annotate(etiquette, (debit / 1e6, 0.015), xycoords=("data",
+                    "axes fraction"), fontsize=7, color="gray",
+                    ha="center", va="bottom")
+    ax.set_yticks([0.2, 0.5, 1, 2])
+    ax.set_yticklabels(["×0,2", "×0,5", "×1", "×2"])
+    ax.yaxis.set_minor_formatter(plt.NullFormatter())
+    ax.set_xlabel("débit du support (Mo/s, échelle log)")
+    ax.set_ylabel("temps total serializejson / temps total pickle")
+    ax.set_title(titre + f" — profil « {profil} »"
+                 " — en dessous de ×1 : avantage serializejson")
+    ax.legend(fontsize=8, loc="upper left",
+              title="facteurs de calcul approximatifs", title_fontsize=8)
+    fig.tight_layout()
+    return fig
+
+
 FIGURES = [
     ("benchmark_dumps", figure_barres, "dumps",
      "conversion vers bytes (dumps)"),
@@ -272,6 +321,10 @@ FIGURES = [
      "écriture sur un support (dumps + transfert)"),
     ("benchmark_lecture_support", figure_support, "loads",
      "lecture depuis un support (transfert + loads)"),
+    ("benchmark_ecriture_cpu", figure_cpu, "dumps",
+     "écriture selon le CPU"),
+    ("benchmark_lecture_cpu", figure_cpu, "loads",
+     "lecture selon le CPU"),
 ]
 
 
