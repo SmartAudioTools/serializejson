@@ -298,6 +298,24 @@ def dump(obj, file, **argsDict):
     Encoder(**argsDict)(obj, fp)
 
 
+# instances PAR DÉFAUT réutilisées par dumps/dumpb/loads (une par thread) :
+# la construction d'un Encoder/Decoder à chaque appel coûtait ~11/7 µs — le
+# plancher qui écrasait tout dump ou load d'objet modeste. L'état volatil
+# (mémo, classes rencontrées, racine) est remis à zéro par l'appel lui-même ;
+# le drapeau _occupe couvre la RÉENTRANCE (un reduce/hook utilisateur qui
+# rappelle dumps pendant un dump) : instance fraîche dans ce cas, comme avant
+_instances_par_defaut = threading.local()
+
+
+def _instance_par_defaut(champ, fabrique):
+    cache = _instances_par_defaut
+    instance = getattr(cache, champ, None)
+    if instance is None:
+        instance = fabrique()
+        setattr(cache, champ, instance)
+    return instance
+
+
 def dumps(obj, **argsDict):
     """
     Dump object into json string.
@@ -309,6 +327,15 @@ def dumps(obj, **argsDict):
         obj: object to dump.
         **argsDict: parameters passed to the Encoder (see documentation).
     """
+    cache = _instances_par_defaut
+    if not argsDict and not getattr(cache, "_occupe", False):
+        encoder = _instance_par_defaut(
+            "encoder_str", lambda: Encoder(return_bytes=False))
+        cache._occupe = True
+        try:
+            return encoder(obj)
+        finally:
+            cache._occupe = False
     return Encoder(return_bytes=False, **argsDict)(obj)
 
 
@@ -320,6 +347,15 @@ def dumpb(obj, **argsDict):
         obj: object to dump.
         **argsDict: parameters passed to the Encoder (see documentation).
     """
+    cache = _instances_par_defaut
+    if not argsDict and not getattr(cache, "_occupe", False):
+        encoder = _instance_par_defaut(
+            "encoder_bytes", lambda: Encoder(return_bytes=True))
+        cache._occupe = True
+        try:
+            return encoder(obj)
+        finally:
+            cache._occupe = False
     return Encoder(return_bytes=True, **argsDict)(obj)
 
 
@@ -362,11 +398,17 @@ def loads(json, *, obj=None, iterator=False, **argsDict):
     Return:
         created object, updated object if `obj` is provided or elements iterator if `iterator` is `True`.
     """
-    decoder = Decoder(**argsDict)
     if iterator:
-        return decoder
-    else:
-        return decoder(json=json, obj=obj)
+        return Decoder(**argsDict)
+    cache = _instances_par_defaut
+    if not argsDict and not getattr(cache, "_occupe", False):
+        decoder = _instance_par_defaut("decoder", Decoder)
+        cache._occupe = True
+        try:
+            return decoder(json=json, obj=obj)
+        finally:
+            cache._occupe = False
+    return Decoder(**argsDict)(json=json, obj=obj)
 
 
 def load(file, *, obj=None, iterator=False, **argsDict):
