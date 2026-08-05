@@ -7293,6 +7293,15 @@ load_blosc_library(PyObject* Py_UNUSED(self), PyObject* arg)
                 sj_delta_filter_forward, sj_delta_filter_backward};
             if (register_filter(&sj_delta_filter) == 0)
                 serializejson_blosc2_delta_ok = true;
+            // filtre « zigzag » (avant bitshuffle) : ±ε repliés pour que les
+            // plans de bits restent propres — même besoin des deux côtés
+            static char sj_zigzag_name[] = "serializejson_zigzag";
+            static blosc2_filter sj_zigzag_filter = {
+                SJ_BLOSC2_FILTER_ZIGZAG, sj_zigzag_name, 1,
+                sj_zigzag_filter_forward, sj_zigzag_filter_backward};
+            serializejson_blosc2_zigzag_ok = false;
+            if (register_filter(&sj_zigzag_filter) == 0)
+                serializejson_blosc2_zigzag_ok = true;
         }
     }
 

@@ -362,6 +362,42 @@ def test_rice_mid_side_bascule_par_trame():
     _rice_direct(numpy.concatenate([identiques, independants]), 2)
 
 
+def test_zigzag_bitshuffle_toutes_largeurs():
+    # filtre 244 (zigzag) chaîné au bitshuffle natif (shuffle=3) : replie
+    # ±epsilon pour que les plans de bits restent propres — aller-retour
+    # exact pour toutes les largeurs d'entiers, tailles impaires comprises
+    from base64 import b64decode
+
+    import rapidjson
+
+    rng = numpy.random.default_rng(28)
+    for dt in (numpy.int8, numpy.int16, numpy.int32, numpy.int64,
+               numpy.uint8, numpy.uint64):
+        a = numpy.ascontiguousarray(
+            numpy.cumsum(rng.integers(-3, 4, 50_003)).astype(dt))
+        frame = b64decode(rapidjson.dumps(rapidjson.BloscToBase64(
+            a.data, a.itemsize, 1, 3, "zstd", 1, 1))[1:-1])
+        assert bytes(rapidjson.blosc_decompress_chunks(frame, 1)) == a.tobytes()
+
+
+def test_zigzag_bitshuffle_multithread_deterministe():
+    # trames multiples : mêmes octets quel que soit le nombre de threads
+    # (fork déterministe), et rechargement exact
+    from base64 import b64decode
+
+    import rapidjson
+
+    rng = numpy.random.default_rng(29)
+    a = numpy.ascontiguousarray(
+        numpy.cumsum(rng.integers(-3, 4, 3_000_000)).astype(numpy.int32))
+    frames = []
+    for nthreads in (8, 2):
+        frames.append(b64decode(rapidjson.dumps(rapidjson.BloscToBase64(
+            a.data, a.itemsize, 1, 3, "zstd", nthreads, 1))[1:-1]))
+    assert frames[0] == frames[1]
+    assert bytes(rapidjson.blosc_decompress_chunks(frames[0], 1)) == a.tobytes()
+
+
 def test_rice_mid_side_bords():
     # side extrême (un bit plus large que la source : escape élargi),
     # et longueurs impaires (paire finale incomplète)

@@ -1944,3 +1944,46 @@ mode n'existe que pour c == 2). ⚠ Compat : les trames c == 2 écrites
 entre 5a03ea8 (après-midi) et ce commit ne se relisent plus (le bit de
 mode s'insère avant les bits d'ordre) — aucune n'existe hors bancs
 d'essai, rien n'a été livré.
+
+### 17 ter. Matin du 5/08 — la matinée des représentations, et la 6e candidate
+
+Exploration guidée par Baptiste (mid/side pour les pipelines d'octets,
+« ±ε aux mêmes bits », offset moitié), close par l'intégration d'une
+sixième candidate. ⚠ PIÈGE D'OUTIL découvert en route : la signature
+est `_diff_axis0(buffer, ITEMSIZE, cols)` — mes bancs de la veille au
+soir et du matin passaient (buffer, cols, itemsize), justes par
+symétrie sur la stéréo int16 (2 = 2) mais faux sur le 24/96 (dérivée
+par sous-champs int16 au lieu d'int32) et plantant en 2D large. Toute
+mesure « dérivée » de ces bancs a été refaite après correction ;
+référence corrigée : d0+filtre = 74,1 / 41,2 / **56,4** % (vraie
+stéréo / faux stéréo / 24-96), rice M/S = 67,1 / 28,4 / 52,0 %.
+
+Écarté, chiffres à l'appui — le mid/side pour les pipelines d'octets :
+  - **mid/side élargi (int32 exact)** : le side prend un bit de plus,
+    le conteneur double, le surcoût mange tout (89,1 % vraie stéréo) ;
+  - **lifting 16 bits (S-transform modulaire** : side = L−R enroulé,
+    mid = R + (side>>1) enroulé, inversible modulo 2^16) : au mieux
+    −0,4 point sur UN profil, perd ailleurs — le M/S aide le shuffle
+    nu mais ABÎME le filtre delta (ils captent en partie la même
+    chose), et l'enroulement salit les octets hauts ;
+  - **offset moitié (non-signé décalé)** : identique au complément à
+    deux au bit de signe près — le saut ±ε déménage (0x7FFF↔0x8001),
+    ne disparaît pas ;
+  - **signe-amplitude** : équivalent au zigzag sous bitshuffle, moins
+    propre (double zéro, comblé par -2^(n-1) dans la variante testée).
+
+INTÉGRÉ — la **6e candidate : dérivée → zigzag → bitshuffle** (idée
+« ±ε partagent leurs bits », de Baptiste). Le zigzag replie les
+négatifs entre les positifs (0,-1,+1 → 0,1,2) : sans lui le
+bitshuffle est une catastrophe (87 % — chaque bascule de signe
+traverse tous les plans de bits), avec lui les plans hauts se vident.
+Implémentation : filtre utilisateur 244 (largeur d'élément dans
+filters_meta, persistée par la trame — auto-descriptif comme le 242),
+chaîné au bitshuffle NATIF de blosc2, blocs élargis à 1 Mo en
+NEVER_SPLIT (le bitshuffle transpose par bloc : à 32-256 Ko il
+rendait 2-4 points contre la transposition globale). Gagne : 24/96
+**51,9 %** (bat rice 52,0), camera u8 54,2 (filtre : 56,7), image
+lisse 2 axes 4,4, signal 2M 26,0 ; perd : timestamps (12,3 contre
+10,5 au d0+shuffle), RVB, stéréo 16 bits où rice M/S reste roi.
+~1,2 Go/s mono-thread. Sans repli silencieux : shuffle=3 sans
+libblosc2 lève ValueError, que l'essai automatique saute.

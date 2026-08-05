@@ -528,12 +528,16 @@ class Encoder(rapidjson.Encoder):
             the arithmetic axis-0 derivative, alone or combined with the
             filter (in 2D the perpendicular direction; in 1D the same
             direction as the filter but with carries, which wins on wide
-            integers), plus for 2/4-byte integers a registered Rice codec
-            (fixed polynomial predictors of order 0-3 per 1024-sample frame,
-            residuals Rice-coded with a locally adapted parameter per
-            256-sample partition — FLAC's "fixed" mode in the blosc2
-            pipeline, within ~10 % of FLAC on audio) — and the winner is
-            applied to the whole array. The double compression only ever
+            integers) or followed by a zigzag+bitshuffle pipeline (registered
+            zigzag filter folding negatives between positives so that ±ε
+            share their bits, then blosc2's native bitshuffle — wins on
+            24-bit audio, B&W images and smooth surfaces), plus for 2/4-byte
+            integers a registered Rice codec (fixed polynomial predictors of
+            order 0-3 per 1024-sample frame with automatic per-frame
+            mid/side for interleaved stereo, residuals Rice-coded with a
+            locally adapted parameter per 256-sample partition — FLAC's
+            "fixed" mode in the blosc2 pipeline, within ~12 % of FLAC on
+            audio) — and the winner is applied to the whole array. The double compression only ever
             costs the sample, and the decision is deterministic.
             With a blosc2 compression, this is done by a registered blosc2
             FILTER (byte delta after shuffle), per block, multithreaded on

@@ -268,6 +268,12 @@ else:
                         if (contiguous.dtype.kind in "iu"
                                 and sample.shape[0] > 1):
                             candidates += [(1, True, None), (2, True, None)]
+                            # pipeline zigzag + bitshuffle (filtre 244) après
+                            # la dérivée : ±ε repliés puis plans de bits —
+                            # gagne sur le 24 bits, les images N&B et les
+                            # surfaces lisses, là où les bascules de signe
+                            # dominent le coût
+                            candidates.append((3, True, None))
                         if (contiguous.dtype.kind in "iu"
                                 and contiguous.itemsize in (2, 4)):
                             # codec Rice enregistré (243) : prédicteurs fixes
@@ -287,9 +293,9 @@ else:
                                     rice_channels,
                                 )
                             except ValueError:
-                                if cand_cname is None:
+                                if cand_cname is None and cand_shuffle != 3:
                                     raise
-                                continue  # codec absent (lib sans registre)
+                                continue  # codec/filtre absent (lib sans registre)
                             # à taille égale, le candidat le plus simple
                             # (listé en premier) l'emporte : déterministe
                             if best is None or cand.compressed_size < best[0]:

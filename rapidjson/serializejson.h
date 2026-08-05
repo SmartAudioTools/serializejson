@@ -1006,8 +1006,82 @@ sj_delta_filter_backward(const uint8_t* src, uint8_t* dest, int32_t size,
     return 0;
 }
 
+// Filtre UTILISATEUR zigzag (id 244), pensé pour passer AVANT le bitshuffle
+// natif : replie les négatifs entre les positifs (0, -1, +1, -2 -> 0, 1, 2,
+// 3) pour que ±ε partagent leurs bits — sans lui, chaque bascule de signe
+// d'une dérivée traverse TOUS les plans de bits et le bitshuffle perd
+// (mesuré 87 % contre 73 % avec, sur la stéréo réelle). Largeur d'élément
+// passée par filters_meta (persistée dans la trame), bijectif pour toute
+// largeur, tail d'octets copiée telle quelle.
+#define SJ_BLOSC2_FILTER_ZIGZAG 244
+
+template <typename T, typename U>
+static inline void
+sj_zigzag_fwd_typed(const uint8_t* src, uint8_t* dest, int32_t n)
+{
+    const T* in = (const T*) (const void*) src;
+    U* out = (U*) (void*) dest;
+    const int nb = (int) sizeof(T) * 8 - 1;
+    for (int32_t i = 0; i < n; i++) {
+        T d = in[i];
+        out[i] = ((U) d << 1) ^ (U) (d >> nb);
+    }
+}
+
+template <typename T, typename U>
+static inline void
+sj_zigzag_bwd_typed(const uint8_t* src, uint8_t* dest, int32_t n)
+{
+    const U* in = (const U*) (const void*) src;
+    T* out = (T*) (void*) dest;
+    for (int32_t i = 0; i < n; i++) {
+        U u = in[i];
+        out[i] = (T) ((u >> 1) ^ (U) (0 - (u & 1)));
+    }
+}
+
+static int
+sj_zigzag_filter_forward(const uint8_t* src, uint8_t* dest, int32_t size,
+                         uint8_t meta, blosc2_cparams* cparams, uint8_t id)
+{
+    (void) id;
+    int ts = meta ? (int) meta : (cparams ? (int) cparams->typesize : 1);
+    int32_t n = size / ts;
+    switch (ts) {
+        case 1: sj_zigzag_fwd_typed<int8_t, uint8_t>(src, dest, n); break;
+        case 2: sj_zigzag_fwd_typed<int16_t, uint16_t>(src, dest, n); break;
+        case 4: sj_zigzag_fwd_typed<int32_t, uint32_t>(src, dest, n); break;
+        case 8: sj_zigzag_fwd_typed<int64_t, uint64_t>(src, dest, n); break;
+        default: memcpy(dest, src, (size_t) size); return 0;
+    }
+    if (n * ts < size)  // queue d'octets incomplète : copiée telle quelle
+        memcpy(dest + n * ts, src + n * ts, (size_t) (size - n * ts));
+    return 0;
+}
+
+static int
+sj_zigzag_filter_backward(const uint8_t* src, uint8_t* dest, int32_t size,
+                          uint8_t meta, blosc2_dparams* dparams, uint8_t id)
+{
+    (void) id;
+    (void) dparams;
+    int ts = meta ? (int) meta : 1;
+    int32_t n = size / ts;
+    switch (ts) {
+        case 1: sj_zigzag_bwd_typed<int8_t, uint8_t>(src, dest, n); break;
+        case 2: sj_zigzag_bwd_typed<int16_t, uint16_t>(src, dest, n); break;
+        case 4: sj_zigzag_bwd_typed<int32_t, uint32_t>(src, dest, n); break;
+        case 8: sj_zigzag_bwd_typed<int64_t, uint64_t>(src, dest, n); break;
+        default: memcpy(dest, src, (size_t) size); return 0;
+    }
+    if (n * ts < size)
+        memcpy(dest + n * ts, src + n * ts, (size_t) (size - n * ts));
+    return 0;
+}
+
 typedef int (*sj_blosc2_register_filter_t)(blosc2_filter*);
 static bool serializejson_blosc2_delta_ok = false;
+static bool serializejson_blosc2_zigzag_ok = false;
 static int serializejson_blosc2_nthreads_global = 1;
 
 // --- codec blosc2 « Rice à prédicteurs fixes » (id 243) ---------------------
@@ -1511,6 +1585,15 @@ sj_compress_chunks(const char* src, size_t length, size_t typesize, int clevel,
         // shuffle, chaque flux d'octets est lisse et le delta les linéarise)
         cparams.filters[BLOSC2_MAX_FILTERS - 2] = BLOSC_SHUFFLE;
         cparams.filters[BLOSC2_MAX_FILTERS - 1] = SJ_BLOSC2_FILTER_DELTA;
+    } else if (shuffle == 3 && serializejson_blosc2_zigzag_ok) {
+        // pipeline zigzag -> bitshuffle : ±ε repliés, plans de bits propres.
+        // Blocs larges : le bitshuffle transpose PAR BLOC, et des plans de
+        // bits courts perdent 2-4 points contre la transposition globale
+        cparams.filters[BLOSC2_MAX_FILTERS - 2] = SJ_BLOSC2_FILTER_ZIGZAG;
+        cparams.filters_meta[BLOSC2_MAX_FILTERS - 2] = (uint8_t) typesize;
+        cparams.filters[BLOSC2_MAX_FILTERS - 1] = BLOSC_BITSHUFFLE;
+        cparams.splitmode = BLOSC_NEVER_SPLIT;
+        cparams.blocksize = 1 << 20;
     } else
         cparams.filters[BLOSC2_MAX_FILTERS - 1] =
             shuffle ? BLOSC_SHUFFLE : BLOSC_NOFILTER;
@@ -1631,6 +1714,14 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
                         "blosc library not loaded (call load_blosc_library first)");
         return nullptr;
     }
+    if (shuffle == 3
+        && !(serializejson_blosc2_zigzag_ok && serializejson_blosc2_ctx_ok)) {
+        // pas de repli silencieux vers la voie blosc1 (qui lirait 3 comme un
+        // shuffle invalide) : l'essai automatique attrape ce ValueError
+        PyErr_SetString(PyExc_ValueError,
+                        "zigzag+bitshuffle requires a loadable libblosc2");
+        return nullptr;
+    }
 
     Py_buffer view;
     if (PyObject_GetBuffer(value, &view, PyBUF_CONTIG_RO) != 0)
@@ -1673,6 +1764,7 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
     // (déterministe avec le fork, octets stables quel que soit leur nombre).
     bool rice = (strcmp(cname, "rice") == 0);
     if (((shuffle == 2 && serializejson_blosc2_delta_ok)
+         || (shuffle == 3 && serializejson_blosc2_zigzag_ok)
          || (rice && serializejson_blosc2_rice_ok))
         && serializejson_blosc2_ctx_ok
         && (size_t) view.len < (size_t) INT32_MAX - BLOSC2_MAX_OVERHEAD) {
@@ -1700,6 +1792,13 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
         if (rice) {
             cparams.compcode_meta = (uint8_t) (typesize | (channels << 4));
             cparams.splitmode = BLOSC_NEVER_SPLIT;
+        } else if (shuffle == 3) {
+            // pipeline zigzag -> bitshuffle, blocs larges (voir sj_compress_chunks)
+            cparams.filters[BLOSC2_MAX_FILTERS - 2] = SJ_BLOSC2_FILTER_ZIGZAG;
+            cparams.filters_meta[BLOSC2_MAX_FILTERS - 2] = (uint8_t) typesize;
+            cparams.filters[BLOSC2_MAX_FILTERS - 1] = BLOSC_BITSHUFFLE;
+            cparams.splitmode = BLOSC_NEVER_SPLIT;
+            cparams.blocksize = 1 << 20;
         } else {
             // pipeline shuffle -> delta d'octets (ordre MESURÉ gagnant)
             cparams.filters[BLOSC2_MAX_FILTERS - 2] = BLOSC_SHUFFLE;
