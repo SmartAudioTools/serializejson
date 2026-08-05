@@ -193,15 +193,18 @@ SUPPORTS = [("Seagate BarraCuda\n(disque dur, ~190 Mo/s)", 190e6),
             ("WD Black SN850X\n(NVMe PCIe 4, ~7 Go/s)", 7e9),
             ("Crucial T705\n(NVMe PCIe 5, ~14 Go/s)", 14e9)]
 
-# CPU modernes POPULAIRES : facteur de vitesse de calcul APPROXIMATIF
-# relatif à la machine de mesure (indices mono/multi-cœur publics) — le
-# modèle divise les deux temps de calcul (pickle et serializejson) par ce
-# facteur, les temps de transfert ne bougent pas
-CPUS = [("Raspberry Pi 5", 0.25),
-        ("portable i5-8250U (2018)", 0.55),
-        ("machine de mesure (i7 mobile)", 1.0),
-        ("Apple M4", 1.7),
-        ("Ryzen 9 9950X", 1.8)]
+# machines RÉALISTES : couples CPU + stockage d'une même gamme. Facteur de
+# calcul approximatif relatif à la machine de mesure (indices publics), et
+# débit du stockage TEL QUE VU par la machine — un NVMe sur Raspberry Pi 5
+# est bridé par l'unique ligne PCIe 2.0 du HAT (~450 Mo/s), un MacBook M4
+# a son SSD soudé (~6 Go/s), la tour PCIe 5 exploite un Crucial T705
+MACHINES = [("Raspberry Pi 5\n+ microSD (~90 Mo/s)", 0.25, 90e6),
+            ("Raspberry Pi 5 + NVMe\nsur HAT PCIe 2.0 (~450 Mo/s)", 0.25,
+             450e6),
+            ("portable 2018 i5-8250U\n+ SSD SATA (~560 Mo/s)", 0.55, 560e6),
+            ("i7 mobile (mesure)\n+ NVMe PCIe 3 (~3,5 Go/s)", 1.0, 3.5e9),
+            ("MacBook Pro M4\n+ SSD interne (~6 Go/s)", 1.7, 6e9),
+            ("tour Ryzen 9 9950X\n+ NVMe PCIe 5 (~14 Go/s)", 1.8, 14e9)]
 
 
 def figure_barres(resultats, sens, titre):
@@ -275,39 +278,51 @@ def figure_support(resultats, sens, titre):
     return fig
 
 
-def figure_cpu(resultats, sens, titre):
-    # même scénario support, mais une courbe par CPU : les temps de calcul
-    # des deux camps sont divisés par le facteur du CPU, le transfert non —
-    # un CPU rapide déplace le point de bascule vers les supports rapides
+def figure_machines(resultats, sens, titre):
+    # UN graphique, une machine réaliste (couple CPU + stockage de même
+    # gamme) par position : deux barres — temps total d'écriture et de
+    # lecture (calcul mis à l'échelle du CPU + transfert au débit du
+    # stockage) — une barre PETITE = avantage serializejson
     import matplotlib.pyplot as plt
 
     profil = "signal lisse int16 (4 Mo)"
     m = dict(resultats)[profil]
-    debits = numpy.logspace(numpy.log10(80e6), numpy.log10(17e9), 200)
+    noms = [nom for nom, _, _ in MACHINES]
+    rapports = {}
+    for cle in ("dumps", "loads"):
+        valeurs = []
+        for _, facteur, debit in MACHINES:
+            t_pk = m[f"{cle}_pickle"] / facteur + m["taille_pickle"] / debit
+            t_sj = m[f"{cle}_sj"] / facteur + m["taille_sj"] / debit
+            valeurs.append(t_sj / t_pk)
+        rapports[cle] = numpy.array(valeurs)
     fig, ax = plt.subplots(figsize=(11.69, 8.27))
-    for (nom, facteur), couleur in zip(
-            CPUS, plt.cm.viridis(numpy.linspace(0.85, 0.1, len(CPUS)))):
-        t_pk = m[f"{sens}_pickle"] / facteur + m["taille_pickle"] / debits
-        t_sj = m[f"{sens}_sj"] / facteur + m["taille_sj"] / debits
-        ax.plot(debits / 1e6, t_sj / t_pk, color=couleur,
-                label=f"{nom}  (calcul ×{facteur:g})")
+    x = numpy.arange(len(noms))
+    b1 = ax.bar(x - 0.21, rapports["dumps"], 0.4, color=BLEU,
+                label="écriture  (temps total serializejson / pickle)")
+    b2 = ax.bar(x + 0.21, rapports["loads"], 0.4, color=ORANGE,
+                label="lecture  (temps total serializejson / pickle)")
+    for barres in (b1, b2):
+        for barre in barres:
+            v = barre.get_height()
+            ax.annotate(f"×{v:.2f}",
+                        (barre.get_x() + barre.get_width() / 2, v),
+                        ha="center", va="bottom", fontsize=8)
     ax.axhline(1.0, color="gray", ls="--", lw=1)
-    ax.set_xscale("log")
+    ax.text(-0.45, 1.03, "égalité ×1", color="gray", fontsize=8, ha="left")
     ax.set_yscale("log")
-    for etiquette, debit in SUPPORTS:
-        ax.axvline(debit / 1e6, color="lightgray", lw=0.8)
-        ax.annotate(etiquette, (debit / 1e6, 0.015), xycoords=("data",
-                    "axes fraction"), fontsize=7, color="gray",
-                    ha="center", va="bottom")
+    ax.set_ylim(bottom=min(rapports["dumps"].min(),
+                           rapports["loads"].min()) * 0.55,
+                top=max(rapports["dumps"].max(),
+                        rapports["loads"].max()) * 1.9)
     ax.set_yticks([0.2, 0.5, 1, 2])
     ax.set_yticklabels(["×0,2", "×0,5", "×1", "×2"])
     ax.yaxis.set_minor_formatter(plt.NullFormatter())
-    ax.set_xlabel("débit du support (Mo/s, échelle log)")
-    ax.set_ylabel("temps total serializejson / temps total pickle")
-    ax.set_title(titre + f" — profil « {profil} »"
-                 " — en dessous de ×1 : avantage serializejson")
-    ax.legend(fontsize=8, loc="upper left",
-              title="facteurs de calcul approximatifs", title_fontsize=8)
+    ax.set_xticks(x)
+    ax.set_xticklabels(noms, fontsize=8)
+    ax.set_title(titre + f" — profil « {profil} » —"
+                 " sous ×1 : avantage serializejson", fontsize=11)
+    ax.legend(loc="upper left", fontsize=9)
     fig.tight_layout()
     return fig
 
@@ -321,10 +336,8 @@ FIGURES = [
      "écriture sur un support (dumps + transfert)"),
     ("benchmark_lecture_support", figure_support, "loads",
      "lecture depuis un support (transfert + loads)"),
-    ("benchmark_ecriture_cpu", figure_cpu, "dumps",
-     "écriture selon le CPU"),
-    ("benchmark_lecture_cpu", figure_cpu, "loads",
-     "lecture selon le CPU"),
+    ("benchmark_machines", figure_machines, "",
+     "machines réalistes (CPU + stockage de même gamme)"),
 ]
 
 

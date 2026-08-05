@@ -100,18 +100,15 @@ fast NVMe drives, pickle stays ahead for barely-compressible data:
    :alt: total read time ratio against storage throughput
    :width: 100%
 
-The CPU matters too: a fast CPU shrinks the compression cost and extends
-serializejson's advantage towards fast NVMe drives, while a small board like
-a Raspberry Pi moves the break-even point down (curves below model popular
-CPUs by scaling both compute times by their approximate relative speed, on
-the "smooth int16 signal" profile):
+On realistic machines — pairing each CPU with a storage of the same class,
+from a Raspberry Pi 5 on a microSD (or on an NVMe capped by its single
+PCIe 2.0 lane) to a Ryzen 9 desktop on a PCIe 5 NVMe — serializejson wins
+both write and read on every machine below the very fastest combinations
+(compute times scaled by each CPU's approximate relative speed, "smooth
+int16 signal" profile):
 
-.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_ecriture_cpu.svg
-   :alt: total write time ratio against storage throughput for popular CPUs
-   :width: 100%
-
-.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_lecture_cpu.svg
-   :alt: total read time ratio against storage throughput for popular CPUs
+.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_machines.svg
+   :alt: total write and read time ratios on realistic machines
    :width: 100%
 
 
