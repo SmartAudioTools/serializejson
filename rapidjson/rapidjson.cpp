@@ -782,6 +782,74 @@ sj_ref_json(PathTracker* tracker, long node_index)
     return node.refJson;
 }
 
+// graphie repr() d'un flottant FINI, mémoïsée par motif de bits (cache
+// direct 256 entrées, sous GIL) : les documents répètent massivement les
+// mêmes valeurs — ~45 ns la composition Ryu, ~6 ns le hit
+static inline const char*
+sj_float_repr(double d, size_t* out_length)
+{
+    struct SjFloatRepr { uint64_t bits; uint8_t len; char text[24]; };
+    static SjFloatRepr repr_cache[256];
+    uint64_t bits;
+    memcpy(&bits, &d, 8);
+    SjFloatRepr& slot = repr_cache[(bits ^ (bits >> 17) ^ (bits >> 32)) & 255];
+    if (slot.len != 0 && slot.bits == bits) {
+        *out_length = slot.len;
+        return slot.text;
+    }
+    static char repr_buf[40];
+    size_t repr_len = (size_t) sjdtoa::ReprDouble(d, repr_buf);
+    if (repr_len <= sizeof(slot.text)) {
+        slot.bits = bits;
+        slot.len = (uint8_t) repr_len;
+        memcpy(slot.text, repr_buf, repr_len);
+        *out_length = repr_len;
+        return slot.text;
+    }
+    *out_length = repr_len;
+    return repr_buf;
+}
+
+
+// écrit ICI les scalaires sûrs (None, bool, int64 exact, float fini exact —
+// graphies identiques à leurs branches générales, quel que soit le mode
+// nombre) sans garde de récursion ni dispatch ; faux = voie générale
+// (int hors 64 bits, float non fini, tout le reste)
+template<typename WriterT>
+static inline bool
+sj_write_scalar_inline(WriterT* writer, PyObject* item)
+{
+    if (item == Py_None) {
+        writer->Null();
+        return true;
+    }
+    if (item == Py_True || item == Py_False) {
+        writer->Bool(item == Py_True);
+        return true;
+    }
+    if (PyLong_CheckExact(item)) {
+        int overflow;
+        long long iv = PyLong_AsLongLongAndOverflow(item, &overflow);
+        if (overflow == 0 && !(iv == -1 && PyErr_Occurred())) {
+            writer->Int64(iv);
+            return true;
+        }
+        PyErr_Clear();
+        return false;
+    }
+    if (PyFloat_CheckExact(item)) {
+        double dv = PyFloat_AS_DOUBLE(item);
+        if (dv == dv && dv != (1.0 / 0.0) && dv != (-1.0 / 0.0)) {
+            size_t repr_len;
+            const char* repr_str = sj_float_repr(dv, &repr_len);
+            writer->RawValue(repr_str, repr_len);
+            return true;
+        }
+    }
+    return false;
+}
+
+
 // chaîne "root[0].attr['clef']" du noeud node_index (-1 = "root")
 static std::string
 path_tracker_string(PathTracker* tracker, long node_index)
@@ -5659,28 +5727,10 @@ dumps_internal(
         } else {
             // graphie EXACTE de repr(), sans passer par le __repr__ des
             // sous-classes (numpy 2 float64 donnerait "np.float64(0.0)") :
-            // Ryu en direct (total, jamais d'échec) — mémoïsé par MOTIF DE
-            // BITS (cache direct 256 entrées, sous GIL) : les documents
-            // répètent massivement les mêmes valeurs (0.0, 1.0, pas de
-            // temps...), ~45 ns la composition contre ~6 ns le hit
-            struct SjFloatRepr { uint64_t bits; uint8_t len; char text[24]; };
-            static SjFloatRepr repr_cache[256];
-            uint64_t bits;
-            memcpy(&bits, &d, 8);
-            SjFloatRepr& slot =
-                repr_cache[(bits ^ (bits >> 17) ^ (bits >> 32)) & 255];
-            if (slot.len != 0 && slot.bits == bits) {
-                writer->RawValue(slot.text, slot.len);
-            } else {
-                char repr_buf[40];
-                size_t repr_len = (size_t) sjdtoa::ReprDouble(d, repr_buf);
-                writer->RawValue(repr_buf, repr_len);
-                if (repr_len <= sizeof(slot.text)) {
-                    slot.bits = bits;
-                    slot.len = (uint8_t) repr_len;
-                    memcpy(slot.text, repr_buf, repr_len);
-                }
-            }
+            // Ryu mémoïsé par motif de bits (sj_float_repr)
+            size_t repr_len;
+            const char* repr_str = sj_float_repr(d, &repr_len);
+            writer->RawValue(repr_str, repr_len);
         }
     }
 	
@@ -6027,6 +6077,8 @@ dumps_internal(
                 writer->String(inline_str, (SizeType) inline_length);
                 continue;
             }
+            if (sj_write_scalar_inline(writer, item))
+                continue;
             PATH_PUSH_INDEX(ti)
             bool r = RECURSE(item);
             PATH_POP()
@@ -6304,14 +6356,8 @@ dumps_internal(
                         writer->RawValue(shape.fragments[i].data(),
                                          shape.fragments[i].size());
                         PyObject* shape_item = shape_values[i];
-                        if (shape_item == Py_None) {
-                            writer->Null();
+                        if (sj_write_scalar_inline(writer, shape_item))
                             continue;
-                        }
-                        if (shape_item == Py_True || shape_item == Py_False) {
-                            writer->Bool(shape_item == Py_True);
-                            continue;
-                        }
                         if (PyUnicode_CheckExact(shape_item)) {
                             Py_ssize_t inline_length;
                             const char* inline_str = PyUnicode_AsUTF8AndSize(
@@ -6424,6 +6470,10 @@ dumps_internal(
                         Py_CLEAR(coercedKey);
                         continue;
                     }
+                    if (sj_write_scalar_inline(writer, item)) {
+                        Py_CLEAR(coercedKey);
+                        continue;
+                    }
                     if (Py_EnterRecursiveCall(" while JSONifying dict object")) {
                         Py_XDECREF(coercedKey);
                         return false;
@@ -6507,6 +6557,8 @@ dumps_internal(
                     writer->String(inline_str, (SizeType) inline_length);
                     continue;
                 }
+                if (sj_write_scalar_inline(writer, items[i].item))
+                    continue;
                 if (Py_EnterRecursiveCall(" while JSONifying dict object"))
                     return false;
                 // même règle que la boucle non triée (ex-SingleLine)
@@ -6836,6 +6888,8 @@ dumps_internal(
                         writer->String(vs, (SizeType) vl);
                         continue;
                     }
+                    if (sj_write_scalar_inline(writer, entree.value))
+                        continue;
                     if (Py_EnterRecursiveCall(" while JSONifying dict object"))
                         return false;
                     PATH_PUSH_KEY(entree.texte.data(), entree.texte.size());
@@ -7011,6 +7065,8 @@ dumps_internal(
                                        (SizeType) inline_length);
                         continue;
                     }
+                    if (sj_write_scalar_inline(writer, item))
+                        continue;
                     PATH_PUSH_INDEX(si)
                     set_ok = RECURSE(item);
                     PATH_POP()
@@ -7810,15 +7866,8 @@ dumps_internal(
                         attrsDict = true;  // segments de chemin en style ".attr"
                         for (const FastAttr& attr : attrs) {
                             writer->Key(attr.key, (SizeType) attr.len);
-                            if (attr.value == Py_None) {
-                                writer->Null();
+                            if (sj_write_scalar_inline(writer, attr.value))
                                 continue;
-                            }
-                            if (attr.value == Py_True
-                                || attr.value == Py_False) {
-                                writer->Bool(attr.value == Py_True);
-                                continue;
-                            }
                             if (PyUnicode_CheckExact(attr.value)) {
                                 Py_ssize_t inline_length;
                                 const char* inline_str = PyUnicode_AsUTF8AndSize(
