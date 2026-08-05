@@ -2385,3 +2385,20 @@ Fin de nuit : PGO ×5, batterie complète, benchmarks sur machine calme,
 rapport final ici. ⚠ Mémoire persistante indisponible depuis ~20 h 40
 (bind-monts de /DATA retombés, dossier projet réapparu vide en nobody —
 redémarrage requis) : CE document est le porteur d'état de la nuit.
+
+Avancement ~21 h 15 (tout commité, batterie verte à chaque pas) :
+bytes loads ×172→17 puis file différée sans threads <1 Mo ; bytearray
+×106→10 ; dict loads ×66→12,5 (Décodeur par thread + clés scalaires) et
+dumps ×25→15 (préfiltre regex au lieu de la sonde loads par clé) ;
+collections ×56→13 par ricochet ; set/frozenset dumps ×29/23→5,4/4,1
+(recette C via class_plan + règle « liste exacte = telle quelle ») ;
+types loads ×30→6 (cache dédié des valeurs de type — PAS le registre
+constructors, piège attrapé par la batterie — partagé avec le C qui n'en
+sert que les hits, NoneType compris ; lot 1750→295 µs). ⚠ Les mesures de
+ratios de ce soir sont polluées (Baptiste travaille, charge 5-6) : se fier
+aux PROFILS (compte d'appels python) pour choisir les cibles, et refaire
+la table finale sur machine calme. RESTE : bytes dumps ~×19 (plancher =
+appel plugin par objet ; viser une branche C native avec seuil/params via
+pathTracker), collections ~×12, bytesarray dumps, tuple loads ×8 (le
+chemin C PyList_AsTuple existe — chercher pourquoi il ne prend pas sur la
+catégorie), decimales/datetime/binary, iterators/queue, scalaires dumps.
