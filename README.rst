@@ -111,6 +111,14 @@ int16 signal" profile):
    :alt: total write and read time ratios on realistic machines
    :width: 100%
 
+Against dedicated lossless image codecs on the image corpora, serializejson
+does not predict in 2D so PNG and JPEG XL compress 1.3-2× smaller — but the
+smart chain encodes and decodes **10 to 50× faster** than both:
+
+.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_codecs_images.svg
+   :alt: serializejson against PNG and JPEG XL on the image corpora
+   :width: 100%
+
 Beyond big binary data, the repository's object catalog (every python type
 category from ``tests/objects/basic_objects.py``) and the official
 pyperformance ``bm_pickle`` workloads (myriads of small dicts, tuples and

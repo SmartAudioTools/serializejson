@@ -164,6 +164,86 @@ def profils():
     return liste
 
 
+def mesure_codecs_images():
+    # face aux codecs d'images SPÉCIALISÉS, sur les corpus d'images : PNG
+    # (PIL, niveau par défaut) et JPEG XL sans perte (cjxl -d 0 -e 3, la
+    # référence actuelle du compromis poids/vitesse ; temps = processus
+    # complet, lancement compris). Les profondeurs que PNG/PIL ne porte pas
+    # (RVB 16 bits) sont écartées et nommées. Agrégé par corpus.
+    import io
+    import shutil
+    import subprocess
+    import tempfile
+
+    from PIL import Image
+
+    if shutil.which("cjxl") is None or shutil.which("djxl") is None:
+        return [], ["(cjxl/djxl introuvables : section sautée)"]
+
+    def minimum(fonction, essais=3):
+        temps = []
+        for _ in range(essais):
+            burst()
+            t0 = perf()
+            fonction()
+            temps.append(perf() - t0)
+        return min(temps)
+
+    groupes = {}
+    ecartees = []
+    dossier_tmp = Path(tempfile.mkdtemp(prefix="codecs_images_"))
+    for nom, tableau, groupe in _images_classiques():
+        if tableau.dtype == numpy.uint16 and tableau.ndim == 3:
+            ecartees.append(f"{nom} (RVB 16 bits : hors PNG/PIL)")
+            continue
+        try:
+            image = Image.fromarray(tableau)
+            tampon = io.BytesIO()
+            image.save(tampon, "PNG")
+        except Exception:
+            ecartees.append(nom)
+            continue
+        png = tampon.getvalue()
+        chemin_png = dossier_tmp / "image.png"
+        chemin_png.write_bytes(png)
+        chemin_jxl = dossier_tmp / "image.jxl"
+        commande_cjxl = ["cjxl", str(chemin_png), str(chemin_jxl),
+                         "-d", "0", "-e", "3", "--quiet"]
+        subprocess.run(commande_cjxl, check=True, capture_output=True)
+        jxl = chemin_jxl.read_bytes()
+        chemin_sortie = dossier_tmp / "sortie.png"
+        commande_djxl = ["djxl", str(chemin_jxl), str(chemin_sortie),
+                         "--quiet"]
+        subprocess.run(commande_djxl, check=True, capture_output=True)
+        j = serializejson.dumps(tableau)
+
+        def encode_png():
+            b = io.BytesIO()
+            image.save(b, "PNG")
+
+        m = {
+            "nbytes": tableau.nbytes,
+            "taille_sj": len(serializejson.dumps(tableau)),
+            "taille_png": len(png),
+            "taille_jxl": len(jxl),
+            "enc_sj": chrono(lambda: serializejson.dumps(tableau),
+                             plafond=0.4),
+            "dec_sj": chrono(lambda: serializejson.loads(j), plafond=0.4),
+            "enc_png": chrono(encode_png, plafond=0.4),
+            "dec_png": chrono(lambda: Image.open(io.BytesIO(png)).load(),
+                              plafond=0.4),
+            "enc_jxl": minimum(lambda: subprocess.run(
+                commande_cjxl, check=True, capture_output=True)),
+            "dec_jxl": minimum(lambda: subprocess.run(
+                commande_djxl, check=True, capture_output=True)),
+        }
+        cumul = groupes.setdefault(groupe, {})
+        for cle, valeur in m.items():
+            cumul[cle] = cumul.get(cle, 0) + valeur
+    shutil.rmtree(dossier_tmp, ignore_errors=True)
+    return sorted(groupes.items()), ecartees
+
+
 def mesure_types_objets():
     # le catalogue d'objets du dépôt (tests/objects/basic_objects.py, celui
     # de test_serialize_vs_pickle) : chaque CATÉGORIE de types python est
@@ -269,7 +349,8 @@ def geometrique(valeurs):
     return float(numpy.exp(numpy.mean(numpy.log(valeurs)))) if valeurs else None
 
 
-def rendu_markdown(resultats, pyperf, types_objets, types_ecartes, entete):
+def rendu_markdown(resultats, pyperf, types_objets, types_ecartes,
+                   codecs_images, codecs_ecartes, entete):
     md = ["# serializejson (défaut « smart ») contre pickle — mesures", "",
           *entete, "",
           "| profil | pickle | serializejson | poids | dumps | loads |"
@@ -323,6 +404,31 @@ def rendu_markdown(resultats, pyperf, types_objets, types_ecartes, entete):
            " traverser un disque, un réseau ou un cloud, le poids gagné fait"
            " gagner le temps total.",
            "",
+           "## corpus d'images : face aux codecs d'images spécialisés",
+           "",
+           "PNG (PIL, réglages par défaut) et JPEG XL sans perte (cjxl -d 0"
+           " -e 3, la référence actuelle du compromis poids/vitesse ; ses"
+           " temps incluent le lancement du processus). Poids en % des"
+           " octets BRUTS ; ces codecs prédisent en 2D, notre chaîne"
+           " générique non — c'est l'écart attendu sur les photos.",
+           "",
+           "| corpus | brut | smart | PNG | JPEG XL |"
+           " enc. smart | enc. PNG | enc. JXL |"
+           " déc. smart | déc. PNG | déc. JXL |",
+           "|---|---|---|---|---|---|---|---|---|---|---|"]
+    for groupe, m in codecs_images:
+        md.append(
+            f"| {groupe} | {fmt_octets(m['nbytes'])}"
+            f" | {100 * m['taille_sj'] / m['nbytes']:.0f} %"
+            f" | {100 * m['taille_png'] / m['nbytes']:.0f} %"
+            f" | {100 * m['taille_jxl'] / m['nbytes']:.0f} %"
+            f" | {1e3 * m['enc_sj']:.0f} ms | {1e3 * m['enc_png']:.0f} ms"
+            f" | {1e3 * m['enc_jxl']:.0f} ms"
+            f" | {1e3 * m['dec_sj']:.0f} ms | {1e3 * m['dec_png']:.0f} ms"
+            f" | {1e3 * m['dec_jxl']:.0f} ms |")
+    if codecs_ecartes:
+        md += ["", "Écartées : " + ", ".join(codecs_ecartes) + "."]
+    md += ["",
            "## catalogue d'objets du dépôt, par catégorie de types python",
            "",
            "Les objets de `tests/objects/basic_objects.py` (ceux de"
@@ -569,6 +675,38 @@ def figure_types(donnees, sens, titre):
     return fig
 
 
+def figure_codecs_images(donnees, sens, titre):
+    # poids par corpus, en % des octets bruts : serializejson smart contre
+    # PNG et JPEG XL sans perte — barre PETITE = meilleur
+    import matplotlib.pyplot as plt
+
+    groupes = donnees["codecs"]
+    noms = [groupe for groupe, _ in groupes]
+    fig, ax = plt.subplots(figsize=(11.69, 8.27))
+    x = numpy.arange(len(noms))
+    series = [("serializejson (défaut smart)", "taille_sj", BLEU),
+              ("PNG (PIL)", "taille_png", "#4a9d6e"),
+              ("JPEG XL sans perte (cjxl -e 3)", "taille_jxl", ORANGE)]
+    for decalage, (etiquette, cle, couleur) in zip((-0.27, 0.0, 0.27),
+                                                   series):
+        valeurs = numpy.array(
+            [100 * m[cle] / m["nbytes"] for _, m in groupes])
+        barres = ax.bar(x + decalage, valeurs, 0.25, color=couleur,
+                        label=etiquette)
+        for barre in barres:
+            v = barre.get_height()
+            ax.annotate(f"{v:.0f} %",
+                        (barre.get_x() + barre.get_width() / 2, v),
+                        ha="center", va="bottom", fontsize=8)
+    ax.set_ylabel("poids compressé (% des octets bruts)")
+    ax.set_xticks(x)
+    ax.set_xticklabels(noms, fontsize=9)
+    ax.set_title(titre + " — barre petite : meilleur")
+    ax.legend(loc="upper left", fontsize=9)
+    fig.tight_layout()
+    return fig
+
+
 def figure_pyperformance(donnees, sens, titre):
     # les cinq charges des benchmarks pickle OFFICIELS (pyperformance,
     # bm_pickle) répliquées : myriade de PETITS objets python (dicts,
@@ -609,6 +747,8 @@ FIGURES = [
      "lecture depuis un support (transfert + loads)"),
     ("benchmark_machines", figure_machines, "",
      "machines réalistes (CPU + stockage de même gamme)"),
+    ("benchmark_codecs_images", figure_codecs_images, "",
+     "corpus d'images : serializejson face aux codecs d'images spécialisés"),
     ("benchmark_types_objets", figure_types, "",
      "catalogue d'objets du dépôt, par catégorie de types python"),
     ("benchmark_pyperformance", figure_pyperformance, "",
@@ -676,11 +816,14 @@ if __name__ == "__main__":
     resultats = agrege_par_groupe(lignes)
     print("catalogue d'objets du dépôt (par catégorie de types)...")
     types_objets, types_ecartes = mesure_types_objets()
+    print("codecs d'images spécialisés (PNG, JPEG XL)...")
+    codecs_images, codecs_ecartes = mesure_codecs_images()
     print("benchmarks officiels pyperformance (petits objets)...")
     pyperf = bench_pyperformance_pickle.mesures()
-    donnees = {"profils": resultats, "pyperf": pyperf, "types": types_objets}
+    donnees = {"profils": resultats, "pyperf": pyperf, "types": types_objets,
+               "codecs": codecs_images}
     markdown = rendu_markdown(resultats, pyperf, types_objets, types_ecartes,
-                              entete)
+                              codecs_images, codecs_ecartes, entete)
     horodatage = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
     dossier = (Path(sys.argv[1]) if len(sys.argv) > 1
                else RACINE / "rapports_benchmarks")
