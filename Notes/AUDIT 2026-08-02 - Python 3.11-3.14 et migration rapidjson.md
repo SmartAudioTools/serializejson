@@ -2190,6 +2190,42 @@ fichiers toujours lus. Blocs unifiés à 512 Ko dans la foulée (§ ci-
 dessus). Sur le bruit pur, smart paie ~×2 à l'écriture pour un poids
 égal — coût accepté en connaissance de cause.
 
+### 17 septies. Fin d'après-midi du 5/08 — fusion base64 : faite, mesurée, retirée ; cumsum dans le filtre 244 : gagné
+
+**Fusion base64 par blocs** (demande « aller jusqu'au bout ») : le schéma
+conçu avec Baptiste — relais d'offsets le long du commit ordonné du fork,
+fusion des bits aux joints entre blocs, décodage par tranches à la volée
+dans blosc_d (le base64 est une bijection sans état : l'octet d vit dans
+le quadruplet d/3) — a été IMPLÉMENTÉ côté lecture (fork + enveloppe,
+décodeur SSSE3 porté), validé exact (108 tests + 35 aller-retours), puis
+MESURÉ en A/B alterné : perdant de 0 à 3 % en régime cache ET en régime
+RAM (244 Mo, trame de 180 Mo). Cause structurelle : plafond d'Amdahl —
+par octet compressé, le base64 SSE coûte 10-20 fois moins que zstd, le
+gain maximal (~5-10 %) est du même ordre que les frais de la fusion
+(lectures dispersées contre flux séquentiel que les préchargeurs
+servent). RETIRÉ intégralement, fork revenu au patch commité. ⚠ Au
+passage, piège du fork : ses modifications sont un diff NON COMMITÉ dans
+c-blosc2/ — un git checkout là-bas les efface (il faut réappliquer
+blosc2_determinisme.patch), une lib vanille a été déployée par erreur
+puis rattrapée.
+
+**Chantier gagnant né de l'autopsie : le cumsum DANS le filtre 244.**
+À la lecture, le postfiltre imposait un saut de tampon par bloc
+(décompression vers un temporaire, recopie-cumul vers la sortie). Le
+dézigzag et le cumsum étant adjacents et composables, l'ARRIÈRE du
+filtre 244 les fait désormais en UNE passe quand son octet meta le
+demande : quartet bas = largeur d'élément, quartet haut = code de
+colonnes (1, 2, 4, 8 — le 1D, la stéréo, le quadri ; au-delà, repli
+postfiltre). L'écrivain grave le code en mode préfiltre ; les deux
+lecteurs C détectent l'octet 28 de l'en-tête et sautent alors tout
+post-traitement. PIÈGE INSTRUCTIF : la première version scalaire
+PERDAIT (×0,85-0,95 — une boucle à dépendance séquentielle contre le
+préfixe SSE du postfiltre) ; la version gagnante fusionne dézigzag ET
+cascade de Hillis-Steele dans la même passe vectorielle
+(sj_unzig_prefix_u16/u32, enjambées 1 et 2). Verdict A/B (9 paires,
+même processus) : **×1,08 à ×1,50, médiane ~×1,25** sur la lecture des
+trames smart 1D/stéréo, int16 et int32.
+
 Piste examinée et NOTÉE SANS SUITE — entrelacer le base64 bloc par bloc
 avec zstd : aujourd'hui le base64 est un étage séparé (une passe SIMD
 sur la trame COMPRESSÉE, vers/depuis un tampon de travail), pas fondu

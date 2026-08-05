@@ -1228,12 +1228,34 @@ sj_zigzag_bwd_typed(const uint8_t* src, uint8_t* dest, int32_t n)
     }
 }
 
+// dézigzag + somme cumulée d'enjambée c en UNE passe (la dérivée par blocs
+// redémarre à chaque bloc, et le filtre traite exactement un bloc) : le
+// postfiltre et son saut de tampon disparaissent pour les petites lignes
+template <typename T, typename U>
+static inline void
+sj_zigzag_cumsum_bwd_typed(const uint8_t* src, uint8_t* dest, int32_t n,
+                           int32_t c)
+{
+    const U* in = (const U*) (const void*) src;
+    T* out = (T*) (void*) dest;
+    int32_t head = (c < n) ? c : n;
+    for (int32_t i = 0; i < head; i++) {
+        U u = in[i];
+        out[i] = (T) ((u >> 1) ^ (U) (0 - (u & 1)));
+    }
+    for (int32_t i = head; i < n; i++) {
+        U u = in[i];
+        out[i] = (T) (((u >> 1) ^ (U) (0 - (u & 1))) + (U) out[i - c]);
+    }
+}
+
 static int
 sj_zigzag_filter_forward(const uint8_t* src, uint8_t* dest, int32_t size,
                          uint8_t meta, blosc2_cparams* cparams, uint8_t id)
 {
     (void) id;
-    int ts = meta ? (int) meta : (cparams ? (int) cparams->typesize : 1);
+    int ts = (meta & 0xF) ? (int) (meta & 0xF)
+                          : (cparams ? (int) cparams->typesize : 1);
     int32_t n = size / ts;
     switch (ts) {
         case 1: sj_zigzag_fwd_typed<int8_t, uint8_t>(src, dest, n); break;
@@ -1247,14 +1269,137 @@ sj_zigzag_filter_forward(const uint8_t* src, uint8_t* dest, int32_t size,
     return 0;
 }
 
+
+#ifdef RAPIDJSON_SSE42
+// dézigzag + somme de préfixe en UNE passe vectorielle (le dézigzag se
+// vectorise lane par lane, la cascade de Hillis-Steele fait le reste) —
+// c'est ce qui permet au filtre 244 arrière de défaire zigzag ET dérivée
+// sans perdre le débit du préfixe SSE du postfiltre qu'il remplace
+static inline __m128i
+sj_unzig_epi16(__m128i v)
+{
+    __m128i one = _mm_set1_epi16(1);
+    __m128i sign = _mm_sub_epi16(_mm_setzero_si128(), _mm_and_si128(v, one));
+    return _mm_xor_si128(_mm_srli_epi16(v, 1), sign);
+}
+
+static inline __m128i
+sj_unzig_epi32(__m128i v)
+{
+    __m128i one = _mm_set1_epi32(1);
+    __m128i sign = _mm_sub_epi32(_mm_setzero_si128(), _mm_and_si128(v, one));
+    return _mm_xor_si128(_mm_srli_epi32(v, 1), sign);
+}
+
+static void
+sj_unzig_prefix_u16(uint16_t* d, const uint16_t* s, Py_ssize_t n,
+                    Py_ssize_t stride)
+{
+    Py_ssize_t i = 0;
+    __m128i carry = _mm_setzero_si128();
+    if (stride == 1) {
+        for (; i + 8 <= n; i += 8) {
+            __m128i v = sj_unzig_epi16(
+                _mm_loadu_si128((const __m128i*) (s + i)));
+            v = _mm_add_epi16(v, _mm_slli_si128(v, 2));
+            v = _mm_add_epi16(v, _mm_slli_si128(v, 4));
+            v = _mm_add_epi16(v, _mm_slli_si128(v, 8));
+            v = _mm_add_epi16(v, carry);
+            _mm_storeu_si128((__m128i*) (d + i), v);
+            carry = _mm_shufflehi_epi16(v, _MM_SHUFFLE(3, 3, 3, 3));
+            carry = _mm_unpackhi_epi64(carry, carry);
+        }
+    } else {  // stride == 2 (stéréo)
+        for (; i + 8 <= n; i += 8) {
+            __m128i v = sj_unzig_epi16(
+                _mm_loadu_si128((const __m128i*) (s + i)));
+            v = _mm_add_epi16(v, _mm_slli_si128(v, 4));
+            v = _mm_add_epi16(v, _mm_slli_si128(v, 8));
+            v = _mm_add_epi16(v, carry);
+            _mm_storeu_si128((__m128i*) (d + i), v);
+            carry = _mm_shuffle_epi32(v, _MM_SHUFFLE(3, 3, 3, 3));
+        }
+    }
+    for (; i < n; i++) {
+        uint16_t u = s[i];
+        uint16_t x = (uint16_t) ((u >> 1) ^ (0 - (u & 1)));
+        d[i] = (uint16_t) (x + ((i >= stride) ? d[i - stride] : 0));
+    }
+}
+
+static void
+sj_unzig_prefix_u32(uint32_t* d, const uint32_t* s, Py_ssize_t n,
+                    Py_ssize_t stride)
+{
+    Py_ssize_t i = 0;
+    __m128i carry = _mm_setzero_si128();
+    if (stride == 1) {
+        for (; i + 4 <= n; i += 4) {
+            __m128i v = sj_unzig_epi32(
+                _mm_loadu_si128((const __m128i*) (s + i)));
+            v = _mm_add_epi32(v, _mm_slli_si128(v, 4));
+            v = _mm_add_epi32(v, _mm_slli_si128(v, 8));
+            v = _mm_add_epi32(v, carry);
+            _mm_storeu_si128((__m128i*) (d + i), v);
+            carry = _mm_shuffle_epi32(v, _MM_SHUFFLE(3, 3, 3, 3));
+        }
+    } else {  // stride == 2
+        for (; i + 4 <= n; i += 4) {
+            __m128i v = sj_unzig_epi32(
+                _mm_loadu_si128((const __m128i*) (s + i)));
+            v = _mm_add_epi32(v, _mm_slli_si128(v, 8));
+            v = _mm_add_epi32(v, carry);
+            _mm_storeu_si128((__m128i*) (d + i), v);
+            carry = _mm_unpackhi_epi64(v, v);
+        }
+    }
+    for (; i < n; i++) {
+        uint32_t u = s[i];
+        uint32_t x = (u >> 1) ^ (0 - (u & 1));
+        d[i] = x + ((i >= stride) ? d[i - stride] : 0);
+    }
+}
+#endif
+
 static int
 sj_zigzag_filter_backward(const uint8_t* src, uint8_t* dest, int32_t size,
                           uint8_t meta, blosc2_dparams* dparams, uint8_t id)
 {
     (void) id;
     (void) dparams;
-    int ts = meta ? (int) meta : 1;
+    int ts = (meta & 0xF) ? (int) (meta & 0xF) : 1;
+    int code = meta >> 4;  // 0 : dézigzag seul ; 1..4 : + cumsum, c = 1<<(code-1)
     int32_t n = size / ts;
+    if (code) {
+        int32_t c = (int32_t) 1 << (code - 1);
+#ifdef RAPIDJSON_SSE42
+        if (ts == 2 && (c == 1 || c == 2)) {
+            sj_unzig_prefix_u16((uint16_t*) (void*) dest,
+                                (const uint16_t*) (const void*) src, n, c);
+            if (n * ts < size)
+                memcpy(dest + n * ts, src + n * ts,
+                       (size_t) (size - n * ts));
+            return 0;
+        }
+        if (ts == 4 && (c == 1 || c == 2)) {
+            sj_unzig_prefix_u32((uint32_t*) (void*) dest,
+                                (const uint32_t*) (const void*) src, n, c);
+            if (n * ts < size)
+                memcpy(dest + n * ts, src + n * ts,
+                       (size_t) (size - n * ts));
+            return 0;
+        }
+#endif
+        switch (ts) {
+        case 1: sj_zigzag_cumsum_bwd_typed<int8_t, uint8_t>(src, dest, n, c); break;
+        case 2: sj_zigzag_cumsum_bwd_typed<int16_t, uint16_t>(src, dest, n, c); break;
+        case 4: sj_zigzag_cumsum_bwd_typed<int32_t, uint32_t>(src, dest, n, c); break;
+        default: sj_zigzag_cumsum_bwd_typed<int64_t, uint64_t>(src, dest, n, c); break;
+        }
+        if (n * ts < size)
+            memcpy(dest + n * ts, src + n * ts, (size_t) (size - n * ts));
+        return 0;
+    }
     switch (ts) {
         case 1: sj_zigzag_bwd_typed<int8_t, uint8_t>(src, dest, n); break;
         case 2: sj_zigzag_bwd_typed<int16_t, uint16_t>(src, dest, n); break;
@@ -2008,9 +2153,19 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
             cparams.compcode_meta = (uint8_t) (typesize | (channels << 4));
             cparams.splitmode = BLOSC_NEVER_SPLIT;
         } else if (shuffle == 3) {
-            // pipeline zigzag -> bitshuffle, blocs larges (voir sj_compress_chunks)
+            // pipeline zigzag -> bitshuffle, blocs larges (voir sj_compress_chunks).
+            // Colonnes 1/2/4/8 avec dérivée par préfiltre : le cumsum de
+            // lecture est fusionné dans l'ARRIÈRE du filtre (quartet haut du
+            // meta) — plus de postfiltre ni de saut de tampon à la lecture
+            uint8_t zz_meta = (uint8_t) typesize;
+            if (diff_cols == 1 || diff_cols == 2 || diff_cols == 4
+                || diff_cols == 8) {
+                int code = (diff_cols == 1) ? 1 : (diff_cols == 2) ? 2
+                           : (diff_cols == 4) ? 3 : 4;
+                zz_meta |= (uint8_t) (code << 4);
+            }
             cparams.filters[BLOSC2_MAX_FILTERS - 2] = SJ_BLOSC2_FILTER_ZIGZAG;
-            cparams.filters_meta[BLOSC2_MAX_FILTERS - 2] = (uint8_t) typesize;
+            cparams.filters_meta[BLOSC2_MAX_FILTERS - 2] = zz_meta;
             cparams.filters[BLOSC2_MAX_FILTERS - 1] = BLOSC_BITSHUFFLE;
             cparams.splitmode = BLOSC_NEVER_SPLIT;
             cparams.blocksize = 1 << 19;  // 512 Ko (voir sj_compress_chunks)

@@ -426,7 +426,10 @@ def test_prefiltre_derivee_source_intacte():
         fp = b64decode(rapidjson.dumps(rapidjson.BloscToBase64(
             _diff_axis0(a.data, a.itemsize, 1, br), a.itemsize, 1, 3,
             "zstd", 1, 1, bs))[1:-1])
-        assert f == fp  # octets identiques à la pré-passe
+        # seule différence légitime : l'octet meta 28 du filtre 244 (la voie
+        # préfiltre y code le cumsum interne, la pré-passe non)
+        assert len(f) == len(fp)
+        assert f[:28] == fp[:28] and f[29:] == fp[29:]
         raw = rapidjson.blosc_decompress_chunks(f, 1, 0, a.itemsize, 1, br)
         assert bytes(raw) == a.tobytes()
 

@@ -1621,11 +1621,12 @@ struct PyHandler {
                 return;
             label_index = 1;
         }
-        // entête de trame : décode les 32 premiers caractères (24 octets)
-        if (job.length < 32 || job.decoded_length < 16)
+        // entête de trame : décode les 44 premiers caractères (33 octets,
+        // jusqu'aux metas de filtres — octet 28 : cumsum interne du 244)
+        if (job.length < 44 || job.decoded_length < 16)
             return;
-        unsigned char header[24];
-        if (!sj_b64_decode_groups((const unsigned char*) job.src, 8, header,
+        unsigned char header[36];
+        if (!sj_b64_decode_groups((const unsigned char*) job.src, 11, header,
                                   serializejson_b64_decode_table()))
             return;
         if (header[0] < 4)
@@ -1664,6 +1665,11 @@ struct PyHandler {
             : (unsigned char*) PyByteArray_AS_STRING(dest);
         job.destsize = nbytes;
         job.destobj = dest;
+        if (cs_itemsize > 0 && job.decoded_length >= 32
+            && header[16 + 4] == 244 && (header[24 + 4] >> 4) != 0) {
+            // le filtre 244 de la trame porte déjà le cumsum : rien à défaire
+            cs_itemsize = 0;
+        }
         if (cs_itemsize > 0) {
             job.cs_itemsize = cs_itemsize;
             job.cs_cols = cs_cols;
@@ -7544,6 +7550,12 @@ blosc_decompress_chunks_fn(PyObject* Py_UNUSED(self), PyObject* args)
     SjPostCumsum post_cfg = {cs_itemsize, cs_row_elems};
     const SjPostCumsum* post = nullptr;
     bool post_pass = false;
+    // trame dont le filtre 244 porte déjà le cumsum (quartet haut du meta,
+    // octet 28 de l'en-tête étendu) : rien à défaire après la décompression
+    if (cs_itemsize > 0 && jobs.size() == 1 && jobs[0].srcsize >= 32
+        && ((const uint8_t*) jobs[0].src)[20] == 244
+        && (((const uint8_t*) jobs[0].src)[28] >> 4) != 0)
+        cs_itemsize = 0;
     if (cs_itemsize > 0 && cs_row_elems > 0) {
         Py_ssize_t rb = cs_itemsize * cs_row_elems;
         if (jobs.size() == 1 && cs_block_rows > 0
