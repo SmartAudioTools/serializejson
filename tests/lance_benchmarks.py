@@ -95,11 +95,11 @@ def _images_classiques():
                     continue
             except Exception:
                 continue
-            corpus = chemin.parent.relative_to(dossier)
-            prefixe = f"{corpus} " if str(corpus) != "." else ""
-            nom = prefixe + chemin.stem.replace("_", " ")
+            corpus = str(chemin.parent.relative_to(dossier))
+            groupe = f"images {corpus}" if corpus != "." else "images"
+            nom = chemin.stem.replace("_", " ")
             images.append((f"{nom} ({tableau.nbytes / 1e6:.1f} Mo)",
-                           numpy.ascontiguousarray(tableau)))
+                           numpy.ascontiguousarray(tableau), groupe))
     return images
 
 
@@ -127,9 +127,11 @@ def _sons_classiques():
             continue
         corpus = chemin.parent.relative_to(dossier)
         prefixe = f"{corpus} " if str(corpus) != "." else ""
+        # les sons restent DÉTAILLÉS par piste (une ligne chacun) : le
+        # troisième champ « groupe » None les laisse tels quels
         sons.append((f"{prefixe}{chemin.stem} int16"
                      f" ({donnees.nbytes / 1e6:.1f} Mo)",
-                     numpy.ascontiguousarray(donnees)))
+                     numpy.ascontiguousarray(donnees), None))
     return sons
 
 
@@ -149,7 +151,7 @@ def profils():
     rng = numpy.random.default_rng(5)
     morceaux = []
     total = 0
-    sources = [t for _, t in liste]
+    sources = [t for _, t, _ in liste]
     while total < 200_000_000:
         tableau = sources[rng.integers(0, len(sources))]
         octets = numpy.frombuffer(tableau.tobytes(), dtype=numpy.uint8)
@@ -158,7 +160,7 @@ def profils():
         total += len(octets)
     hors_cache = numpy.concatenate(morceaux)
     liste.append((f"corpus concaténé, hors cache"
-                  f" ({hors_cache.nbytes / 1e6:.0f} Mo)", hors_cache))
+                  f" ({hors_cache.nbytes / 1e6:.0f} Mo)", hors_cache, None))
     return liste
 
 
@@ -217,12 +219,45 @@ def mesure(tableau):
         "loads_sj": chrono(lambda: serializejson.loads(j)),
         "loads_std": chrono(lambda: serializejson.loads(j_std)),
     }
+    return _avec_seuil(m)
+
+
+def _avec_seuil(m):
     # seuil de débit (écriture) : en dessous, dump+écriture sur le support
     # est plus rapide avec serializejson malgré le calcul de compression
     surcout = m["dumps_sj"] - m["dumps_pickle"]
     epargne = m["taille_pickle"] - m["taille_sj"]
     m["seuil"] = (epargne / surcout) if (surcout > 0 and epargne > 0) else None
     return m
+
+
+def agrege_par_groupe(lignes):
+    # UNE métrique par corpus (demande de Baptiste, 05/08 soir) : les lignes
+    # portant un même groupe fusionnent — tailles et temps ADDITIONNÉS
+    # (sérialiser le corpus entier), rapports recalculés sur les sommes
+    sortie = []
+    groupes = {}
+    for nom, m, groupe in lignes:
+        if groupe is None:
+            sortie.append((nom, m))
+            continue
+        if groupe not in groupes:
+            groupes[groupe] = {"n": 0}
+            sortie.append((groupe, groupes[groupe]))
+        cumul = groupes[groupe]
+        cumul["n"] += 1
+        for cle, valeur in m.items():
+            if cle != "seuil":
+                cumul[cle] = cumul.get(cle, 0) + valeur
+    for groupe, cumul in groupes.items():
+        n = cumul.pop("n")
+        _avec_seuil(cumul)
+        # renomme avec le compte et le volume du corpus
+        for i, (nom, m) in enumerate(sortie):
+            if m is cumul:
+                sortie[i] = (f"{groupe} ({n} fichiers,"
+                             f" {cumul['nbytes'] / 1e6:.0f} Mo)", cumul)
+    return sortie
 
 
 def fmt_octets(n):
@@ -634,10 +669,11 @@ if __name__ == "__main__":
         "- médiane de ~50 essais, burst de réveil CPU avant chaque chrono,"
         " mesures alternées dans le même processus",
     ]
-    resultats = []
-    for nom, tableau in profils():
+    lignes = []
+    for nom, tableau, groupe in profils():
         print("profil :", nom)
-        resultats.append((nom, mesure(tableau)))
+        lignes.append((nom, mesure(tableau), groupe))
+    resultats = agrege_par_groupe(lignes)
     print("catalogue d'objets du dépôt (par catégorie de types)...")
     types_objets, types_ecartes = mesure_types_objets()
     print("benchmarks officiels pyperformance (petits objets)...")
