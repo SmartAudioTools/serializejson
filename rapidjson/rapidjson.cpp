@@ -2487,11 +2487,31 @@ struct PyHandler {
         if (items == nullptr)
             return inst;   // forme sans __items__ (Counter à init dict...)
         // __items__ : update(items), à défaut extend(items) — l ordre
-        // d essai d instance()
-        PyObject* r = PyObject_CallMethod(inst, "update", "(O)", items);
+        // d essai d instance(). La classe est CONNUE : deque part
+        // directement sur extend (l essai update levait une AttributeError
+        // à CHAQUE deque, ~0,5 µs de machinerie d exception), les
+        // dict-like sur update ; l autre méthode reste en filet
+        static PyObject* update_name_str = nullptr;
+        static PyObject* extend_name_str = nullptr;
+        if (update_name_str == nullptr) {
+            update_name_str = PyUnicode_InternFromString("update");
+            extend_name_str = PyUnicode_InternFromString("extend");
+            if (update_name_str == nullptr || extend_name_str == nullptr) {
+                Py_DECREF(inst);
+                return nullptr;
+            }
+        }
+        PyObject* premiere = classe == type_deque ? extend_name_str
+                                                  : update_name_str;
+        PyObject* r = PyObject_CallMethodObjArgs(inst, premiere, items,
+                                                 nullptr);
         if (r == nullptr) {
             PyErr_Clear();
-            r = PyObject_CallMethod(inst, "extend", "(O)", items);
+            r = PyObject_CallMethodObjArgs(
+                inst,
+                premiere == update_name_str ? extend_name_str
+                                            : update_name_str,
+                items, nullptr);
         }
         if (r == nullptr) {
             PyErr_Clear();
