@@ -35,6 +35,9 @@ if "rapidjson" not in sys.modules:
 import serializejson  # noqa: E402  (charge libblosc2)
 import numpy  # noqa: E402
 
+sys.path.insert(0, str(RACINE / "tests"))
+import bench_pyperformance_pickle  # noqa: E402  (benchs officiels répliqués)
+
 perf = time.perf_counter
 
 
@@ -63,6 +66,76 @@ def chrono(f, essais=50, plafond=2.0):
         f()
         temps.append(perf() - t0)
     return statistics.median(temps)
+
+
+def _image_photo(rng, canaux):
+    # image photographique synthétique 1600x1200 : dégradés doux (ciel,
+    # vignettage) + grain de capteur, en uint8, canaux corrélés pour le RVB
+    h, w = 1200, 1600
+    y, x = numpy.mgrid[0:h, 0:w]
+    lumiere = (120 + 60 * numpy.sin(x / 300) + 40 * numpy.cos(y / 200)
+               - ((x - w / 2) ** 2 + (y - h / 2) ** 2) / (w * h / 14))
+    image = numpy.empty((h, w, canaux), numpy.float64)
+    for c in range(canaux):
+        image[..., c] = lumiere * (1.0 - 0.12 * c) + rng.normal(0, 2, (h, w))
+    return numpy.clip(image, 0, 255).astype(numpy.uint8)
+
+
+def _images_classiques(rng):
+    # les images CLASSIQUES des benchmarks de compression, via scikit-image :
+    # cameraman (mono 512x512), moon (mono), astronaut (RVB 512x512) —
+    # déclinées 8/10/16 bits ; à défaut, photo synthétique équivalente
+    try:
+        from skimage import data
+
+        camera = data.camera()
+        moon = data.moon()
+        astronaut = data.astronaut()
+        return [
+            ("cameraman mono 8 bits (512²)", camera),
+            ("moon mono 8 bits (512²)", moon),
+            ("cameraman mono 16 bits (<<8)",
+             (camera.astype(numpy.uint16) << 8)),
+            ("astronaut RVB 8 bits/canal (512²)", astronaut),
+            ("astronaut RVB 10 bits/canal (<<2)",
+             (astronaut.astype(numpy.uint16) << 2)),
+        ]
+    except Exception:
+        return [
+            ("image mono 8 bits synthétique (2 Mpx)",
+             _image_photo(rng, 1)[..., 0]),
+            ("image mono 16 bits synthétique",
+             (_image_photo(rng, 1)[..., 0].astype(numpy.uint16) << 8)),
+            ("image RVB 8 bits/canal synthétique", _image_photo(rng, 3)),
+            ("image RVB 10 bits/canal synthétique",
+             (_image_photo(rng, 3).astype(numpy.uint16) << 2)),
+        ]
+
+
+def _sons_classiques():
+    # sons CLASSIQUES des benchmarks de codecs (corpus EBU SQAM : glockenspiel,
+    # castagnettes, voix...) : non redistribuables avec le dépôt — déposer des
+    # .wav / .flac dans sons_benchmarks/ (télécharger sur tech.ebu.ch) et ils
+    # entrent d'eux-mêmes dans la matrice ; sans dossier, rien n'est ajouté
+    dossier = RACINE / "sons_benchmarks"
+    if not dossier.is_dir():
+        return []
+    try:
+        import soundfile
+    except Exception:
+        return []
+    sons = []
+    for chemin in sorted(dossier.glob("*")):
+        if chemin.suffix.lower() not in (".wav", ".flac"):
+            continue
+        try:
+            donnees, _ = soundfile.read(chemin, dtype="int16")
+        except Exception:
+            continue
+        sons.append((f"SQAM {chemin.stem} int16"
+                     f" ({donnees.nbytes / 1e6:.1f} Mo)",
+                     numpy.ascontiguousarray(donnees)))
+    return sons
 
 
 def profils():
@@ -100,7 +173,49 @@ def profils():
          (1000 * numpy.sin(x / 50) + 800 * numpy.cos(y / 70)).astype(numpy.int32)),
         ("bruit int16, incompressible (1 Mo)",
          rng.integers(-30000, 30000, 500_000).astype(numpy.int16)),
+        # images CLASSIQUES des benchmarks de compression (scikit-image :
+        # cameraman, astronaut, moon), déclinées mono/RVB et 8/10/16 bits ;
+        # repli sur une photo synthétique si scikit-image manque
+        *_images_classiques(rng),
+        # sons classiques (corpus EBU SQAM) si déposés dans sons_benchmarks/
+        *_sons_classiques(),
+        # HORS CACHE : 200 Mo, la recopie de pickle retombe à la bande
+        # passante RAM — le régime des gros jeux de données
+        ("signal lisse int16, hors cache (200 Mo)",
+         (10000 * numpy.sin(numpy.linspace(0, 3000, 100_000_000))
+          + rng.integers(-5, 5, 100_000_000)).astype(numpy.int16)),
     ]
+
+
+def mesure_types_objets():
+    # le catalogue d'objets du dépôt (tests/objects/basic_objects.py, celui
+    # de test_serialize_vs_pickle) : chaque CATÉGORIE de types python est
+    # sérialisée en bloc, pickle contre serializejson, dumps et loads —
+    # les catégories que l'un des deux camps ne sait pas rejouer aux
+    # réglages par défaut sont écartées (et nommées dans le rapport)
+    from objects import basic_objects  # tests/ est sur le chemin
+
+    lignes, ecartees = [], []
+    for categorie, objets in basic_objects.objects.items():
+        try:
+            p = pickle.dumps(objets, protocol=4)
+            encodeur = serializejson.Encoder(return_bytes=True)
+            j = encodeur(objets)
+            decodeur = serializejson.Decoder(
+                authorized_classes=list(encodeur.get_dumped_classes()))
+            pickle.loads(p)
+            decodeur(j)
+        except Exception:
+            ecartees.append(categorie)
+            continue
+        lignes.append((
+            categorie,
+            chrono(lambda: pickle.dumps(objets, protocol=4), plafond=0.4),
+            chrono(lambda: encodeur(objets), plafond=0.4),
+            chrono(lambda: pickle.loads(p), plafond=0.4),
+            chrono(lambda: decodeur(j), plafond=0.4),
+        ))
+    return lignes, ecartees
 
 
 def mesure(tableau):
@@ -109,14 +224,23 @@ def mesure(tableau):
     j = serializejson.dumps(a)
     r = serializejson.loads(j)
     assert isinstance(r, numpy.ndarray) and numpy.array_equal(r, a)
+    # variante « standard » : octet_shuffle → zstd, sans l'étage dérivée
+    # de la chaîne smart (bytes_compression_diff_dtypes=None)
+    encodeur_std = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=None)
+    j_std = encodeur_std(a)
+    assert numpy.array_equal(serializejson.loads(j_std), a)
     m = {
         "nbytes": a.nbytes,
         "taille_pickle": len(p),
         "taille_sj": len(j),
+        "taille_std": len(j_std),
         "dumps_pickle": chrono(lambda: pickle.dumps(a, protocol=4)),
         "dumps_sj": chrono(lambda: serializejson.dumps(a)),
+        "dumps_std": chrono(lambda: encodeur_std(a)),
         "loads_pickle": chrono(lambda: pickle.loads(p)),
         "loads_sj": chrono(lambda: serializejson.loads(j)),
+        "loads_std": chrono(lambda: serializejson.loads(j_std)),
     }
     # seuil de débit (écriture) : en dessous, dump+écriture sur le support
     # est plus rapide avec serializejson malgré le calcul de compression
@@ -135,20 +259,27 @@ def geometrique(valeurs):
     return float(numpy.exp(numpy.mean(numpy.log(valeurs)))) if valeurs else None
 
 
-def rendu_markdown(resultats, entete):
+def rendu_markdown(resultats, pyperf, types_objets, types_ecartes, entete):
     md = ["# serializejson (défaut « smart ») contre pickle — mesures", "",
           *entete, "",
           "| profil | pickle | serializejson | poids | dumps | loads |"
-          " support plus lent que |",
-          "|---|---|---|---|---|---|---|"]
+          " poids std | dumps std | loads std | support plus lent que |",
+          "|---|---|---|---|---|---|---|---|---|---|"]
     poids, dumps, loads = [], [], []
+    poids_std, dumps_std, loads_std = [], [], []
     for nom, m in resultats:
         rp = m["taille_sj"] / m["taille_pickle"]
         rd = m["dumps_sj"] / m["dumps_pickle"]
         rl = m["loads_sj"] / m["loads_pickle"]
+        rp2 = m["taille_std"] / m["taille_pickle"]
+        rd2 = m["dumps_std"] / m["dumps_pickle"]
+        rl2 = m["loads_std"] / m["loads_pickle"]
         poids.append(rp)
         dumps.append(rd)
         loads.append(rl)
+        poids_std.append(rp2)
+        dumps_std.append(rd2)
+        loads_std.append(rl2)
         gras = lambda texte, gagne: f"**{texte}**" if gagne else texte
         seuil = (f"{m['seuil'] / 1e6:.0f} Mo/s" if m["seuil"]
                  else "— (déjà plus rapide)" if m["dumps_sj"] <= m["dumps_pickle"]
@@ -159,11 +290,18 @@ def rendu_markdown(resultats, entete):
             f" | {gras(f'{100 * rp:.0f} %', rp < 1)}"
             f" | {gras(f'×{rd:.2f}', rd < 1)}"
             f" | {gras(f'×{rl:.2f}', rl < 1)}"
+            f" | {gras(f'{100 * rp2:.0f} %', rp2 < 1)}"
+            f" | {gras(f'×{rd2:.2f}', rd2 < 1)}"
+            f" | {gras(f'×{rl2:.2f}', rl2 < 1)}"
             f" | {seuil} |")
     md += ["",
-           f"**Synthèse (moyennes géométriques)** : poids"
+           f"**Synthèse (moyennes géométriques)** : défaut smart — poids"
            f" **{100 * geometrique(poids):.0f} %** de pickle, dumps"
-           f" ×{geometrique(dumps):.2f}, loads ×{geometrique(loads):.2f}.",
+           f" ×{geometrique(dumps):.2f}, loads ×{geometrique(loads):.2f} ;"
+           f" variante octet_shuffle → zstd (« std », sans dérivée) — poids"
+           f" {100 * geometrique(poids_std):.0f} %, dumps"
+           f" ×{geometrique(dumps_std):.2f}, loads"
+           f" ×{geometrique(loads_std):.2f}.",
            "",
            "Lecture du tableau : poids en % de pickle et temps en rapport"
            " ×t/t_pickle (moins de 100 % / ×1,00 = serializejson gagne, en"
@@ -175,6 +313,47 @@ def rendu_markdown(resultats, entete):
            " traverser un disque, un réseau ou un cloud, le poids gagné fait"
            " gagner le temps total.",
            "",
+           "## catalogue d'objets du dépôt, par catégorie de types python",
+           "",
+           "Les objets de `tests/objects/basic_objects.py` (ceux de"
+           " `test_serialize_vs_pickle`), sérialisés par catégorie, réglages"
+           " par défaut des deux côtés (Decoder avec les classes autorisées"
+           " du dump).",
+           "",
+           "| catégorie | dumps pickle (µs) | dumps serializejson (µs) |"
+           " rapport | loads pickle (µs) | loads serializejson (µs) |"
+           " rapport |",
+           "|---|---|---|---|---|---|---|"]
+    for nom, pk_d, sj_d, pk_l, sj_l in types_objets:
+        rd, rl = sj_d / pk_d, sj_l / pk_l
+        td = f"×{rd:.2f}"
+        tl = f"×{rl:.2f}"
+        md.append(f"| {nom} | {1e6 * pk_d:.1f} | {1e6 * sj_d:.1f} |"
+                  f" {'**' + td + '**' if rd < 1 else td}"
+                  f" | {1e6 * pk_l:.1f} | {1e6 * sj_l:.1f} |"
+                  f" {'**' + tl + '**' if rl < 1 else tl} |")
+    if types_ecartes:
+        md.append("")
+        md.append("Catégories écartées (non rejouables aux réglages par"
+                  " défaut d'un des deux camps) : "
+                  + ", ".join(types_ecartes) + ".")
+    md += ["",
+           "## benchmarks pickle officiels (pyperformance, petits objets)",
+           "",
+           "Les cinq charges de `bm_pickle` de la suite pyperformance,"
+           " répliquées à l'identique (mêmes objets, mêmes boucles, meilleur"
+           " temps) : une myriade de PETITS dicts, tuples et listes — le"
+           " terrain de jeu historique de pickle, sans binaire à compresser.",
+           "",
+           "| charge officielle | pickle (µs) | serializejson (µs) |"
+           " rapport de temps |",
+           "|---|---|---|---|"]
+    for nom, pk_us, sj_us in pyperf:
+        r = sj_us / pk_us
+        texte = f"×{r:.2f}"
+        md.append(f"| {nom} | {pk_us:.1f} | {sj_us:.1f} |"
+                  f" {'**' + texte + '**' if r < 1 else texte} |")
+    md += ["",
            "Avantages non mesurables ici, pour mémoire : JSON lisible et"
            " diffable, chargement sans exécution de code arbitraire"
            " (contrairement à pickle), fichiers relisibles depuis d'autres"
@@ -207,35 +386,45 @@ MACHINES = [("Raspberry Pi 5\n+ microSD (~90 Mo/s)", 0.25, 90e6),
             ("tour Ryzen 9 9950X\n+ NVMe PCIe 5 (~14 Go/s)", 1.8, 14e9)]
 
 
-def figure_barres(resultats, sens, titre):
+def figure_barres(donnees, sens, titre):
     # deux barres par profil : rapport de mémoire (bleu) et de temps
     # (orange), échelle log — une barre PETITE = avantage serializejson
     import matplotlib.pyplot as plt
 
+    resultats = donnees["profils"]
     noms = [nom for nom, _ in resultats]
-    rapport_poids = numpy.array(
+    poids_smart = numpy.array(
         [m["taille_sj"] / m["taille_pickle"] for _, m in resultats])
-    rapport_temps = numpy.array(
+    poids_std = numpy.array(
+        [m["taille_std"] / m["taille_pickle"] for _, m in resultats])
+    temps_smart = numpy.array(
         [m[f"{sens}_sj"] / m[f"{sens}_pickle"] for _, m in resultats])
+    temps_std = numpy.array(
+        [m[f"{sens}_std"] / m[f"{sens}_pickle"] for _, m in resultats])
     fig, ax = plt.subplots(figsize=(11.69, 8.27))
     x = numpy.arange(len(noms))
-    b1 = ax.bar(x - 0.21, rapport_poids, 0.4, color=BLEU,
-                label="rapport de mémoire"
-                      "  (poids serializejson / poids pickle)")
-    b2 = ax.bar(x + 0.21, rapport_temps, 0.4, color=ORANGE,
-                label=f"rapport de temps {sens}"
-                      f"  (temps serializejson / temps pickle)")
-    for barres in (b1, b2):
+    series = [
+        (x - 0.30, poids_smart, BLEU, "mémoire, défaut smart"
+         "  (poids serializejson / pickle)"),
+        (x - 0.10, poids_std, "#93b8dc", "mémoire, octet_shuffle → zstd"),
+        (x + 0.10, temps_smart, ORANGE, f"temps {sens}, défaut smart"
+         "  (temps serializejson / pickle)"),
+        (x + 0.30, temps_std, "#f0b287", f"temps {sens},"
+         " octet_shuffle → zstd"),
+    ]
+    for position, valeurs, couleur, etiquette in series:
+        barres = ax.bar(position, valeurs, 0.19, color=couleur,
+                        label=etiquette)
         for barre in barres:
             v = barre.get_height()
             ax.annotate(f"×{v:.2f}",
                         (barre.get_x() + barre.get_width() / 2, v),
-                        ha="center", va="bottom", fontsize=7)
+                        ha="center", va="bottom", fontsize=5.5, rotation=90)
     ax.axhline(1.0, color="gray", ls="--", lw=1)
     ax.text(-0.45, 1.04, "égalité ×1", color="gray", fontsize=8, ha="left")
     ax.set_yscale("log")
-    ax.set_ylim(bottom=min(rapport_poids.min(), rapport_temps.min()) * 0.55,
-                top=max(rapport_poids.max(), rapport_temps.max()) * 2.4)
+    tous = numpy.concatenate([poids_smart, poids_std, temps_smart, temps_std])
+    ax.set_ylim(bottom=tous.min() * 0.5, top=tous.max() * 2.8)
     ax.set_yticks([0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10])
     ax.set_yticklabels(["×0,05", "×0,1", "×0,2", "×0,5", "×1", "×2", "×5",
                         "×10"])
@@ -247,12 +436,13 @@ def figure_barres(resultats, sens, titre):
     return fig
 
 
-def figure_support(resultats, sens, titre):
+def figure_support(donnees, sens, titre):
     # temps TOTAL (calcul + transfert) selon le débit du support :
     # l'avantage de poids se change en avantage de temps dès que le
     # support est le goulot
     import matplotlib.pyplot as plt
 
+    resultats = donnees["profils"]
     debits = numpy.logspace(numpy.log10(80e6), numpy.log10(17e9), 200)
     fig, ax = plt.subplots(figsize=(11.69, 8.27))
     for (nom, m), couleur in zip(
@@ -278,7 +468,7 @@ def figure_support(resultats, sens, titre):
     return fig
 
 
-def figure_machines(resultats, sens, titre):
+def figure_machines(donnees, sens, titre):
     # UN graphique, une machine réaliste (couple CPU + stockage de même
     # gamme) par position : deux barres — temps total d'écriture et de
     # lecture (calcul mis à l'échelle du CPU + transfert au débit du
@@ -286,7 +476,7 @@ def figure_machines(resultats, sens, titre):
     import matplotlib.pyplot as plt
 
     profil = "signal lisse int16 (4 Mo)"
-    m = dict(resultats)[profil]
+    m = dict(donnees["profils"])[profil]
     noms = [nom for nom, _, _ in MACHINES]
     rapports = {}
     for cle in ("dumps", "loads"):
@@ -327,6 +517,73 @@ def figure_machines(resultats, sens, titre):
     return fig
 
 
+def figure_types(donnees, sens, titre):
+    # le catalogue d'objets du dépôt, par catégorie de types python : deux
+    # barres (dumps, loads) — une barre PETITE = avantage serializejson
+    import matplotlib.pyplot as plt
+
+    lignes = donnees["types"]
+    noms = [nom for nom, *_ in lignes]
+    r_dumps = numpy.array([sj / pk for _, pk, sj, _, _ in lignes])
+    r_loads = numpy.array([sj / pk for _, _, _, pk, sj in lignes])
+    fig, ax = plt.subplots(figsize=(11.69, 8.27))
+    x = numpy.arange(len(noms))
+    b1 = ax.bar(x - 0.21, r_dumps, 0.4, color=BLEU,
+                label="rapport de temps dumps  (serializejson / pickle)")
+    b2 = ax.bar(x + 0.21, r_loads, 0.4, color=ORANGE,
+                label="rapport de temps loads  (serializejson / pickle)")
+    for barres in (b1, b2):
+        for barre in barres:
+            v = barre.get_height()
+            ax.annotate(f"×{v:.2f}",
+                        (barre.get_x() + barre.get_width() / 2, v),
+                        ha="center", va="bottom", fontsize=6)
+    ax.axhline(1.0, color="gray", ls="--", lw=1)
+    ax.text(-0.45, 1.04, "égalité ×1", color="gray", fontsize=8, ha="left")
+    ax.set_yscale("log")
+    ax.set_ylim(bottom=min(r_dumps.min(), r_loads.min()) * 0.55,
+                top=max(r_dumps.max(), r_loads.max()) * 2.4)
+    ax.set_yticks([0.2, 0.5, 1, 2, 5, 10, 50, 200])
+    ax.set_yticklabels(["×0,2", "×0,5", "×1", "×2", "×5", "×10", "×50",
+                        "×200"])
+    ax.yaxis.set_minor_formatter(plt.NullFormatter())
+    ax.set_xticks(x)
+    ax.set_xticklabels(noms, rotation=25, ha="right", fontsize=8)
+    ax.set_title(titre + " — sous ×1 : avantage serializejson")
+    ax.legend(loc="upper left", fontsize=9)
+    fig.tight_layout()
+    return fig
+
+
+def figure_pyperformance(donnees, sens, titre):
+    # les cinq charges des benchmarks pickle OFFICIELS (pyperformance,
+    # bm_pickle) répliquées : myriade de PETITS objets python (dicts,
+    # tuples, listes) — une barre PETITE = avantage serializejson
+    import matplotlib.pyplot as plt
+
+    lignes = donnees["pyperf"]
+    noms = [nom.split("(")[0].strip() for nom, _, _ in lignes]
+    ratios = numpy.array([sj / pk for _, pk, sj in lignes])
+    fig, ax = plt.subplots(figsize=(11.69, 8.27))
+    x = numpy.arange(len(noms))
+    barres = ax.bar(x, ratios, 0.55, color=ORANGE,
+                    label="rapport de temps  (serializejson / pickle)")
+    for barre in barres:
+        v = barre.get_height()
+        ax.annotate(f"×{v:.2f}",
+                    (barre.get_x() + barre.get_width() / 2, v),
+                    ha="center", va="bottom", fontsize=9)
+    ax.axhline(1.0, color="gray", ls="--", lw=1)
+    ax.text(-0.4, 1.02, "égalité ×1", color="gray", fontsize=8, ha="left")
+    ax.set_ylim(0, max(2.0, ratios.max() * 1.25))
+    ax.set_xticks(x)
+    ax.set_xticklabels(noms, fontsize=10)
+    ax.set_title(titre + " — sous ×1 : avantage serializejson")
+    ax.legend(loc="upper right", fontsize=9)
+    fig.tight_layout()
+    return fig
+
+
 FIGURES = [
     ("benchmark_dumps", figure_barres, "dumps",
      "conversion vers bytes (dumps)"),
@@ -338,10 +595,14 @@ FIGURES = [
      "lecture depuis un support (transfert + loads)"),
     ("benchmark_machines", figure_machines, "",
      "machines réalistes (CPU + stockage de même gamme)"),
+    ("benchmark_types_objets", figure_types, "",
+     "catalogue d'objets du dépôt, par catégorie de types python"),
+    ("benchmark_pyperformance", figure_pyperformance, "",
+     "benchmarks pickle officiels (pyperformance) : petits objets python"),
 ]
 
 
-def rendu_pdf_et_svg(resultats, entete, chemin_pdf, dossier_svg):
+def rendu_pdf_et_svg(donnees, entete, chemin_pdf, dossier_svg):
     # chaque figure part dans le PDF daté ET en SVG à nom STABLE (référencé
     # par la documentation : chaque run les rafraîchit sans casser les liens)
     import matplotlib
@@ -371,7 +632,7 @@ def rendu_pdf_et_svg(resultats, entete, chemin_pdf, dossier_svg):
         pdf.savefig(fig)
         plt.close(fig)
         for nom_svg, fabrique, sens, titre in FIGURES:
-            fig = fabrique(resultats, sens, titre)
+            fig = fabrique(donnees, sens, titre)
             pdf.savefig(fig)
             if dossier_svg is not None:
                 fig.savefig(dossier_svg / f"{nom_svg}.svg", format="svg")
@@ -398,7 +659,13 @@ if __name__ == "__main__":
     for nom, tableau in profils():
         print("profil :", nom)
         resultats.append((nom, mesure(tableau)))
-    markdown = rendu_markdown(resultats, entete)
+    print("catalogue d'objets du dépôt (par catégorie de types)...")
+    types_objets, types_ecartes = mesure_types_objets()
+    print("benchmarks officiels pyperformance (petits objets)...")
+    pyperf = bench_pyperformance_pickle.mesures()
+    donnees = {"profils": resultats, "pyperf": pyperf, "types": types_objets}
+    markdown = rendu_markdown(resultats, pyperf, types_objets, types_ecartes,
+                              entete)
     horodatage = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
     dossier = (Path(sys.argv[1]) if len(sys.argv) > 1
                else RACINE / "rapports_benchmarks")
@@ -408,7 +675,7 @@ if __name__ == "__main__":
     dossier_svg.mkdir(parents=True, exist_ok=True)
     dossier.mkdir(parents=True, exist_ok=True)
     chemin_md.write_text(markdown)
-    rendu_pdf_et_svg(resultats, entete, chemin_pdf, dossier_svg)
+    rendu_pdf_et_svg(donnees, entete, chemin_pdf, dossier_svg)
     print(markdown)
     print("->", chemin_md)
     print("->", chemin_pdf)

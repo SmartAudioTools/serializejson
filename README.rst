@@ -111,6 +111,21 @@ int16 signal" profile):
    :alt: total write and read time ratios on realistic machines
    :width: 100%
 
+Beyond big binary data, the repository's object catalog (every python type
+category from ``tests/objects/basic_objects.py``) and the official
+pyperformance ``bm_pickle`` workloads (myriads of small dicts, tuples and
+lists — pickle's historical home turf) give the honest picture on small
+objects: serializejson stays within ×1.3-1.9 of pickle on the official
+workloads, with a few identified slow paths on exotic categories:
+
+.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_types_objets.svg
+   :alt: time ratios per python type category
+   :width: 100%
+
+.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_pyperformance.svg
+   :alt: time ratios on the official pyperformance pickle workloads
+   :width: 100%
+
 
 Installation
 ============

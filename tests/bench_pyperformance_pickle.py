@@ -8,9 +8,10 @@ import sys
 import time
 
 sys.path.insert(0, ".")
-import rapidjson.rapidjson as rj
+if "rapidjson" not in sys.modules:
+    import rapidjson.rapidjson as rj
 
-sys.modules["rapidjson"] = rj
+    sys.modules["rapidjson"] = rj
 import serializejson
 
 DICT = {
@@ -149,12 +150,23 @@ rows = [
     ("unpickle_list(10 loads)", pk_unpickle_list, sj_unpickle_list),
     ("pickle_dict  ( 5 dumps)", pk_pickle_dict, sj_pickle_dict),
 ]
-print("python %d.%d.%d  (protocole pickle %d)"
-      % (*sys.version_info[:3], PROTO))
-for name, pk, sj in rows:
-    # échauffement
-    pk(); sj()
-    pk_min, pk_moy = bench(pk, name)
-    sj_min, sj_moy = bench(sj, name)
-    print("  %-24s pickle %8.1f us   serializejson %8.1f us   ratio x%.2f"
-          % (name, pk_min, sj_min, sj_min / pk_min))
+
+
+def mesures(repeat=800):
+    # rend [(nom, pickle_min_µs, serializejson_min_µs)] — importable par le
+    # rapport de benchmarks (tests/lance_benchmarks.py)
+    resultats = []
+    for name, pk, sj in rows:
+        pk(); sj()  # échauffement
+        pk_min, _ = bench(pk, name, repeat)
+        sj_min, _ = bench(sj, name, repeat)
+        resultats.append((name, pk_min, sj_min))
+    return resultats
+
+
+if __name__ == "__main__":
+    print("python %d.%d.%d  (protocole pickle %d)"
+          % (*sys.version_info[:3], PROTO))
+    for name, pk_min, sj_min in mesures():
+        print("  %-24s pickle %8.1f us   serializejson %8.1f us   ratio x%.2f"
+              % (name, pk_min, sj_min, sj_min / pk_min))
