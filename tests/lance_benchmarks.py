@@ -187,39 +187,40 @@ BLEU, ORANGE = "#2b6cb0", "#dd6b20"
 
 
 def figure_barres(resultats, sens, titre):
-    # deux barres par profil : rapport de mémoire (bleu) et de vitesse
-    # (orange), échelle log, > 1 = avantage serializejson
+    # deux barres par profil : rapport de mémoire (bleu) et de temps
+    # (orange), échelle log — une barre PETITE = avantage serializejson
     import matplotlib.pyplot as plt
 
     noms = [nom for nom, _ in resultats]
-    gain_poids = numpy.array(
-        [m["taille_pickle"] / m["taille_sj"] for _, m in resultats])
-    vitesse = numpy.array(
-        [m[f"{sens}_pickle"] / m[f"{sens}_sj"] for _, m in resultats])
+    rapport_poids = numpy.array(
+        [m["taille_sj"] / m["taille_pickle"] for _, m in resultats])
+    rapport_temps = numpy.array(
+        [m[f"{sens}_sj"] / m[f"{sens}_pickle"] for _, m in resultats])
     fig, ax = plt.subplots(figsize=(11.69, 8.27))
     x = numpy.arange(len(noms))
-    b1 = ax.bar(x - 0.21, gain_poids, 0.4, color=BLEU,
+    b1 = ax.bar(x - 0.21, rapport_poids, 0.4, color=BLEU,
                 label="rapport de mémoire"
-                      "  (poids pickle / poids serializejson)")
-    b2 = ax.bar(x + 0.21, vitesse, 0.4, color=ORANGE,
-                label=f"rapport de vitesse {sens}"
-                      f"  (temps pickle / temps serializejson)")
+                      "  (poids serializejson / poids pickle)")
+    b2 = ax.bar(x + 0.21, rapport_temps, 0.4, color=ORANGE,
+                label=f"rapport de temps {sens}"
+                      f"  (temps serializejson / temps pickle)")
     for barres in (b1, b2):
         for barre in barres:
             v = barre.get_height()
-            ax.annotate(f"×{v:.2f}" if v < 10 else f"×{v:.0f}",
+            ax.annotate(f"×{v:.2f}",
                         (barre.get_x() + barre.get_width() / 2, v),
                         ha="center", va="bottom", fontsize=7)
     ax.axhline(1.0, color="gray", ls="--", lw=1)
-    ax.text(len(noms) - 0.5, 1.02, "égalité ×1", color="gray",
-            fontsize=8, ha="right")
+    ax.text(-0.45, 1.04, "égalité ×1", color="gray", fontsize=8, ha="left")
     ax.set_yscale("log")
-    ax.set_ylim(top=max(gain_poids.max(), vitesse.max()) * 1.6)
-    ax.set_yticks([0.2, 0.5, 1, 2, 5, 10, 20])
-    ax.set_yticklabels(["×0,2", "×0,5", "×1", "×2", "×5", "×10", "×20"])
+    ax.set_ylim(bottom=min(rapport_poids.min(), rapport_temps.min()) * 0.55,
+                top=max(rapport_poids.max(), rapport_temps.max()) * 2.4)
+    ax.set_yticks([0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10])
+    ax.set_yticklabels(["×0,05", "×0,1", "×0,2", "×0,5", "×1", "×2", "×5",
+                        "×10"])
     ax.set_xticks(x)
     ax.set_xticklabels(noms, rotation=18, ha="right", fontsize=8)
-    ax.set_title(titre + " — au-dessus de ×1 : avantage serializejson")
+    ax.set_title(titre + " — en dessous de ×1 : avantage serializejson")
     ax.legend(loc="upper left", fontsize=9)
     fig.tight_layout()
     return fig
@@ -241,21 +242,21 @@ def figure_support(resultats, sens, titre):
             resultats, plt.cm.tab10(numpy.linspace(0, 1, len(resultats)))):
         t_pk = m[f"{sens}_pickle"] + m["taille_pickle"] / debits
         t_sj = m[f"{sens}_sj"] + m["taille_sj"] / debits
-        ax.plot(debits / 1e6, t_pk / t_sj, color=couleur, label=nom)
+        ax.plot(debits / 1e6, t_sj / t_pk, color=couleur, label=nom)
     ax.axhline(1.0, color="gray", ls="--", lw=1)
     ax.set_xscale("log")
     ax.set_yscale("log")
     for etiquette, debit in supports:
         ax.axvline(debit / 1e6, color="lightgray", lw=0.8)
-        ax.annotate(etiquette, (debit / 1e6, 0.985), xycoords=("data",
+        ax.annotate(etiquette, (debit / 1e6, 0.015), xycoords=("data",
                     "axes fraction"), fontsize=7, color="gray",
-                    ha="center", va="top")
-    ax.set_yticks([0.2, 0.5, 1, 2, 5, 10])
-    ax.set_yticklabels(["×0,2", "×0,5", "×1", "×2", "×5", "×10"])
+                    ha="center", va="bottom")
+    ax.set_yticks([0.1, 0.2, 0.5, 1, 2, 5])
+    ax.set_yticklabels(["×0,1", "×0,2", "×0,5", "×1", "×2", "×5"])
     ax.set_xlabel("débit du support (Mo/s, échelle log)")
-    ax.set_ylabel("temps total pickle / temps total serializejson")
-    ax.set_title(titre + " — au-dessus de ×1 : avantage serializejson")
-    ax.legend(fontsize=8, loc="lower left")
+    ax.set_ylabel("temps total serializejson / temps total pickle")
+    ax.set_title(titre + " — en dessous de ×1 : avantage serializejson")
+    ax.legend(fontsize=8, loc="upper left")
     fig.tight_layout()
     return fig
 
@@ -290,10 +291,11 @@ def rendu_pdf_et_svg(resultats, entete, chemin_pdf, dossier_svg):
                 fontsize=10, va="top", wrap=True)
         ax.text(0.05, 0.30,
                 "Lecture des graphiques : toutes les valeurs sont des"
-                " rapports pickle / serializejson —\nau-dessus de la ligne"
-                " ×1, l'avantage est à serializejson.\n\n"
+                " rapports serializejson / pickle —\nen dessous de la ligne"
+                " ×1 (barre ou courbe PETITE), l'avantage est à"
+                " serializejson.\n\n"
                 "Pages 2-3 : conversion vers puis depuis bytes (mémoire et"
-                " vitesse de calcul pures).\nPages 4-5 : scénarios"
+                " temps de calcul purs).\nPages 4-5 : scénarios"
                 " d'écriture puis de lecture sur un support, temps de\n"
                 "transfert compris, en fonction du débit (disque dur,"
                 " SSD SATA, NVMe...).",

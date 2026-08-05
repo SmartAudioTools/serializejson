@@ -69,9 +69,10 @@ All charts below compare serializejson **with its default settings** (the
 level 1, base64 and JSON envelope **included**) against ``pickle.dumps``
 protocol 4, on deterministic synthetic profiles (audio, sorted timestamps,
 smooth signals and surfaces, incompressible noise as the honest worst case).
-Every value is a ratio pickle / serializejson: **above ×1, the advantage goes
-to serializejson**. They are produced by ``python tests/lance_benchmarks.py``
-(median of ~50 trials, alternated in the same process).
+Every value is a ratio serializejson / pickle: **below ×1 — the smaller the
+bar, the bigger the advantage for serializejson**. They are produced by
+``python tests/lance_benchmarks.py`` (median of ~50 trials, alternated in
+the same process).
 
 Pure in-memory conversion — serialized size is typically **2 to 20× smaller**
 (geometric mean: 40 % of pickle's size), while pickle, which is a simple
