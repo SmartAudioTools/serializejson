@@ -4,7 +4,7 @@ en Markdown et PDF, destiné à étayer la documentation par des mesures.
 
 Usage :  python3 tests/lance_benchmarks.py  [dossier_de_sortie]
 (à lancer depuis la racine du dépôt, machine CALME ; par défaut les rapports
-sont écrits dans tests/rapport_benchmarks_<date>.md et .pdf)
+datés .md et .pdf sont écrits dans rapports_benchmarks/)
 
 Ce qui est mesuré, de bout en bout et à réglages PAR DÉFAUT des deux côtés :
   - taille : len(pickle.dumps(x, protocole 4)) contre
@@ -400,11 +400,13 @@ if __name__ == "__main__":
         resultats.append((nom, mesure(tableau)))
     markdown = rendu_markdown(resultats, entete)
     horodatage = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
-    dossier = Path(sys.argv[1]) if len(sys.argv) > 1 else RACINE / "tests"
+    dossier = (Path(sys.argv[1]) if len(sys.argv) > 1
+               else RACINE / "rapports_benchmarks")
     chemin_md = dossier / f"rapport_benchmarks_{horodatage}.md"
     chemin_pdf = dossier / f"rapport_benchmarks_{horodatage}.pdf"
     dossier_svg = RACINE / "docs_source" / "images"
     dossier_svg.mkdir(parents=True, exist_ok=True)
+    dossier.mkdir(parents=True, exist_ok=True)
     chemin_md.write_text(markdown)
     rendu_pdf_et_svg(resultats, entete, chemin_pdf, dossier_svg)
     print(markdown)
