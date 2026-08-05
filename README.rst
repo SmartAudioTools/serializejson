@@ -38,7 +38,7 @@ Some of the main features:
 - serialize properties and attributes with getters and setters if wanted (unlike pickle).
 - json data will still be directly loadable if you have transform some attributes in slots or properties in your code since your last serialization. (unlike pickle)
 - can serialize `__init__(self,..)` arguments by name instead of positions, allowing to skip arguments with defauts values and making json datas robust to a change of `__init__` parameters order.
-- serialized objects take generally less space than when serialized with pickle: for binary data, the 30% increase due to base64 encoding is in general largely compensated using the lossless `blosc <https://github.com/Blosc/python-blosc>`_ compression.
+- serialized objects take generally less space than when serialized with pickle: for binary data, the 30% increase due to base64 encoding is in general largely compensated using the lossless `c-blosc2 <https://github.com/Blosc/c-blosc2>`_ compression (see the benchmarks below).
 - serialized objects are human-readable and easy to read. Unlike pickled data, your data will never become unreadable if your code evolves: you will always be able to modify your datas with a text editor (with find & replace for example if you change an attribut name).
 - serialized objects are text and therefore versionable and comparable with versionning and comparaison tools.
 - can safely load untrusted / unauthenticated sources if authorized_classes list parameter is set carefully with strictly necessary objects (unlike pickle).
@@ -59,6 +59,45 @@ Some of the main features:
     **⚠** Never dump a dictionary with the `__class__` key, otherwise serializejson will attempt to reconstruct an object when loading the json.
     Be careful not to allow a user to manually enter a dictionary key somewhere without checking that it is not `__class__`.
     Due to current limitation of rapidjson we cannot we cannot at the moment efficiently detect dictionaries with the `__class__` key to raise an error.
+
+
+Benchmarks against pickle
+=========================
+
+All charts below compare serializejson **with its default settings** (the
+"smart" compression chain: blocked derivative → zigzag → bitshuffle → zstd
+level 1, base64 and JSON envelope **included**) against ``pickle.dumps``
+protocol 4, on deterministic synthetic profiles (audio, sorted timestamps,
+smooth signals and surfaces, incompressible noise as the honest worst case).
+Every value is a ratio pickle / serializejson: **above ×1, the advantage goes
+to serializejson**. They are produced by ``python tests/lance_benchmarks.py``
+(median of ~50 trials, alternated in the same process).
+
+Pure in-memory conversion — serialized size is typically **2 to 20× smaller**
+(geometric mean: 40 % of pickle's size), while pickle, which is a simple
+memory copy (~20 GB/s from cache), stays faster on CPU time alone:
+
+.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_dumps.svg
+   :alt: dumps: memory and speed ratios against pickle
+   :width: 100%
+
+.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_loads.svg
+   :alt: loads: memory and speed ratios against pickle
+   :width: 100%
+
+As soon as the bytes have to reach a storage device or a network, the saved
+bytes also save time: the curves below show the **total** time ratio
+(serialization + transfer at the given throughput). On a hard drive or a
+SATA SSD, serializejson is faster than pickle on almost every profile — on
+fast NVMe drives, pickle stays ahead for barely-compressible data:
+
+.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_ecriture_support.svg
+   :alt: total write time ratio against storage throughput
+   :width: 100%
+
+.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_lecture_support.svg
+   :alt: total read time ratio against storage throughput
+   :width: 100%
 
 
 Installation

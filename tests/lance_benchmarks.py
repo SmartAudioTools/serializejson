@@ -183,21 +183,128 @@ def rendu_markdown(resultats, entete):
     return "\n".join(md)
 
 
-def rendu_pdf(texte_markdown, chemin):
+BLEU, ORANGE = "#2b6cb0", "#dd6b20"
+
+
+def figure_barres(resultats, sens, titre):
+    # deux barres par profil : rapport de mémoire (bleu) et de vitesse
+    # (orange), échelle log, > 1 = avantage serializejson
+    import matplotlib.pyplot as plt
+
+    noms = [nom for nom, _ in resultats]
+    gain_poids = numpy.array(
+        [m["taille_pickle"] / m["taille_sj"] for _, m in resultats])
+    vitesse = numpy.array(
+        [m[f"{sens}_pickle"] / m[f"{sens}_sj"] for _, m in resultats])
+    fig, ax = plt.subplots(figsize=(11.69, 8.27))
+    x = numpy.arange(len(noms))
+    b1 = ax.bar(x - 0.21, gain_poids, 0.4, color=BLEU,
+                label="rapport de mémoire"
+                      "  (poids pickle / poids serializejson)")
+    b2 = ax.bar(x + 0.21, vitesse, 0.4, color=ORANGE,
+                label=f"rapport de vitesse {sens}"
+                      f"  (temps pickle / temps serializejson)")
+    for barres in (b1, b2):
+        for barre in barres:
+            v = barre.get_height()
+            ax.annotate(f"×{v:.2f}" if v < 10 else f"×{v:.0f}",
+                        (barre.get_x() + barre.get_width() / 2, v),
+                        ha="center", va="bottom", fontsize=7)
+    ax.axhline(1.0, color="gray", ls="--", lw=1)
+    ax.text(len(noms) - 0.5, 1.02, "égalité ×1", color="gray",
+            fontsize=8, ha="right")
+    ax.set_yscale("log")
+    ax.set_ylim(top=max(gain_poids.max(), vitesse.max()) * 1.6)
+    ax.set_yticks([0.2, 0.5, 1, 2, 5, 10, 20])
+    ax.set_yticklabels(["×0,2", "×0,5", "×1", "×2", "×5", "×10", "×20"])
+    ax.set_xticks(x)
+    ax.set_xticklabels(noms, rotation=18, ha="right", fontsize=8)
+    ax.set_title(titre + " — au-dessus de ×1 : avantage serializejson")
+    ax.legend(loc="upper left", fontsize=9)
+    fig.tight_layout()
+    return fig
+
+
+def figure_support(resultats, sens, titre):
+    # temps TOTAL (calcul + transfert) selon le débit du support :
+    # l'avantage de poids se change en avantage de temps dès que le
+    # support est le goulot
+    import matplotlib.pyplot as plt
+
+    debits = numpy.logspace(numpy.log10(80e6), numpy.log10(15e9), 200)
+    supports = [("disque dur\n~150 Mo/s", 150e6),
+                ("SSD SATA\n~550 Mo/s", 550e6),
+                ("NVMe PCIe 3\n~3 Go/s", 3e9),
+                ("NVMe PCIe 5\n~13 Go/s", 13e9)]
+    fig, ax = plt.subplots(figsize=(11.69, 8.27))
+    for (nom, m), couleur in zip(
+            resultats, plt.cm.tab10(numpy.linspace(0, 1, len(resultats)))):
+        t_pk = m[f"{sens}_pickle"] + m["taille_pickle"] / debits
+        t_sj = m[f"{sens}_sj"] + m["taille_sj"] / debits
+        ax.plot(debits / 1e6, t_pk / t_sj, color=couleur, label=nom)
+    ax.axhline(1.0, color="gray", ls="--", lw=1)
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    for etiquette, debit in supports:
+        ax.axvline(debit / 1e6, color="lightgray", lw=0.8)
+        ax.annotate(etiquette, (debit / 1e6, 0.985), xycoords=("data",
+                    "axes fraction"), fontsize=7, color="gray",
+                    ha="center", va="top")
+    ax.set_yticks([0.2, 0.5, 1, 2, 5, 10])
+    ax.set_yticklabels(["×0,2", "×0,5", "×1", "×2", "×5", "×10"])
+    ax.set_xlabel("débit du support (Mo/s, échelle log)")
+    ax.set_ylabel("temps total pickle / temps total serializejson")
+    ax.set_title(titre + " — au-dessus de ×1 : avantage serializejson")
+    ax.legend(fontsize=8, loc="lower left")
+    fig.tight_layout()
+    return fig
+
+
+FIGURES = [
+    ("benchmark_dumps", figure_barres, "dumps",
+     "conversion vers bytes (dumps)"),
+    ("benchmark_loads", figure_barres, "loads",
+     "conversion depuis bytes (loads)"),
+    ("benchmark_ecriture_support", figure_support, "dumps",
+     "écriture sur un support (dumps + transfert)"),
+    ("benchmark_lecture_support", figure_support, "loads",
+     "lecture depuis un support (transfert + loads)"),
+]
+
+
+def rendu_pdf_et_svg(resultats, entete, chemin_pdf, dossier_svg):
+    # chaque figure part dans le PDF daté ET en SVG à nom STABLE (référencé
+    # par la documentation : chaque run les rafraîchit sans casser les liens)
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.backends.backend_pdf import PdfPages
 
-    lignes = texte_markdown.replace("**", "").splitlines()
-    with PdfPages(chemin) as pdf:
-        for debut in range(0, len(lignes), 48):
-            fig, ax = plt.subplots(figsize=(11.69, 8.27))  # A4 paysage
-            ax.axis("off")
-            ax.text(0.01, 0.99, "\n".join(lignes[debut:debut + 48]),
-                    fontsize=7, family="monospace", va="top", wrap=True)
+    with PdfPages(chemin_pdf) as pdf:
+        fig, ax = plt.subplots(figsize=(11.69, 8.27))
+        ax.axis("off")
+        ax.text(0.5, 0.9, "serializejson (défaut « smart ») contre pickle",
+                ha="center", fontsize=18, weight="bold")
+        ax.text(0.05, 0.78, "\n\n".join(ligne.lstrip("- ") for ligne in entete),
+                fontsize=10, va="top", wrap=True)
+        ax.text(0.05, 0.30,
+                "Lecture des graphiques : toutes les valeurs sont des"
+                " rapports pickle / serializejson —\nau-dessus de la ligne"
+                " ×1, l'avantage est à serializejson.\n\n"
+                "Pages 2-3 : conversion vers puis depuis bytes (mémoire et"
+                " vitesse de calcul pures).\nPages 4-5 : scénarios"
+                " d'écriture puis de lecture sur un support, temps de\n"
+                "transfert compris, en fonction du débit (disque dur,"
+                " SSD SATA, NVMe...).",
+                fontsize=10, va="top")
+        pdf.savefig(fig)
+        plt.close(fig)
+        for nom_svg, fabrique, sens, titre in FIGURES:
+            fig = fabrique(resultats, sens, titre)
             pdf.savefig(fig)
+            if dossier_svg is not None:
+                fig.savefig(dossier_svg / f"{nom_svg}.svg", format="svg")
             plt.close(fig)
 
 
@@ -226,8 +333,10 @@ if __name__ == "__main__":
     dossier = Path(sys.argv[1]) if len(sys.argv) > 1 else RACINE / "tests"
     chemin_md = dossier / f"rapport_benchmarks_{horodatage}.md"
     chemin_pdf = dossier / f"rapport_benchmarks_{horodatage}.pdf"
+    dossier_svg = RACINE / "docs_source" / "images"
+    dossier_svg.mkdir(parents=True, exist_ok=True)
     chemin_md.write_text(markdown)
-    rendu_pdf(markdown, chemin_pdf)
+    rendu_pdf_et_svg(resultats, entete, chemin_pdf, dossier_svg)
     print(markdown)
     print("->", chemin_md)
     print("->", chemin_pdf)
