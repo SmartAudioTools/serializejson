@@ -2402,3 +2402,21 @@ appel plugin par objet ; viser une branche C native avec seuil/params via
 pathTracker), collections ~×12, bytesarray dumps, tuple loads ×8 (le
 chemin C PyList_AsTuple existe — chercher pourquoi il ne prend pas sur la
 catégorie), decimales/datetime/binary, iterators/queue, scalaires dumps.
+
+Avancement ~21 h 50 : plans « constructeur seul » (classe, 2) EN PLACE —
+les classes C (Decimal ×2,2, datetime ×3,3, deque...) et celles à
+__setstate__/setters/properties s'appellent en C pour l'enveloppe stricte
+{__class__, __init__} (liste ou scalaire) ; DEUX pièges attrapés par la
+batterie : type(x) à un argument (garde « type » explicite) et le registre
+constructors utilisé comme cache. Harnais : la lecture se mesure sur le
+dump réel du lot ($ref internes respectés) — ce qui expose une NOUVELLE
+cible : la résolution python des références (~2 µs par $ref via
+_resolve_duplicates/from_name ; les lots de types dédupliqués la rendent
+dominante). RESTE par priorité : résolution $ref en C ; bytes dumps ~×20
+(plancher appel plugin par objet → branche C native avec seuil/params via
+pathTracker) ; collections ~×13 (formes __items__) ; bytesarray dumps ;
+tuple loads ~×8 (plancher enveloppe C — candidat exception ou
+reconnaissance au parse) ; scalaires dumps ×2-3 (coût de l'enveloppe
+générique par appel) ; iterators/queue ≈ plancher d'appel. Mesures de
+ratios TOUJOURS polluées ce soir (charge 4-6) : table finale sur machine
+calme en fin de nuit + PGO ×5 + batterie avant le rapport.
