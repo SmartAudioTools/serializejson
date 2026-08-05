@@ -432,6 +432,11 @@ struct PathNode {
     PathSegment::Kind kind;
     std::string key;
     Py_ssize_t index;
+    // {"$ref": "..."} rendu et échappé, composé à la PREMIÈRE référence vers
+    // ce noeud puis resservi tel quel : les documents à répliques (types,
+    // singletons...) émettent des centaines de fois le même $ref (~0,4 µs
+    // la composition, mesuré sur le lot types)
+    std::string refJson;
 };
 // table de hachage a adressage ouvert specialisee pointeur -> long :
 // remplace unordered_map pour le memo des conteneurs (~13% du temps
@@ -746,6 +751,27 @@ sj_ref_append_escape(std::string& ref_, const std::string& path)
     }
 }
 
+
+static std::string
+path_tracker_string(PathTracker* tracker, long node_index);
+
+// {"$ref": "..."} du noeud node_index, composé et échappé à la PREMIÈRE
+// demande puis mémoïsé sur le noeud (-1 = racine, forme constante)
+static const std::string&
+sj_ref_json(PathTracker* tracker, long node_index)
+{
+    static const std::string root_ref = "{\"$ref\": \"root\"}";
+    if (node_index < 0)
+        return root_ref;
+    PathNode& node = tracker->nodes[(size_t) node_index];
+    if (node.refJson.empty()) {
+        std::string ref_ = "{\"$ref\": \"";
+        sj_ref_append_escape(ref_, path_tracker_string(tracker, node_index));
+        ref_ += "\"}";
+        node.refJson = std::move(ref_);
+    }
+    return node.refJson;
+}
 
 // chaîne "root[0].attr['clef']" du noeud node_index (-1 = "root")
 static std::string
@@ -1578,6 +1604,11 @@ struct PyHandler {
     // repli PAR CLÉ du décodage C des dicts à clés non-str (attribut
     // _decode_cle_exotique du décodeur, résolu une fois par chargement)
     PyObject* decodeCleFn = nullptr;
+    // cache des clés EXOTIQUES décodées ('[5,6]' -> (5,6)...), le temps d'un
+    // parse : les répliques d'un document répètent leurs clés, et chaque
+    // décodage python coûte ~4 µs (résultats immuables : tuple, frozenset,
+    // bytes... — le partage entre occurrences est sans effet observable)
+    PyObject* cleExotiqueCache = nullptr;
 
     PyHandler(PyObject* decoder,
               PyObject* hook,
@@ -1723,6 +1754,7 @@ struct PyHandler {
         Py_CLEAR(decoderEndArray);
         Py_CLEAR(decoderString);
         Py_CLEAR(decodeCleFn);
+        Py_CLEAR(cleExotiqueCache);
         Py_CLEAR(sharedKeys);
         ReleaseKeyCache();
         Py_CLEAR(decoderObject);
@@ -2504,9 +2536,31 @@ struct PyHandler {
             // repli à CHAQUE clé ordinaire était précisément le coût python
             if (premier == '[' || premier == '{' || premier == '"'
                 || premier == '\'' || premier == 'b') {
-                if (decodeCleFn != nullptr)
-                    return PyObject_CallFunctionObjArgs(decodeCleFn, key,
-                                                        nullptr);
+                if (decodeCleFn != nullptr) {
+                    // ~4 µs par décodage python : mémoïsé par clé le temps
+                    // du parse (répliques d'un même document)
+                    if (cleExotiqueCache != nullptr) {
+                        PyObject* hit = PyDict_GetItemWithError(
+                            cleExotiqueCache, key);
+                        if (hit != nullptr) {
+                            Py_INCREF(hit);
+                            return hit;
+                        }
+                        if (PyErr_Occurred())
+                            PyErr_Clear();
+                    }
+                    PyObject* decodee = PyObject_CallFunctionObjArgs(
+                        decodeCleFn, key, nullptr);
+                    if (decodee != nullptr) {
+                        if (cleExotiqueCache == nullptr)
+                            cleExotiqueCache = PyDict_New();
+                        if (cleExotiqueCache != nullptr
+                            && PyDict_SetItem(cleExotiqueCache, key,
+                                              decodee) < 0)
+                            PyErr_Clear();
+                    }
+                    return decodee;
+                }
             }
         }
         // clé str ordinaire : telle quelle (aucun marqueur ne la réclame)
@@ -3616,7 +3670,10 @@ struct PyHandler {
         // quand cette chaîne est le premier élément de la liste __init__ ou
         // __new__ d'une classe enregistrée (bytes, bytearray, numpyB64...).
         // Si ce n'est pas du base64 propre, chemin normal.
-        if (!b64PayloadClasses.empty() && length >= 8 && stack.size() >= 2) {
+        // length >= 2 : la plus courte charge légitime est « 0: » (bytearray
+        // vide, préfixe de longueur seul) — le seuil 8 la renvoyait au greffon
+        // python, seul élément du lot bytearray encore hors table C
+        if (!b64PayloadClasses.empty() && length >= 2 && stack.size() >= 2) {
             const HandlerContext& top = stack.back();
             if (!top.isObject && PyList_CheckExact(top.object)
                 && PyList_GET_SIZE(top.object) == 0) {
@@ -3658,7 +3715,19 @@ struct PyHandler {
                                         b64_length = length - d - 1;
                                     }
                                 }
-                                if (deferB64 && b64_length >= 64) {
+                                if (b64_length == 0 && b64 != str) {
+                                    // « 0: » : charge vide légitime — le
+                                    // préfixe a été reconnu (une chaîne vide
+                                    // sans préfixe ne parvient pas ici)
+                                    PyObject* decoded = it->second
+                                        ? PyByteArray_FromStringAndSize(
+                                              nullptr, 0)
+                                        : PyBytes_FromStringAndSize(
+                                              nullptr, 0);
+                                    if (decoded != nullptr)
+                                        return Handle(decoded);
+                                    PyErr_Clear();
+                                } else if (deferB64 && b64_length >= 64) {
                                     // les petits payloads se décodent tout de
                                     // suite : le différé n'y gagne rien et
                                     // leurs consommateurs (date...) lisent
@@ -5122,10 +5191,8 @@ dumps_internal(
         PtrMemo::Slot* memo_slot =                                      \
             pathTracker->memo.find_or_reserve(object, &memo_found);     \
         if (memo_found) {                                               \
-            std::string ref_ = "{\"$ref\": \"";                         \
-            sj_ref_append_escape(                                       \
-                ref_, path_tracker_string(pathTracker, memo_slot->second));\
-            ref_ += "\"}";                                              \
+            const std::string& ref_ =                                   \
+                sj_ref_json(pathTracker, memo_slot->second);            \
             writer->RawValue(ref_.data(), ref_.size());                 \
             return true;                                                \
         }                                                               \
@@ -6609,12 +6676,8 @@ dumps_internal(
                                     pathTracker->memo.find(state_obj);
                                 if (dict_it != pathTracker->memo.end()) {
                                     writer->Key("__dict__", 8);
-                                    std::string ref_ = "{\"$ref\": \"";
-                                    sj_ref_append_escape(
-                                        ref_,
-                                        path_tracker_string(
-                                            pathTracker, dict_it->second));
-                                    ref_ += "\"}";
+                                    const std::string& ref_ = sj_ref_json(
+                                        pathTracker, dict_it->second);
                                     writer->RawValue(ref_.data(),
                                                      ref_.size());
                                     state_done = true;
@@ -6877,12 +6940,8 @@ dumps_internal(
                                     // déjà écrit ailleurs : {"__dict__":
                                     // {"$ref": ...}} et rien d'autre
                                     writer->Key("__dict__", 8);
-                                    std::string ref_ = "{\"$ref\": \"";
-                                    sj_ref_append_escape(
-                                        ref_,
-                                        path_tracker_string(
-                                            pathTracker, dict_it->second));
-                                    ref_ += "\"}";
+                                    const std::string& ref_ = sj_ref_json(
+                                        pathTracker, dict_it->second);
                                     writer->RawValue(ref_.data(),
                                                      ref_.size());
                                     state_done = true;
@@ -6962,11 +7021,8 @@ dumps_internal(
                 // doublon ou cycle -> $ref
                 auto memo_it = pathTracker->memo.find(object);
                 if (memo_it != pathTracker->memo.end()) {
-                    std::string ref_ = "{\"$ref\": \"";
-                    sj_ref_append_escape(
-                        ref_,
-                        path_tracker_string(pathTracker, memo_it->second));
-                    ref_ += "\"}";
+                    const std::string& ref_ =
+                        sj_ref_json(pathTracker, memo_it->second);
                     writer->RawValue(ref_.data(), ref_.size());
                     return true;
                 }
@@ -7113,12 +7169,8 @@ dumps_internal(
 
                     if (shared_dict_node != -2) {
                         writer->Key("__dict__", 8);
-                        std::string ref_ = "{\"$ref\": \"";
-                        sj_ref_append_escape(
-                            ref_,
-                            path_tracker_string(pathTracker,
-                                                shared_dict_node));
-                        ref_ += "\"}";
+                        const std::string& ref_ =
+                            sj_ref_json(pathTracker, shared_dict_node);
                         writer->RawValue(ref_.data(), ref_.size());
                     } else {
                         // rend le vrai __dict__ adressable pour la suite s'il
