@@ -174,6 +174,7 @@ try:
 except:
     pass
 import os
+import re
 import threading
 import types
 import warnings
@@ -1246,19 +1247,34 @@ class Encoder(rapidjson.Encoder):
                         # l'enveloppe ou serait relue comme objet/référence
                         init_dict[f"'{key}'"] = value
                         continue
-                    try:
-                        rapidjson.loads(key)
-                    except:
-                        if key.endswith("'") and (
-                            key.startswith("'")
-                            or key.startswith("b'")
-                            or key.startswith("b64'")
-                        ):
-                            new_key = f"'{key}'"
+                    # une clé str s'échappe si elle serait RELUE comme autre
+                    # chose (json valide, ou forme quotée) — décidé par un
+                    # préfiltre exact sur le premier caractère, la sonde
+                    # rapidjson.loads (1,2 µs) ne restant que pour les rares
+                    # clés commençant par [, { ou " (mesuré : la sonde par
+                    # clé pesait un tiers du temps d'écriture de ces dicts)
+                    premier = key[0] if key else ""
+                    if premier == "'":
+                        requote = key.endswith("'")
+                    elif premier == "b":
+                        requote = key.endswith("'") and (
+                            key.startswith("b'") or key.startswith("b64'"))
+                    elif premier in "-0123456789":
+                        requote = (_cle_nombre_json.match(key) is not None
+                                   or key == "-Infinity")
+                    elif premier in "tfnNI":
+                        requote = key in ("true", "false", "null", "NaN",
+                                          "Infinity")
+                    elif premier in '[{"':
+                        try:
+                            rapidjson.loads(key)
+                        except Exception:
+                            requote = False
                         else:
-                            new_key = key
+                            requote = True
                     else:
-                        new_key = f"'{key}'"
+                        requote = False
+                    new_key = f"'{key}'" if requote else key
                 elif type_key is bytes:
                     try:
                         new_key = f"b'{key.decode('ascii_printables')}'"
@@ -2468,6 +2484,11 @@ def dict_non_str_keys(dict_):
     for key, value in dict_.items():
         d[_decode_cle(key)] = value
     return d
+
+
+# nombre JSON exact (la sonde d'échappement des clés s'y réfère : underscores
+# et formes python non-json comme .5 ou +5 NE matchent PAS, fidèle à loads)
+_cle_nombre_json = re.compile(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$")
 
 
 # recettes privées des sets pour la branche recette C de l'encodeur : les
