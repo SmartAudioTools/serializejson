@@ -179,6 +179,7 @@ static PyObject* state_key_name = nullptr;
 static PyObject* items_key_name = nullptr;
 static PyObject* empty_args_tuple = nullptr;
 static PyObject* b64_payload_classes_name = nullptr;
+static PyObject* type_values_cache_name = nullptr;
 static PyObject* end_array_name = nullptr;
 static PyObject* string_name = nullptr;
 static PyObject* read_name = nullptr;
@@ -1309,6 +1310,7 @@ struct PyHandler {
     };
     std::vector<PendingB64> pendingB64;
     bool deferB64;
+    PyObject* typeValuesCache = nullptr;   // réf forte, dict partagé ou nullptr
     bool rootAttrSet;
     std::unordered_map<std::string, PyObject*> decodePlans;  // réfs possédées
     // classes dont la charge __init__/__new__[0] est du base64 à décoder
@@ -1397,6 +1399,17 @@ struct PyHandler {
                     }
                     Py_DECREF(payload_classes);
                 }
+                // cache partagé des valeurs de type : le C ne sert que les
+                // HITS de ce dict (rempli par instance() côté python, qui
+                // garde la machinerie d'import et ses règles)
+                typeValuesCache =
+                    PyObject_GetAttr(decoder, type_values_cache_name);
+                if (typeValuesCache == nullptr)
+                    PyErr_Clear();
+                else if (!PyDict_CheckExact(typeValuesCache)) {
+                    Py_DECREF(typeValuesCache);
+                    typeValuesCache = nullptr;
+                }
                 decoderObject = decoder;
                 Py_INCREF(decoder);
                 if (PyObject_TypeCheck(decoder, &Decoder_Type)) {
@@ -1444,6 +1457,7 @@ struct PyHandler {
         Py_CLEAR(decodeClassPlanFn);
         for (auto& entry : decodePlans)
             Py_DECREF(entry.second);
+        Py_XDECREF(typeValuesCache);
         ReleasePendingB64();
     }
 
@@ -2187,6 +2201,30 @@ struct PyHandler {
                                                          "tuple") == 0) {
                         if (PyList_CheckExact(ctor_args))
                             replacement = PyList_AsTuple(ctor_args);
+                    } else if (PyUnicode_CompareWithASCIIString(
+                                   cls_value, "type") == 0) {
+                        // valeurs de type : servies depuis le cache partagé
+                        // seulement (un HIT rend la classe déjà résolue par
+                        // python ; un miss reste en voie python, qui importe
+                        // et remplit le cache)
+                        if (typeValuesCache != nullptr
+                            && PyUnicode_CheckExact(ctor_args)) {
+                            if (PyUnicode_CompareWithASCIIString(
+                                    ctor_args, "NoneType") == 0) {
+                                // cas spécial d'instance() : jamais mis en
+                                // cache côté python
+                                replacement =
+                                    (PyObject*) Py_TYPE(Py_None);
+                                Py_INCREF(replacement);
+                            } else {
+                                PyObject* classe = PyDict_GetItem(
+                                    typeValuesCache, ctor_args);
+                                if (classe != nullptr) {
+                                    Py_INCREF(classe);
+                                    replacement = classe;
+                                }
+                            }
+                        }
                     } else if (PyUnicode_CompareWithASCIIString(cls_value,
                                                                 "set") == 0) {
                         if (PyList_CheckExact(ctor_args))
@@ -8314,6 +8352,10 @@ module_exec(PyObject* m)
 
     b64_payload_classes_name = PyUnicode_InternFromString("_b64_payload_classes");
     if (b64_payload_classes_name == nullptr)
+        return -1;
+
+    type_values_cache_name = PyUnicode_InternFromString("_type_values_cache");
+    if (type_values_cache_name == nullptr)
         return -1;
 
     end_array_name = PyUnicode_InternFromString("end_array");

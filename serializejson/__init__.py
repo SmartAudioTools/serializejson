@@ -211,6 +211,7 @@ from .tools import (
     getstate,
     setstate,
     instance,
+    _type_values_cache,
     tuple_from_instance,
     class_str_from_class,
     class_from_class_str,
@@ -1878,6 +1879,13 @@ class Decoder(rapidjson.Decoder):
     # C++ la décode directement depuis son tampon de parse, sans matérialiser
     # la chaîne Python intermédiaire (0 -> bytes, 1 -> bytearray)
     _b64_payload_classes = {"bytes": 0, "bytearray": 1, "numpyB64": 1}
+
+    # cache PARTAGÉ des valeurs de type (tools._type_values_cache) : le C
+    # résout {"__class__": "type", "__init__": "x.y"} par simple lecture du
+    # dict — il ne sert que les HITS ; le premier passage d'un nom reste en
+    # python (instance()), qui remplit le cache et porte la machinerie
+    # d'import
+    _type_values_cache = _type_values_cache
 
     def decode_class_plan(self, class_str):
         # Chemin rapide de décodage, consulté par le C++ UNE fois par classe et

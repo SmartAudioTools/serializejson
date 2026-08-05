@@ -627,6 +627,9 @@ class Reference:
 # --- Conversion Class <-> qualified name ------------------------
 
 class_from_class_str_dict = constructors
+# cache des VALEURS de type ({"__class__": "type", "__init__": ...}) :
+# séparé du registre des constructeurs, qui remplace certaines classes
+_type_values_cache = {}
 class_from_class_str_dict["base64.b64decode"] = lambda string_b64: b64decode(
     string_b64, validate=True
 )  # allow to accelerete base 64 decode
@@ -1169,7 +1172,16 @@ def instance(
             if __init__ == "NoneType":
                 return type(None)
             elif __init__:
-                return class_from_class_str(__init__)
+                # cache DÉDIÉ aux valeurs de type (⚠ PAS
+                # class_from_class_str_dict : c'est aussi le registre des
+                # constructeurs, où "bytes" vaut bytesB64) — la résolution
+                # passait par la machinerie d'import à CHAQUE objet type
+                try:
+                    return _type_values_cache[__init__]
+                except KeyError:
+                    class_ = _type_values_cache[__init__] = (
+                        class_from_class_str(__init__))
+                    return class_
             else:
                 return type
         try:
