@@ -70,28 +70,47 @@ session `types_seuls.py` (scratchpad — VOLATIL, voir pièges).
 - Batterie attendue : 103 tests × 5 versions, goldens identiques
   (times/pickle exclus, listes NaN triées).
 
-## Reste à faire (par priorité, chiffres indicatifs pollués par la
-## charge du soir — refaire la table au calme)
+## Fait aussi après la reprise de 21 h 34 (session suivante, tout commité)
 
-1. Écriture native C des bytes (dumps ~×20 : plancher = appel plugin
-   python par objet ; passer seuil/compression via pathTracker comme
-   singleLineInit, ne traiter en C que len<seuil : ascii imprimable —
-   codec = {tab, LF, CR} ∪ [0x20..0x7E] — sinon b64 via RawDataToBase64
-   qui pose déjà le préfixe « n: » ; ≥seuil → voie python blosc).
-2. Collections ~×12 : formes `__items__` (OrderedDict, deque, Counter,
-   defaultdict) en C.
-3. `_replace_ref_placeholders` (parcours python de l'arbre en
-   post-passe des racines liste) → C.
-4. dict à clés non-str : le reste (~×12-15) est l'enveloppe par clé —
-   candidate voie C (écriture des clés + `dict_non_str_keys` C).
-5. tuple loads ~×9 : plancher = construction de l'enveloppe dict en C
-   puis conversion — candidat « exception consignée » ou reconnaissance
-   des enveloppes au parse (éviter le dict intermédiaire).
-6. Scalaires (None/bool/int/float) dumps ×2-3,5 et
-   iterators/queue/range/slice loads ×2,5-3,5 : proches du plancher
-   d'appel — mesurer au calme avant de trancher.
-7. Table finale sur machine calme + PGO ×5 + batterie + section rapport
-   dans l'audit (« chaque type sous ×2 : résultats et exceptions »).
+- Écriture native C des petits bytes/bytearray (BytesEnvelope en UN
+  passage, seuil `_bytes_natif_seuil`, jamais de court-circuit d'un
+  greffon remplacé) : bytes dumps ×19,5→~×12 (le reste = entrées ≥
+  seuil qui partent en COMPRESSION python : coût du poids, assumé).
+- Reconnaissance des ENVELOPPES au parse : {__class__, __new__/__init__
+  [, __items__]} capturé au vol sans remplir le dict, EnvFlush au
+  moindre écart (dont versement de TOUTE la pile à la première clé
+  `$ref` — une réf peut viser l'intérieur d'une enveloppe ouverte,
+  attrapé par test_doublon_dans_init_compact) ; table EnvelopeConstruct
+  partagée avec la chaîne de fin d'objet ; ReplaceInParent factorisé.
+  Surcoût d'enveloppe 227→107 ns.
+- Résolution C des `$ref` sur la racine du HANDLER : les racines LISTE
+  résolvaient tout en post-passe python (~6 µs/réf) — tuple loads
+  ×7,7→×3,3, types ×13→×3,9.
+- CollectionsConstruct (deque/Counter/OrderedDict/defaultdict,
+  sémantique instance() calquée) + DictNonStrConstruct : clés non-str
+  décodées en C (miroir _decode_cle ; repli python PAR CLÉ restreint
+  aux formes parseables [/{/" — le repli par clé ordinaire était LE
+  coût) — dict loads ×11→×5,5, collections loads ×11→×5,6.
+
+## Reste à faire (par priorité)
+
+1. dict à clés non-str, ÉCRITURE (~×17) : porter _dict_from_instance
+   (branche dict) en C — préfiltre de re-quotage exact (regex nombre
+   json en C), int/bool/None/float/bytes en direct, pré-scan des clés
+   et repli python du DICT ENTIER si une clé exotique (tuple/nested).
+2. collections dumps ~×8,5 (2,7 ms le lot !) : recettes __items__ à
+   l'écriture en C (deque/Counter/OrderedDict/defaultdict).
+3. bytes ≥ seuil : compression blosc2 depuis le C de l'écrivain
+   (cname/level via attrs comme le seuil) — fermerait bytes/bytesarray
+   des deux côtés.
+4. bytesarray loads ~×11 : ~7 µs par élément COMPRESSÉ restant —
+   profiler le vidage différé (la garde <1 Mo existe pourtant).
+5. types dumps ×5,8 ; sets dumps ×4-6 : écriture des valeurs de type
+   (cache inverse) et recettes set C par éléments.
+6. Scalaires dumps ×2-2,6, iterators/queue/range/slice loads ×2,4-3 :
+   proches du plancher d'appel — consigner en exceptions si résiduels.
+7. Table finale au calme + PGO ×5 + batterie + section « chaque type
+   sous ×2 » dans l'audit (résultats et exceptions consignées).
 
 ## Pièges de la nuit (à ne pas repayer)
 

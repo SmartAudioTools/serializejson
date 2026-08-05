@@ -2438,3 +2438,63 @@ en C ; écriture C native des bytes (seuil/params via pathTracker) ;
 formes __items__ des collections en C ; enveloppes {__class__} en
 reconnaissance au parse pour abaisser le plancher tuple/scalaires ;
 puis PGO ×5 + batterie + table finale sur machine calme + rapport.
+
+### 17 undecies. Nuit du 5 au 6/08, seconde partie — la reconnaissance d'enveloppe au parse
+
+Reprise après passation (conversation perdue, état relu dans le
+CLAUDE.md du dépôt). Quatre marches, batterie verte et commit à
+chacune :
+
+**Écriture native C des petits bytes/bytearray.** L'enveloppe est
+composée en UN passage par l'écrivain (`BytesEnvelope`, formes
+compacte et indentée conformes aux goldens) sous un seuil posé par
+l'Encoder (`_bytes_natif_seuil` — zéro dès qu'un greffon bytes a été
+remplacé : on ne court-circuite jamais un greffon utilisateur).
+Leçon de mesure : ni le mémo (~0) ni les sept appels d'écrivain
+(~0,08 µs) n'étaient le gros du coût — l'aller-retour python de la
+recette pesait l'essentiel. 0,33 µs par petit bytes ; le reste de la
+catégorie, ce sont les entrées ≥ seuil qui partent en compression :
+le prix du POIDS, assumé et consigné.
+
+**La reconnaissance des enveloppes AU PARSE** (la pièce centrale).
+`{"__class__": nom, "__new__"/"__init__" [, "__items__"]}` est capturé
+au vol dans le contexte du handler — le dict d'enveloppe reste VIDE —
+et la fin d'objet instancie directement par une table
+(`EnvelopeConstruct`, partagée avec la chaîne historique de fin
+d'objet, dédupliquée à cette occasion). Au moindre écart de forme,
+`EnvFlush` verse la capture dans le dict et la voie classique reprend
+à l'identique. Deux pièges réels attrapés :
+  - une référence `$ref` peut viser l'INTÉRIEUR d'une enveloppe encore
+    ouverte (doublon mémoïsé dans les args `__init__`) — à la première
+    clé `$ref` du document, TOUTES les captures de la pile sont
+    versées (attrapé par test_doublon_dans_init_compact) ;
+  - un conteneur capturé peut être REMPLACÉ par la suite (enveloppe
+    imbriquée) : `ReplaceInParent`, factorisé, sait viser la capture
+    du parent plutôt que son dict.
+Surcoût d'enveloppe : 227 → 107 ns.
+
+**Les racines LISTE résolvaient leurs `$ref` en post-passe python.**
+Le résolveur C n'avait de racine que pour les documents à racine dict
+(attribut `.root` du décodeur) ; il utilise désormais la racine du
+HANDLER, qui existe pour les deux formes — chaque référence coûtait
+~6 µs de python. tuple loads ×7,7→×3,3, types ×13→×3,9.
+
+**Collections et clés non-str en lecture.** Capture du troisième slot
+`__items__` + `CollectionsConstruct` (deque, Counter, OrderedDict,
+defaultdict — sémantique d'instance() calquée : init liste →
+`cls(*init)`, dict à clés str → `cls(**init)`, scalaire → `cls(init)`,
+puis `update` sinon `extend`) ; et `DictNonStrConstruct` : les clés
+des dicts `{"__class__": "dict"}` décodées en C (miroir exact de
+`_decode_cle` : 'quotée', b'ascii', b64', booléens, null, entiers
+python arbitraires, flottants), avec repli python PAR CLÉ restreint
+aux seules formes encore parseables (`[`, `{`, `"`, marqueurs cassés)
+— le repli par clé ORDINAIRE était précisément le coût historique.
+dict loads ×11→×5,5 ; collections loads ×11→×5,6 (dont le gros était
+en réalité le dict non-str INCORPORÉ dans Counter_no_string_keys).
+
+État de la table à la passe de 00 h 15 (32 répliques par lot, machine
+calme) : plus aucune catégorie au-dessus de ×17 ; en LECTURE, tout est
+sous ×6 sauf bytesarray (~×11, ~7 µs par élément compressé restant à
+profiler) ; en ÉCRITURE restent dict (×17), bytes (×12, compression),
+collections (×8,5), sets/types (×4-6). Le reste à faire priorisé vit
+dans le CLAUDE.md du dépôt.
