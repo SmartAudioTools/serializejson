@@ -98,6 +98,17 @@ except Exception:
     use_blosc2_fork = False
 
 
+def sans_prefixe_longueur(string):
+    # préfixe « <n>: » écrit devant le base64 par le sérialiseur (il permet
+    # au parseur de sauter le scan de la chaîne) : ':' est hors de l'alphabet
+    # base64, sa présence signe le préfixe ; anciens fichiers : intacts
+    if string[:1].isdigit():
+        deux_points = string.find(":", 1, 21)
+        if deux_points != -1:
+            return string[deux_points + 1 :]
+    return string
+
+
 def blosc_chunks_decompress(frame, as_bytearray=False):
     # trames blosc concaténées dans l'ordre (compression parallèle
     # déterministe) : décompression parallèle en C, chaque trame vers sa
@@ -105,7 +116,7 @@ def blosc_chunks_decompress(frame, as_bytearray=False):
     import rapidjson
 
     if type(frame) is str:
-        frame = b64decode(frame, validate=True)
+        frame = b64decode(sans_prefixe_longueur(frame), validate=True)
     return rapidjson.blosc_decompress_chunks(frame, 1 if as_bytearray else 0)
 
 

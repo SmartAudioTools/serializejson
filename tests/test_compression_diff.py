@@ -7,6 +7,17 @@ import numpy
 import pytest
 
 import serializejson
+from serializejson.tools import sans_prefixe_longueur
+
+
+def _trame(blosc_to_base64):
+    # dumps d'un BloscToBase64 : « "<n>:<base64>" » — retire les guillemets
+    # et le préfixe de longueur, rend la trame binaire
+    from base64 import b64decode
+
+    import rapidjson
+
+    return b64decode(sans_prefixe_longueur(rapidjson.dumps(blosc_to_base64)[1:-1]))
 
 
 @pytest.mark.parametrize("dtype", [numpy.int16, numpy.int32, numpy.int64,
@@ -33,7 +44,9 @@ def test_2d_axe_0():
     # référence SANS delta (le défaut est désormais « smart ») :
     sans = serializejson.Encoder(
         return_bytes=True, bytes_compression_diff_dtypes=None)(rampe)
-    assert len(dump) < len(sans) / 2      # la rampe se comprime bien mieux
+    # la rampe se comprime bien mieux (0,55 : les deux dumps portent le
+    # préfixe de longueur « <n>: » devant le base64, surcoût constant)
+    assert len(dump) < len(sans) * 0.55
     recharge = serializejson.Decoder()(dump)
     assert recharge.shape == rampe.shape
     assert numpy.array_equal(recharge, rampe)
@@ -330,13 +343,11 @@ def test_rice_unaire_64_bits():
 def _rice_direct(donnees, canaux):
     # trame rice forcée (sans l'essai automatique, qui pourrait élire un
     # autre candidat) : la taille et l'aller-retour exact du codec lui-même
-    from base64 import b64decode
-
     import rapidjson
 
     a = numpy.ascontiguousarray(donnees)
-    frame = b64decode(rapidjson.dumps(rapidjson.BloscToBase64(
-        a.data, a.itemsize, 1, 0, "rice", 1, canaux))[1:-1])
+    frame = _trame(rapidjson.BloscToBase64(
+        a.data, a.itemsize, 1, 0, "rice", 1, canaux))
     assert bytes(rapidjson.blosc_decompress_chunks(frame, 1)) == a.tobytes()
     return len(frame)
 
@@ -408,8 +419,6 @@ def test_prefiltre_derivee_source_intacte():
     # toucher au tableau source — régression du bug de rotation de tampons du
     # fork (avec préfiltre + deux filtres, le pipeline écrivait DANS le
     # tampon source de l'appelant)
-    from base64 import b64decode
-
     import rapidjson
     from serializejson.plugins.serializejson_numpy import _diff_axis0
 
@@ -420,12 +429,12 @@ def test_prefiltre_derivee_source_intacte():
         copie = a.copy()
         br = (1 << 20) // a.itemsize
         bs = br * a.itemsize
-        f = b64decode(rapidjson.dumps(rapidjson.BloscToBase64(
-            a.data, a.itemsize, 1, 3, "zstd", 1, 1, bs, 1))[1:-1])
+        f = _trame(rapidjson.BloscToBase64(
+            a.data, a.itemsize, 1, 3, "zstd", 1, 1, bs, 1))
         assert numpy.array_equal(a, copie)  # source jamais modifiée
-        fp = b64decode(rapidjson.dumps(rapidjson.BloscToBase64(
+        fp = _trame(rapidjson.BloscToBase64(
             _diff_axis0(a.data, a.itemsize, 1, br), a.itemsize, 1, 3,
-            "zstd", 1, 1, bs))[1:-1])
+            "zstd", 1, 1, bs))
         # seule différence légitime : l'octet meta 28 du filtre 244 (la voie
         # préfiltre y code le cumsum interne, la pré-passe non)
         assert len(f) == len(fp)
@@ -438,8 +447,6 @@ def test_zigzag_bitshuffle_toutes_largeurs():
     # filtre 244 (zigzag) chaîné au bitshuffle natif (shuffle=3) : replie
     # ±epsilon pour que les plans de bits restent propres — aller-retour
     # exact pour toutes les largeurs d'entiers, tailles impaires comprises
-    from base64 import b64decode
-
     import rapidjson
 
     rng = numpy.random.default_rng(28)
@@ -447,16 +454,14 @@ def test_zigzag_bitshuffle_toutes_largeurs():
                numpy.uint8, numpy.uint64):
         a = numpy.ascontiguousarray(
             numpy.cumsum(rng.integers(-3, 4, 50_003)).astype(dt))
-        frame = b64decode(rapidjson.dumps(rapidjson.BloscToBase64(
-            a.data, a.itemsize, 1, 3, "zstd", 1, 1))[1:-1])
+        frame = _trame(rapidjson.BloscToBase64(
+            a.data, a.itemsize, 1, 3, "zstd", 1, 1))
         assert bytes(rapidjson.blosc_decompress_chunks(frame, 1)) == a.tobytes()
 
 
 def test_zigzag_bitshuffle_multithread_deterministe():
     # trames multiples : mêmes octets quel que soit le nombre de threads
     # (fork déterministe), et rechargement exact
-    from base64 import b64decode
-
     import rapidjson
 
     rng = numpy.random.default_rng(29)
@@ -464,8 +469,8 @@ def test_zigzag_bitshuffle_multithread_deterministe():
         numpy.cumsum(rng.integers(-3, 4, 3_000_000)).astype(numpy.int32))
     frames = []
     for nthreads in (8, 2):
-        frames.append(b64decode(rapidjson.dumps(rapidjson.BloscToBase64(
-            a.data, a.itemsize, 1, 3, "zstd", nthreads, 1))[1:-1]))
+        frames.append(_trame(rapidjson.BloscToBase64(
+            a.data, a.itemsize, 1, 3, "zstd", nthreads, 1)))
     assert frames[0] == frames[1]
     assert bytes(rapidjson.blosc_decompress_chunks(frames[0], 1)) == a.tobytes()
 

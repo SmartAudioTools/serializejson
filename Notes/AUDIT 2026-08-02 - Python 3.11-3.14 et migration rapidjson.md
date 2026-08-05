@@ -2238,3 +2238,56 @@ mesuré de +0 % (trame minuscule) à +38 % (bruit incompressible) du
 temps d'écriture ; le seul cas gagnant serait des trames plus grosses
 que le L3, donc des données énormes ET incompressibles — celles qu'on
 ferait mieux de ne pas compresser. Coût/bénéfice défavorable.
+
+### 17 octies. Soirée du 5/08 — chantier 2 : le préfixe de longueur, le scan de chaîne sauté
+
+Deuxième des trois chantiers du soir. À la lecture, le parseur devait
+SCANNER chaque charge base64 caractère par caractère (SSE, mais une
+passe entière quand même) juste pour trouver le guillemet fermant —
+alors que l'écrivain connaît la longueur au moment où il l'écrit.
+
+**Format.** Le sérialiseur écrit désormais `"<n>:<base64>"`, où n est
+le nombre de caractères base64 (`339296:BQGVAs...`). Le ':' n'appartient
+pas à l'alphabet base64 : la détection est sans ambiguïté, et un fichier
+ANCIEN (sans préfixe) retombe sur le scan normal — une charge qui
+commence par des chiffres sans ':' à suivre échoue en quelques octets.
+Point d'émission UNIQUE : `RawDataToBase64` (pybytesbuffer.h), par
+lequel passent toutes les charges (BloscToBase64 ET RawBytesToBase64).
+
+**Lecture, trois étages.**
+1. *Le saut de scan* (reader.h, branche insitu de ParseString) : si le
+   handler attend une charge — prédicat `SjExpectB64Payload()`, pile =
+   liste `__init__`/`__new__` encore vide d'une classe binaire
+   enregistrée, mêmes conditions que la branche charge de `String()`,
+   évaluées AVANT le parse — et que la chaîne commence par
+   chiffres+':', on saute n caractères et on vérifie le guillemet.
+   BORNÉ par la fin du tampon (`SjBoundedInsituStream.sj_end_`) : un n
+   menteur ne lit jamais hors du tampon, il retombe sur le scan. Le
+   saut pose aussi l'indice « ascii propre » gratuitement. Restreint
+   aux positions charge : une chaîne UTILISATEUR « 2:a\" » contenant
+   un échappement ne peut pas détourner le saut, il ne s'applique
+   jamais à elle.
+2. *La branche charge de String()* (rapidjson.cpp) retire le préfixe
+   avant `sj_b64_layout`/décodage : le différé (pendingB64) et le
+   décodage immédiat reçoivent le span base64 nu.
+3. *Les replis python* (`numpyB64`, `bytesB64`, `bytearrayB64`,
+   `blosc_chunks_decompress`) : `sans_prefixe_longueur()` — chemins
+   froids seulement (dtype bool, flux, petites charges).
+
+**Verdict A/B** (même processus, paires alternées, médiane de 50,
+burst CPU, machine calme ; le « sans » est le même JSON, préfixes
+retirés par regex — seule variable) :
+
+| cas | avec préfixe | sans (scan) | gain lecture |
+|---|---|---|---|
+| int16 lisse 8 Mo (json 4,5 Mo) | `3,26 ms` | 3,68 ms | **×1,13** |
+| stéréo int16 16 Mo (json 9,3 Mo) | `6,86 ms` | 7,78 ms | **×1,13** |
+| int32 lisse 32 Mo (json 16 Mo) | `10,81 ms` | 12,83 ms | **×1,19** |
+
+Mieux que les ~5 % espérés du seul scan : le saut économise aussi la
+pose de l'indice ascii et les branchements du flux. Surcoût d'écriture :
+6-8 caractères par charge, négligeable. Les goldens ont suivi le
+nouveau format ; les tests qui décodaient le dump à la main passent par
+`_trame()` (retrait guillemets + préfixe) ; le seuil de `test_2d_axe_0`
+passe de /2 à ×0,55 (préfixe constant des deux côtés d'une inégalité
+serrée à 1 octet près).

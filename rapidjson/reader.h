@@ -223,6 +223,45 @@ RAPIDJSON_FORCEINLINE void SjStringHintDirty(SjBoundedInsituStream<Encoding>& s)
         *s.sjHintOut = 0;
 }
 
+// fork serializejson : le handler sait, par sa pile, si la prochaine chaine
+// est une charge base64 (premier element de la liste __init__/__new__ d'une
+// classe binaire enregistree) - surcharge SFINAE, false pour tout autre
+// handler
+template <typename Handler>
+RAPIDJSON_FORCEINLINE auto SjExpectB64(Handler& h, int)
+    -> decltype(h.SjExpectB64Payload()) {
+    return h.SjExpectB64Payload();
+}
+template <typename Handler>
+RAPIDJSON_FORCEINLINE bool SjExpectB64(Handler&, long) { return false; }
+
+// fork serializejson : saut du scan d'une charge base64 prefixee « <n>: »
+// (n = nombre de caracteres entre ':' et le guillemet fermant, ecrit par le
+// serialiseur). Rend la longueur de la chaine (prefixe inclus) et avance le
+// flux APRES le guillemet fermant ; 0 si pas de prefixe exploitable (le flux
+// n'a alors pas bouge : scan normal). Borne par la fin du tampon : un n
+// menteur ne fait jamais lire hors du tampon, il retombe sur le scan.
+template <typename InputStream>
+RAPIDJSON_FORCEINLINE size_t SjSkipPrefixedString(InputStream&) { return 0; }
+
+template <typename Encoding>
+RAPIDJSON_FORCEINLINE size_t
+SjSkipPrefixedString(SjBoundedInsituStream<Encoding>& s) {
+    typename Encoding::Ch* head = s.src_;
+    const typename Encoding::Ch* end = s.sj_end_;
+    uint64_t n = 0;
+    typename Encoding::Ch* q = head;
+    while (q < end && static_cast<unsigned>(*q - '0') <= 9u && q - head < 19)
+        n = n * 10u + static_cast<uint64_t>(*q++ - '0');
+    if (q == head || q >= end || *q != ':'
+        || static_cast<uint64_t>(end - (q + 1)) <= n || q[1 + n] != '\"')
+        return 0;
+    s.src_ = s.dst_ = q + 2 + n;      // apres le guillemet fermant
+    if (s.sjHintOut)
+        *s.sjHintOut = 1;             // ascii pur, sans echappement
+    return static_cast<size_t>(q + 1 + n - head);
+}
+
 // helpers SWAR : premier octet nul d'un mot (exact pour la POSITION du
 // premier vrai positif : les faux positifs des emprunts n'apparaissent
 // qu'au-dessus de lui), et index du premier bit à 1
@@ -1408,6 +1447,23 @@ private:
         bool success = false;
         if (parseFlags & kParseInsituFlag) {
             typename InputStream::Ch *head = s.PutBegin();
+            // fork serializejson : charge base64 prefixee « <n>: » — la
+            // longueur ecrite par le serialiseur permet de sauter le scan
+            // entier ; reserve aux positions ou le handler attend une charge
+            // (le contenu y est du base64, jamais d'echappement) ; sans
+            // prefixe (anciens fichiers) ou verification en echec : scan
+            if ((parseFlags & kParseInsituNoTerminatorFlag) && !isKey
+                && *head >= '0' && *head <= '9' && SjExpectB64(handler, 0)) {
+                size_t skipped = SjSkipPrefixedString(s);
+                if (skipped) {
+                    success = handler.String(
+                        reinterpret_cast<typename TargetEncoding::Ch*>(head),
+                        SizeType(skipped), false);
+                    if (RAPIDJSON_UNLIKELY(!success))
+                        RAPIDJSON_PARSE_ERROR(kParseErrorTermination, s.Tell());
+                    return;
+                }
+            }
             ParseStringToStream<parseFlags, SourceEncoding, SourceEncoding>(s, s);
             RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
             size_t length = s.PutEnd(head)

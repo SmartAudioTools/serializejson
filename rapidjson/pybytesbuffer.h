@@ -108,17 +108,26 @@ struct PyBytesBuffer { // a revoir c'est quoi la différence entre struc et clas
 
     void RawDataToBase64(const unsigned char* data, size_t length){
         // encode le base64 directement dans le buffer de sortie,
-        // sans chaîne intermédiaire ; en parallèle (découpage fixe sur des
-        // multiples de 3 octets, octets identiques au séquentiel) au-delà
-        // du seuil, GIL relâché
-        Reserve(4 * ((length + 2) / 3) + 2);
+        // sans chaîne intermédiaire, précédé du préfixe « <n>: » (n = nombre
+        // de caractères base64) : le parseur, qui sait par sa pile qu'une
+        // charge arrive, saute alors le scan de la chaîne entière — ':' est
+        // hors de l'alphabet base64, la détection est sans ambiguïté, et les
+        // fichiers sans préfixe restent lus par le scan normal ;
+        // en parallèle (découpage fixe sur des multiples de 3 octets, octets
+        // identiques au séquentiel) au-delà du seuil, GIL relâché
+        size_t nchars = 4 * ((length + 2) / 3);
+        char prefix[24];
+        int prefix_length = snprintf(prefix, sizeof(prefix), "%zu:", nchars);
+        Reserve(nchars + (size_t) prefix_length + 2);
         *bufferCursor++ = '\"';
+        memcpy(bufferCursor, prefix, (size_t) prefix_length);
+        bufferCursor += prefix_length;
         if (length >= SERIALIZEJSON_B64_PARALLEL_THRESHOLD) {
             char* out = bufferCursor;
             Py_BEGIN_ALLOW_THREADS
             sj_b64_encode_maybe_parallel(data, length, out);
             Py_END_ALLOW_THREADS
-            bufferCursor += 4 * ((length + 2) / 3);
+            bufferCursor += nchars;
         } else {
             bufferCursor = serializejson_b64_encode(data, length, bufferCursor);
         }

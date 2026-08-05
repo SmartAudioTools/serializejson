@@ -2782,6 +2782,39 @@ struct PyHandler {
             return Handle(value);
     }
 
+    // vrai si la prochaine chaîne est la charge base64 d'une classe binaire
+    // (premier élément, encore absent, de la liste __init__/__new__ d'une
+    // classe enregistrée) : le parseur peut alors sauter le scan d'une
+    // charge préfixée « <n>: » — mêmes conditions que la branche charge de
+    // String(), évaluées AVANT le parse de la chaîne
+    bool SjExpectB64Payload() const {
+        if (b64PayloadClasses.empty() || stack.size() < 2)
+            return false;
+        const HandlerContext& top = stack.back();
+        if (top.isObject || !PyList_CheckExact(top.object)
+            || PyList_GET_SIZE(top.object) != 0)
+            return false;
+        const HandlerContext& parent = stack[stack.size() - 2];
+        if (!parent.isObject || parent.key == nullptr
+            || !((parent.keyLength == 8
+                  && memcmp(parent.key, "__init__", 8) == 0)
+                 || (parent.keyLength == 7
+                     && memcmp(parent.key, "__new__", 7) == 0))
+            || !PyDict_CheckExact(parent.object))
+            return false;
+        PyObject* cls_value = PyDict_GetItem(parent.object, class_key_name);
+        if (cls_value == nullptr || !PyUnicode_CheckExact(cls_value))
+            return false;
+        Py_ssize_t cls_length;
+        const char* cls_str = PyUnicode_AsUTF8AndSize(cls_value, &cls_length);
+        if (cls_str == nullptr) {
+            PyErr_Clear();
+            return false;
+        }
+        return b64PayloadClasses.find(std::string(cls_str, (size_t) cls_length))
+            != b64PayloadClasses.end();
+    }
+
     bool String(const char* str, SizeType length, bool copy) {
         PyObject* value;
         const int asciiHint = stringAsciiHint;
@@ -2814,7 +2847,24 @@ struct PyHandler {
                             auto it = b64PayloadClasses.find(
                                 std::string(class_str, (size_t) class_length));
                             if (it != b64PayloadClasses.end()) {
-                                if (deferB64 && length >= 64) {
+                                // préfixe « <n>: » écrit par le sérialiseur
+                                // (saut de scan) : la charge base64 commence
+                                // après ':' — ':' est hors de l'alphabet
+                                // base64, la détection est sans ambiguïté ;
+                                // anciens fichiers : pas de préfixe
+                                const char* b64 = str;
+                                SizeType b64_length = length;
+                                if (str[0] >= '0' && str[0] <= '9') {
+                                    SizeType d = 1;
+                                    while (d < length && d < 20
+                                           && str[d] >= '0' && str[d] <= '9')
+                                        d++;
+                                    if (d < length && str[d] == ':') {
+                                        b64 = str + d + 1;
+                                        b64_length = length - d - 1;
+                                    }
+                                }
+                                if (deferB64 && b64_length >= 64) {
                                     // les petits payloads se décodent tout de
                                     // suite : le différé n'y gagne rien et
                                     // leurs consommateurs (date...) lisent
@@ -2822,7 +2872,7 @@ struct PyHandler {
                                     // repli « chaîne ordinaire » doit rester
                                     // possible), remplissage différé
                                     size_t groups, pad, out_length;
-                                    if (sj_b64_layout(str, (size_t) length,
+                                    if (sj_b64_layout(b64, (size_t) b64_length,
                                                       &groups, &pad,
                                                       &out_length,
                                                       serializejson_b64_decode_table())) {
@@ -2842,8 +2892,8 @@ struct PyHandler {
                                                   PyBytes_AS_STRING(dest);
                                         Py_INCREF(dest);
                                         pendingB64.push_back(
-                                            {str, (size_t) length, out_length,
-                                             dst, dest,
+                                            {b64, (size_t) b64_length,
+                                             out_length, dst, dest,
                                              nullptr, 0, nullptr,
                                              0, 0, 0, false});
                                         return Handle(dest);
@@ -2851,7 +2901,8 @@ struct PyHandler {
                                 } else {
                                     PyObject* decoded =
                                         serializejson_b64_decode_to_pyobject(
-                                            str, (size_t) length, it->second);
+                                            b64, (size_t) b64_length,
+                                            it->second);
                                     if (decoded != nullptr)
                                         return Handle(decoded);
                                 }

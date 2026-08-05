@@ -72,13 +72,27 @@ else:
         }
     )
 
+    def sans_prefixe_longueur(string):
+        # préfixe « <n>: » écrit devant le base64 par le sérialiseur (il
+        # permet au parseur de sauter le scan de la chaîne) : ':' est hors
+        # de l'alphabet base64, sa présence signe le préfixe ; anciens
+        # fichiers : intacts (défini aussi dans tools.py : le greffon doit
+        # marcher avec les deux empaquetages, SmartFramework ou serializejson)
+        if string[:1].isdigit():
+            deux_points = string.find(":", 1, 21)
+            if deux_points != -1:
+                return string[deux_points + 1 :]
+        return string
+
     def numpyB64(str64, dtype=None, shape_len_compression=None, compression=None):
         if type(str64) is bytearray:
             # charge déjà décodée du base64 par le parseur C++,
             # sans chaîne intermédiaire
             decoded_bytearray = str64
         else:
-            decoded_bytearray = b64decode_as_bytearray(str64, validate=True)
+            decoded_bytearray = b64decode_as_bytearray(
+                sans_prefixe_longueur(str64), validate=True
+            )
         if isinstance(shape_len_compression, str):
             compression = shape_len_compression
             shape_len = None

@@ -33,6 +33,19 @@ from pybase64 import b64decode, b64decode_as_bytearray
 from rapidjson import RawBytesToBase64, BloscToBase64
 
 
+def sans_prefixe_longueur(string):
+    # préfixe « <n>: » écrit devant le base64 par le sérialiseur (il permet
+    # au parseur de sauter le scan de la chaîne) : ':' est hors de l'alphabet
+    # base64, sa présence signe le préfixe ; anciens fichiers : intacts
+    # (défini aussi dans tools.py : le greffon doit marcher avec les deux
+    # empaquetages, SmartFramework ou serializejson)
+    if string[:1].isdigit():
+        deux_points = string.find(":", 1, 21)
+        if deux_points != -1:
+            return string[deux_points + 1 :]
+    return string
+
+
 def bytearrayB64(string, compression=None):
     if type(string) is bytearray:
         # charge déjà décodée du base64 par le parseur C++ (sans chaîne
@@ -49,11 +62,14 @@ def bytearrayB64(string, compression=None):
             string, "ascii"
         )  # A REVOIR : 2 COPIES !!! a priori n'arrive jamsi d'encoder bytearray en "ascii"
     elif compression == "b64":
-        return b64decode_as_bytearray(string, validate=True)
+        return b64decode_as_bytearray(sans_prefixe_longueur(string), validate=True)
     elif compression in ("b64_blosc", "b64_blosc2"):
-        return blosc_decompress(b64decode(string, validate=True), as_bytearray=True)
+        return blosc_decompress(
+            b64decode(sans_prefixe_longueur(string), validate=True),
+            as_bytearray=True,
+        )
     elif compression == "b64_blosc2p":
-        return blosc_chunks_decompress(string, as_bytearray=True)
+        return blosc_chunks_decompress(sans_prefixe_longueur(string), as_bytearray=True)
     raise Exception(f"unknow {compression} compression")
 
 
@@ -75,11 +91,13 @@ class bytesB64:
         if not compression or compression == "ascii":
             return bytes(string, "ascii")  # A REVOIR : 2 COPIES !!!
         elif compression == "b64":
-            return b64decode(string, validate=True)
+            return b64decode(sans_prefixe_longueur(string), validate=True)
         elif compression in ("b64_blosc", "b64_blosc2"):
-            return blosc_decompress(b64decode(string, validate=True))
+            return blosc_decompress(
+                b64decode(sans_prefixe_longueur(string), validate=True)
+            )
         elif compression == "b64_blosc2p":
-            return blosc_chunks_decompress(string)
+            return blosc_chunks_decompress(sans_prefixe_longueur(string))
         raise Exception(f"unknow {compression} compression")
 
 
