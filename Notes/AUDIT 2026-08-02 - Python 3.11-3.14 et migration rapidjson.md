@@ -2420,3 +2420,21 @@ reconnaissance au parse) ; scalaires dumps ×2-3 (coût de l'enveloppe
 générique par appel) ; iterators/queue ≈ plancher d'appel. Mesures de
 ratios TOUJOURS polluées ce soir (charge 4-6) : table finale sur machine
 calme en fin de nuit + PGO ×5 + batterie avant le rapport.
+
+Avancement ~22 h 30 : résolution C des $ref EN PLACE (sj_resolve_ref_path,
+grammaire de l'encodeur root/.attr/[int]/['clé'] ; branchée pendant le
+parse pour les racines dict, exposée en module rapidjson._resolve_ref_path
+pour la post-passe des racines liste ; réfs en avant et cas exotiques
+restent python) — types loads ×30→12 ; piège : les formats s# exigent
+PY_SSIZE_T_CLEAN (SystemError sur 15 tests), passer par l'objet unicode.
+Table indicative du moment (charge machine 2-6, valeurs à refaire au
+calme) : dict ~×15 dumps / ×12 loads ; bytes dumps ~×20 (plancher plugin
+python par objet) ; collections ~×12 ; bytesarray ~×11 loads ;
+tuple ~×9 loads (plancher enveloppe) ; set/frozenset ~×4-5 ;
+binary ~×4 ; datetime ~×3,5 loads ; scalaires ×2-3,5 dumps ;
+range/slice/queue/iterators ×2,5-3,5 loads. PROCHAINES marches :
+_replace_ref_placeholders (le PARCOURS python de l'arbre en post-passe)
+en C ; écriture C native des bytes (seuil/params via pathTracker) ;
+formes __items__ des collections en C ; enveloppes {__class__} en
+reconnaissance au parse pour abaisser le plancher tuple/scalaires ;
+puis PGO ×5 + batterie + table finale sur machine calme + rapport.
