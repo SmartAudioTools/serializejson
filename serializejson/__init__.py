@@ -1895,6 +1895,13 @@ class Decoder(rapidjson.Decoder):
     # la chaîne Python intermédiaire (0 -> bytes, 1 -> bytearray)
     _b64_payload_classes = {"bytes": 0, "bytearray": 1, "numpyB64": 1}
 
+    # repli PAR CLÉ du décodage C des dicts à clés non-str : le C décode
+    # lui-même les formes courantes (str, 'quotée', b'...', b64'...',
+    # booléens, nombres) et ne rappelle ceci que pour les exotiques
+    # (tuples, frozensets, imbrications) — posé en attribut de classe pour
+    # que le C le résolve une fois par chargement
+    _decode_cle_exotique = None  # rempli après la définition de _decode_cle
+
     # cache PARTAGÉ des valeurs de type (tools._type_values_cache) : le C
     # résout {"__class__": "type", "__init__": "x.y"} par simple lecture du
     # dict — il ne sert que les HITS ; le premier passage d'un nom reste en
@@ -2523,6 +2530,10 @@ def dict_non_str_keys(dict_):
     for key, value in dict_.items():
         d[_decode_cle(key)] = value
     return d
+
+
+# branchement du repli par clé pour le décodage C (voir Decoder)
+Decoder._decode_cle_exotique = staticmethod(_decode_cle)
 
 
 # nombre JSON exact (la sonde d'échappement des clés s'y réfère : underscores

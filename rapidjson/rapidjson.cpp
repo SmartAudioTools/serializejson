@@ -201,6 +201,8 @@ static PyObject* dumped_classes_name = nullptr;
 static PyObject* bytes_natif_seuil_name = nullptr;
 static PyObject* bytes_class_name_str = nullptr;      // "bytes"
 static PyObject* bytearray_class_name_str = nullptr;  // "bytearray"
+static PyObject* collections_prefix_str = nullptr;    // "collections."
+static PyObject* decode_cle_name = nullptr;
 static PyObject* already_serialized_name = nullptr;
 static PyObject* keep_alive_name = nullptr;
 static PyObject* root_underscore_name = nullptr;
@@ -240,10 +242,12 @@ struct HandlerContext {
     //   0 : dict normal ; 1 : "__class__" vu, valeur attendue ;
     //   2 : classe capturée ; 3 : "__new__"/"__init__" vu, args attendus ;
     //   4 : args capturés
+    //   5 : "__items__" vu, items attendus ; 6 : items capturés
     uint8_t envState;
     uint8_t envSlot;          // 1 : __new__ ; 2 : __init__
     PyObject* envClass;       // référence possédée (ou nullptr)
     PyObject* envArgs;        // référence possédée (ou nullptr)
+    PyObject* envItems;       // référence possédée (ou nullptr)
 };
 
 
@@ -1435,6 +1439,9 @@ struct PyHandler {
     // classes dont la charge __init__/__new__[0] est du base64 à décoder
     // directement depuis le tampon de parse (0 -> bytes, 1 -> bytearray)
     std::unordered_map<std::string, int> b64PayloadClasses;
+    // repli PAR CLÉ du décodage C des dicts à clés non-str (attribut
+    // _decode_cle_exotique du décodeur, résolu une fois par chargement)
+    PyObject* decodeCleFn = nullptr;
 
     PyHandler(PyObject* decoder,
               PyObject* hook,
@@ -1498,6 +1505,12 @@ struct PyHandler {
                         Py_DECREF(fast);
                     }
                 }
+                decodeCleFn =
+                    PyObject_GetAttr(decoder, decode_cle_name);
+                if (decodeCleFn == nullptr)
+                    PyErr_Clear();
+                else if (decodeCleFn == Py_None)
+                    Py_CLEAR(decodeCleFn);
                 PyObject* payload_classes =
                     PyObject_GetAttr(decoder, b64_payload_classes_name);
                 if (payload_classes == nullptr)
@@ -1566,12 +1579,14 @@ struct PyHandler {
                 Py_DECREF(ctx.object);
             Py_CLEAR(ctx.envClass);
             Py_CLEAR(ctx.envArgs);
+            Py_CLEAR(ctx.envItems);
             stack.pop_back();
         }
         Py_CLEAR(decoderStartObject);
         Py_CLEAR(decoderEndObject);
         Py_CLEAR(decoderEndArray);
         Py_CLEAR(decoderString);
+        Py_CLEAR(decodeCleFn);
         Py_CLEAR(sharedKeys);
         ReleaseKeyCache();
         Py_CLEAR(decoderObject);
@@ -1972,6 +1987,10 @@ struct PyHandler {
                 env.envArgs = value;        // référence consommée
                 env.envState = 4;
                 return true;
+            } else if (env.envState == 5) {
+                env.envItems = value;       // référence consommée
+                env.envState = 6;
+                return true;
             } else if (env.envState != 0) {
                 // valeur inattendue pour l'état (JSON exotique) : repli
                 if (!EnvFlush(env)) {
@@ -2052,6 +2071,10 @@ struct PyHandler {
             // le slot d'arguments attendu : capture à venir dans Handle
             current.envSlot = (length == 7) ? 1 : 2;
             current.envState = 3;
+        } else if (current.envState == 4 && length == 9
+                   && memcmp(str, "__items__", 9) == 0) {
+            // troisième slot (deque, OrderedDict, Counter, defaultdict...)
+            current.envState = 5;
         } else if (current.envState != 0) {
             // toute autre clé (état, items, dict d'attributs, attribut
             // libre...) : l'enveloppe stricte est démentie
@@ -2138,6 +2161,7 @@ struct PyHandler {
         ctx.envSlot = 0;
         ctx.envClass = nullptr;
         ctx.envArgs = nullptr;
+        ctx.envItems = nullptr;
         Py_INCREF(mapping);
 
         stack.push_back(ctx);
@@ -2163,11 +2187,231 @@ struct PyHandler {
                 return false;
             Py_CLEAR(ctx.envArgs);
         }
+        if (ctx.envItems != nullptr) {
+            if (PyDict_SetItem(ctx.object, items_key_name,
+                               ctx.envItems) < 0)
+                return false;
+            Py_CLEAR(ctx.envItems);
+        }
         ctx.envState = 0;
         ctx.envSlot = 0;
         return true;
     }
 
+
+
+    // deque / Counter / OrderedDict / defaultdict : construction directe —
+    // types résolus UNE fois (import collections au premier besoin)
+    PyObject* CollectionsConstruct(PyObject* cls_value, PyObject* ctor_args,
+                                   PyObject* items) {
+        static PyObject* type_deque = nullptr;
+        static PyObject* type_counter = nullptr;
+        static PyObject* type_ordered = nullptr;
+        static PyObject* type_defaultdict = nullptr;
+        if (type_deque == nullptr) {
+            PyObject* module = PyImport_ImportModule("collections");
+            if (module == nullptr) {
+                PyErr_Clear();
+                return nullptr;
+            }
+            type_deque = PyObject_GetAttrString(module, "deque");
+            type_counter = PyObject_GetAttrString(module, "Counter");
+            type_ordered = PyObject_GetAttrString(module, "OrderedDict");
+            type_defaultdict = PyObject_GetAttrString(module, "defaultdict");
+            Py_DECREF(module);
+            if (type_deque == nullptr || type_counter == nullptr
+                || type_ordered == nullptr || type_defaultdict == nullptr) {
+                PyErr_Clear();
+                Py_CLEAR(type_deque);
+                return nullptr;
+            }
+        }
+        PyObject* classe;
+        if (PyUnicode_CompareWithASCIIString(cls_value,
+                                             "collections.deque") == 0)
+            classe = type_deque;
+        else if (PyUnicode_CompareWithASCIIString(
+                     cls_value, "collections.Counter") == 0)
+            classe = type_counter;
+        else if (PyUnicode_CompareWithASCIIString(
+                     cls_value, "collections.OrderedDict") == 0)
+            classe = type_ordered;
+        else if (PyUnicode_CompareWithASCIIString(
+                     cls_value, "collections.defaultdict") == 0)
+            classe = type_defaultdict;
+        else
+            return nullptr;   // classe à __items__ inconnue : voie classique
+
+        PyObject* inst = nullptr;
+        if (PyList_CheckExact(ctor_args)) {
+            PyObject* args_tuple = PyList_AsTuple(ctor_args);
+            if (args_tuple != nullptr) {
+                inst = PyObject_CallObject(classe, args_tuple);
+                Py_DECREF(args_tuple);
+            }
+        } else if (PyDict_CheckExact(ctor_args)) {
+            // cls(**init) : exige des clés str (sinon voie classique, qui
+            // reproduira l erreur python exacte le cas échéant)
+            Py_ssize_t pos = 0;
+            PyObject* cle;
+            PyObject* valeur;
+            bool cles_str = true;
+            while (PyDict_Next(ctor_args, &pos, &cle, &valeur))
+                if (!PyUnicode_CheckExact(cle)) {
+                    cles_str = false;
+                    break;
+                }
+            if (!cles_str)
+                return nullptr;
+            PyObject* vide = PyTuple_New(0);
+            if (vide != nullptr) {
+                inst = PyObject_Call(classe, vide, ctor_args);
+                Py_DECREF(vide);
+            }
+        } else {
+            // scalaire (accolades retirées) : cls(valeur) — la forme
+            // defaultdict(type)
+            inst = PyObject_CallFunctionObjArgs(classe, ctor_args, nullptr);
+        }
+        if (inst == nullptr) {
+            PyErr_Clear();
+            return nullptr;
+        }
+        if (items == nullptr)
+            return inst;   // forme sans __items__ (Counter à init dict...)
+        // __items__ : update(items), à défaut extend(items) — l ordre
+        // d essai d instance()
+        PyObject* r = PyObject_CallMethod(inst, "update", "(O)", items);
+        if (r == nullptr) {
+            PyErr_Clear();
+            r = PyObject_CallMethod(inst, "extend", "(O)", items);
+        }
+        if (r == nullptr) {
+            PyErr_Clear();
+            Py_DECREF(inst);
+            return nullptr;
+        }
+        Py_DECREF(r);
+        return inst;
+    }
+
+
+    // décode UNE clé de dict à clés non-str, miroir exact de _decode_cle
+    // python : 'quotée' -> str, b'...' -> bytes (jeu ascii imprimable),
+    // b64'...' -> bytes, true/false, nombres (int python arbitraire puis
+    // float, formes canoniques de l encodeur) ; les formes exotiques
+    // (tuples, frozensets, imbrications) passent au repli python
+    // _decode_cle_exotique. Rend une NOUVELLE référence, nullptr = erreur.
+    PyObject* DecodeCle(PyObject* key) {
+        Py_ssize_t lg;
+        const char* u8 = PyUnicode_AsUTF8AndSize(key, &lg);
+        if (u8 == nullptr)
+            return nullptr;
+        if (lg > 0) {
+            char premier = u8[0];
+            if (premier == '\'') {
+                if (lg >= 2 && u8[lg - 1] == '\'')
+                    return PyUnicode_FromStringAndSize(u8 + 1, lg - 2);
+            } else if (premier == 'b') {
+                if (lg >= 3 && u8[lg - 1] == '\'' && u8[1] == '\'') {
+                    // b'...' : mêmes octets que le codec ascii_printables —
+                    // jeu {tab, LF, CR} ∪ [0x20..0x7E], sinon repli python
+                    bool imprimable = true;
+                    for (Py_ssize_t i = 2; i < lg - 1; i++) {
+                        unsigned char c = (unsigned char) u8[i];
+                        if (!((c >= 0x20 && c <= 0x7E)
+                              || c == '\t' || c == '\n' || c == '\r')) {
+                            imprimable = false;
+                            break;
+                        }
+                    }
+                    if (imprimable)
+                        return PyBytes_FromStringAndSize(u8 + 2, lg - 3);
+                } else if (lg >= 5 && u8[lg - 1] == '\''
+                           && memcmp(u8, "b64'", 4) == 0) {
+                    size_t groups, pad, out_length;
+                    if (sj_b64_layout(u8 + 4, (size_t) (lg - 5), &groups,
+                                      &pad, &out_length,
+                                      serializejson_b64_decode_table())) {
+                        PyObject* octets = PyBytes_FromStringAndSize(
+                            nullptr, (Py_ssize_t) out_length);
+                        if (octets == nullptr)
+                            return nullptr;
+                        if (sj_b64_decode_into(
+                                u8 + 4, (size_t) (lg - 5),
+                                (unsigned char*) PyBytes_AS_STRING(octets),
+                                serializejson_b64_decode_table()))
+                            return octets;
+                        Py_DECREF(octets);
+                    }
+                }
+            } else if (lg == 4 && memcmp(u8, "true", 4) == 0) {
+                Py_RETURN_TRUE;
+            } else if (lg == 5 && memcmp(u8, "false", 5) == 0) {
+                Py_RETURN_FALSE;
+            } else if ((premier >= '0' && premier <= '9') || premier == '-'
+                       || premier == 'N' || premier == 'I') {
+                PyObject* entier = PyLong_FromString(u8, nullptr, 10);
+                if (entier != nullptr)
+                    return entier;
+                PyErr_Clear();
+                PyObject* flottant = PyFloat_FromString(key);
+                if (flottant != nullptr)
+                    return flottant;
+                PyErr_Clear();
+            }
+            if (lg == 4 && memcmp(u8, "null", 4) == 0)
+                Py_RETURN_NONE;   // le parse python rend None pour « null »
+            // seules les formes encore parseables partent au repli python
+            // (tuples « [...] », frozensets/enveloppes « {...} », chaînes
+            // json « \"...\" », et les marqueurs b/quote mal formés) : le
+            // repli à CHAQUE clé ordinaire était précisément le coût python
+            if (premier == '[' || premier == '{' || premier == '"'
+                || premier == '\'' || premier == 'b') {
+                if (decodeCleFn != nullptr)
+                    return PyObject_CallFunctionObjArgs(decodeCleFn, key,
+                                                        nullptr);
+            }
+        }
+        // clé str ordinaire : telle quelle (aucun marqueur ne la réclame)
+        Py_INCREF(key);
+        return key;
+    }
+
+    // {"__class__": "dict", clés encodées...} -> dict reconstruit en C,
+    // miroir de dict_non_str_keys (l ordre d insertion est celui du
+    // document, comme en python)
+    PyObject* DictNonStrConstruct(PyObject* mapping) {
+        PyObject* resultat = PyDict_New();
+        if (resultat == nullptr)
+            return nullptr;
+        Py_ssize_t pos = 0;
+        PyObject* cle;
+        PyObject* valeur;
+        while (PyDict_Next(mapping, &pos, &cle, &valeur)) {
+            if (cle == class_key_name
+                || (PyUnicode_CheckExact(cle)
+                    && PyUnicode_CompareWithASCIIString(cle,
+                                                        "__class__") == 0))
+                continue;
+            if (!PyUnicode_CheckExact(cle)) {
+                Py_DECREF(resultat);
+                return nullptr;   // clé déjà décodée ?? voie python
+            }
+            PyObject* decodee = DecodeCle(cle);
+            if (decodee == nullptr) {
+                Py_DECREF(resultat);
+                return nullptr;
+            }
+            int rc = PyDict_SetItem(resultat, decodee, valeur);
+            Py_DECREF(decodee);
+            if (rc < 0) {
+                Py_DECREF(resultat);
+                return nullptr;
+            }
+        }
+        return resultat;
+    }
 
     // instancie les enveloppes de base {"__class__": nom, "__new__"/"__init__"
     // : args} — mêmes sémantiques que les constructeurs python (tuple(liste),
@@ -2178,9 +2422,18 @@ struct PyHandler {
     // python la reproduira proprement si elle est réelle). Partagée entre la
     // reconnaissance d'enveloppe AU PARSE et la chaîne de fin d'objet.
     PyObject* EnvelopeConstruct(PyObject* cls_value, PyObject* ctor_args,
-                                bool from_new) {
+                                bool from_new, PyObject* items = nullptr) {
         (void) from_new;
         PyObject* replacement = nullptr;
+        // les enveloppes à __items__ (capturées au parse seulement) : les
+        // quatre collections, sémantique calquée sur instance() — init
+        // liste -> cls(*init), init dict à clés str -> cls(**init), init
+        // scalaire -> cls(init) ; puis update(items), à défaut extend(items)
+        if (items != nullptr
+            || PyUnicode_Tailmatch(cls_value,
+                                   collections_prefix_str, 0, 12,
+                                   -1) == 1)
+            return CollectionsConstruct(cls_value, ctor_args, items);
         int as_bytearray = -1;
         if (PyUnicode_CompareWithASCIIString(cls_value, "bytes") == 0)
             as_bytearray = 0;
@@ -2315,16 +2568,18 @@ struct PyHandler {
         // dict intermédiaire rempli. Si la table décline (classe ou forme
         // inconnue), la capture est versée dans le dict et la voie classique
         // reprend ci-dessous, à l'identique.
-        if (ctx_ref.envState == 4) {
+        if (ctx_ref.envState == 4 || ctx_ref.envState == 6) {
             PyObject* direct = EnvelopeConstruct(ctx_ref.envClass,
                                                  ctx_ref.envArgs,
-                                                 ctx_ref.envSlot == 1);
+                                                 ctx_ref.envSlot == 1,
+                                                 ctx_ref.envItems);
             if (direct != nullptr) {
                 if (ctx_ref.copiedKey)
                     PyMem_Free((void*) ctx_ref.key);
                 PyObject* vide = ctx_ref.object;
                 Py_CLEAR(ctx_ref.envClass);
                 Py_CLEAR(ctx_ref.envArgs);
+                Py_CLEAR(ctx_ref.envItems);
                 stack.pop_back();
                 Py_DECREF(vide);
                 return ReplaceInParent(direct);
@@ -2556,7 +2811,22 @@ struct PyHandler {
             }
         }
 
-        // ----- {"$ref": chemin} : résolution directe en C sur la grammaire
+        // ----- {"__class__": "dict", ...} : dict à clés non-str reconstruit
+        // en C, clé par clé (repli python par clé pour les exotiques)
+        if (replacement == nullptr && fastPlainEndObject
+            && PyDict_CheckExact(mapping) && PyDict_GET_SIZE(mapping) >= 1) {
+            PyObject* cls_value = PyDict_GetItem(mapping, class_key_name);
+            if (cls_value != nullptr && PyUnicode_CheckExact(cls_value)
+                && PyUnicode_CompareWithASCIIString(cls_value, "dict") == 0) {
+                replacement = DictNonStrConstruct(mapping);
+                if (replacement != nullptr)
+                    Py_DECREF(mapping);
+                else if (PyErr_Occurred())
+                    PyErr_Clear();   // voie python
+            }
+        }
+
+                // ----- {"$ref": chemin} : résolution directe en C sur la grammaire
         // émise par l'encodeur (root, .attr, [int], ['clé']) — la voie
         // python demeure pour les cas exotiques, les références en avant
         // (cible = dict à __class__ pas encore recréé) et les racines
@@ -2635,6 +2905,10 @@ struct PyHandler {
             if (current.envState == 4) {
                 // le parent capturait : l'objet remplacé est sa capture
                 Py_SETREF(current.envArgs, replacement);
+                return true;
+            }
+            if (current.envState == 6) {
+                Py_SETREF(current.envItems, replacement);
                 return true;
             }
             if (current.isObject) {
@@ -2719,6 +2993,7 @@ struct PyHandler {
         ctx.envSlot = 0;
         ctx.envClass = nullptr;
         ctx.envArgs = nullptr;
+        ctx.envItems = nullptr;
         Py_INCREF(list);
 
         stack.push_back(ctx);
@@ -8691,6 +8966,8 @@ module_exec(PyObject* m)
     bytes_natif_seuil_name = PyUnicode_InternFromString("_bytes_natif_seuil");
     bytes_class_name_str = PyUnicode_InternFromString("bytes");
     bytearray_class_name_str = PyUnicode_InternFromString("bytearray");
+    collections_prefix_str = PyUnicode_InternFromString("collections.");
+    decode_cle_name = PyUnicode_InternFromString("_decode_cle_exotique");
     already_serialized_name = PyUnicode_InternFromString("_already_serialized");
     keep_alive_name =
         PyUnicode_InternFromString("_already_serialized_keep_alive");
