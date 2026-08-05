@@ -82,34 +82,42 @@ def _image_photo(rng, canaux):
 
 
 def _images_classiques(rng):
-    # les images CLASSIQUES des benchmarks de compression, via scikit-image :
-    # cameraman (mono 512x512), moon (mono), astronaut (RVB 512x512) —
-    # déclinées 8/10/16 bits ; à défaut, photo synthétique équivalente
-    try:
-        from skimage import data
+    # les images des benchmarks de compression sont lues dans
+    # images_benchmarks/ : tout fichier déposé là entre dans la matrice
+    # (.png/.tif/.bmp... via PIL, .npy via numpy — le .npy porte les
+    # profondeurs que PNG/PIL ne savent pas écrire, comme le RVB 10 bits).
+    # Le dépôt fournit cameraman, moon et astronaut en 8/10/16 bits ;
+    # à défaut du dossier, photo synthétique équivalente
+    dossier = RACINE / "images_benchmarks"
+    images = []
+    if dossier.is_dir():
+        for chemin in sorted(dossier.iterdir()):
+            try:
+                if chemin.suffix == ".npy":
+                    tableau = numpy.load(chemin)
+                elif chemin.suffix.lower() in (".png", ".tif", ".tiff",
+                                               ".bmp", ".pgm", ".ppm"):
+                    from PIL import Image
 
-        camera = data.camera()
-        moon = data.moon()
-        astronaut = data.astronaut()
-        return [
-            ("cameraman mono 8 bits (512²)", camera),
-            ("moon mono 8 bits (512²)", moon),
-            ("cameraman mono 16 bits (<<8)",
-             (camera.astype(numpy.uint16) << 8)),
-            ("astronaut RVB 8 bits/canal (512²)", astronaut),
-            ("astronaut RVB 10 bits/canal (<<2)",
-             (astronaut.astype(numpy.uint16) << 2)),
-        ]
-    except Exception:
-        return [
-            ("image mono 8 bits synthétique (2 Mpx)",
-             _image_photo(rng, 1)[..., 0]),
-            ("image mono 16 bits synthétique",
-             (_image_photo(rng, 1)[..., 0].astype(numpy.uint16) << 8)),
-            ("image RVB 8 bits/canal synthétique", _image_photo(rng, 3)),
-            ("image RVB 10 bits/canal synthétique",
-             (_image_photo(rng, 3).astype(numpy.uint16) << 2)),
-        ]
+                    tableau = numpy.asarray(Image.open(chemin))
+                else:
+                    continue
+            except Exception:
+                continue
+            nom = chemin.stem.replace("_", " ")
+            images.append((f"{nom} ({tableau.nbytes / 1e6:.1f} Mo)",
+                           numpy.ascontiguousarray(tableau)))
+    if images:
+        return images
+    return [
+        ("image mono 8 bits synthétique (2 Mpx)",
+         _image_photo(rng, 1)[..., 0]),
+        ("image mono 16 bits synthétique",
+         (_image_photo(rng, 1)[..., 0].astype(numpy.uint16) << 8)),
+        ("image RVB 8 bits/canal synthétique", _image_photo(rng, 3)),
+        ("image RVB 10 bits/canal synthétique",
+         (_image_photo(rng, 3).astype(numpy.uint16) << 2)),
+    ]
 
 
 def _sons_classiques():
