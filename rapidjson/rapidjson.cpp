@@ -1691,6 +1691,15 @@ struct PyHandler {
         const unsigned char* table = serializejson_b64_decode_table();
         bool ok = true;
         size_t count = pendingB64.size();
+        // volume total différé : en dessous du seuil, tout se fait EN LIGNE
+        // et en mono-thread — créer des threads (ou un contexte blosc2
+        // multi-thread) pour quelques Ko coûtait plus que leur décodage,
+        // et la file est vidée à CHAQUE rappel Python de fin d'objet
+        // (mesuré 05/08 au soir : x4 sur un lot de petits bytes)
+        size_t total_bytes = 0;
+        for (PendingB64& job : pendingB64)
+            total_bytes += job.decoded_length + (size_t) job.destsize;
+        bool petit = total_bytes < (1u << 20);
         {
             std::atomic<size_t> next(0);
             std::atomic<bool> good(true);
@@ -1701,6 +1710,8 @@ struct PyHandler {
             // dctx (MT interne blosc2), sinon un job par thread
             int inner_threads = (count < budget)
                 ? (int) (budget / count) : 1;
+            if (petit)
+                inner_threads = 1;
             auto work = [jobs, &next, &good, table, inner_threads]() {
                 blosc2_context* dctx = nullptr;   // créé au premier besoin
                 for (;;) {
@@ -1776,6 +1787,8 @@ struct PyHandler {
             size_t nthreads = hw ? (hw > 8 ? 8 : hw) : 1;
             if (nthreads > count)
                 nthreads = count;
+            if (petit)
+                nthreads = 1;
             if (nthreads <= 1) {
                 work();
             } else {
@@ -2146,6 +2159,23 @@ struct PyHandler {
                             replacement = payload;
                             Py_DECREF(mapping);
                         }
+                    } else if (as_bytearray == 0 && ctor_args != nullptr
+                               && PyUnicode_CheckExact(ctor_args)
+                               && PyUnicode_IS_ASCII(ctor_args)) {
+                        // forme chaîne ascii : {"__class__": "bytes",
+                        // "__new__": "..."} — même sémantique que le
+                        // constructeur Python bytes(s, "ascii"), garanti
+                        // par le test IS_ASCII
+                        Py_ssize_t lg;
+                        const char* u8 = PyUnicode_AsUTF8AndSize(ctor_args,
+                                                                 &lg);
+                        if (u8 != nullptr) {
+                            replacement = PyBytes_FromStringAndSize(u8, lg);
+                            if (replacement != nullptr)
+                                Py_DECREF(mapping);
+                        }
+                        if (replacement == nullptr)
+                            PyErr_Clear();   // voie Python en cas d'échec
                     }
                 }
                 // ----- autres classes de base instanciées en C++ (mêmes
