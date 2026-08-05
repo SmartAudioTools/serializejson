@@ -23,6 +23,17 @@ VENV = "/DATA/Python/SmartPython/CachyOS/versions/SmartPython-{v}_2026-07-26/bin
 # fraîche, comparés ENTRE versions (times et pickle exclus : sorties de
 # pickle lui-même, différentes par version)
 EXCLUS = re.compile(r"times|^pickle")
+# l'ordre d'itération d'un set contenant NaN dépend du hash de NaN (l'adresse
+# de l'objet, donc du processus) : on TRIE les éléments des listes entre
+# crochets qui contiennent NaN, des deux côtés, avant de comparer — filtre
+# étroit, le reste des octets se compare tel quel
+NAN_DANS_LISTE = re.compile(rb"\[([^\][]*NaN[^\][]*)\]")
+
+
+def normalise(octets):
+    return NAN_DANS_LISTE.sub(
+        lambda m: b"[" + b",".join(sorted(m.group(1).split(b","))) + b"]",
+        octets)
 
 
 def restaurer_goldens():
@@ -55,7 +66,8 @@ def lancer():
                 shutil.copy(f, dossier_ref / f.name)
             else:
                 ref = dossier_ref / f.name
-                if not ref.exists() or ref.read_bytes() != f.read_bytes():
+                if not ref.exists() or (normalise(ref.read_bytes())
+                                        != normalise(f.read_bytes())):
                     diffs.append(f.name)
         if reference is None:
             reference = v
@@ -121,7 +133,9 @@ def rapport_pdf(resultats, chemin):
             "Batterie : pytest -q -p no:typeguard sur chaque venv, goldens\n"
             "restaurés entre les runs (git checkout), identité octet à octet\n"
             "des goldens d'une run fraîche entre les cinq versions\n"
-            "(times et pickle exclus : sorties de pickle lui-même).",
+            "(times et pickle exclus : sorties de pickle lui-même ;\n"
+            "listes contenant NaN triées avant comparaison : l'ordre d'un\n"
+            "set contenant NaN dépend de l'adresse de l'objet).",
             fontsize=8, color="gray")
     fig.savefig(chemin, format="pdf")
     return tout_vert

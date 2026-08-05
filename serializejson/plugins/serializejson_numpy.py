@@ -5,7 +5,6 @@
 except ModuleNotFoundError:
     pass
 else:
-    import blosc
     from pybase64 import b64decode_as_bytearray
 
     # base64 écrit directement dans la sortie, et compression blosc2 faite en C
@@ -18,7 +17,6 @@ else:
         from SmartFramework.serialize.tools import (
             serializejson_,
             constructors,
-            blosc_compressions,
             blosc2_compressions,
             blosc_decompress,
             blosc_chunks_decompress,
@@ -32,7 +30,6 @@ else:
         from serializejson.tools import (
             serializejson_,
             constructors,
-            blosc_compressions,
             blosc2_compressions,
             blosc_decompress,
             blosc_chunks_decompress,
@@ -248,129 +245,81 @@ else:
                 use_diff = smart or bool(
                     diff_dtypes and not isinstance(diff_dtypes, str)
                     and data.dtype in diff_dtypes)
-                diff_suffix = "_diff"  # _diffb<lignes> si dérivée par blocs
+                # écriture blosc2 seulement (l'écriture v1 python-blosc et sa
+                # dérivée globale _diff ont été retirées le 05/08/2026, leur
+                # LECTURE demeure) ; trame unique déterministe
                 blosc2_compression = blosc2_compressions.get(compression, None)
-                if blosc2_compression:
-                    # compression faite en C (libblosc2), sans repasser par Python
-                    if not use_blosc2_cpp:
-                        raise Exception(
-                            f"{compression} compression needs the python-blosc2 wheel"
-                        )
-                    nthreads = serialize_parameters.bytes_compression_threads
+                if blosc2_compression is None:
+                    raise Exception(
+                        f"{compression}: v1 python-blosc write support was"
+                        " removed, use a blosc2_* compression (v1 files"
+                        " remain readable)"
+                    )
+                if not use_blosc2_cpp:
+                    raise Exception(
+                        f"{compression} compression needs a loadable libblosc2"
+                    )
+                # dérivée : FILTRE blosc2 enregistré (delta d'octets après
+                # shuffle, PAR BLOC, dans le pipeline multithreadé des deux
+                # côtés, trame auto-descriptive — aucune étiquette)
+                contiguous = numpy.ascontiguousarray(data)
+                level = serialize_parameters.bytes_compression_level
+                shuffle = 2 if use_diff else 1  # 2 = filtre delta + shuffle
+                diff0 = False  # dérivée d'axe 0, par blocs (étiquette _diffb)
+                if smart and contiguous.dtype.kind in "iu":
+                    # DÉFAUT « smart » (choix de Baptiste, 05/08) : la
+                    # chaîne dérivée blocs → zigzag → bitshuffle → zstd
+                    # appliquée DIRECTEMENT, sans sonde, aux entiers ;
+                    # les autres dtypes (flottants compris : la dérivée
+                    # arithmétique ne se retourne pas au bit près sur
+                    # eux) passent par le filtre 242, bit-exact pour tous
+                    shuffle = 3
+                    diff0 = True
+                blocksize = 0
+                diff_cols = 0
+                if diff0:
+                    # dérivée par BLOCS de lignes entières : chaque bloc
+                    # redémarre, la somme cumulée de lecture devient
+                    # indépendante par bloc — et les blocs blosc2 sont
+                    # CALÉS dessus (blocksize), pour que les deux sens
+                    # fusionnent : la dérivée est calculée par le
+                    # PRÉFILTRE au moment où la lib constitue chaque bloc
+                    # (octets identiques, sans pré-passe ni tampon), la
+                    # somme cumulée par l'arrière du filtre 244 à la
+                    # lecture. Un tableau plus petit qu'un bloc est UN
+                    # bloc (l'étiquette _diff globale n'est plus écrite)
+                    cols = contiguous.size // contiguous.shape[0]
+                    row_bytes = cols * contiguous.itemsize
+                    # 512 Ko pour toutes les chaînes : L2-résident
+                    # (lecture x1,35, écriture x1,1 mesurées sur la
+                    # chaîne 244, poids conservé — sauf +0,9 point
+                    # sur le 24/96, profil où rice gagnait)
+                    block_rows = max(1, min((1 << 19) // row_bytes,
+                                            contiguous.shape[0]))
+                    diff_suffix = f"_diffb{block_rows}"
+                    blocksize = block_rows * row_bytes
                     if use_blosc2_fork:
-                        # fork déterministe : le multi-thread INTERNE de la lib
-                        # produit déjà des octets stables -> trame unique
-                        nthreads = 1
-                    # dérivée : FILTRE blosc2 enregistré (delta d'octets après
-                    # shuffle, PAR BLOC, dans le pipeline multithreadé des deux
-                    # côtés, trame auto-descriptive — aucune étiquette)
-                    contiguous = numpy.ascontiguousarray(data)
-                    level = serialize_parameters.bytes_compression_level
-                    shuffle = 2 if use_diff else 1  # 2 = filtre delta + shuffle
-                    diff0 = False  # dérivée d'axe 0 (passe C + étiquette _diff)
-                    if smart:
-                        # DÉFAUT « smart » (choix de Baptiste, 05/08) : la
-                        # chaîne dérivée blocs → zigzag → bitshuffle → zstd
-                        # appliquée DIRECTEMENT, sans sonde, aux entiers ;
-                        # les autres dtypes (flottants compris : la dérivée
-                        # arithmétique ne se retourne pas au bit près sur
-                        # eux) passent par le filtre 242, bit-exact pour tous
-                        if contiguous.dtype.kind in "iu":
-                            shuffle = 3
-                            diff0 = True
-                        cname_gagnant = None
-                        payload = None
+                        diff_cols = cols  # fusion par préfiltre
+                        to_compress = contiguous
                     else:
-                        cname_gagnant = None
-                        payload = None
-                    if payload is None:
-                        blocksize = 0
-                        diff_cols = 0
-                        if diff0:
-                            # dérivée par BLOCS de lignes entières : chaque
-                            # bloc redémarre, la somme cumulée de lecture
-                            # devient indépendante par bloc — et les blocs
-                            # blosc2 sont CALÉS dessus (blocksize), pour que
-                            # les deux sens fusionnent : la dérivée est
-                            # calculée par le PRÉFILTRE au moment où la lib
-                            # constitue chaque bloc (octets identiques, sans
-                            # pré-passe ni tampon), la somme cumulée par le
-                            # postfiltre à la lecture. 1 Mo avec le
-                            # bitshuffle (ses plans de bits veulent des blocs
-                            # larges), 512 Ko sinon
-                            cols = contiguous.size // contiguous.shape[0]
-                            row_bytes = cols * contiguous.itemsize
-                            # 512 Ko pour toutes les chaînes : L2-résident
-                            # (lecture x1,35, écriture x1,1 mesurées sur la
-                            # chaîne 244, poids conservé — sauf +0,9 point
-                            # sur le 24/96, profil où rice gagne l'essai)
-                            block_rows = max(1, (1 << 19) // row_bytes)
-                            if block_rows < contiguous.shape[0]:
-                                diff_suffix = f"_diffb{block_rows}"
-                                blocksize = block_rows * row_bytes
-                                if use_blosc2_fork:
-                                    diff_cols = cols  # fusion par préfiltre
-                                    to_compress = contiguous
-                                else:
-                                    to_compress = _diff_axis0(
-                                        contiguous.data, contiguous.itemsize,
-                                        cols, block_rows)
-                            else:
-                                block_rows = 0
-                                to_compress = _diff_axis0(
-                                    contiguous.data, contiguous.itemsize,
-                                    cols)
-                        else:
-                            to_compress = contiguous
-                        payload = BloscToBase64(
-                            to_compress,
-                            data.itemsize,
-                            level,
-                            shuffle,
-                            cname_gagnant or blosc2_compression,
-                            nthreads if type(nthreads) is int else 1,
-                            1,
-                            blocksize,
-                            diff_cols,
-                        )
-                    # le filtre est porté par la trame ; seule la dérivée
-                    # d'axe 0 garde l'étiquette _diff (et sa somme cumulée
-                    # d'axe 0 au chargement, chemin de lecture inchangé)
-                    use_diff = diff0
-                    compressed_size = payload.compressed_size
-                    compression = "blosc2p" if payload.frames > 1 else "blosc2"
+                        to_compress = _diff_axis0(
+                            contiguous.data, contiguous.itemsize,
+                            cols, block_rows)
                 else:
-                    # voie python-blosc v1 (pas de filtres) : dérivée C en
-                    # une passe + étiquette _diff historique — ENTIERS
-                    # seulement (la dérivée arithmétique flottante ne se
-                    # retourne pas au bit près, contrairement au filtre
-                    # d'octets de la voie blosc2)
-                    if use_diff and data.dtype.kind not in "iu":
-                        use_diff = False
-                    blosc_compression = blosc_compressions.get(compression, None)
-                    if use_diff:
-                        contiguous = numpy.ascontiguousarray(data)
-                        data_to_compress = _diff_axis0(
-                            contiguous.data,
-                            data.itemsize,
-                            data.size // data.shape[0]
-                            if data.ndim > 1 else 1,
-                        )
-                    else:
-                        data_to_compress = numpy.ascontiguousarray(data)
-                    if blosc_compression:
-                        compressed = blosc.compress(
-                            data_to_compress,
-                            data.itemsize,
-                            cname=blosc_compression,
-                            clevel=serialize_parameters.bytes_compression_level,
-                        )
-                        payload = RawBytesToBase64(compressed)
-                        compressed_size = len(compressed)
-                        compression = "blosc"
-                    else:
-                        raise Exception(f"{compression} compression unknow")
-                if use_diff:
+                    to_compress = contiguous
+                payload = BloscToBase64(
+                    to_compress,
+                    data.itemsize,
+                    level,
+                    shuffle,
+                    blosc2_compression,
+                    1,
+                    blocksize,
+                    diff_cols,
+                )
+                compressed_size = payload.compressed_size
+                compression = "blosc2"
+                if diff0:
                     compression += diff_suffix
                 if compressed_size < data.nbytes:
                     if len_or_shape is None:

@@ -286,7 +286,7 @@ def test_serialize_vs_pickle():
                 attributes_filter=False,
                 numpy_types_to_python_types=False,
                 indent=None,
-                bytes_compression=("blosc_zstd", 9),
+                bytes_compression=("blosc2_zstd", 9),
             ),
             "decoder": serializejson.Decoder(),
         },

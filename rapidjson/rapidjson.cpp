@@ -7396,8 +7396,8 @@ static PyObject* validator_new(PyTypeObject* type, PyObject* args, PyObject* kwa
 
 
 // Charge libblosc2 à l'exécution (celle de la roue python-blosc2 ou du
-// système) et résout les symboles de l'API de compatibilité blosc1 utilisés
-// par BloscToBase64. Le handle n'est jamais refermé : la bibliothèque vit
+// système) et résout les symboles blosc2 utilisés par BloscToBase64 et la
+// décompression. Le handle n'est jamais refermé : la bibliothèque vit
 // aussi longtemps que le processus.
 static PyObject*
 load_blosc_library(PyObject* Py_UNUSED(self), PyObject* arg)
@@ -7410,23 +7410,17 @@ load_blosc_library(PyObject* Py_UNUSED(self), PyObject* arg)
         PyErr_Format(PyExc_OSError, "dlopen(%s) : %s", path, dlerror());
         return nullptr;
     }
-    serializejson_blosc1_compress_t compress =
-        (serializejson_blosc1_compress_t) dlsym(handle, "blosc1_compress");
-    serializejson_blosc1_set_compressor_t set_compressor =
-        (serializejson_blosc1_set_compressor_t) dlsym(handle, "blosc1_set_compressor");
     serializejson_blosc2_set_nthreads_t set_nthreads =
         (serializejson_blosc2_set_nthreads_t) dlsym(handle, "blosc2_set_nthreads");
     serializejson_blosc2_init_t init =
         (serializejson_blosc2_init_t) dlsym(handle, "blosc2_init");
-    if (compress == nullptr || set_compressor == nullptr || init == nullptr) {
+    if (init == nullptr) {
         dlclose(handle);
         PyErr_SetString(PyExc_OSError,
-                        "blosc1 compatibility symbols not found in library");
+                        "blosc2 symbols not found in library");
         return nullptr;
     }
     init();
-    serializejson_blosc1_compress = compress;
-    serializejson_blosc1_set_compressor = set_compressor;
     serializejson_blosc2_set_nthreads = set_nthreads;
 
     // API par contextes pour le parallélisme déterministe : activée seulement
@@ -7484,24 +7478,6 @@ load_blosc_library(PyObject* Py_UNUSED(self), PyObject* arg)
             serializejson_blosc2_zigzag_ok = false;
             if (register_filter(&sj_zigzag_filter) == 0)
                 serializejson_blosc2_zigzag_ok = true;
-        }
-    }
-
-    // codec « Rice à prédicteurs fixes » : enregistré dans la lib chargée —
-    // nécessaire à la compression ET à la décompression des trames qui le
-    // portent (la trame stocke le compcode 243 et la largeur d'échantillon)
-    serializejson_blosc2_rice_ok = false;
-    if (serializejson_blosc2_ctx_ok) {
-        sj_blosc2_register_codec_t register_codec =
-            (sj_blosc2_register_codec_t) dlsym(handle,
-                                               "blosc2_register_codec");
-        if (register_codec != nullptr) {
-            static char sj_rice_name[] = "serializejson_rice";
-            static blosc2_codec sj_rice_codec = {
-                SJ_BLOSC2_CODEC_RICE, sj_rice_name, 0, 1,
-                sj_rice_encoder, sj_rice_decoder};
-            if (register_codec(&sj_rice_codec) == 0)
-                serializejson_blosc2_rice_ok = true;
         }
     }
 

@@ -13,7 +13,6 @@ from pybase64 import b64decode
 from apply import apply
 from pickle import PicklingError
 from copyreg import __newobj__, __newobj_ex__, dispatch_table
-import blosc
 from collections.abc import MutableSequence, Mapping
 import sys
 from importlib import import_module
@@ -54,16 +53,19 @@ getters = (
     {}
 )  # getters for dumped classes. keys are string corresponding to the qualified name, values are True (for automatic getters detection) or dictionnary of {"attribut" : "getAttribut" }
 property_types = {property}  # property types
+# noms v1 (python-blosc) : reconnus pour produire un message clair à
+# l'ÉCRITURE (retirée le 05/08/2026) — la LECTURE des trames v1 demeure,
+# assurée par le fork libblosc2 (vérifié sur les 5 codecs x 3 shuffles)
+_blosc_cnames = ("blosclz", "lz4", "lz4hc", "snappy", "zlib", "zstd")
 blosc_compressions = {
-    (name if name == "blosclz" else "blosc_" + name): name for name in blosc.cnames
+    (name if name == "blosclz" else "blosc_" + name): name
+    for name in _blosc_cnames
 }
 # compressions blosc2, réalisées en C par le rapidjson du dépôt (BloscToBase64),
-# sans repasser par Python. ⚠ opt-in : trames au format blosc2, relisibles par
-# le décodage ci-dessous (via python-blosc2) mais PAS par python-blosc v1 ni
-# par les environnements 3.10 — les défauts restent sur blosc v1.
+# sans repasser par Python — la seule voie d'écriture
 blosc2_compressions = {
     ("blosc2" if name == "blosclz" else "blosc2_" + name): name
-    for name in blosc.cnames
+    for name in _blosc_cnames
     if name != "snappy"  # absent de c-blosc2
 }
 use_blosc2_cpp = False
@@ -121,23 +123,25 @@ def blosc_chunks_decompress(frame, as_bytearray=False):
 
 
 def blosc_decompress(frame, as_bytearray=False):
-    # dispatch sur l'octet de version de la trame : <= 3 -> python-blosc v1,
-    # >= 4 -> blosc2 (qui relit aussi les trames v1, mais pas l'inverse)
-    if frame[:1] and frame[0] >= 4:
-        if use_blosc2_cpp:
-            # décompression par notre C (fork ou lib de la roue, via dlsym) :
-            # marche même sans le paquet python-blosc2 (Python 3.10 compris)
-            import rapidjson
+    # v1 (octet de version <= 3) COMME blosc2 : tout est relu par notre C
+    # (le fork relit les trames v1, vérifié sur les 5 codecs x 3 shuffles) —
+    # python-blosc n'est plus une dépendance ; replis sans libblosc2 :
+    # roue python-blosc2 (v2 seulement), puis python-blosc (v1)
+    if use_blosc2_cpp:
+        import rapidjson
 
-            return rapidjson.blosc_decompress_chunks(
-                frame, 1 if as_bytearray else 0
-            )
-        import blosc2  # dernier recours : la roue python-blosc2 (3.11+)
+        return rapidjson.blosc_decompress_chunks(
+            frame, 1 if as_bytearray else 0
+        )
+    if frame[:1] and frame[0] >= 4:
+        import blosc2  # dernier recours v2 : la roue python-blosc2 (3.11+)
 
         decompressed = blosc2.decompress(frame)
         if as_bytearray:
             return bytearray(decompressed)
         return decompressed
+    import blosc  # dernier recours v1 : python-blosc, s'il est installé
+
     if as_bytearray:
         return blosc.decompress(frame, as_bytearray=True)
     return blosc.decompress(frame)

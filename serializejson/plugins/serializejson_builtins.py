@@ -3,12 +3,10 @@
         class_str_from_class,
         serializejson_builtins,
         constructors,
-        blosc_compressions,
         blosc2_compressions,
         blosc_decompress,
         blosc_chunks_decompress,
         use_blosc2_cpp,
-        use_blosc2_fork,
     )
     from SmartFramework.serialize import serialize_parameters
 except:
@@ -16,16 +14,13 @@ except:
         class_str_from_class,
         serializejson_builtins,
         constructors,
-        blosc_compressions,
         blosc2_compressions,
         blosc_decompress,
         blosc_chunks_decompress,
         use_blosc2_cpp,
-        use_blosc2_fork,
     )
     from serializejson import serialize_parameters
 
-import blosc
 import types
 from pybase64 import b64decode, b64decode_as_bytearray
 
@@ -111,43 +106,27 @@ def serializejson_bytearray(inst):
         compression
         and len(inst) >= serialize_parameters.bytes_size_compression_threshold
     ):
+        # écriture blosc2 seulement (l'écriture v1 python-blosc a été retirée
+        # le 05/08/2026, sa LECTURE demeure) ; trame unique déterministe
         blosc2_compression = blosc2_compressions.get(compression, None)
-        if blosc2_compression:
-            # compression faite en C (libblosc2), sans repasser par Python
-            if not use_blosc2_cpp:
-                raise Exception(
-                    f"{compression} compression needs the python-blosc2 wheel"
-                )
-            nthreads = serialize_parameters.bytes_compression_threads
-            if use_blosc2_fork:
-                # fork déterministe : le multi-thread INTERNE de la lib produit
-                # déjà des octets stables -> trame unique standard
-                nthreads = 1
-            compressed = BloscToBase64(
-                inst,
-                1,
-                serialize_parameters.bytes_compression_level,
-                0,  # NOSHUFFLE
-                blosc2_compression,
-                nthreads if type(nthreads) is int else 1,
+        if blosc2_compression is None:
+            raise Exception(
+                f"{compression}: v1 python-blosc write support was removed,"
+                " use a blosc2_* compression (v1 files remain readable)"
             )
-            if compressed.compressed_size < len(inst):
-                label = "b64_blosc2p" if compressed.frames > 1 else "b64_blosc2"
-                return "bytearray", (compressed, label), None
-        else:
-            blosc_compression = blosc_compressions.get(compression, None)
-            if blosc_compression:
-                compressed = blosc.compress(
-                    inst,
-                    1,
-                    cname=blosc_compression,
-                    clevel=serialize_parameters.bytes_compression_level,
-                    shuffle=blosc.NOSHUFFLE,
-                )
-            else:
-                raise Exception(f"{compression} compression unknow")
-            if len(compressed) < len(inst):
-                return "bytearray", (RawBytesToBase64(compressed), "b64_blosc"), None
+        if not use_blosc2_cpp:
+            raise Exception(
+                f"{compression} compression needs a loadable libblosc2"
+            )
+        compressed = BloscToBase64(
+            inst,
+            1,
+            serialize_parameters.bytes_compression_level,
+            0,  # NOSHUFFLE
+            blosc2_compression,
+        )
+        if compressed.compressed_size < len(inst):
+            return "bytearray", (compressed, "b64_blosc2"), None
     return "bytearray", (RawBytesToBase64(inst), "b64"), None
 
 
@@ -160,50 +139,27 @@ def serializejson_bytes(inst):
         compression
         and len(inst) >= serialize_parameters.bytes_size_compression_threshold
     ):
+        # écriture blosc2 seulement (l'écriture v1 python-blosc a été retirée
+        # le 05/08/2026, sa LECTURE demeure) ; trame unique déterministe
         blosc2_compression = blosc2_compressions.get(compression, None)
-        if blosc2_compression:
-            # compression faite en C (libblosc2), sans repasser par Python
-            if not use_blosc2_cpp:
-                raise Exception(
-                    f"{compression} compression needs the python-blosc2 wheel"
-                )
-            nthreads = serialize_parameters.bytes_compression_threads
-            if use_blosc2_fork:
-                # fork déterministe : le multi-thread INTERNE de la lib produit
-                # déjà des octets stables -> trame unique standard
-                nthreads = 1
-            compressed = BloscToBase64(
-                inst,
-                1,
-                serialize_parameters.bytes_compression_level,
-                0,  # NOSHUFFLE
-                blosc2_compression,
-                nthreads if type(nthreads) is int else 1,
+        if blosc2_compression is None:
+            raise Exception(
+                f"{compression}: v1 python-blosc write support was removed,"
+                " use a blosc2_* compression (v1 files remain readable)"
             )
-            if compressed.compressed_size < len(inst):
-                label = "b64_blosc2p" if compressed.frames > 1 else "b64_blosc2"
-                return ("bytes", None, None, None, None, (compressed, label))
-        else:
-            blosc_compression = blosc_compressions.get(compression, None)
-            if blosc_compression:
-                compressed = blosc.compress(
-                    inst,
-                    1,
-                    cname=blosc_compression,
-                    clevel=serialize_parameters.bytes_compression_level,
-                    shuffle=blosc.NOSHUFFLE,
-                )
-            else:
-                raise Exception(f"{compression} compression unknow")
-            if len(compressed) < len(inst):
-                return (
-                    "bytes",
-                    None,
-                    None,
-                    None,
-                    None,
-                    (RawBytesToBase64(compressed), "b64_blosc"),
-                )
+        if not use_blosc2_cpp:
+            raise Exception(
+                f"{compression} compression needs a loadable libblosc2"
+            )
+        compressed = BloscToBase64(
+            inst,
+            1,
+            serialize_parameters.bytes_compression_level,
+            0,  # NOSHUFFLE
+            blosc2_compression,
+        )
+        if compressed.compressed_size < len(inst):
+            return ("bytes", None, None, None, None, (compressed, "b64_blosc2"))
     if inst.isascii():
         try:
             return ("bytes", None, None, None, None, (inst.decode("ascii_printables"),))

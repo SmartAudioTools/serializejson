@@ -2291,3 +2291,51 @@ nouveau format ; les tests qui décodaient le dump à la main passent par
 `_trame()` (retrait guillemets + préfixe) ; le seuil de `test_2d_axe_0`
 passe de /2 à ×0,55 (préfixe constant des deux côtés d'une inégalité
 serrée à 1 octet près).
+
+### 17 nonies. Soirée du 5/08 — chantier 3 : la grande coupe (écriture v1, blosc2p, _diff global, rice)
+
+Troisième chantier du soir : tout ce qui n'était plus écrit que par
+compatibilité disparaît de l'ÉCRITURE — la LECTURE de chaque format
+jamais produit demeure, intégralement.
+
+**Vérification préalable, qui a élargi la coupe** : le fork libblosc2
+relit les trames v1 python-blosc — testé sur les 5 codecs × 3 shuffles
+× 2 typesizes, 30/30 exacts. Et l'octet de version des trames écrites
+par le repli blosc1 du C++ est 5 (format blosc2), pas un format v1 :
+rien de ce que nous écrivons ne dépendait déjà plus de python-blosc.
+Conséquence : **python-blosc n'est plus une dépendance** (retiré de
+setup.py, plus aucun import en dur ; il ne reste qu'un repli paresseux
+si aucune libblosc2 n'est chargeable). Prouvé par un test qui rend
+`import blosc` impossible puis importe serializejson, relit du v1
+(bytes + `_diff` global) et fait un aller-retour d'écriture.
+
+**Supprimé (écriture et code mort)** :
+- le codec Rice 243 en entier (~420 lignes : SjBitWriter/Reader,
+  encodeur/décodeur, mid/side, enregistrement) et le paramètre
+  `channels` de BloscToBase64 (signature recalée, `nthreads` accepté
+  et ignoré — le multithread interne suit le réglage global) ;
+- l'écriture par morceaux concaténés blosc2p (sj_compress_chunks,
+  worker, étiquettes `blosc2p`/`b64_blosc2p` à l'écriture) ;
+- le repli d'écriture blosc1 du C++ : TOUT passe par l'API contextes
+  (bonus mesuré au passage : sur des octets périodiques, la voie
+  contextes compresse 13× mieux que le repli blosc1, blocs plus
+  larges) ; les symboles blosc1_compress/set_compressor ne sont plus
+  résolus ;
+- les branches d'écriture v1 des greffons (blosc.compress bytes,
+  bytearray, numpy) ; un nom v1 dans `bytes_compression` produit un
+  message explicite « v1 write removed, v1 files remain readable » ;
+- l'étiquette `_diff` GLOBALE à l'écriture : un tableau plus petit
+  qu'un bloc est UN bloc `_diffb<lignes>` ;
+- l'échafaudage restant des sondes (cname_gagnant/payload=None) et
+  `blosc.set_nthreads` côté python.
+
+**Conservé en lecture, avec tests à trames FIGÉES** (produites par
+python-blosc avant la coupe, incorporées en littéraux dans les tests —
+elles prouvent la lecture v1 sans python-blosc) : bytes `b64_blosc`,
+numpy `blosc_diff` (v1 + dérivée globale), `blosc2_diff` (blosc2 +
+dérivée globale, écrit un temps le matin du 5/08), la boucle
+multi-trames de blosc_decompress_chunks (fichiers blosc2p existants),
+les noms numpy1. Les tests « rice » qui n'étaient que des
+allers-retours smart sous un autre nom sont renommés et conservés
+(bords de trame, stéréo, int32 mêlé, déterminisme, canaux disparates) ;
+seuls ceux qui forçaient le codec disparaissent avec lui.

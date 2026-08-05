@@ -850,20 +850,12 @@ static PyTypeObject RawBytesToBase64_Type = {
 // Compression blosc faite en C, sans repasser par Python : la bibliothèque
 // libblosc2 (celle de la roue python-blosc2, ou du système) est chargée à
 // l'exécution par rapidjson.load_blosc_library(path) — aucune dépendance de
-// compilation ni d'édition de liens. On passe par son API de compatibilité
-// blosc1 : les trames produites gardent le format (et l'étiquette "b64_blosc")
-// que python-blosc sait déjà relire.
+// compilation ni d'édition de liens. Écriture par l'API contextes seulement ;
+// la lecture relit aussi les trames blosc1 (v1) via la même bibliothèque.
 
-typedef int  (*serializejson_blosc1_compress_t)(int clevel, int doshuffle,
-                                                size_t typesize, size_t nbytes,
-                                                const void* src, void* dest,
-                                                size_t destsize);
-typedef int  (*serializejson_blosc1_set_compressor_t)(const char* compname);
 typedef int16_t (*serializejson_blosc2_set_nthreads_t)(int16_t nthreads);
 typedef void (*serializejson_blosc2_init_t)(void);
 
-static serializejson_blosc1_compress_t serializejson_blosc1_compress = nullptr;
-static serializejson_blosc1_set_compressor_t serializejson_blosc1_set_compressor = nullptr;
 static serializejson_blosc2_set_nthreads_t serializejson_blosc2_set_nthreads = nullptr;
 
 // API par contextes de c-blosc2 : chaque contexte est mono-thread, donc
@@ -1417,556 +1409,6 @@ static bool serializejson_blosc2_delta_ok = false;
 static bool serializejson_blosc2_zigzag_ok = false;
 static int serializejson_blosc2_nthreads_global = 1;
 
-// --- codec blosc2 « Rice à prédicteurs fixes » (id 243) ---------------------
-// Codec UTILISATEUR enregistré : par trame de 1024 échantillons, le meilleur
-// prédicteur polynomial FIXE d'ordre 0..3 (les mêmes que le mode « fixed » de
-// FLAC — nos dérivées itérées), puis résidus zigzag codés en Rice avec un
-// calibre k réajusté par partition de 256 échantillons (6 bits d'en-tête,
-// k=63 = partition verbatim). C'est l'adaptation LOCALE qui permet de
-// descendre sous l'entropie globale des résidus, là où zstd plafonne —
-// mesuré 57 437 octets contre 68 625 (zstd sur delta) et 50 200 (FLAC) sur
-// la voix de référence. Entiers 2 et 4 octets ; pur, donc déterministe ;
-// exécuté par bloc dans les threads de blosc2. Ignore clevel.
-#define SJ_BLOSC2_CODEC_RICE 243
-#define SJ_RICE_FRAME 1024
-#define SJ_RICE_PART 256
-#define SJ_RICE_ESCAPE 63
-#define SJ_RICE_ZERO 62  // partition entièrement nulle : 6 bits, pas de charge
-                         // (l'équivalent du sous-frame constant de FLAC —
-                         // sans lui, le silence coûterait 1 bit/échantillon
-                         // là où le RLE de zstd le rend presque gratuit)
-
-struct SjBitWriter {
-    uint8_t* out;
-    int32_t cap;
-    int32_t pos;
-    uint64_t acc;
-    int nbits;
-    bool overflow;
-};
-
-static inline void
-sj_bw_flush(SjBitWriter* w)
-{
-    while (w->nbits >= 8) {
-        if (w->pos >= w->cap) {
-            w->overflow = true;
-            w->nbits = 0;
-            return;
-        }
-        w->out[w->pos++] = (uint8_t) w->acc;
-        w->acc >>= 8;
-        w->nbits -= 8;
-    }
-}
-
-static inline void
-sj_bw_put(SjBitWriter* w, uint64_t v, int n)  // n <= 56, poids faible d'abord
-{
-    w->acc |= v << w->nbits;
-    w->nbits += n;
-    sj_bw_flush(w);
-}
-
-static inline void
-sj_bw_unary(SjBitWriter* w, uint64_t q)  // q zéros puis un 1
-{
-    while (q >= 48 && !w->overflow) {
-        sj_bw_put(w, 0, 48);
-        q -= 48;
-    }
-    sj_bw_put(w, (uint64_t) 1 << q, (int) q + 1);
-}
-
-struct SjBitReader {
-    const uint8_t* in;
-    int32_t len;
-    int32_t pos;
-    uint64_t acc;
-    int nbits;
-    bool fail;
-};
-
-static inline void
-sj_br_fill(SjBitReader* r)
-{
-    while (r->nbits <= 56 && r->pos < r->len) {
-        r->acc |= (uint64_t) r->in[r->pos++] << r->nbits;
-        r->nbits += 8;
-    }
-}
-
-static inline uint64_t
-sj_br_get(SjBitReader* r, int n)
-{
-    sj_br_fill(r);
-    if (r->nbits < n) {
-        r->fail = true;
-        return 0;
-    }
-    uint64_t v = r->acc & (((uint64_t) 1 << n) - 1);
-    r->acc >>= n;
-    r->nbits -= n;
-    return v;
-}
-
-static inline uint64_t
-sj_br_unary(SjBitReader* r)
-{
-    uint64_t q = 0;
-    while (true) {
-        sj_br_fill(r);
-        if (r->nbits == 0) {
-            r->fail = true;
-            return 0;
-        }
-        if (r->acc == 0) {  // que des zéros dans le tampon : tout consommer
-            q += (uint64_t) r->nbits;
-            r->nbits = 0;
-            continue;
-        }
-#if defined(_MSC_VER)
-        unsigned long t32;
-        _BitScanForward64(&t32, r->acc);
-        int t = (int) t32;
-#else
-        int t = __builtin_ctzll(r->acc);
-#endif
-        q += (uint64_t) t;
-        // t + 1 peut valoir 64 (q unaire finissant pile en haut du tampon) :
-        // un décalage de 64 est INDÉFINI en C (pris modulo 64 sur x86, acc
-        // resterait INCHANGÉ et un bit fantôme ressortirait plus loin)
-        r->acc = (t + 1 < 64) ? (r->acc >> (t + 1)) : 0;
-        r->nbits -= t + 1;
-        return q;
-    }
-}
-
-// prédiction polynomiale fixe d'ordre eff sur l'historique h (h = x + i),
-// à PAS c : pour de l'audio entrelacé à c canaux, l'échantillon précédent du
-// MÊME canal est c positions en arrière — sans ce pas, la prédiction
-// enjambe les canaux (gauche prédit depuis droite) et Rice perd en stéréo
-template <typename T>
-static inline int64_t
-sj_rice_predict(const T* h, int eff, int32_t c)
-{
-    switch (eff) {
-        case 1: return (int64_t) h[-c];
-        case 2: return 2 * (int64_t) h[-c] - (int64_t) h[-2 * c];
-        case 3: return 3 * ((int64_t) h[-c] - (int64_t) h[-2 * c])
-                       + (int64_t) h[-3 * c];
-        default: return 0;
-    }
-}
-
-// mid/side (c == 2 seulement) : valeur transformée à la position g, calculée
-// à la volée depuis la paire d'échantillons — mid = (L+R)>>1 aux positions
-// paires, side = L-R aux impaires. Le décodeur ayant toujours reconstruit x
-// pour les paires passées, l'historique se recalcule des deux côtés sans
-// tampon ni état. Un échantillon final non appairé vaut sa propre valeur.
-template <typename T>
-static inline int64_t
-sj_rice_ms_value(const T* x, int32_t g, int32_t n)
-{
-    int32_t b = g & ~1;
-    if (b + 1 >= n)
-        return (int64_t) x[b];
-    if (g & 1)
-        return (int64_t) x[b] - (int64_t) x[b + 1];
-    return ((int64_t) x[b] + (int64_t) x[b + 1]) >> 1;
-}
-
-template <typename T>
-static int32_t
-sj_rice_encode_typed(const T* x, int32_t n, uint8_t* out, int32_t cap,
-                     int32_t c)
-{
-    SjBitWriter w = {out, cap, 0, 0, 0, false};
-    static const int esc_bits = (int) sizeof(T) * 8 + 4;
-    int64_t r[4][SJ_RICE_FRAME];
-    uint64_t u[SJ_RICE_PART];
-    for (int32_t start = 0; start < n; start += SJ_RICE_FRAME) {
-        int32_t m = n - start;
-        if (m > SJ_RICE_FRAME)
-            m = SJ_RICE_FRAME;
-        // stéréo : gauche/droite ou mid/side, un bit par trame — les valeurs
-        // transformées sont matérialisées UNE fois (trame + 6 d'historique,
-        // les appels à la volée par échantillon et par ordre coûtaient 2× en
-        // vitesse), puis décision par une passe bon marché sur les résidus
-        // d'ordre 1 ; la recherche complète ne tourne que sur le domaine élu
-        bool ms = false;
-        int64_t tw[SJ_RICE_FRAME + 6];
-        int64_t* t6 = tw + 6;
-        if (c == 2) {
-            for (int32_t i = -6; i < m; i++) {
-                int32_t g = start + i;
-                t6[i] = (g >= 0) ? sj_rice_ms_value(x, g, n) : 0;
-            }
-            uint64_t clr = 0, cms = 0;
-            for (int32_t i = 0; i < m; i++) {
-                int32_t g = start + i;
-                int64_t dlr = (g >= 2) ? (int64_t) x[g] - (int64_t) x[g - 2]
-                                       : (int64_t) x[g];
-                int64_t dms = (g >= 2) ? t6[i] - t6[i - 2] : t6[i];
-                clr += (uint64_t) (dlr < 0 ? -dlr : dlr);
-                cms += (uint64_t) (dms < 0 ? -dms : dms);
-            }
-            ms = cms < clr;  // égalité -> gauche/droite (déterministe)
-            sj_bw_put(&w, ms ? 1 : 0, 1);
-        }
-        // le side occupe un bit de plus que la source : escape élargi d'autant
-        int eb = ms ? esc_bits + 1 : esc_bits;
-        // résidus des quatre ordres (la prédiction traverse les trames :
-        // l'historique est le signal déjà vu, le décodeur fait pareil)
-        uint64_t cost[4] = {0, 0, 0, 0};
-        for (int o = 0; o < 4; o++) {
-            for (int32_t i = 0; i < m; i++) {
-                int32_t g = start + i;
-                int eff = (g < o * c) ? (int) (g / c) : o;
-                int64_t d = ms ? t6[i] - sj_rice_predict(t6 + i, eff, 2)
-                               : (int64_t) x[g]
-                                     - sj_rice_predict(x + g, eff, c);
-                r[o][i] = d;
-                cost[o] += (uint64_t) (d < 0 ? -d : d);
-            }
-        }
-        int order = 0;
-        for (int o = 1; o < 4; o++)
-            if (cost[o] < cost[order])
-                order = o;
-        sj_bw_put(&w, (uint64_t) order, 2);
-        // mid/side : mids d'abord, sides ensuite — sans ce réordonnancement,
-        // chaque partition mélange les deux flux et le calibre k d'un side
-        // quasi nul est imposé par les mids actifs (le gain disparaissait)
-        int64_t ro[SJ_RICE_FRAME];
-        const int64_t* rr = r[order];
-        if (ms) {
-            int32_t j = 0;
-            for (int32_t i = 0; i < m; i += 2)
-                ro[j++] = r[order][i];
-            for (int32_t i = 1; i < m; i += 2)
-                ro[j++] = r[order][i];
-            rr = ro;
-        }
-        for (int32_t ps = 0; ps < m; ps += SJ_RICE_PART) {
-            int32_t pm = m - ps;
-            if (pm > SJ_RICE_PART)
-                pm = SJ_RICE_PART;
-            uint64_t sum = 0;
-            for (int32_t i = 0; i < pm; i++) {
-                int64_t d = rr[ps + i];
-                u[i] = ((uint64_t) d << 1) ^ (uint64_t) (d >> 63);  // zigzag
-                sum += u[i];
-            }
-            if (sum == 0) {  // silence : partition constante nulle
-                sj_bw_put(&w, SJ_RICE_ZERO, 6);
-                if (w.overflow)
-                    return 0;
-                continue;
-            }
-            // calibre : ~log2(moyenne), affiné sur les voisins, comparé au
-            // verbatim (partitions incompressibles : bruit fort, transitoires)
-            uint64_t mean = sum / (uint64_t) pm;
-            int k0 = 0;
-            while ((mean >> k0) > 1)
-                k0++;
-            uint64_t best_cost = (uint64_t) pm * (uint64_t) eb;
-            int best_k = SJ_RICE_ESCAPE;
-            int k_lo = (k0 > 1) ? k0 - 1 : 0;
-            for (int k = k_lo; k <= k0 + 2 && k < eb; k++) {
-                uint64_t c = (uint64_t) pm * (uint64_t) (k + 1);
-                for (int32_t i = 0; i < pm; i++)
-                    c += u[i] >> k;
-                if (c < best_cost) {
-                    best_cost = c;
-                    best_k = k;
-                }
-            }
-            sj_bw_put(&w, (uint64_t) best_k, 6);
-            if (best_k == SJ_RICE_ESCAPE) {
-                for (int32_t i = 0; i < pm; i++)
-                    sj_bw_put(&w, u[i], eb);
-            } else {
-                uint64_t mask = ((uint64_t) 1 << best_k) - 1;
-                for (int32_t i = 0; i < pm; i++) {
-                    sj_bw_unary(&w, u[i] >> best_k);
-                    if (best_k)
-                        sj_bw_put(&w, u[i] & mask, best_k);
-                }
-            }
-            if (w.overflow)
-                return 0;
-        }
-    }
-    if (w.nbits & 7)
-        sj_bw_put(&w, 0, 8 - (w.nbits & 7));
-    sj_bw_flush(&w);
-    return w.overflow ? 0 : w.pos;
-}
-
-template <typename T>
-static int32_t
-sj_rice_decode_typed(const uint8_t* in, int32_t len, T* x, int32_t n,
-                     int32_t c)
-{
-    SjBitReader rd = {in, len, 0, 0, 0, false};
-    static const int esc_bits = (int) sizeof(T) * 8 + 4;
-    for (int32_t start = 0; start < n; start += SJ_RICE_FRAME) {
-        int32_t m = n - start;
-        if (m > SJ_RICE_FRAME)
-            m = SJ_RICE_FRAME;
-        bool ms = (c == 2) && sj_br_get(&rd, 1) != 0;
-        int eb = ms ? esc_bits + 1 : esc_bits;
-        int order = (int) sj_br_get(&rd, 2);
-        // mid/side : les mids arrivent d'abord, puis les sides (partitions
-        // homogènes, voir l'encodeur). tv[] garde les valeurs t de la trame :
-        // pendant le décodage réordonné, x n'est pas encore reconstruit, donc
-        // l'historique intra-trame se lit ici et l'inter-trame dans x
-        int64_t tv[SJ_RICE_FRAME];
-        int32_t nmid = (m + 1) / 2;
-        for (int32_t ps = 0; ps < m; ps += SJ_RICE_PART) {
-            int32_t pm = m - ps;
-            if (pm > SJ_RICE_PART)
-                pm = SJ_RICE_PART;
-            int k = (int) sj_br_get(&rd, 6);
-            uint64_t v;
-            for (int32_t i = 0; i < pm; i++) {
-                if (k == SJ_RICE_ZERO)
-                    v = 0;
-                else if (k == SJ_RICE_ESCAPE)
-                    v = sj_br_get(&rd, eb);
-                else {
-                    uint64_t q = sj_br_unary(&rd);
-                    v = (q << k) | (k ? sj_br_get(&rd, k) : 0);
-                }
-                int64_t d = (int64_t) (v >> 1) ^ -(int64_t) (v & 1);
-                int32_t j = ps + i;
-                if (ms) {
-                    int32_t fi = (j < nmid) ? 2 * j : 2 * (j - nmid) + 1;
-                    int32_t g = start + fi;
-                    int eff = (g < order * 2) ? (int) (g / 2) : order;
-                    int64_t p = 0;
-                    for (int o = 1; o <= eff; o++) {
-                        static const int64_t coef[4][3] = {
-                            {0, 0, 0}, {1, 0, 0}, {2, -1, 0}, {3, -3, 1}};
-                        int32_t gg = g - 2 * o;
-                        int64_t h = (gg >= start)
-                                        ? tv[gg - start]
-                                        : sj_rice_ms_value(x, gg, n);
-                        p += coef[eff][o - 1] * h;
-                    }
-                    tv[fi] = d + p;
-                } else {
-                    int32_t g = start + j;
-                    int eff = (g < order * c) ? (int) (g / c) : order;
-                    x[g] = (T) (d + sj_rice_predict(x + g, eff, c));
-                }
-            }
-            if (rd.fail)
-                return -1;
-        }
-        if (ms) {  // reconstruction des paires depuis mid/side
-            for (int32_t i = 0; i + 1 < m; i += 2) {
-                int64_t s = tv[i + 1];
-                int64_t L = tv[i] + ((s + (s & 1)) >> 1);
-                x[start + i] = (T) L;
-                x[start + i + 1] = (T) (L - s);
-            }
-            if (m & 1)  // échantillon final non appairé : mid = valeur
-                x[start + m - 1] = (T) tv[m - 1];
-        }
-    }
-    return n * (int32_t) sizeof(T);
-}
-
-static int
-sj_rice_encoder(const uint8_t* input, int32_t input_len, uint8_t* output,
-                int32_t output_len, uint8_t meta, blosc2_cparams* cparams,
-                const void* chunk)
-{
-    (void) chunk;
-    // meta : largeur d'échantillon dans le quartet bas, nombre de canaux
-    // dans le quartet haut (0 = mono, compatible avec les trames déjà
-    // écrites sans canaux)
-    int typesize = meta ? (int) (meta & 0xF)
-                        : (cparams ? (int) cparams->typesize : 0);
-    int32_t c = (meta >> 4) ? (int32_t) (meta >> 4) : 1;
-    int32_t cap = output_len;
-    if (cap > input_len - 1)
-        cap = input_len - 1;  // n'accepter que strictement plus petit
-    if (cap <= 0)
-        return 0;
-    if (typesize == 2 && input_len % 2 == 0)
-        return sj_rice_encode_typed<int16_t>(
-            (const int16_t*) (const void*) input, input_len / 2, output, cap,
-            c);
-    if (typesize == 4 && input_len % 4 == 0)
-        return sj_rice_encode_typed<int32_t>(
-            (const int32_t*) (const void*) input, input_len / 4, output, cap,
-            c);
-    return 0;  // largeur non gérée : blosc stocke le bloc brut
-}
-
-static int
-sj_rice_decoder(const uint8_t* input, int32_t input_len, uint8_t* output,
-                int32_t output_len, uint8_t meta, blosc2_dparams* dparams,
-                const void* chunk)
-{
-    (void) dparams;
-    (void) chunk;
-    int typesize = (int) (meta & 0xF);
-    int32_t c = (meta >> 4) ? (int32_t) (meta >> 4) : 1;
-    if (typesize == 2 && output_len % 2 == 0)
-        return sj_rice_decode_typed<int16_t>(
-            input, input_len, (int16_t*) (void*) output, output_len / 2, c);
-    if (typesize == 4 && output_len % 4 == 0)
-        return sj_rice_decode_typed<int32_t>(
-            input, input_len, (int32_t*) (void*) output, output_len / 4, c);
-    return -1;
-}
-
-typedef int (*sj_blosc2_register_codec_t)(blosc2_codec*);
-static bool serializejson_blosc2_rice_ok = false;
-
-// taille de morceau FIXE : c'est elle qui garantit le déterminisme, quel que
-// soit le nombre de threads (ne jamais la faire dépendre de la machine)
-#define SERIALIZEJSON_BLOSC_CHUNK (1 << 20)
-
-#define SERIALIZEJSON_BLOSC1_MAX_OVERHEAD 32
-
-
-// --- compression/décompression parallèles DÉTERMINISTES par morceaux -------
-// Morceaux d'entrée de taille fixe, compressés indépendamment par des
-// contextes mono-thread (purs), trames concaténées dans l'ordre : les octets
-// produits ne dépendent ni du nombre de threads ni de l'ordonnancement.
-
-struct SjCompressJob {
-    const char* src;
-    int32_t srcsize;
-    char* dest;
-    int32_t destcap;
-    int result;
-};
-
-static void
-sj_compress_worker(std::vector<SjCompressJob>* jobs, std::atomic<size_t>* next,
-                   blosc2_cparams cparams)
-{
-    blosc2_context* ctx = sj_blosc2_create_cctx(cparams);
-    while (true) {
-        size_t index = next->fetch_add(1);
-        if (index >= jobs->size())
-            break;
-        SjCompressJob& job = (*jobs)[index];
-        job.result = (ctx == nullptr)
-            ? -1000
-            : sj_blosc2_compress_ctx(ctx, job.src, job.srcsize,
-                                     job.dest, job.destcap);
-    }
-    if (ctx != nullptr)
-        sj_blosc2_free_ctx(ctx);
-}
-
-// Retourne un buffer malloc (à libérer par l'appelant), sa taille et le
-// nombre de trames ; nullptr en cas d'échec, sans exception Python.
-static char*
-sj_compress_chunks(const char* src, size_t length, size_t typesize, int clevel,
-                   int shuffle, const char* cname, int nthreads, int channels,
-                   int32_t blocksize, size_t* out_size, long* out_frames)
-{
-    bool rice = (strcmp(cname, "rice") == 0);
-    int compcode;
-    if (rice) {
-        if (!serializejson_blosc2_rice_ok)
-            return nullptr;
-        compcode = SJ_BLOSC2_CODEC_RICE;
-    } else {
-        compcode = sj_blosc2_compname_to_compcode(cname);
-        if (compcode < 0)
-            return nullptr;
-    }
-    const size_t chunk = SERIALIZEJSON_BLOSC_CHUNK;
-    size_t count = (length + chunk - 1) / chunk;
-    size_t stride = chunk + BLOSC2_MAX_OVERHEAD;
-    char* scratch = (char*) malloc(count * stride);
-    if (scratch == nullptr)
-        return nullptr;
-    std::vector<SjCompressJob> jobs(count);
-    for (size_t i = 0; i < count; i++) {
-        size_t offset = i * chunk;
-        size_t size = (offset + chunk <= length) ? chunk : (length - offset);
-        jobs[i] = {src + offset, (int32_t) size, scratch + i * stride,
-                   (int32_t) stride, 0};
-    }
-    blosc2_cparams cparams = BLOSC2_CPARAMS_DEFAULTS;
-    cparams.compcode = (uint8_t) compcode;
-    cparams.clevel = (uint8_t) clevel;
-    cparams.typesize = (int32_t) typesize;
-    cparams.nthreads = 1;  // c'est LUI qui garantit le déterminisme
-    for (int f = 0; f < BLOSC2_MAX_FILTERS; f++) {
-        cparams.filters[f] = BLOSC_NOFILTER;
-        cparams.filters_meta[f] = 0;
-    }
-    if (rice) {
-        // le codec fait sa propre prédiction : aucun filtre devant ; largeur
-        // d'échantillon (quartet bas) et canaux (quartet haut) passés par le
-        // meta, persisté dans la trame ; pas de découpage en flux
-        cparams.compcode_meta = (uint8_t) (typesize | (channels << 4));
-        cparams.splitmode = BLOSC_NEVER_SPLIT;
-    } else if (shuffle == 2 && serializejson_blosc2_delta_ok) {
-        // pipeline shuffle -> delta d'octets (ordre MESURÉ gagnant : après
-        // shuffle, chaque flux d'octets est lisse et le delta les linéarise)
-        cparams.filters[BLOSC2_MAX_FILTERS - 2] = BLOSC_SHUFFLE;
-        cparams.filters[BLOSC2_MAX_FILTERS - 1] = SJ_BLOSC2_FILTER_DELTA;
-    } else if (shuffle == 3 && serializejson_blosc2_zigzag_ok) {
-        // pipeline zigzag -> bitshuffle : ±ε repliés, plans de bits propres.
-        // Blocs larges : le bitshuffle transpose PAR BLOC, et des plans de
-        // bits courts perdent 2-4 points contre la transposition globale
-        cparams.filters[BLOSC2_MAX_FILTERS - 2] = SJ_BLOSC2_FILTER_ZIGZAG;
-        cparams.filters_meta[BLOSC2_MAX_FILTERS - 2] = (uint8_t) typesize;
-        cparams.filters[BLOSC2_MAX_FILTERS - 1] = BLOSC_BITSHUFFLE;
-        cparams.splitmode = BLOSC_NEVER_SPLIT;
-        cparams.blocksize = 1 << 19;  // 512 Ko : L2-résident, mesuré sans
-                                      // perte de poids (sauf +0,9 pt 24/96)
-    } else
-        cparams.filters[BLOSC2_MAX_FILTERS - 1] =
-            shuffle ? BLOSC_SHUFFLE : BLOSC_NOFILTER;
-    if (blocksize > 0)
-        cparams.blocksize = blocksize;  // blocs = blocs de dérivée (fusion
-                                        // cache de la somme cumulée en lecture)
-    if (nthreads > (int) count)
-        nthreads = (int) count;
-    std::atomic<size_t> next(0);
-    std::vector<std::thread> threads;
-    for (int t = 1; t < nthreads; t++)
-        threads.emplace_back(sj_compress_worker, &jobs, &next, cparams);
-    sj_compress_worker(&jobs, &next, cparams);
-    for (std::thread& worker : threads)
-        worker.join();
-    size_t total = 0;
-    for (SjCompressJob& job : jobs) {
-        if (job.result <= 0) {
-            free(scratch);
-            return nullptr;
-        }
-        total += (size_t) job.result;
-    }
-    char* out = (char*) malloc(total);
-    if (out == nullptr) {
-        free(scratch);
-        return nullptr;
-    }
-    char* cursor = out;
-    for (SjCompressJob& job : jobs) {
-        memcpy(cursor, job.dest, (size_t) job.result);
-        cursor += job.result;
-    }
-    free(scratch);
-    *out_size = total;
-    *out_frames = (long) count;
-    return out;
-}
-
 
 struct SjDecompressJob {
     const char* src;
@@ -2014,7 +1456,6 @@ typedef struct {
     PyObject_HEAD
     char* data;          // trame compressée, possédée par l'objet (free au dealloc)
     Py_ssize_t size;
-    long frames;         // 1 : trame unique ; > 1 : morceaux concaténés
 } BloscToBase64;
 
 
@@ -2037,7 +1478,6 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
         "shuffle",
         "cname",
         "nthreads",
-        "channels",
         "blocksize",
         "diff_cols",
         nullptr
@@ -2048,33 +1488,30 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
     int shuffle = 1;
     const char* cname = "blosclz";
     int nthreads = 1;
-    int channels = 1;  // canaux entrelacés (codec rice seulement)
     int blocksize = 0;  // blocs blosc2 = blocs de dérivée (fusion cache)
     Py_ssize_t diff_cols = 0;  // > 0 : dérivée d'axe 0 par PRÉFILTRE
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|niisiiin", (char**) kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|niisiin", (char**) kwlist,
                                      &value, &typesize, &clevel, &shuffle,
-                                     &cname, &nthreads, &channels, &blocksize,
+                                     &cname, &nthreads, &blocksize,
                                      &diff_cols))
         return nullptr;
+    // nthreads accepté pour compatibilité d'appel : le multi-thread INTERNE
+    // (déterministe avec le fork) suit le réglage global, pas ce paramètre
+    (void) nthreads;
     if (diff_cols > 0 && blocksize <= 0) {
         PyErr_SetString(PyExc_ValueError,
                         "diff_cols requires an explicit blocksize (aligned"
                         " derivative blocks)");
         return nullptr;
     }
-    if (channels < 1 || channels > 15)
-        channels = 1;  // le quartet du meta est la limite du format
-
-    if (serializejson_blosc1_compress == nullptr) {
+    if (!serializejson_blosc2_ctx_ok) {
         PyErr_SetString(PyExc_RuntimeError,
                         "blosc library not loaded (call load_blosc_library first)");
         return nullptr;
     }
-    if (shuffle == 3
-        && !(serializejson_blosc2_zigzag_ok && serializejson_blosc2_ctx_ok)) {
-        // pas de repli silencieux vers la voie blosc1 (qui lirait 3 comme un
-        // shuffle invalide) : l'essai automatique attrape ce ValueError
+    if (shuffle == 3 && !serializejson_blosc2_zigzag_ok) {
+        // pas de repli silencieux : shuffle=3 exige le filtre enregistré
         PyErr_SetString(PyExc_ValueError,
                         "zigzag+bitshuffle requires a loadable libblosc2");
         return nullptr;
@@ -2084,61 +1521,24 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
     if (PyObject_GetBuffer(value, &view, PyBUF_CONTIG_RO) != 0)
         return nullptr;
 
-    // compression parallèle DÉTERMINISTE par morceaux : que si plusieurs
-    // morceaux pleins et l'API par contextes disponible ; sinon trame unique
-    // (le préfiltre dérivée exige la trame unique : les morceaux ne sont pas
-    // alignés aux lignes)
-    if (nthreads > 1 && serializejson_blosc2_ctx_ok && diff_cols == 0
-        && (size_t) view.len > SERIALIZEJSON_BLOSC_CHUNK) {
-        size_t chunked_size = 0;
-        long frames = 0;
-        char* chunked;
-        Py_BEGIN_ALLOW_THREADS
-        chunked = sj_compress_chunks((const char*) view.buf, (size_t) view.len,
-                                     (size_t) typesize, clevel, shuffle, cname,
-                                     nthreads, channels, blocksize,
-                                     &chunked_size, &frames);
-        Py_END_ALLOW_THREADS
+    // trame UNIQUE par l'API contextes — la seule voie d'écriture : filtres
+    // enregistrés (zigzag, delta) et blocs calés l'exigent, et le fork rend
+    // le multi-thread interne déterministe (octets stables quel que soit le
+    // nombre de threads). L'écriture par morceaux concaténés (blosc2p) et le
+    // repli blosc1 ont été retirés le 05/08/2026 — leur LECTURE demeure.
+    if ((size_t) view.len >= (size_t) INT32_MAX - BLOSC2_MAX_OVERHEAD) {
         PyBuffer_Release(&view);
-        if (chunked == nullptr) {
-            PyErr_Format(PyExc_ValueError,
-                         "blosc chunked compression failed (%s)", cname);
-            return nullptr;
-        }
-        PyObject* self = type->tp_alloc(type, 0);
-        if (self == nullptr) {
-            free(chunked);
-            return nullptr;
-        }
-        ((BloscToBase64*) self)->data = chunked;
-        ((BloscToBase64*) self)->size = (Py_ssize_t) chunked_size;
-        ((BloscToBase64*) self)->frames = frames;
-        return self;
+        PyErr_SetString(PyExc_ValueError,
+                        "buffer too large for a single blosc2 frame (2 GiB)");
+        return nullptr;
     }
-
-    // trame unique par l'API contextes : NÉCESSAIRE pour le filtre delta et
-    // le codec Rice — la voie blosc1 ne connaît ni les pipelines de filtres
-    // ni les codecs enregistrés, et son paramètre shuffle=2 signifierait
-    // bitshuffle. Le nombre de threads du contexte reprend le réglage global
-    // (déterministe avec le fork, octets stables quel que soit leur nombre).
-    bool rice = (strcmp(cname, "rice") == 0);
-    if (((shuffle == 2 && serializejson_blosc2_delta_ok)
-         || (shuffle == 3 && serializejson_blosc2_zigzag_ok)
-         || (rice && serializejson_blosc2_rice_ok)
-         || blocksize > 0)  // blocs calés (fusion cache) : exige les contextes
-        && serializejson_blosc2_ctx_ok
-        && (size_t) view.len < (size_t) INT32_MAX - BLOSC2_MAX_OVERHEAD) {
-        int compcode;
-        if (rice)
-            compcode = SJ_BLOSC2_CODEC_RICE;
-        else {
-            compcode = sj_blosc2_compname_to_compcode(cname);
-            if (compcode < 0) {
-                PyBuffer_Release(&view);
-                PyErr_Format(PyExc_ValueError, "unknown blosc compressor '%s'",
-                             cname);
-                return nullptr;
-            }
+    {
+        int compcode = sj_blosc2_compname_to_compcode(cname);
+        if (compcode < 0) {
+            PyBuffer_Release(&view);
+            PyErr_Format(PyExc_ValueError, "unknown blosc compressor '%s'",
+                         cname);
+            return nullptr;
         }
         blosc2_cparams cparams = BLOSC2_CPARAMS_DEFAULTS;
         cparams.compcode = (uint8_t) compcode;
@@ -2149,11 +1549,9 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
             cparams.filters[f] = BLOSC_NOFILTER;
             cparams.filters_meta[f] = 0;
         }
-        if (rice) {
-            cparams.compcode_meta = (uint8_t) (typesize | (channels << 4));
-            cparams.splitmode = BLOSC_NEVER_SPLIT;
-        } else if (shuffle == 3) {
-            // pipeline zigzag -> bitshuffle, blocs larges (voir sj_compress_chunks).
+        if (shuffle == 3) {
+            // pipeline zigzag -> bitshuffle, blocs larges (le bitshuffle
+            // transpose PAR BLOC, des plans de bits courts perdent 2-4 pts).
             // Colonnes 1/2/4/8 avec dérivée par préfiltre : le cumsum de
             // lecture est fusionné dans l'ARRIÈRE du filtre (quartet haut du
             // meta) — plus de postfiltre ni de saut de tampon à la lecture
@@ -2168,13 +1566,14 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
             cparams.filters_meta[BLOSC2_MAX_FILTERS - 2] = zz_meta;
             cparams.filters[BLOSC2_MAX_FILTERS - 1] = BLOSC_BITSHUFFLE;
             cparams.splitmode = BLOSC_NEVER_SPLIT;
-            cparams.blocksize = 1 << 19;  // 512 Ko (voir sj_compress_chunks)
-        } else if (shuffle == 2) {
+            cparams.blocksize = 1 << 19;  // 512 Ko : L2-résident, mesuré sans
+                                          // perte de poids (sauf +0,9 pt 24/96)
+        } else if (shuffle == 2 && serializejson_blosc2_delta_ok) {
             // pipeline shuffle -> delta d'octets (ordre MESURÉ gagnant)
             cparams.filters[BLOSC2_MAX_FILTERS - 2] = BLOSC_SHUFFLE;
             cparams.filters[BLOSC2_MAX_FILTERS - 1] = SJ_BLOSC2_FILTER_DELTA;
         } else {
-            // shuffle simple (ou aucun) routé ici pour caler les blocs
+            // shuffle simple (ou aucun)
             cparams.filters[BLOSC2_MAX_FILTERS - 1] =
                 shuffle ? BLOSC_SHUFFLE : BLOSC_NOFILTER;
         }
@@ -2222,58 +1621,14 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
         }
         ((BloscToBase64*) self)->data = delta_dest;
         ((BloscToBase64*) self)->size = (Py_ssize_t) delta_csize;
-        ((BloscToBase64*) self)->frames = 1;
         return self;
     }
-
-    if (serializejson_blosc1_set_compressor(cname) < 0) {
-        PyBuffer_Release(&view);
-        PyErr_Format(PyExc_ValueError, "unknown blosc compressor '%s'", cname);
-        return nullptr;
-    }
-
-    size_t dest_size = (size_t) view.len + SERIALIZEJSON_BLOSC1_MAX_OVERHEAD;
-    char* dest = (char*) malloc(dest_size);
-    if (dest == nullptr) {
-        PyBuffer_Release(&view);
-        PyErr_NoMemory();
-        return nullptr;
-    }
-
-    int compressed_size;
-    Py_BEGIN_ALLOW_THREADS
-    compressed_size = serializejson_blosc1_compress(
-        clevel, shuffle, (size_t) typesize, (size_t) view.len,
-        view.buf, dest, dest_size);
-    Py_END_ALLOW_THREADS
-    PyBuffer_Release(&view);
-
-    if (compressed_size <= 0) {
-        free(dest);
-        PyErr_Format(PyExc_ValueError, "blosc compression failed (%d)",
-                     compressed_size);
-        return nullptr;
-    }
-
-    PyObject* self = type->tp_alloc(type, 0);
-    if (self == nullptr) {
-        free(dest);
-        return nullptr;
-    }
-    ((BloscToBase64*) self)->data = dest;
-    ((BloscToBase64*) self)->size = (Py_ssize_t) compressed_size;
-    ((BloscToBase64*) self)->frames = 1;
-
-    return self;
 }
 
 static PyMemberDef BloscToBase64_members[] = {
     {"compressed_size",
      T_PYSSIZET, offsetof(BloscToBase64, size), READONLY,
      "size of the compressed frame, to compare with the original size"},
-    {"frames",
-     T_LONG, offsetof(BloscToBase64, frames), READONLY,
-     "1: single frame; > 1: ordered chunked frames (deterministic parallel)"},
     {nullptr}  /* Sentinel */
 };
 

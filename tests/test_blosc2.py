@@ -98,12 +98,11 @@ def test_fork_deterministe_multithread_interne():
 
 
 def test_blosc2_parallele_deterministe():
-    # compression parallèle par morceaux ordonnés : les octets produits ne
-    # dépendent ni du nombre de threads ni de l'ordonnancement (contextes
-    # blosc2 mono-thread, morceaux de taille fixe concaténés dans l'ordre)
+    # les octets produits ne dépendent pas du nombre de threads (fork
+    # déterministe : nthreads accepté et ignoré, multithread interne stable)
     import rapidjson
 
-    data = bytes(range(256)) * 40000  # 10 Mo -> 10 morceaux
+    data = bytes(range(256)) * 40000  # 10 Mo
     sorties = {
         rapidjson.dumps(rapidjson.BloscToBase64(data, 1, 5, 0, "zstd", nthreads))
         for nthreads in (2, 4, 8)
@@ -115,22 +114,22 @@ def test_blosc2_parallele_deterministe():
         bytes_compression=("blosc2_zstd", 5),
         bytes_compression_threads=4,
     )
-    from serializejson.tools import use_blosc2_fork
-
-    if use_blosc2_fork:
-        # fork déterministe : multi-thread interne, trame unique standard
-        assert '"b64_blosc2"' in dumped
-    else:
-        assert '"b64_blosc2p"' in dumped
+    # trame unique : le format par morceaux b64_blosc2p n'est plus écrit
+    assert '"b64_blosc2"' in dumped
     assert serializejson.loads(dumped) == data
 
 
 def test_anciens_fichiers_blosc_v1_toujours_lisibles():
-    # un fichier écrit avec la compression v1 doit rester lisible
-    # même quand blosc2 est disponible (dispatch sur l'octet de version)
-    data = bytes(range(256)) * 5000
-    dumped = serializejson.dumps(
-        data, indent=None, bytes_compression=("blosc_zstd", 1)
+    # un fichier écrit avec la compression v1 (python-blosc) doit rester
+    # lisible alors que plus rien ne l'écrit : trame FIGÉE, produite par
+    # python-blosc avant le retrait (05/08/2026), relue par le fork libblosc2
+    document = (
+        '{"__class__":"bytes","__init__":["AgGRAQAIAAAACAAALAEAABQAAAAUAQAAKLUv'
+        "/WAAB1UIAAQQAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKi"
+        "ssLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5f"
+        "YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5"
+        "SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfI"
+        "ycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P"
+        '3+/wEAAP0O/GsK","b64_blosc"]}'
     )
-    assert '"b64_blosc"' in dumped
-    assert serializejson.loads(dumped) == data
+    assert serializejson.loads(document) == bytes(range(256)) * 8

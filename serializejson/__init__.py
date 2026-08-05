@@ -179,7 +179,6 @@ import warnings
 import io
 import rapidjson
 import gc
-import blosc
 import copyreg
 import errno
 from copyreg import dispatch_table
@@ -509,13 +508,15 @@ class Encoder(rapidjson.Encoder):
               "blosc2_zstd", "blosc2", "blosc2_lz4", "blosc2_lz4hc" or "blosc2_zlib"
               (compression done in C without any Python round trip, needs a
               loadable libblosc2 — the bundled deterministic fork or the
-              python-blosc2 wheel), or the legacy python-blosc ones
-              "blosc_zstd", "blosclz", "blosc_lz4", "blosc_lz4hc", "blosc_zlib".
+              python-blosc2 wheel).
             - `tuple` : (compression name, compression level) with compression level from 0 (no compression) to 9 (maximum compression)
 
-            By default the "blosc2_zstd" compression is used with compression level 1
-            (falling back to "blosc_zstd" when no libblosc2 is loadable).
-            For the highest compression (but with slower dumping) use "blosc2_zstd" with compression level 9
+            By default the "blosc2_zstd" compression is used with compression level 1.
+            For the highest compression (but with slower dumping) use "blosc2_zstd" with compression level 9.
+            Writing the legacy python-blosc v1 formats ("blosc_zstd",
+            "blosclz"...) was removed on 05/08/2026; every v1 file remains
+            READABLE (the bundled libblosc2 fork reads v1 frames, python-blosc
+            is no longer a dependency).
 
         bytes_compression_diff_dtypes ("smart", tuple of dtype, or None)
             Delta stage added before the entropy coder, reducing a lot the
@@ -535,23 +536,18 @@ class Encoder(rapidjson.Encoder):
             sampling, no probing: the chain is applied directly, and the
             compression level pilots the codec level.
             A tuple of dtypes keeps the historical opt-in behavior (delta
-            only for those dtypes, via the byte-delta filter on blosc2, or
-            an axis-0 derivative with a "_diff" tag on legacy python-blosc,
-            integers only there). `None` or an empty tuple disables the
-            delta stage entirely (plain shuffle).
-            A registered Rice codec (FLAC's "fixed" mode with automatic
-            per-frame mid/side, within ~12 % of FLAC on audio) remains
-            available explicitly through the C layer for audio-like data,
-            and every frame ever written (rice, _diff, _diffb) remains
-            readable.
+            only for those dtypes, via the byte-delta filter). `None` or an
+            empty tuple disables the delta stage entirely (plain shuffle).
+            Every frame ever written ("_diff", "_diffb", v1 python-blosc)
+            remains readable.
 
 
         bytes_compression_threads (int,str):
             Number of threads used for the compression.
             With the bundled deterministic libblosc2 fork, the compressed
-            bytes are IDENTICAL whatever the number of threads; with the
-            official library, serializejson falls back to its own
-            deterministic chunked parallel format ("b64_blosc2p").
+            bytes are IDENTICAL whatever the number of threads (the legacy
+            chunked parallel write format "b64_blosc2p" is no longer
+            written, but remains readable).
 
             - `int` : number of threads user for the compression
             - `"cpus"`: use as many thread than cpu
@@ -666,7 +662,7 @@ class Encoder(rapidjson.Encoder):
         single_line_new=True,
         single_line_list_numbers=True,
         sort_keys=False,
-        bytes_compression="blosc2_zstd" if use_blosc2_cpp else "blosc_zstd",
+        bytes_compression="blosc2_zstd",
         bytes_compression_diff_dtypes="smart",
         bytes_size_compression_threshold=512,
         bytes_compression_threads="determinist",
@@ -738,13 +734,18 @@ class Encoder(rapidjson.Encoder):
         if bytes_compression is not None:
             if isinstance(bytes_compression, (list, tuple)):
                 bytes_compression, bytes_compression_level = bytes_compression
-            if (
-                bytes_compression not in blosc_compressions
-                and bytes_compression not in blosc2_compressions
-            ):
+            if bytes_compression in blosc_compressions:
+                # noms v1 python-blosc : l'écriture a été retirée (05/08/2026),
+                # la lecture des fichiers v1 demeure
+                raise Exception(
+                    f"{bytes_compression}: v1 python-blosc write support was"
+                    " removed, use a blosc2_* compression (v1 files remain"
+                    " readable)"
+                )
+            if bytes_compression not in blosc2_compressions:
                 raise Exception(
                     f"{bytes_compression} compression unknown. Available values for bytes_compression are "
-                    f"{', '.join(blosc_compressions)}, {', '.join(blosc2_compressions)}"
+                    f"{', '.join(blosc2_compressions)}"
                 )
         self.bytes_compression = bytes_compression
         self.bytes_compression_threads = bytes_compression_threads
@@ -1381,13 +1382,10 @@ class Encoder(rapidjson.Encoder):
         threads = self.bytes_compression_threads
         if threads == "cpus":
             resolved = os.cpu_count() or 1
-            v1_threads = resolved
         elif threads == "determinist":
             resolved = min(8, os.cpu_count() or 1) if use_blosc2_fork else 1
-            v1_threads = 1
         else:
-            resolved = v1_threads = threads
-        blosc.set_nthreads(v1_threads)
+            resolved = threads
         if use_blosc2_cpp:
             rapidjson.blosc_set_nthreads(resolved)
         serialize_parameters.__dict__.update(self.__dict__)
@@ -1992,7 +1990,6 @@ class Decoder(rapidjson.Decoder):
     def _push_decode_parameters(self):
         # poussée des paramètres globaux, sur défaut de la garde amortie
         # (voir Encoder._update_serialize_parameters) — appelée par le C
-        blosc.set_nthreads(blosc.ncores)
         serialize_parameters.strict_pickle = self.strict_pickle
         serialize_parameters.setters = self.setters
         serialize_parameters.properties = self.properties
