@@ -1134,6 +1134,104 @@ typedef struct {
 } DecoderObject;
 
 
+// résolution C des chemins $ref ÉMIS PAR L'ENCODEUR : root, .attr, [int],
+// ['clé'] — même sémantique que from_name(accept_dict_as_object=True).
+// Rend une référence FORTE, ou nullptr SANS erreur posée (chemin hors
+// grammaire, navigation en échec) : l'appelant retombe sur la voie python,
+// qui porte les messages d'erreur et les cas exotiques
+static PyObject*
+sj_resolve_ref_path(const char* path, Py_ssize_t length, PyObject* root)
+{
+    const char* p = path;
+    const char* end = path + length;
+    if (length < 4 || memcmp(p, "root", 4) != 0)
+        return nullptr;
+    p += 4;
+    PyObject* current = root;
+    Py_INCREF(current);
+    while (p < end) {
+        PyObject* next = nullptr;
+        if (*p == '.') {
+            const char* start = ++p;
+            while (p < end && *p != '.' && *p != '[')
+                p++;
+            if (p == start)
+                break;
+            PyObject* key = PyUnicode_FromStringAndSize(start, p - start);
+            if (key == nullptr)
+                break;
+            if (PyDict_CheckExact(current)) {
+                next = PyDict_GetItem(current, key);   // empruntée
+                Py_XINCREF(next);
+            }
+            if (next == nullptr) {
+                next = PyObject_GetAttr(current, key); // forte
+                if (next == nullptr)
+                    PyErr_Clear();
+            }
+            Py_DECREF(key);
+        } else if (*p == '[' && p + 1 < end && p[1] == '\'') {
+            const char* start = p + 2;
+            const char* q = start;
+            while (q < end && *q != '\'')
+                q++;
+            if (q + 1 >= end || q[1] != ']')
+                break;
+            PyObject* key = PyUnicode_FromStringAndSize(start, q - start);
+            if (key == nullptr)
+                break;
+            next = PyObject_GetItem(current, key);     // forte
+            if (next == nullptr)
+                PyErr_Clear();
+            Py_DECREF(key);
+            p = q + 2;
+        } else if (*p == '[') {
+            const char* start = ++p;
+            Py_ssize_t index = 0;
+            while (p < end && *p >= '0' && *p <= '9')
+                index = index * 10 + (*p++ - '0');
+            if (p == start || p >= end || *p != ']')
+                break;
+            p++;
+            next = PySequence_GetItem(current, index); // forte
+            if (next == nullptr)
+                PyErr_Clear();
+        } else
+            break;
+        Py_DECREF(current);
+        if (next == nullptr)
+            return nullptr;
+        current = next;
+    }
+    if (p < end) {   // grammaire non épuisée : repli python
+        Py_DECREF(current);
+        return nullptr;
+    }
+    return current;
+}
+
+
+// exposition python du résolveur (post-passe _resolve_duplicates des
+// documents à racine liste) : None = repli from_name — une cible de
+// référence ne peut pas être le scalaire None, l'ambiguïté est sans objet
+static PyObject*
+resolve_ref_path_fn(PyObject* Py_UNUSED(self), PyObject* args)
+{
+    PyObject* path_obj;
+    PyObject* root;
+    if (!PyArg_ParseTuple(args, "UO", &path_obj, &root))
+        return nullptr;
+    Py_ssize_t path_length;
+    const char* path = PyUnicode_AsUTF8AndSize(path_obj, &path_length);
+    if (path == nullptr)
+        return nullptr;
+    PyObject* resolved = sj_resolve_ref_path(path, path_length, root);
+    if (resolved == nullptr)
+        Py_RETURN_NONE;
+    return resolved;
+}
+
+
 struct PyHandler {
     PyObject* decoderStartObject;
     PyObject* decoderEndObject;
@@ -1311,6 +1409,7 @@ struct PyHandler {
     std::vector<PendingB64> pendingB64;
     bool deferB64;
     PyObject* typeValuesCache = nullptr;   // réf forte, dict partagé ou nullptr
+    PyObject* rootObject = nullptr;        // réf forte, racine (résolution $ref)
     bool rootAttrSet;
     std::unordered_map<std::string, PyObject*> decodePlans;  // réfs possédées
     // classes dont la charge __init__/__new__[0] est du base64 à décoder
@@ -1458,6 +1557,7 @@ struct PyHandler {
         for (auto& entry : decodePlans)
             Py_DECREF(entry.second);
         Py_XDECREF(typeValuesCache);
+        Py_XDECREF(rootObject);
         ReleasePendingB64();
     }
 
@@ -2321,6 +2421,50 @@ struct PyHandler {
                         Py_DECREF(mapping);
                     else if (PyErr_Occurred())
                         PyErr_Clear();   // voie Python en cas d'échec
+                }
+            }
+        }
+
+        // ----- {"$ref": chemin} : résolution directe en C sur la grammaire
+        // émise par l'encodeur (root, .attr, [int], ['clé']) — la voie
+        // python demeure pour les cas exotiques, les références en avant
+        // (cible = dict à __class__ pas encore recréé) et les racines
+        // inconnues (document commençant par une liste)
+        if (replacement == nullptr && decoderEndObject != nullptr
+            && PyDict_CheckExact(mapping) && PyDict_GET_SIZE(mapping) == 1) {
+            PyObject* ref_path = PyDict_GetItem(mapping, ref_key_name);
+            if (ref_path != nullptr && PyUnicode_CheckExact(ref_path)) {
+                if (rootObject == nullptr && decoderObject != nullptr) {
+                    rootObject = PyObject_GetAttr(decoderObject,
+                                                  root_attr_name);
+                    if (rootObject == nullptr)
+                        PyErr_Clear();
+                    else if (rootObject == Py_None) {
+                        Py_DECREF(rootObject);
+                        rootObject = nullptr;
+                    }
+                }
+                if (rootObject != nullptr) {
+                    Py_ssize_t path_length;
+                    const char* path_str = PyUnicode_AsUTF8AndSize(
+                        ref_path, &path_length);
+                    PyObject* resolved = (path_str == nullptr) ? nullptr
+                        : sj_resolve_ref_path(path_str, path_length,
+                                              rootObject);
+                    if (path_str == nullptr)
+                        PyErr_Clear();
+                    if (resolved != nullptr) {
+                        bool exotique = resolved == mapping
+                            || (PyDict_CheckExact(resolved)
+                                && PyDict_GetItem(resolved, class_key_name)
+                                       != nullptr);
+                        if (exotique)
+                            Py_DECREF(resolved);   // voie python
+                        else {
+                            replacement = resolved;
+                            Py_DECREF(mapping);
+                        }
+                    }
                 }
             }
         }
@@ -8154,6 +8298,10 @@ static PyMethodDef functions[] = {
      "Nombre de threads de la libblosc2 chargée (None si non chargée)."},
     {"blosc_decompress_chunks", (PyCFunction) blosc_decompress_chunks_fn,
      METH_VARARGS, blosc_decompress_chunks_docstring},
+    {"_resolve_ref_path", (PyCFunction) resolve_ref_path_fn, METH_VARARGS,
+     "Résolution C d'un chemin $ref (root, .attr, [int], ['clé']) depuis"
+     " l'objet racine donné ; None = repli python (chemin exotique ou"
+     " navigation en échec)."},
     {nullptr, nullptr, 0, nullptr} /* sentinel */
 };
 

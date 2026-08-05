@@ -2070,9 +2070,15 @@ class Decoder(rapidjson.Decoder):
         # chaines de $ref pointant sur d'autres marqueurs
         placeholders = {}
         for placeholder in self.duplicates_to_replace:
-            referenced = from_name(
-                placeholder["$ref"], accept_dict_as_object=True, root=loaded
-            )
+            # résolveur C d'abord (grammaire de l'encodeur) ; from_name en
+            # repli — une cible ne peut pas être None, l'ambiguïté est nulle
+            referenced = rapidjson._resolve_ref_path(placeholder["$ref"],
+                                                     loaded)
+            if referenced is None:
+                referenced = from_name(
+                    placeholder["$ref"], accept_dict_as_object=True,
+                    root=loaded
+                )
             if referenced is placeholder:
                 raise Exception(
                     '{"$ref": "%s"} pointing to himself' % placeholder["$ref"]
