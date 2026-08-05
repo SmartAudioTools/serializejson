@@ -198,6 +198,9 @@ static PyObject* push_decode_parameters_name = nullptr;
 static PyObject* call_update_name = nullptr;
 static PyObject* resolve_duplicates_name = nullptr;
 static PyObject* dumped_classes_name = nullptr;
+static PyObject* bytes_natif_seuil_name = nullptr;
+static PyObject* bytes_class_name_str = nullptr;      // "bytes"
+static PyObject* bytearray_class_name_str = nullptr;  // "bytearray"
 static PyObject* already_serialized_name = nullptr;
 static PyObject* keep_alive_name = nullptr;
 static PyObject* root_underscore_name = nullptr;
@@ -642,6 +645,11 @@ struct PathTracker {
     bool singleLineInit = true;
     bool singleLineNew = true;
     bool strictPickle = false;
+    // écriture native C des petits bytes/bytearray : longueur STRICTEMENT
+    // inférieure à ce seuil -> enveloppe écrite ici sans rappel python
+    // (0 : désactivé — pas d'Encoder serializejson, ou greffons bytes
+    // remplacés par l'utilisateur ; posé par _bytes_natif_seuil)
+    Py_ssize_t bytesNatifSeuil = 0;
     // vrai si le prochain dict rencontré est l'état d'un objet retourné par
     // default() : ses clés sont alors des attributs (".attr" et non "['clef']")
     bool next_dict_is_attrs = false;
@@ -5592,6 +5600,53 @@ dumps_internal(
 	
 	// all others ojects --------------------------------------------------------
 	else if (defaultFn) {
+        // ----- petits bytes/bytearray NATIFS : enveloppe écrite entièrement
+        // en C, sans rappel python — mêmes octets que la recette du greffon :
+        // bytes ascii imprimable ({tab, LF, CR} ∪ [0x20..0x7E]) en forme
+        // chaîne « __new__ », sinon base64 préfixée « n: » ; bytearray
+        // toujours en base64 sous « __init__ ». Seuil posé par l'Encoder
+        // python (_bytes_natif_seuil : 0 si les greffons bytes ont été
+        // remplacés — on ne court-circuite jamais un greffon utilisateur)
+        if (pathTracker && pathTracker->bytesNatifSeuil > 0
+            && (PyBytes_CheckExact(object) || PyByteArray_CheckExact(object))
+            && Py_SIZE(object) < pathTracker->bytesNatifSeuil) {
+            const bool is_bytearray = PyByteArray_CheckExact(object);
+            const unsigned char* data = is_bytearray
+                ? (const unsigned char*) PyByteArray_AS_STRING(object)
+                : (const unsigned char*) PyBytes_AS_STRING(object);
+            Py_ssize_t length = Py_SIZE(object);
+
+            bool printable = !is_bytearray;  // la forme ascii n'existe que
+                                             // pour bytes (fidèle au greffon)
+            if (printable)
+                for (Py_ssize_t i = 0; i < length; i++) {
+                    unsigned char c = data[i];
+                    if (!((c >= 0x20 && c <= 0x7E)
+                          || c == '\t' || c == '\n' || c == '\r')) {
+                        printable = false;
+                        break;
+                    }
+                }
+            // liste base64 multi-ligne (single_line_init/new=False) : forme
+            // rare, voie recette python inchangée — la décision se prend
+            // AVANT le mémo (sinon la recette retrouverait l'objet tout
+            // juste mémorisé et écrirait un $ref vers lui-même)
+            if (printable
+                || (is_bytearray ? pathTracker->singleLineInit
+                                 : pathTracker->singleLineNew)) {
+                CONTAINER_MEMO_OR_REF()
+
+                if (pathTracker->dumpedClasses != nullptr
+                    && PySet_Add(pathTracker->dumpedClasses,
+                                 is_bytearray ? bytearray_class_name_str
+                                              : bytes_class_name_str) < 0)
+                    PyErr_Clear();
+
+                writer->BytesEnvelope(data, (size_t) length, printable,
+                                      is_bytearray);
+                return true;
+            }
+        }
         // ----- chemin rapide par classe : objet ordinaire écrit tout en C++,
         // sans passer par default()/reduce Python. La décision est prise UNE
         // fois par classe (class_plan), le résultat doit être identique octet
@@ -7244,6 +7299,23 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     pathTracker.singleLineNew = e->singleLineNew;
     pathTracker.strictPickle = e->strictPickle;
     pathTracker.classPlanFn = classPlanFn;
+    // seuil d'écriture native des petits bytes/bytearray, calculé par
+    // l'Encoder python (_bytes_natif_seuil : 0 si greffons remplacés)
+    {
+        PyObject* seuil_obj = PyObject_GetAttr(self, bytes_natif_seuil_name);
+        if (seuil_obj == nullptr)
+            PyErr_Clear();
+        else {
+            if (PyLong_CheckExact(seuil_obj)) {
+                Py_ssize_t seuil = PyLong_AsSsize_t(seuil_obj);
+                if (seuil == -1 && PyErr_Occurred())
+                    PyErr_Clear();
+                else
+                    pathTracker.bytesNatifSeuil = seuil;
+            }
+            Py_DECREF(seuil_obj);
+        }
+    }
     PyObject* dumpedClassesSet = PyObject_GetAttr(self, dumped_classes_name);
     if (dumpedClassesSet == nullptr)
         PyErr_Clear();
@@ -8471,6 +8543,9 @@ module_exec(PyObject* m)
     call_update_name = PyUnicode_InternFromString("_call_update");
     resolve_duplicates_name = PyUnicode_InternFromString("_resolve_duplicates");
     dumped_classes_name = PyUnicode_InternFromString("dumped_classes");
+    bytes_natif_seuil_name = PyUnicode_InternFromString("_bytes_natif_seuil");
+    bytes_class_name_str = PyUnicode_InternFromString("bytes");
+    bytearray_class_name_str = PyUnicode_InternFromString("bytearray");
     already_serialized_name = PyUnicode_InternFromString("_already_serialized");
     keep_alive_name =
         PyUnicode_InternFromString("_already_serialized_keep_alive");

@@ -290,6 +290,43 @@ public:
     }
 
 
+    // enveloppe complète d'un petit bytes/bytearray en UN passage, forme
+    // indentée (la liste [base64,"b64"] reste compacte : single_line_init) —
+    // mêmes octets que la suite StartObject/Key/.../EndObject
+    bool BytesEnvelope(const unsigned char* data, size_t length,
+                       bool printable, bool is_bytearray) {
+        PrettyPrefix();
+        if (compactDepth_ > 0) {
+            // sous-arbre compact : mêmes octets que le Writer
+            Base::WriteRawSmall(is_bytearray
+                                    ? "{\"__class__\":\"bytearray\",\"__init__\":"
+                                    : "{\"__class__\":\"bytes\",\"__new__\":");
+            Base::WriteBytesPayload(data, length, printable);
+            Base::os_->Put('}');
+            return true;
+        }
+        size_t profondeur =
+            Base::level_stack_.GetSize() / sizeof(typename Base::Level);
+        Base::os_->Put('{');
+        Base::os_->Put('\n');
+        Base::os_->PutN(static_cast<typename OutputStream::Ch>(indentChar_),
+                        (profondeur + 1) * indentCharCount_);
+        Base::WriteRawSmall(is_bytearray
+                                ? "\"__class__\": \"bytearray\",\n"
+                                : "\"__class__\": \"bytes\",\n");
+        Base::os_->PutN(static_cast<typename OutputStream::Ch>(indentChar_),
+                        (profondeur + 1) * indentCharCount_);
+        Base::WriteRawSmall(is_bytearray ? "\"__init__\": "
+                                         : "\"__new__\": ");
+        Base::WriteBytesPayload(data, length, printable);
+        Base::os_->Put('\n');
+        Base::os_->PutN(static_cast<typename OutputStream::Ch>(indentChar_),
+                        profondeur * indentCharCount_);
+        Base::os_->Put('}');
+        return true;
+    }
+
+
 
 protected:
     void PrettyPrefix() {

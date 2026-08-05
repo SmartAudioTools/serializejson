@@ -1417,6 +1417,21 @@ class Encoder(rapidjson.Encoder):
             resolved = threads
         if use_blosc2_cpp:
             rapidjson.blosc_set_nthreads(resolved)
+        # écriture native C des petits bytes/bytearray : le C écrit lui-même
+        # l'enveloppe (mêmes octets que la recette) STRICTEMENT sous ce
+        # seuil ; 0 dès que l'utilisateur a remplacé un greffon bytes — le C
+        # ne court-circuite jamais un greffon. Sans compression, le greffon
+        # n'écrirait que de l'ascii ou du b64 : toute taille passe en natif
+        recette_bytes = serializejson_builtins.get(bytes)
+        recette_bytearray = serializejson_builtins.get(bytearray)
+        if (getattr(recette_bytes, "__name__", "") == "serializejson_bytes"
+                and getattr(recette_bytearray, "__name__", "")
+                == "serializejson_bytearray"):
+            self.__dict__["_bytes_natif_seuil"] = (
+                self.bytes_size_compression_threshold
+                if self.bytes_compression else (1 << 62))
+        else:
+            self.__dict__["_bytes_natif_seuil"] = 0
         serialize_parameters.__dict__.update(self.__dict__)
         serialize_parameters.__dict__.update(self.plugins_parameters)
         # les plugins lisent la valeur résolue (le "determinist" symbolique

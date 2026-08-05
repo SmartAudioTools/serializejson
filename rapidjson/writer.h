@@ -339,6 +339,55 @@ public:
         return true;
     }
 
+
+    // enveloppe complète d'un petit bytes/bytearray en UN passage :
+    // {"__class__":"bytes","__new__":...} — mêmes octets que la suite
+    // StartObject/Key/String/EndObject, sans leur coût par appel (mesuré :
+    // les 7 appels d'écrivain pesaient ~0,6 µs par objet)
+    bool BytesEnvelope(const unsigned char* data, size_t length,
+                       bool printable, bool is_bytearray) {
+        Prefix();
+        WriteRawSmall(is_bytearray
+                          ? "{\"__class__\":\"bytearray\",\"__init__\":"
+                          : "{\"__class__\":\"bytes\",\"__new__\":");
+        WriteBytesPayload(data, length, printable);
+        os_->Put('}');
+        return true;
+    }
+
+protected:
+    void WriteRawSmall(const char* s) {
+        while (*s)
+            os_->Put(*s++);
+    }
+
+    // charge d'un bytes : chaîne ascii imprimable échappée ({tab, LF, CR}
+    // ∪ [0x20..0x7E] garanti par l'appelant), ou liste [base64,"b64"]
+    void WriteBytesPayload(const unsigned char* data, size_t length,
+                           bool printable) {
+        if (printable) {
+            os_->Put('"');
+            for (size_t i = 0; i < length; i++) {
+                unsigned char c = data[i];
+                switch (c) {
+                    case '"':  os_->Put('\\'); os_->Put('"');  break;
+                    case '\\': os_->Put('\\'); os_->Put('\\'); break;
+                    case '\t': os_->Put('\\'); os_->Put('t');  break;
+                    case '\n': os_->Put('\\'); os_->Put('n');  break;
+                    case '\r': os_->Put('\\'); os_->Put('r');  break;
+                    default:   os_->Put(static_cast<Ch>(c));   break;
+                }
+            }
+            os_->Put('"');
+        } else {
+            os_->Put('[');
+            os_->RawDataToBase64(data, length);
+            WriteRawSmall(",\"b64\"]");
+        }
+    }
+
+public:
+
     // sous-arbre compact (rapidjson.SingleLine) : le Writer est déjà compact,
     // rien à faire — seules les surcharges du PrettyWriter agissent
     void PushCompact() {}
