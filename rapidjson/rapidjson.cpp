@@ -2445,23 +2445,31 @@ struct PyHandler {
                 Py_DECREF(args_tuple);
             }
         } else if (PyDict_CheckExact(ctor_args)) {
-            // cls(**init) : exige des clés str (sinon voie classique, qui
-            // reproduira l erreur python exacte le cas échéant)
-            Py_ssize_t pos = 0;
-            PyObject* cle;
-            PyObject* valeur;
-            bool cles_str = true;
-            while (PyDict_Next(ctor_args, &pos, &cle, &valeur))
-                if (!PyUnicode_CheckExact(cle)) {
-                    cles_str = false;
-                    break;
+            if (classe == type_counter || classe == type_ordered) {
+                // Counter/OrderedDict sont dans remove_add_braces : la voie
+                // python remet l init sous tuple -> cls(LE dict), POSITIONNEL
+                // (c est ce qui permet les Counter à clés non-str)
+                inst = PyObject_CallFunctionObjArgs(classe, ctor_args,
+                                                    nullptr);
+            } else {
+                // cls(**init) : exige des clés str (sinon voie classique, qui
+                // reproduira l erreur python exacte le cas échéant)
+                Py_ssize_t pos = 0;
+                PyObject* cle;
+                PyObject* valeur;
+                bool cles_str = true;
+                while (PyDict_Next(ctor_args, &pos, &cle, &valeur))
+                    if (!PyUnicode_CheckExact(cle)) {
+                        cles_str = false;
+                        break;
+                    }
+                if (!cles_str)
+                    return nullptr;
+                PyObject* vide = PyTuple_New(0);
+                if (vide != nullptr) {
+                    inst = PyObject_Call(classe, vide, ctor_args);
+                    Py_DECREF(vide);
                 }
-            if (!cles_str)
-                return nullptr;
-            PyObject* vide = PyTuple_New(0);
-            if (vide != nullptr) {
-                inst = PyObject_Call(classe, vide, ctor_args);
-                Py_DECREF(vide);
             }
         } else {
             // scalaire (accolades retirées) : cls(valeur) — la forme
@@ -3022,6 +3030,32 @@ struct PyHandler {
                 if (ctor_args != nullptr) {
                     replacement = EnvelopeConstruct(cls_value, ctor_args,
                                                     from_new);
+                    if (replacement != nullptr)
+                        Py_DECREF(mapping);
+                }
+            }
+        }
+
+        // ----- enveloppes de collections à TROIS clés {__class__,
+        // __init__/__new__, __items__} dont la capture au parse a été versée
+        // (argument imbriqué — enveloppe de type d'un defaultdict...) :
+        // même table, __items__ compris. Seules les collections portent
+        // __items__ ; classe inconnue -> déclin, voie python inchangée
+        if (replacement == nullptr && fastPlainEndObject
+            && PyDict_CheckExact(mapping) && PyDict_GET_SIZE(mapping) == 3) {
+            PyObject* cls_value = PyDict_GetItem(mapping, class_key_name);
+            PyObject* items = PyDict_GetItem(mapping, items_key_name);
+            if (cls_value != nullptr && PyUnicode_CheckExact(cls_value)
+                && items != nullptr) {
+                bool from_new = true;
+                PyObject* ctor_args = PyDict_GetItem(mapping, new_key_name);
+                if (ctor_args == nullptr) {
+                    ctor_args = PyDict_GetItem(mapping, init_key_name);
+                    from_new = false;
+                }
+                if (ctor_args != nullptr) {
+                    replacement = EnvelopeConstruct(cls_value, ctor_args,
+                                                    from_new, items);
                     if (replacement != nullptr)
                         Py_DECREF(mapping);
                 }
