@@ -232,11 +232,13 @@ def figure_support(resultats, sens, titre):
     # support est le goulot
     import matplotlib.pyplot as plt
 
-    debits = numpy.logspace(numpy.log10(80e6), numpy.log10(15e9), 200)
-    supports = [("disque dur\n~150 Mo/s", 150e6),
-                ("SSD SATA\n~550 Mo/s", 550e6),
-                ("NVMe PCIe 3\n~3 Go/s", 3e9),
-                ("NVMe PCIe 5\n~13 Go/s", 13e9)]
+    debits = numpy.logspace(numpy.log10(80e6), numpy.log10(17e9), 200)
+    # modèles POPULAIRES, débits séquentiels constructeurs approximatifs
+    supports = [("Seagate BarraCuda\n(disque dur, ~190 Mo/s)", 190e6),
+                ("Samsung 870 EVO\n(SSD SATA, ~560 Mo/s)", 560e6),
+                ("Samsung 970 EVO Plus\n(NVMe PCIe 3, ~3,5 Go/s)", 3.5e9),
+                ("WD Black SN850X\n(NVMe PCIe 4, ~7 Go/s)", 7e9),
+                ("Crucial T705\n(NVMe PCIe 5, ~14 Go/s)", 14e9)]
     fig, ax = plt.subplots(figsize=(11.69, 8.27))
     for (nom, m), couleur in zip(
             resultats, plt.cm.tab10(numpy.linspace(0, 1, len(resultats)))):
