@@ -517,36 +517,33 @@ class Encoder(rapidjson.Encoder):
             (falling back to "blosc_zstd" when no libblosc2 is loadable).
             For the highest compression (but with slower dumping) use "blosc2_zstd" with compression level 9
 
-        bytes_compression_diff_dtypes (tuple of dtype, or True)
-            tuple of dtype for wich a delta stage is added before the entropy
-            coder, reducing a lot the compressed size of smooth data
-            (signals, gradients, sorted values, timestamps...).
-            If `True`, the choice is made automatically PER ARRAY: a small
-            sample (whole rows, ~256 KB) is compressed with each candidate
-            pipeline — no delta, the delta filter (byte delta after shuffle,
-            along the last axis: memory neighbours), and for integer arrays
-            the arithmetic axis-0 derivative, alone or combined with the
-            filter (in 2D the perpendicular direction; in 1D the same
-            direction as the filter but with carries, which wins on wide
-            integers) or followed by a zigzag+bitshuffle pipeline (registered
-            zigzag filter folding negatives between positives so that ±ε
-            share their bits, then blosc2's native bitshuffle — wins on
-            24-bit audio, B&W images and smooth surfaces), plus for 2/4-byte
-            integers a registered Rice codec (fixed polynomial predictors of
-            order 0-3 per 1024-sample frame with automatic per-frame
-            mid/side for interleaved stereo, residuals Rice-coded with a
-            locally adapted parameter per 256-sample partition — FLAC's
-            "fixed" mode in the blosc2 pipeline, within ~12 % of FLAC on
-            audio) — and the winner is applied to the whole array. The double compression only ever
-            costs the sample, and the decision is deterministic.
-            With a blosc2 compression, this is done by a registered blosc2
-            FILTER (byte delta after shuffle), per block, multithreaded on
-            both sides, bit-exact for ALL dtypes (floats included) — the
-            frame is self-describing, no format tag involved.
-            With the legacy python-blosc compressions, the array is diffed
-            along its first axis before compression (with a "_diff" tag and
-            a cumulative sum at load) : integer dtypes only there, floating
-            point differences would not round-trip exactly.
+        bytes_compression_diff_dtypes ("smart", tuple of dtype, or None)
+            Delta stage added before the entropy coder, reducing a lot the
+            compressed size of smooth data (signals, gradients, sorted
+            values, timestamps...).
+            The default is `"smart"`: integer arrays go through the "smart"
+            chain — blocked axis-0 arithmetic derivative (computed by a
+            blosc2 PREFILTER while the library builds each 512 KB block),
+            then a registered zigzag filter (folding negatives between
+            positives so that ±ε share their bits), then blosc2's native
+            bitshuffle, then the chosen codec at the chosen level (zstd by
+            default) ; at load the cumulative sum is fused in a blosc2
+            POSTFILTER, per block, multithreaded. Non-integer dtypes
+            (floats included, whose arithmetic differences would not
+            round-trip exactly) go through the registered byte-delta filter
+            (byte delta after shuffle), bit-exact for all dtypes. No
+            sampling, no probing: the chain is applied directly, and the
+            compression level pilots the codec level.
+            A tuple of dtypes keeps the historical opt-in behavior (delta
+            only for those dtypes, via the byte-delta filter on blosc2, or
+            an axis-0 derivative with a "_diff" tag on legacy python-blosc,
+            integers only there). `None` or an empty tuple disables the
+            delta stage entirely (plain shuffle).
+            A registered Rice codec (FLAC's "fixed" mode with automatic
+            per-frame mid/side, within ~12 % of FLAC on audio) remains
+            available explicitly through the C layer for audio-like data,
+            and every frame ever written (rice, _diff, _diffb) remains
+            readable.
 
 
         bytes_compression_threads (int,str):
@@ -670,7 +667,7 @@ class Encoder(rapidjson.Encoder):
         single_line_list_numbers=True,
         sort_keys=False,
         bytes_compression="blosc2_zstd" if use_blosc2_cpp else "blosc_zstd",
-        bytes_compression_diff_dtypes=tuple(),
+        bytes_compression_diff_dtypes="smart",
         bytes_size_compression_threshold=512,
         bytes_compression_threads="determinist",
         array_use_arrayB64=True,  # le laisser ?

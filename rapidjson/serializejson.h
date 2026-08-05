@@ -1781,7 +1781,8 @@ sj_compress_chunks(const char* src, size_t length, size_t typesize, int clevel,
         cparams.filters_meta[BLOSC2_MAX_FILTERS - 2] = (uint8_t) typesize;
         cparams.filters[BLOSC2_MAX_FILTERS - 1] = BLOSC_BITSHUFFLE;
         cparams.splitmode = BLOSC_NEVER_SPLIT;
-        cparams.blocksize = 1 << 20;
+        cparams.blocksize = 1 << 19;  // 512 Ko : L2-résident, mesuré sans
+                                      // perte de poids (sauf +0,9 pt 24/96)
     } else
         cparams.filters[BLOSC2_MAX_FILTERS - 1] =
             shuffle ? BLOSC_SHUFFLE : BLOSC_NOFILTER;
@@ -2012,7 +2013,7 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
             cparams.filters_meta[BLOSC2_MAX_FILTERS - 2] = (uint8_t) typesize;
             cparams.filters[BLOSC2_MAX_FILTERS - 1] = BLOSC_BITSHUFFLE;
             cparams.splitmode = BLOSC_NEVER_SPLIT;
-            cparams.blocksize = 1 << 20;
+            cparams.blocksize = 1 << 19;  // 512 Ko (voir sj_compress_chunks)
         } else if (shuffle == 2) {
             // pipeline shuffle -> delta d'octets (ordre MESURÉ gagnant)
             cparams.filters[BLOSC2_MAX_FILTERS - 2] = BLOSC_SHUFFLE;

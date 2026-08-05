@@ -1972,8 +1972,9 @@ stéréo / faux stéréo / 24-96), rice M/S = 67,1 / 28,4 / 52,0 %.
   - **signe-amplitude** : équivalent au zigzag sous bitshuffle, moins
     propre (double zéro, comblé par -2^(n-1) dans la variante testée).
 
-INTÉGRÉ — la **6e candidate : dérivée → zigzag → bitshuffle** (idée
-« ±ε partagent leurs bits », de Baptiste). Le zigzag replie les
+INTÉGRÉ — la **6e candidate : dérivée → zigzag → bitshuffle**, baptisée
+**« smart »** par Baptiste le 5/08 (idée « ±ε partagent leurs bits »,
+de lui aussi). Le zigzag replie les
 négatifs entre les positifs (0,-1,+1 → 0,1,2) : sans lui le
 bitshuffle est une catastrophe (87 % — chaque bascule de signe
 traverse tous les plans de bits), avec lui les plans hauts se vident.
@@ -2148,6 +2149,46 @@ remplace la source dans la ronde), patch `blosc2_determinisme.patch`
 régénéré, aucune trame modifiée (goldens identiques à l'octet avec
 l'ancien et le nouveau fork), test `test_prefiltre_derivee_source_intacte`
 qui ÉCHOUE sur l'ancien fork (vérifié) et passe sur le corrigé.
+
+Dans la foulée (accélération de la LECTURE 244 demandée) : le profil a
+montré la lecture dominée par zstd lui-même (7,5 ms sur 10,2 pour
+32 Mo) — les filtres zigzag+bitshuffle ne coûtent que 0,4 ms, rien à
+vectoriser de plus. Les vrais leviers mesurés : la taille de bloc —
+**512 Ko partout** (L2-résident : lecture de trame 10,3 → 6,6 ms
+×1,56, écriture ×1,1, poids conservé à 0,1 pt près sauf +0,9 pt sur le
+24/96 où rice gagne l'essai de toute façon ; le « 1 Mo pour le
+bitshuffle » venait d'une mesure du blocksize AUTO de blosc2, pas d'un
+512 Ko explicite) — et le nombre de threads, dont l'optimum suit la
+taille de bloc (8 threads avec 512 Ko, 4 avec 1 Mo : les tampons par
+thread doivent tenir dans les L2 cumulés ; le plafond de 8 est bon).
+Écartés : plafond 16 threads (les cœurs E dégradent), SIMD
+supplémentaire du zigzag (déjà auto-vectorisé à -O3, part négligeable).
+Bilan bout en bout du jour sur 32 Mo : dumps auto 1,36 → **2,59 Go/s**
+(préfiltre + blocs), loads limité par base64+parse à ~3,3.
+
+### 17 sexies. Après-midi du 5/08 — « smart » DEVIENT LE DÉFAUT, les sondes disparaissent
+
+Décision de Baptiste (« je préfère partir toujours sur smart, plutôt que
+de tester un échantillon », puis « n'avoir pas de dispositif de sonde du
+tout ») : le défaut de `bytes_compression_diff_dtypes` devient
+**`"smart"`** — les tableaux d'ENTIERS passent directement par la chaîne
+smart (dérivée par blocs en préfiltre → zigzag 244 → bitshuffle → codec
+au niveau choisi par l'utilisateur), les autres dtypes (flottants
+compris) par le filtre 242, bit-exact pour tous. AUCUNE sonde : tout le
+dispositif d'essai automatique est RETIRÉ du plugin (échantillonneur
+stratifié compris) ; `True` est rabattu sur « smart » ; le tuple de
+dtypes et `None` gardent leurs sens. Le codec rice reste enregistré
+(toutes les trames écrites — rice, _diff, _diffb — se relisent, et il
+demeure invocable par la couche C), mais plus aucun chemin de l'Encoder
+ne l'élit : ses 10-20 points sur l'audio sont volontairement laissés au
+profit de la simplicité et d'une écriture sans détour. Le niveau de
+compression (`bytes_compression=("blosc2_zstd", N)`) pilote le zstd de
+la chaîne, comme partout. Conséquence assumée : les octets par défaut
+changent (compat ascendante levée le matin même) — goldens régénérés,
+IDENTIQUES entre les cinq Pythons (vérifié octet à octet), anciens
+fichiers toujours lus. Blocs unifiés à 512 Ko dans la foulée (§ ci-
+dessus). Sur le bruit pur, smart paie ~×2 à l'écriture pour un poids
+égal — coût accepté en connaissance de cause.
 
 Piste examinée et NOTÉE SANS SUITE — entrelacer le base64 bloc par bloc
 avec zstd : aujourd'hui le base64 est un étage séparé (une passe SIMD

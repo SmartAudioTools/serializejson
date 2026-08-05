@@ -30,7 +30,9 @@ def test_2d_axe_0():
     encoder = serializejson.Encoder(
         return_bytes=True, bytes_compression_diff_dtypes=(numpy.int32,))
     dump = encoder(rampe)
-    sans = serializejson.Encoder(return_bytes=True)(rampe)
+    # référence SANS delta (le défaut est désormais « smart ») :
+    sans = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=None)(rampe)
     assert len(dump) < len(sans) / 2      # la rampe se comprime bien mieux
     recharge = serializejson.Decoder()(dump)
     assert recharge.shape == rampe.shape
@@ -58,7 +60,8 @@ def test_filtre_sans_etiquette_et_plus_compact():
     rng = numpy.random.default_rng(5)
     signal = (10000 * numpy.sin(numpy.linspace(0, 60, 200_000))
               + rng.integers(-5, 5, 200_000)).astype(numpy.int16)
-    sans = serializejson.Encoder(return_bytes=True)(signal)
+    sans = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=None)(signal)
     avec = serializejson.Encoder(
         return_bytes=True,
         bytes_compression_diff_dtypes=(numpy.int16,))(signal)
@@ -119,18 +122,18 @@ def test_int8_voie_v1_sans_promotion():
     assert recharge.dtype == numpy.int8
     assert numpy.array_equal(recharge, donnees)
 
-def test_auto_1d_lisse_choisit_le_filtre():
-    # bytes_compression_diff_dtypes=True : décision par échantillon.
-    # Signal 1D lisse -> le filtre delta doit gagner (trame, pas d'étiquette)
+def test_smart_1d_lisse():
+    # DÉFAUT « smart » (sans sonde) : entiers -> dérivée par blocs (étiquette
+    # _diff/_diffb) + zigzag + bitshuffle, nettement plus petit que sans delta
     rng = numpy.random.default_rng(10)
     signal = (10000 * numpy.sin(numpy.linspace(0, 60, 200_000))
               + rng.integers(-5, 5, 200_000)).astype(numpy.int16)
-    sans = serializejson.Encoder(return_bytes=True)(signal)
-    auto = serializejson.Encoder(
-        return_bytes=True, bytes_compression_diff_dtypes=True)(signal)
-    assert b"_diff" not in auto
-    assert len(auto) < len(sans) * 0.75
-    assert numpy.array_equal(serializejson.Decoder()(auto), signal)
+    sans = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=None)(signal)
+    smart = serializejson.Encoder(return_bytes=True)(signal)  # défaut
+    assert b"_diff" in smart
+    assert len(smart) < len(sans) * 0.75
+    assert numpy.array_equal(serializejson.Decoder()(smart), signal)
 
 
 def test_auto_2d_choisit_l_axe_0():
@@ -196,21 +199,23 @@ def test_auto_voie_v1():
     assert numpy.array_equal(serializejson.Decoder()(dump_bruit), bruit)
 
 
-def test_auto_1d_entiers_larges_choisit_l_arithmetique():
-    # en 1D la dérivée arithmétique (retenues, avant shuffle) est candidate
-    # aussi : sur des entiers larges elle bat le filtre d'octets — mesuré
-    # -16 % sur des timestamps int64 triés
+def test_smart_1d_entiers_larges():
+    # timestamps int64 triés : la chaîne smart (dérivée arithmétique avec
+    # retenues + zigzag + bitshuffle) doit rester dans la course du filtre
+    # d'octets et écraser la version sans delta
     rng = numpy.random.default_rng(15)
     stamps = (numpy.cumsum(rng.integers(100, 200, 500_000))
               + 1_700_000_000_000_000).astype(numpy.int64)
-    auto = serializejson.Encoder(
-        return_bytes=True, bytes_compression_diff_dtypes=True)(stamps)
+    smart = serializejson.Encoder(return_bytes=True)(stamps)  # défaut
     filtre_seul = serializejson.Encoder(
         return_bytes=True,
         bytes_compression_diff_dtypes=(numpy.int64,))(stamps)
-    assert b"_diff" in auto          # l'arithmétique a été retenue
-    assert len(auto) < len(filtre_seul)
-    assert numpy.array_equal(serializejson.Decoder()(auto), stamps)
+    sans = serializejson.Encoder(
+        return_bytes=True, bytes_compression_diff_dtypes=None)(stamps)
+    assert b"_diff" in smart         # la dérivée est appliquée
+    assert len(smart) < len(filtre_seul) * 1.10
+    assert len(smart) < len(sans) * 0.80
+    assert numpy.array_equal(serializejson.Decoder()(smart), stamps)
 
 
 def _signal_type_voix(n, dtype=numpy.int16):
@@ -251,19 +256,18 @@ def test_profil_voix_gagne_sans_presumer_du_candidat():
     assert numpy.array_equal(serializejson.Decoder()(auto), donnees)
 
 
-def test_rice_choisi_sur_amplitude_modulee():
+def test_rice_sur_amplitude_modulee():
     # bruit dont l'amplitude change toutes les ~700 valeurs : le cas d'école
     # de l'adaptation LOCALE du calibre Rice, hors de portée de zstd et des
-    # deltas — rice est porté par la trame, donc aucune étiquette
+    # deltas. Le codec n'est plus branché sur l'Encoder (défaut smart, sans
+    # sonde) mais reste exact et gagnant en invocation directe
     rng = numpy.random.default_rng(22)
     sections = [rng.normal(0, s, 700) for s in ([2, 300, 8, 3000, 30, 1000] * 40)]
     donnees = numpy.concatenate(sections).astype(numpy.int16)
-    auto = serializejson.Encoder(
-        return_bytes=True, bytes_compression_diff_dtypes=True)(donnees)
-    sans = serializejson.Encoder(return_bytes=True)(donnees)
-    assert b"_diff" not in auto
-    assert len(auto) < len(sans) * 0.95
-    assert numpy.array_equal(serializejson.Decoder()(auto), donnees)
+    taille_rice = _rice_direct(donnees, 1)
+    smart = serializejson.Encoder(return_bytes=True)(donnees)  # défaut
+    assert taille_rice < len(smart)
+    assert numpy.array_equal(serializejson.Decoder()(smart), donnees)
 
 
 def test_rice_int32_et_bruit_mele():

@@ -56,7 +56,7 @@ Infinity
 }
 {
 	"__class__": "bytes",
-	"__new__": ["AgGQAQACAAAAAgAALAEAABQAAAAUAQAAKLUv/WAAAVUIAAQQAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/wEAAP0Bak0B","b64_blosc"]
+	"__new__": ["BQGVAQACAAAAAgAAPAEAAAAAAAAAAAUAAAAAAAAAAAAkAAAAFAEAACi1L/1gAAFVCAAEEAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5/gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp+goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2+v8DBwsPExcbHyMnKy8zNzs/Q0dLT1NXW19jZ2tvc3d7f4OHi4+Tl5ufo6err7O3u7/Dx8vP09fb3+Pn6+/z9/v8BAAD9AWpNAQ==","b64_blosc2"]
 }
 {
 	"__class__": "bytearray",
@@ -76,7 +76,7 @@ Infinity
 }
 {
 	"__class__": "bytearray",
-	"__init__": ["AgGQAQACAAAAAgAALAEAABQAAAAUAQAAKLUv/WAAAVUIAAQQAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/wEAAP0Bak0B","b64_blosc"]
+	"__init__": ["BQGVAQACAAAAAgAAPAEAAAAAAAAAAAUAAAAAAAAAAAAkAAAAFAEAACi1L/1gAAFVCAAEEAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5/gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp+goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2+v8DBwsPExcbHyMnKy8zNzs/Q0dLT1NXW19jZ2tvc3d7f4OHi4+Tl5ufo6err7O3u7/Dx8vP09fb3+Pn6+/z9/v8BAAD9AWpNAQ==","b64_blosc2"]
 }
 []
 [1]
@@ -112,14 +112,8 @@ Infinity
 	1.0
 ]
 [
-	[
-		1,
-		2
-	],
-	[
-		3,
-		4
-	]
+	[1,2],
+	[3,4]
 ]
 {
 	"var_False": false,
@@ -128,7 +122,7 @@ Infinity
 	"_underscore": "_underscore"
 }
 {
-	"__class__": "dict_non_str_keys",
+	"__class__": "dict",
 	"": "value",
 	"string_key": "value",
 	"string'key": "value",
@@ -207,7 +201,7 @@ Infinity
 {
 	"__class__": "collections.Counter",
 	"__init__": {
-		"__class__": "dict_non_str_keys",
+		"__class__": "dict",
 		"": "value",
 		"string_key": "value",
 		"string'key": "value",
@@ -238,7 +232,7 @@ Infinity
 	"__class__": "collections.OrderedDict",
 	"__init__": [],
 	"__items__": {
-		"__class__": "dict_non_str_keys",
+		"__class__": "dict",
 		"": "value",
 		"string_key": "value",
 		"string'key": "value",
@@ -272,7 +266,7 @@ Infinity
 		"__init__": "list"
 	},
 	"__items__": {
-		"__class__": "dict_non_str_keys",
+		"__class__": "dict",
 		"": "value",
 		"string_key": "value",
 		"string'key": "value",
@@ -359,11 +353,11 @@ Infinity
 }
 {
 	"__class__": "array.array",
-	"__init__": ["l",{"__class__":"bytes","__new__":["AQAAAAIAAAADAAAA","b64"]}]
+	"__init__": ["l",{"__class__":"bytes","__new__":["AQAAAAAAAAACAAAAAAAAAAMAAAAAAAAA","b64"]}]
 }
 {
 	"__class__": "array.array",
-	"__init__": ["L",{"__class__":"bytes","__new__":["AQAAAAIAAAADAAAA","b64"]}]
+	"__init__": ["L",{"__class__":"bytes","__new__":["AQAAAAAAAAACAAAAAAAAAAMAAAAAAAAA","b64"]}]
 }
 {
 	"__class__": "array.array",
@@ -570,7 +564,7 @@ Infinity
 }
 {
 	"__class__": "set",
-	"__init__": [NaN,1]
+	"__init__": [1,NaN]
 }
 {
 	"__class__": "set",
@@ -586,7 +580,7 @@ Infinity
 }
 {
 	"__class__": "set",
-	"__init__": [NaN,1.0]
+	"__init__": [1.0,NaN]
 }
 {
 	"__class__": "set",
@@ -630,7 +624,7 @@ Infinity
 }
 {
 	"__class__": "frozenset",
-	"__init__": [NaN,1]
+	"__init__": [1,NaN]
 }
 {
 	"__class__": "frozenset",
@@ -646,7 +640,7 @@ Infinity
 }
 {
 	"__class__": "frozenset",
-	"__init__": [NaN,1.0]
+	"__init__": [1.0,NaN]
 }
 {
 	"__class__": "frozenset",
@@ -664,518 +658,6 @@ Infinity
 	"__class__": "frozenset",
 	"__init__": [0,1]
 }
-{
-	"__class__": "QtWidgets.QWidget",
-	"__init__": []
-}
-{
-	"__class__": "QtWidgets.QCheckBox",
-	"__init__": []
-}
-{
-	"__class__": "QtWidgets.QDoubleSpinBox",
-	"__init__": [],
-	"value": 10.0
-}
-{
-	"__class__": "QtWidgets.QLineEdit",
-	"__init__": [],
-	"text": "coucou"
-}
-{
-	"__class__": "QtWidgets.QPlainTextEdit",
-	"__init__": [],
-	"plainText": "coucou"
-}
-{
-	"__class__": "QtWidgets.QSpinBox",
-	"__init__": [],
-	"value": 20
-}
-{
-	"__class__": "QtWidgets.QPushButton",
-	"__init__": []
-}
-{
-	"__class__": "QtCore.QByteArray",
-	"__init__": {
-		"__class__": "bytes",
-		"__new__": ["AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w==","b64"]
-	}
-}
-{
-	"__class__": "QtGui.QColor",
-	"__init__": [10,20,30,40]
-}
-{
-	"__class__": "QtCore.QDate",
-	"__init__": [2020,10,31]
-}
-{
-	"__class__": "QtCore.QDateTime",
-	"__init__": [2020,10,31,20,30,0,0,0]
-}
-{
-	"__class__": "QtGui.QKeySequence",
-	"__init__": [0,0,0,0]
-}
-{
-	"__class__": "QtCore.QLine",
-	"__init__": [0,1,2,3]
-}
-{
-	"__class__": "QtCore.QLineF",
-	"__init__": [0.0,1.0,2.0,3.0]
-}
-{
-	"__class__": "QtGui.QPen",
-	"__init__": []
-}
-{
-	"__class__": "QtGui.QBrush",
-	"__init__": []
-}
-{
-	"__class__": "QtCore.QPoint",
-	"__init__": [0,1]
-}
-{
-	"__class__": "QtCore.QPointF",
-	"__init__": [0.0,1.1]
-}
-{
-	"__class__": "QtGui.QPolygon",
-	"__init__": [[{"__class__":"QtCore.QPoint","__init__":[0,1]},{"__class__":"QtCore.QPoint","__init__":[2,3]}]]
-}
-{
-	"__class__": "QtGui.QPolygonF",
-	"__init__": [[{"__class__":"QtCore.QPointF","__init__":[0.0,1.0]},{"__class__":"QtCore.QPointF","__init__":[2.0,3.0]}]]
-}
-{
-	"__class__": "QtCore.QRect",
-	"__init__": [0,1,3,3]
-}
-{
-	"__class__": "QtCore.QRectF",
-	"__init__": [0.0,1.0,2.0,2.0]
-}
-{
-	"__class__": "QtCore.QSize",
-	"__init__": [10,20]
-}
-{
-	"__class__": "QtCore.QSizeF",
-	"__init__": [10.5,20.5]
-}
-{
-	"__class__": "QtCore.QTime",
-	"__init__": [20,30,0,0]
-}
-{
-	"__class__": "QtGui.QTransform",
-	"__init__": [1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0]
-}
-{
-	"__class__": "QtGui.QVector3D",
-	"__init__": [0.0,0.0,0.0]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["","bool",0]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["","int8"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["","int16"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["","int32"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["","int64"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["","uint8"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["","uint16"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["","uint32"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["","uint64"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["","float16"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["","float32"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["","float64"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["gA==","bool",1]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AQ==","int8"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AQA=","int16"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AQAAAA==","int32"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AQAAAAAAAAA=","int64"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AQ==","uint8"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AQA=","uint16"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AQAAAA==","uint32"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AQAAAAAAAAA=","uint64"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["ADw=","float16"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AACAPw==","float32"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAA8D8=","float64"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["QA==","bool",2]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAE=","int8"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAABAA==","int16"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAEAAAA=","int32"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAAAABAAAAAAAAAA==","int64"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAE=","uint8"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAABAA==","uint16"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAEAAAA=","uint32"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAAAABAAAAAAAAAA==","uint64"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAPA==","float16"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAgD8=","float32"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAAAAAAAAAAADwPw==","float64"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["QA==","bool",[1,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAE=","int8",[1,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAABAA==","int16",[1,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAEAAAA=","int32",[1,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAAAABAAAAAAAAAA==","int64",[1,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAE=","uint8",[1,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAABAA==","uint16",[1,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAEAAAA=","uint32",[1,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAAAABAAAAAAAAAA==","uint64",[1,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAPA==","float16",[1,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAgD8=","float32",[1,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAAAAAAAAAAADwPw==","float64",[1,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAA8D8AAAAAAAD4fw==","float64"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAA8P8AAAAAAADwfw==","float64"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["QA==","bool",[2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAECAw==","int8",[2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAABAAIAAwA=","int16",[2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAEAAAACAAAAAwAAAA==","int32",[2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAAAABAAAAAAAAAAIAAAAAAAAAAwAAAAAAAAA=","int64",[2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAECAw==","uint8",[2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AgGRAQACAAAAAgAAKwAAABQAAAATAAAAKLUv/WAAAU0AABAAAAEA+yrAAg==","uint8",[16,32],"blosc"]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAABAAIAAwA=","uint16",[2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAEAAAACAAAAAwAAAA==","uint32",[2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAAAABAAAAAAAAAAIAAAAAAAAAAwAAAAAAAAA=","uint64",[2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAPABAAEI=","float16",[2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAgD8AAABAAABAQA==","float32",[2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAAAAAAAAAAADwPwAAAAAAAABAAAAAAAAACEA=","float64",[2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["Tg==","bool",[2,2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAECAwQFBgc=","int8",[2,2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAABAAIAAwAEAAUABgAHAA==","int16",[2,2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAEAAAACAAAAAwAAAAQAAAAFAAAABgAAAAcAAAA=","int32",[2,2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAAAABAAAAAAAAAAIAAAAAAAAAAwAAAAAAAAAEAAAAAAAAAAUAAAAAAAAABgAAAAAAAAAHAAAAAAAAAA==","int64",[2,2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAECAwQFBgc=","uint8",[2,2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAABAAIAAwAEAAUABgAHAA==","uint16",[2,2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAEAAAACAAAAAwAAAAQAAAAFAAAABgAAAAcAAAA=","uint32",[2,2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAAAABAAAAAAAAAAIAAAAAAAAAAwAAAAAAAAAEAAAAAAAAAAUAAAAAAAAABgAAAAAAAAAHAAAAAAAAAA==","uint64",[2,2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAPABAAEIARABFAEYARw==","float16",[2,2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAgD8AAABAAABAQAAAgEAAAKBAAADAQAAA4EA=","float32",[2,2,2]]
-}
-{
-	"__class__": "numpyB64",
-	"__init__": ["AAAAAAAAAAAAAAAAAADwPwAAAAAAAABAAAAAAAAACEAAAAAAAAAQQAAAAAAAABRAAAAAAAAAGEAAAAAAAAAcQA==","float64",[2,2,2]]
-}
-{
-	"__class__": "tuple",
-	"__new__": [9,{"__class__":"numpyB64","__init__":["AgAAAA==","int32"]},1]
-}
-{
-	"__class__": "type",
-	"__init__": "numpy.bool_"
-}
-{
-	"__class__": "type",
-	"__init__": "numpy.int8"
-}
-{
-	"__class__": "type",
-	"__init__": "numpy.int16"
-}
-{
-	"__class__": "type",
-	"__init__": "numpy.int32"
-}
-{
-	"__class__": "type",
-	"__init__": "numpy.int64"
-}
-{
-	"__class__": "type",
-	"__init__": "numpy.uint8"
-}
-{
-	"__class__": "type",
-	"__init__": "numpy.uint16"
-}
-{
-	"__class__": "type",
-	"__init__": "numpy.uint32"
-}
-{
-	"__class__": "type",
-	"__init__": "numpy.uint64"
-}
-{
-	"__class__": "type",
-	"__init__": "numpy.float16"
-}
-{
-	"__class__": "type",
-	"__init__": "numpy.float32"
-}
-{
-	"__class__": "type",
-	"__init__": "numpy.float64"
-}
-{
-	"__class__": "numpy.bool_",
-	"__init__": false
-}
-{
-	"__class__": "numpy.int8",
-	"__init__": 0
-}
-{
-	"__class__": "numpy.int16",
-	"__init__": 0
-}
-{
-	"__class__": "numpy.int32",
-	"__init__": 0
-}
-{
-	"__class__": "numpy.int64",
-	"__init__": 0
-}
-{
-	"__class__": "numpy.uint8",
-	"__init__": 0
-}
-{
-	"__class__": "numpy.uint16",
-	"__init__": 0
-}
-{
-	"__class__": "numpy.uint32",
-	"__init__": 0
-}
-{
-	"__class__": "numpy.uint64",
-	"__init__": 0
-}
-{
-	"__class__": "numpy.float16",
-	"__init__": 0.0
-}
-{
-	"__class__": "numpy.float32",
-	"__init__": 0.0
-}
-0.0
 {
 	"__class__": "objects.new_getnewargs.C_new"
 }
@@ -1925,7 +1407,7 @@ Infinity
 {
 	"__class__": "objects.getstate_no_string_keys.C_New_GetState_SetState_no_string_keys",
 	"__state__": {
-		"__class__": "dict_non_str_keys",
+		"__class__": "dict",
 		"keySaved": "ValueSaved",
 		"1": 1
 	}
@@ -1949,7 +1431,7 @@ Infinity
 	"__class__": "objects.dict_subclasses.C_MyDict",
 	"__new__": [{"c":1}],
 	"__items__": {
-		"__class__": "dict_non_str_keys",
+		"__class__": "dict",
 		"1": 1
 	}
 }
@@ -1957,7 +1439,7 @@ Infinity
 	"__class__": "objects.dict_subclasses.C_MyDict",
 	"__new__": [{"c":1}],
 	"__items__": {
-		"__class__": "dict_non_str_keys",
+		"__class__": "dict",
 		"1": 1
 	},
 	"new_att": 8
