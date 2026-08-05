@@ -250,9 +250,14 @@ struct HandlerContext {
     //   5 : "__items__" vu, items attendus ; 6 : items capturés
     uint8_t envState;
     uint8_t envSlot;          // 1 : __new__ ; 2 : __init__
+    //   7 : enveloppe de dict à clés non-str — les clés sont DÉCODÉES au
+    //   vol et les paires insérées directement dans object (qui devient le
+    //   dict FINAL, sans étiquette) ; envDictKey est la clé décodée en
+    //   attente de sa valeur (nulle : valeur à jeter, __class__ dupliqué)
     PyObject* envClass;       // référence possédée (ou nullptr)
     PyObject* envArgs;        // référence possédée (ou nullptr)
     PyObject* envItems;       // référence possédée (ou nullptr)
+    PyObject* envDictKey;     // référence possédée (ou nullptr)
 };
 
 
@@ -1777,6 +1782,7 @@ struct PyHandler {
             Py_CLEAR(ctx.envClass);
             Py_CLEAR(ctx.envArgs);
             Py_CLEAR(ctx.envItems);
+            Py_CLEAR(ctx.envDictKey);
             stack.pop_back();
         }
         Py_CLEAR(decoderStartObject);
@@ -2190,6 +2196,16 @@ struct PyHandler {
                 env.envItems = value;       // référence consommée
                 env.envState = 6;
                 return true;
+            } else if (env.envState == 7) {
+                // paire décodée -> directement dans le dict final ; clé
+                // nulle = valeur à jeter (__class__ nu dupliqué). La clé
+                // reste vivante : un fils conteneur sera resservi par
+                // ReplaceInParent sous la même clé
+                int rc = 0;
+                if (env.envDictKey != nullptr)
+                    rc = PyDict_SetItem(env.object, env.envDictKey, value);
+                Py_DECREF(value);
+                return rc == 0;
             } else if (env.envState != 0) {
                 // valeur inattendue pour l'état (JSON exotique) : repli
                 if (!EnvFlush(env)) {
@@ -2244,7 +2260,20 @@ struct PyHandler {
     bool Key(const char* str, SizeType length, bool copy) {
         HandlerContext& current = stack.back();
 
-        if (length == 9 && memcmp(str, "__class__", 9) == 0) {
+        if (current.envState == 7) {
+            // enveloppe de dict à clés non-str : TOUTE clé est une donnée
+            // (même "__init__" ou "$ref" — l'encodeur requote les seules
+            // '__class__'/'$ref' littérales) ; décodée AU VOL, sa valeur ira
+            // directement dans le dict final. "__class__" nu dupliqué :
+            // valeur à jeter, comme dict_non_str_keys
+            Py_CLEAR(current.envDictKey);
+            if (!(length == 9 && memcmp(str, "__class__", 9) == 0)) {
+                current.envDictKey = DecodeCleCore(str, (Py_ssize_t) length,
+                                                   nullptr);
+                if (current.envDictKey == nullptr)
+                    return false;
+            }
+        } else if (length == 9 && memcmp(str, "__class__", 9) == 0) {
             current.specialKey = true;
             // enveloppe candidate : "__class__" en PREMIÈRE clé d'un dict
             // vierge (gaté par le décodeur : jamais en mode update)
@@ -2260,9 +2289,13 @@ struct PyHandler {
             // une référence peut viser l'INTÉRIEUR d'une enveloppe encore
             // ouverte (doublon mémoïsé dans les args __init__) : toutes les
             // captures de la pile sont versées, la résolution pendant le
-            // parse retrouve alors les dicts vivants de la voie classique
+            // parse retrouve alors les dicts vivants de la voie classique.
+            // L'état 7 est laissé en place : ses paires vivent DÉJÀ dans le
+            // dict (clés décodées), que la résolution décode-d'abord sait
+            // adresser — et le repli post-passe couvre le reste
             for (HandlerContext& ouverte : stack)
-                if (ouverte.envState != 0 && !EnvFlush(ouverte))
+                if (ouverte.envState != 0 && ouverte.envState != 7
+                    && !EnvFlush(ouverte))
                     return false;
         } else if (current.envState == 2
                    && ((length == 7 && memcmp(str, "__new__", 7) == 0)
@@ -2274,6 +2307,21 @@ struct PyHandler {
                    && memcmp(str, "__items__", 9) == 0) {
             // troisième slot (deque, OrderedDict, Counter, defaultdict...)
             current.envState = 5;
+        } else if (current.envState == 2 && current.envClass != nullptr
+                   && fastPlainEndObject
+                   && PyUnicode_CompareWithASCIIString(current.envClass,
+                                                       "dict") == 0) {
+            // {"__class__": "dict", ...} : bascule en décodage direct — le
+            // dict d'enveloppe DEVIENT le dict final (l'intermédiaire à
+            // clés encodées puis sa reconversion pesaient ~80 ns par clé).
+            // L'étiquette est abandonnée et la clé courante décodée
+            Py_CLEAR(current.envClass);
+            current.specialKey = false;
+            current.envState = 7;
+            current.envDictKey = DecodeCleCore(str, (Py_ssize_t) length,
+                                               nullptr);
+            if (current.envDictKey == nullptr)
+                return false;
         } else if (current.envState != 0) {
             // toute autre clé (état, items, dict d'attributs, attribut
             // libre...) : l'enveloppe stricte est démentie
@@ -2361,6 +2409,7 @@ struct PyHandler {
         ctx.envClass = nullptr;
         ctx.envArgs = nullptr;
         ctx.envItems = nullptr;
+        ctx.envDictKey = nullptr;
         Py_INCREF(mapping);
 
         stack.push_back(ctx);
@@ -2373,6 +2422,13 @@ struct PyHandler {
     // construit — l'ordre d'insertion (__class__ puis argument) est celui
     // du document, les clés viennent des interned globaux
     bool EnvFlush(HandlerContext& ctx) {
+        if (ctx.envState == 7) {
+            // état 7 : les paires vivent DÉJÀ dans object (clés décodées,
+            // sans étiquette) — exactement le dict final ; rien à verser
+            Py_CLEAR(ctx.envDictKey);
+            ctx.envState = 0;
+            return true;
+        }
         if (ctx.envClass != nullptr) {
             if (PyDict_SetItem(ctx.object, class_key_name, ctx.envClass) < 0)
                 return false;
@@ -2534,6 +2590,15 @@ struct PyHandler {
         const char* u8 = PyUnicode_AsUTF8AndSize(key, &lg);
         if (u8 == nullptr)
             return nullptr;
+        return DecodeCleCore(u8, lg, key);
+    }
+
+    // coeur à double entrée : depuis une clé python (key_obj, rendue telle
+    // quelle pour une clé ordinaire) ou depuis le tampon BRUT du parse
+    // (key_obj nul : la str n'est matérialisée que pour les clés ordinaires
+    // et exotiques — les clés simples n'allouent QUE leur valeur décodée)
+    PyObject* DecodeCleCore(const char* u8, Py_ssize_t lg,
+                            PyObject* key_obj) {
         if (lg > 0) {
             char premier = u8[0];
             if (premier == '\'') {
@@ -2578,13 +2643,38 @@ struct PyHandler {
                 Py_RETURN_FALSE;
             } else if ((premier >= '0' && premier <= '9') || premier == '-'
                        || premier == 'N' || premier == 'I') {
-                PyObject* entier = PyLong_FromString(u8, nullptr, 10);
+                // PyLong_FromString exige un tampon TERMINÉ : depuis le
+                // tampon brut du parse (key_obj nul), copie bornée d'abord
+                PyObject* entier = nullptr;
+                if (key_obj != nullptr) {
+                    entier = PyLong_FromString(u8, nullptr, 10);
+                } else if (lg < 64) {
+                    char borne[64];
+                    memcpy(borne, u8, (size_t) lg);
+                    borne[lg] = '\0';
+                    entier = PyLong_FromString(borne, nullptr, 10);
+                }
                 if (entier != nullptr)
                     return entier;
                 PyErr_Clear();
-                PyObject* flottant = PyFloat_FromString(key);
-                if (flottant != nullptr)
-                    return flottant;
+                PyObject* texte_nombre = key_obj != nullptr
+                    ? Py_NewRef(key_obj)
+                    : PyUnicode_FromStringAndSize(u8, lg);
+                if (texte_nombre != nullptr) {
+                    if (lg >= 64) {
+                        // entier géant : par l'objet unicode, longueur sûre
+                        entier = PyLong_FromUnicodeObject(texte_nombre, 10);
+                        if (entier != nullptr) {
+                            Py_DECREF(texte_nombre);
+                            return entier;
+                        }
+                        PyErr_Clear();
+                    }
+                    PyObject* flottant = PyFloat_FromString(texte_nombre);
+                    Py_DECREF(texte_nombre);
+                    if (flottant != nullptr)
+                        return flottant;
+                }
                 PyErr_Clear();
             }
             if (lg == 4 && memcmp(u8, "null", 4) == 0)
@@ -2598,11 +2688,17 @@ struct PyHandler {
                 if (decodeCleFn != nullptr) {
                     // ~4 µs par décodage python : mémoïsé par clé le temps
                     // du parse (répliques d'un même document)
+                    PyObject* key = key_obj != nullptr
+                        ? Py_NewRef(key_obj)
+                        : PyUnicode_FromStringAndSize(u8, lg);
+                    if (key == nullptr)
+                        return nullptr;
                     if (cleExotiqueCache != nullptr) {
                         PyObject* hit = PyDict_GetItemWithError(
                             cleExotiqueCache, key);
                         if (hit != nullptr) {
                             Py_INCREF(hit);
+                            Py_DECREF(key);
                             return hit;
                         }
                         if (PyErr_Occurred())
@@ -2618,13 +2714,15 @@ struct PyHandler {
                                               decodee) < 0)
                             PyErr_Clear();
                     }
+                    Py_DECREF(key);
                     return decodee;
                 }
             }
         }
         // clé str ordinaire : telle quelle (aucun marqueur ne la réclame)
-        Py_INCREF(key);
-        return key;
+        if (key_obj != nullptr)
+            return Py_NewRef(key_obj);
+        return PyUnicode_FromStringAndSize(u8, lg);
     }
 
     // {"__class__": "dict", clés encodées...} -> dict reconstruit en C,
@@ -2844,6 +2942,12 @@ struct PyHandler {
         // dict intermédiaire rempli. Si la table décline (classe ou forme
         // inconnue), la capture est versée dans le dict et la voie classique
         // reprend ci-dessous, à l'identique.
+        if (ctx_ref.envState == 7) {
+            // décodage direct : object contient déjà les paires décodées et
+            // vit déjà dans son parent — c'est un dict ordinaire désormais
+            Py_CLEAR(ctx_ref.envDictKey);
+            ctx_ref.envState = 0;
+        }
         if (ctx_ref.envState == 4 || ctx_ref.envState == 6) {
             PyObject* direct = EnvelopeConstruct(ctx_ref.envClass,
                                                  ctx_ref.envArgs,
@@ -2856,6 +2960,7 @@ struct PyHandler {
                 Py_CLEAR(ctx_ref.envClass);
                 Py_CLEAR(ctx_ref.envArgs);
                 Py_CLEAR(ctx_ref.envItems);
+                Py_CLEAR(ctx_ref.envDictKey);
                 stack.pop_back();
                 Py_DECREF(vide);
                 return ReplaceInParent(direct);
@@ -3239,6 +3344,15 @@ struct PyHandler {
                 Py_SETREF(current.envItems, replacement);
                 return true;
             }
+            if (current.envState == 7) {
+                // parent en décodage direct : resservir sous la clé DÉCODÉE
+                int rc = 0;
+                if (current.envDictKey != nullptr)
+                    rc = PyDict_SetItem(current.object, current.envDictKey,
+                                        replacement);
+                Py_DECREF(replacement);
+                return rc == 0;
+            }
             if (current.isObject) {
                 PyObject* key = KeyString(current.key,
                                           (size_t) current.keyLength);
@@ -3322,6 +3436,7 @@ struct PyHandler {
         ctx.envClass = nullptr;
         ctx.envArgs = nullptr;
         ctx.envItems = nullptr;
+        ctx.envDictKey = nullptr;
         Py_INCREF(list);
 
         stack.push_back(ctx);

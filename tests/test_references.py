@@ -287,3 +287,16 @@ def test_deque_maxlen_reste_voie_python():
     dumped, loaded = roundtrip(d)
     assert type(loaded) is collections.deque
     assert loaded.maxlen == 5 and list(loaded) == [1, 2]
+
+
+def test_types_de_cles_non_str_preserves():
+    # le décodage AU VOL des clés (état 7) doit rendre les MÊMES TYPES que
+    # dict_non_str_keys — un int relu en float passerait l'égalité de dict
+    # (2 == 2.0) mais pas ce test (attrapé le 06/08 : PyLong_FromString
+    # lisait au-delà de la clé dans le tampon de parse non terminé)
+    d = {2: "a", 3.5: "b", True: "c", None: "d", b"k": "e", "2": "f",
+         10**30: "g", (5, 6): "h", "s": "i"}
+    dumped, loaded = roundtrip(d)
+    assert loaded == d
+    assert sorted(type(k).__name__ for k in loaded) == sorted(
+        type(k).__name__ for k in d)
