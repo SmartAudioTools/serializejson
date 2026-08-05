@@ -2339,3 +2339,49 @@ les noms numpy1. Les tests « rice » qui n'étaient que des
 allers-retours smart sous un autre nom sont renommés et conservés
 (bords de trame, stéréo, int32 mêlé, déterminisme, canaux disparates) ;
 seuls ceux qui forçaient le codec disparaissent avec lui.
+
+### 17 decies. Nuit du 5 au 6/08 — chaque type sous ×2 de pickle : état du chantier
+
+Objectif VALIDÉ par Baptiste (20 h 26) : sur la table par types du rapport
+de benchmarks (mesure par LOTS de 32 répliques ; itération rapide par le
+script de session types_seuls.py), descendre dumps ET loads sous ×2 de
+pickle pour chaque catégorie ; batterie verte et commit à chaque gain,
+exceptions consignées ici. (Soirée déclarée exceptionnelle : pas de
+bascule d'autonomie à 21 h dans la session en cours.)
+
+FAIT et commité :
+- mesure par lots honnête (clones pickle ; singletons dédupliqués admis,
+  les deux camps les mémoïsent) ;
+- vidage de la file base64 différée — il survient à CHAQUE end_object
+  python — sans threads ni contexte multi-thread sous 1 Mo, et forme
+  chaîne ascii des bytes dans la table C de lecture :
+  bytes loads ×172→17, bytearray ×106→10 ;
+- clés non-str : Décodeur par thread réutilisé + chemins scalaires
+  (_decode_cle) : dict loads ×66→12,5, collections ×56→13.
+
+RESTE, par priorité mesurée : bytes dumps ×36 ; types loads ×30 ;
+set/frozenset dumps ×29/×23 ; dict dumps ×25 ; collections ×13 ;
+bytesarray ×11 ; tuple loads ×9 ; binary ×6,5 ; decimales/datetime
+loads ×4-4,6 ; range/slice/queue/iterators loads ×2,5-3,5 ; scalaires
+dumps ×2,4-3,6.
+
+VOIE RETENUE pour l'écriture des builtins (set/frozenset/bytes/bytearray) :
+étendre class_plan (serializejson/__init__.py:986) d'un plan « natif »
+(code PyLong 1..4) pour les classes EXACTES, gardé par l'absence d'entrée
+registre utilisateur ; côté C (rapidjson.cpp, branche des plans ~5420)
+ajouter `else if PyLong_CheckExact(plan[0])` → enveloppe écrite en C
+(RECURSE éléments, mémo CONTAINER_MEMO_OR_REF, PySet_Add dumpedClasses,
+PATH pour $ref). ⚠ IDENTITÉ OCTETS : enveloppe set MONO-ligne
+(SingleLine/PushCompact), enveloppe bytes MULTI-lignes — répliquer
+exactement (_dict_from_instance dit qui enveloppe quoi). Pour bytes :
+le plan est mis en cache PAR DUMP → y embarquer seuil/compression du
+moment ; le C ne traite que len<seuil (ascii imprimable → forme chaîne,
+sinon b64 via RawDataToBase64 qui pose déjà le préfixe « n: ») ; ≥seuil
+→ None, voie python blosc. Reproduire EXACTEMENT l'ensemble accepté du
+codec ascii_printables (SmartFramework/string/encodings) avant d'écrire
+le test C d'imprimabilité.
+
+Fin de nuit : PGO ×5, batterie complète, benchmarks sur machine calme,
+rapport final ici. ⚠ Mémoire persistante indisponible depuis ~20 h 40
+(bind-monts de /DATA retombés, dossier projet réapparu vide en nobody —
+redémarrage requis) : CE document est le porteur d'état de la nuit.
