@@ -59,11 +59,11 @@ session `types_seuls.py` (scratchpad — VOLATIL, voir pièges).
 ## État au moment de la passation
 
 - Une consolidation (`rapidjson/consolide_nuit.sh` : PGO ×5 puis
-  batterie) était EN COURS en tâche de fond à 21 h 28 ; si la session a
-  été quittée avant sa fin, elle a été interrompue : les .so des
-  versions autres que 3.12 sont alors PÉRIMÉS (leurs tests échouent sur
-  `_resolve_ref_path` manquant). La relancer est la PREMIÈRE chose à
-  faire : `bash rapidjson/consolide_nuit.sh` depuis la racine.
+  batterie) a ÉTÉ MENÉE À BIEN à 21 h 31 : PGO x5 TERMINÉE et batterie
+  TOUT VERT (103 tests x 5 versions, goldens identiques) — les
+  cinq binaires sont à jour et commités. (Ce paragraphe remplace
+  l ancienne consigne de relance : plus rien à relancer, passer
+  directement au « reste à faire » ci-dessous.)
 - ⚠ Si une PGO a été interrompue EN PLEIN build d'une version, son .so
   peut rester instrumenté (mode generate) : la consolidation le
   réécrit proprement.
