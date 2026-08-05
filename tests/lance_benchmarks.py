@@ -265,15 +265,17 @@ def mesure_types_objets():
             doc = encodeur(objets)
             decodeur = serializejson.Decoder(
                 authorized_classes=list(encodeur.get_dumped_classes()))
-            lot_json = b"[" + b",".join([doc] * N) + b"]"
             # côté objets : clones par pickle (objets frais à chaque load,
             # y compris les immuables — deepcopy rendrait le MÊME bytes et
             # le cache de valeurs du décodeur les MÊMES str, que le mémo
-            # transformerait en $ref au re-dump)
+            # transformerait en $ref au re-dump) ; la lecture se mesure sur
+            # le dump RÉEL du lot (une répétition textuelle du document
+            # unitaire casserait ses chemins $ref internes)
             graine = pickle.dumps(objets, protocol=4)
             lot = [pickle.loads(graine) for _ in range(N)]
             p = pickle.dumps(lot, protocol=4)
             j = encodeur(lot)
+            lot_json = j
             # les singletons du lot (b"", objets type...) sont dédupliqués
             # par les DEUX camps ($ref chez serializejson, memo chez
             # pickle) : la comparaison reste équitable, on ne l'interdit pas
