@@ -199,6 +199,7 @@ static PyObject* call_update_name = nullptr;
 static PyObject* resolve_duplicates_name = nullptr;
 static PyObject* dumped_classes_name = nullptr;
 static PyObject* bytes_natif_seuil_name = nullptr;
+static PyObject* cle_json_name = nullptr;             // "_cle_json"
 static PyObject* bytes_class_name_str = nullptr;      // "bytes"
 static PyObject* bytearray_class_name_str = nullptr;  // "bytearray"
 static PyObject* collections_prefix_str = nullptr;    // "collections."
@@ -666,6 +667,13 @@ struct PathTracker {
     // (0 : désactivé — pas d'Encoder serializejson, ou greffons bytes
     // remplacés par l'utilisateur ; posé par _bytes_natif_seuil)
     Py_ssize_t bytesNatifSeuil = 0;
+    // écriture native C des dicts à clés non-str : rappel python _cle_json
+    // de l'Encoder pour les seules clés exotiques (réf FORTE, None jamais
+    // stocké — nullptr = chemin python complet). Le cache mémorise le texte
+    // des clés exotiques par ÉGALITÉ (les répliques d'un même document
+    // partagent leurs clés), créé au premier besoin, relâché en fin de dump
+    PyObject* cleJsonFn = nullptr;
+    PyObject* cleJsonCache = nullptr;
     // vrai si le prochain dict rencontré est l'état d'un objet retourné par
     // default() : ses clés sont alors des attributs (".attr" et non "['clef']")
     bool next_dict_is_attrs = false;
@@ -683,6 +691,8 @@ struct PathTracker {
         memo.decref_keys();
         for (auto& entry : classPlans)
             Py_DECREF(entry.second);
+        Py_XDECREF(cleJsonFn);
+        Py_XDECREF(cleJsonCache);
     }
 };
 
@@ -709,6 +719,33 @@ path_tracker_materialize(PathTracker* tracker)
     tracker->firstUnregistered = tracker->segments.size();
     return parent;
 }
+
+// ajoute path à ref_ en l'échappant pour une chaîne JSON : une clé de dict
+// peut contenir guillemets, antislashs ou contrôles — insérée brute, elle
+// rendait le document invalide (constaté sur {'a"b': ...} partagé)
+static void
+sj_ref_append_escape(std::string& ref_, const std::string& path)
+{
+    for (char c : path) {
+        unsigned char u = (unsigned char) c;
+        switch (c) {
+        case '"':  ref_ += "\\\""; break;
+        case '\\': ref_ += "\\\\"; break;
+        case '\t': ref_ += "\\t"; break;
+        case '\n': ref_ += "\\n"; break;
+        case '\r': ref_ += "\\r"; break;
+        default:
+            if (u < 0x20) {
+                char buffer[8];
+                snprintf(buffer, sizeof(buffer), "\\u%04x", u);
+                ref_ += buffer;
+            } else {
+                ref_ += c;
+            }
+        }
+    }
+}
+
 
 // chaîne "root[0].attr['clef']" du noeud node_index (-1 = "root")
 static std::string
@@ -1158,6 +1195,72 @@ typedef struct {
 } DecoderObject;
 
 
+// décode une clé d'ENVELOPPE de dict à clés non-str rencontrée dans un
+// chemin $ref, formes SIMPLES seulement ('quotée' -> str, b'...' -> bytes,
+// b64'...' -> bytes, true/false/null, entier, flottant) : le chemin porte le
+// texte encodé de la clé, le dict reconstruit porte la clé décodée. Rend une
+// NOUVELLE référence, ou nullptr SANS erreur si la forme n'est pas simple
+// (clé ordinaire, tuple « [...] », enveloppe « {...} » : repli appelant)
+static PyObject*
+sj_decode_cle_ref(const char* u8, Py_ssize_t lg)
+{
+    if (lg <= 0)
+        return nullptr;
+    char premier = u8[0];
+    if (premier == '\'') {
+        if (lg >= 2 && u8[lg - 1] == '\'')
+            return PyUnicode_FromStringAndSize(u8 + 1, lg - 2);
+    } else if (premier == 'b') {
+        if (lg >= 3 && u8[lg - 1] == '\'' && u8[1] == '\'') {
+            return PyBytes_FromStringAndSize(u8 + 2, lg - 3);
+        } else if (lg >= 5 && u8[lg - 1] == '\''
+                   && memcmp(u8, "b64'", 4) == 0) {
+            size_t groups, pad, out_length;
+            if (sj_b64_layout(u8 + 4, (size_t) (lg - 5), &groups, &pad,
+                              &out_length, serializejson_b64_decode_table())) {
+                PyObject* octets = PyBytes_FromStringAndSize(
+                    nullptr, (Py_ssize_t) out_length);
+                if (octets == nullptr) {
+                    PyErr_Clear();
+                    return nullptr;
+                }
+                if (sj_b64_decode_into(
+                        u8 + 4, (size_t) (lg - 5),
+                        (unsigned char*) PyBytes_AS_STRING(octets),
+                        serializejson_b64_decode_table()))
+                    return octets;
+                Py_DECREF(octets);
+            }
+        }
+    } else if (lg == 4 && memcmp(u8, "true", 4) == 0) {
+        Py_RETURN_TRUE;
+    } else if (lg == 5 && memcmp(u8, "false", 5) == 0) {
+        Py_RETURN_FALSE;
+    } else if (lg == 4 && memcmp(u8, "null", 4) == 0) {
+        Py_RETURN_NONE;
+    } else if ((premier >= '0' && premier <= '9') || premier == '-'
+               || premier == 'N' || premier == 'I') {
+        char* fin = nullptr;
+        PyObject* entier = PyLong_FromString(u8, &fin, 10);
+        if (entier != nullptr && fin == u8 + lg)
+            return entier;
+        Py_XDECREF(entier);
+        PyErr_Clear();
+        PyObject* texte = PyUnicode_FromStringAndSize(u8, lg);
+        if (texte == nullptr) {
+            PyErr_Clear();
+            return nullptr;
+        }
+        PyObject* flottant = PyFloat_FromString(texte);
+        Py_DECREF(texte);
+        if (flottant != nullptr)
+            return flottant;
+        PyErr_Clear();
+    }
+    return nullptr;
+}
+
+
 // résolution C des chemins $ref ÉMIS PAR L'ENCODEUR : root, .attr, [int],
 // ['clé'] — même sémantique que from_name(accept_dict_as_object=True).
 // Rend une référence FORTE, ou nullptr SANS erreur posée (chemin hors
@@ -1187,6 +1290,18 @@ sj_resolve_ref_path(const char* path, Py_ssize_t length, PyObject* root)
             if (PyDict_CheckExact(current)) {
                 next = PyDict_GetItem(current, key);   // empruntée
                 Py_XINCREF(next);
+                if (next == nullptr) {
+                    // chemins « .2 » historiques sur une enveloppe de dict
+                    // à clés non-str : même décodage que la forme ['clé']
+                    PyObject* decodee = sj_decode_cle_ref(start, p - start);
+                    if (decodee != nullptr) {
+                        next = PyDict_GetItem(current, decodee);  // empruntée
+                        Py_XINCREF(next);
+                        Py_DECREF(decodee);
+                        if (PyErr_Occurred())
+                            PyErr_Clear();
+                    }
+                }
             }
             if (next == nullptr) {
                 next = PyObject_GetAttr(current, key); // forte
@@ -1196,18 +1311,39 @@ sj_resolve_ref_path(const char* path, Py_ssize_t length, PyObject* root)
             Py_DECREF(key);
         } else if (*p == '[' && p + 1 < end && p[1] == '\'') {
             const char* start = p + 2;
+            // la clé peut contenir des apostrophes (b'k', 'true'...) : le
+            // segment ne se ferme que sur la séquence « '] » — même règle
+            // que from_name
             const char* q = start;
-            while (q < end && *q != '\'')
+            while (q < end
+                   && !(*q == '\'' && q + 1 < end && q[1] == ']'))
                 q++;
             if (q + 1 >= end || q[1] != ']')
                 break;
-            PyObject* key = PyUnicode_FromStringAndSize(start, q - start);
-            if (key == nullptr)
-                break;
-            next = PyObject_GetItem(current, key);     // forte
-            if (next == nullptr)
-                PyErr_Clear();
-            Py_DECREF(key);
+            // dict : la clé du chemin peut être le texte ENCODÉ d'une clé
+            // non-str ('2' pour la clé int 2, b'k'...) — décodage d'abord
+            // (une clé int 2 et une clé str '2' coexistantes s'écrivent
+            // '2' et "'2'" : sans cette priorité, ['2'] tomberait sur la
+            // mauvaise), texte brut ensuite
+            if (PyDict_CheckExact(current)) {
+                PyObject* decodee = sj_decode_cle_ref(start, q - start);
+                if (decodee != nullptr) {
+                    next = PyDict_GetItem(current, decodee);  // empruntée
+                    Py_XINCREF(next);
+                    Py_DECREF(decodee);
+                    if (PyErr_Occurred())
+                        PyErr_Clear();
+                }
+            }
+            if (next == nullptr) {
+                PyObject* key = PyUnicode_FromStringAndSize(start, q - start);
+                if (key == nullptr)
+                    break;
+                next = PyObject_GetItem(current, key);     // forte
+                if (next == nullptr)
+                    PyErr_Clear();
+                Py_DECREF(key);
+            }
             p = q + 2;
         } else if (*p == '[') {
             const char* start = ++p;
@@ -4838,6 +4974,65 @@ write_buffer_rows(WriterT* writer, PyObject* arrayObj, unsigned numberMode)
 }
 
 
+// préfiltre des clés str des dicts à clés non-str, miroir exact de la regex
+// python _cle_nombre_json : -?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$ — une clé
+// qui EST un nombre json serait relue comme nombre, donc doit être échappée
+static bool
+sj_cle_nombre_json(const char* s, size_t l)
+{
+    size_t i = 0;
+    if (i < l && s[i] == '-')
+        i++;
+    if (i >= l)
+        return false;
+    if (s[i] == '0') {
+        i++;
+    } else if (s[i] >= '1' && s[i] <= '9') {
+        i++;
+        while (i < l && s[i] >= '0' && s[i] <= '9')
+            i++;
+    } else {
+        return false;
+    }
+    if (i < l && s[i] == '.') {
+        i++;
+        size_t debut = i;
+        while (i < l && s[i] >= '0' && s[i] <= '9')
+            i++;
+        if (i == debut)
+            return false;
+    }
+    if (i < l && (s[i] == 'e' || s[i] == 'E')) {
+        i++;
+        if (i < l && (s[i] == '+' || s[i] == '-'))
+            i++;
+        size_t debut = i;
+        while (i < l && s[i] >= '0' && s[i] <= '9')
+            i++;
+        if (i == debut)
+            return false;
+    }
+    return i == l;
+}
+
+
+// sonde du préfiltre pour les clés commençant par [, { ou " : une clé qui se
+// parse comme du json valide serait relue comme autre chose qu'une chaîne —
+// mêmes acceptations que rapidjson.loads par défaut (NaN/Infinity admis,
+// grands entiers relus en chaînes, pas de virgule traînante ni commentaire).
+// s est le tampon utf8 de PyUnicode_AsUTF8 : terminé par NUL à s[l]
+static bool
+sj_cle_parse_json(const char* s)
+{
+    Reader reader;
+    BaseReaderHandler<UTF8<> > handler;
+    StringStream ss(s);
+    reader.Parse<kParseFullPrecisionFlag | kParseBigIntsAsStringsFlag
+                 | kParseNanAndInfFlag>(ss, handler);
+    return !reader.HasParseError();
+}
+
+
 template<typename WriterT>
 static bool
 dumps_internal(
@@ -4928,7 +5123,8 @@ dumps_internal(
             pathTracker->memo.find_or_reserve(object, &memo_found);     \
         if (memo_found) {                                               \
             std::string ref_ = "{\"$ref\": \"";                         \
-            ref_ += path_tracker_string(pathTracker, memo_slot->second);\
+            sj_ref_append_escape(                                       \
+                ref_, path_tracker_string(pathTracker, memo_slot->second));\
             ref_ += "\"}";                                              \
             writer->RawValue(ref_.data(), ref_.size());                 \
             return true;                                                \
@@ -6067,6 +6263,222 @@ dumps_internal(
                 return true;
             }
         }
+        // ----- dict à clés non-str NATIF : l'enveloppe plate
+        // {"__class__": "dict", clés encodées...} est composée ici, octet
+        // pour octet comme _dict_from_instance ; python n'est rappelé que
+        // pour les clés exotiques (_cle_json : tuple, frozenset, float non
+        // fini, objet...), avec un cache par égalité le temps du dump.
+        // Un cas non porté (clé "__init__"/"__new__" nue — la voie python
+        // leur applique l'emballage SingleLine de l'enveloppe) rend le DICT
+        // ENTIER au chemin python ci-dessous, sans rien avoir écrit
+        if (pathTracker && pathTracker->cleJsonFn && !attrsDict
+            && defaultDictFn == nullptr && PyDict_CheckExact(object)) {
+            struct CleNative {
+                std::string texte;
+                PyObject* value;
+                bool non_ascii;
+            };
+            std::vector<CleNative> entrees;
+            entrees.reserve((size_t) PyDict_GET_SIZE(object));
+            // instantané possédé du dict AVANT tout rappel python : _cle_json
+            // peut exécuter du code utilisateur (reduce d'une clé objet)
+            SjOwnedRefs instantane;
+            instantane.refs.reserve((size_t) PyDict_GET_SIZE(object) * 2);
+            {
+                Py_ssize_t dpos = 0;
+                PyObject* dkey;
+                PyObject* dval;
+                while (PyDict_Next(object, &dpos, &dkey, &dval)) {
+                    Py_INCREF(dkey);
+                    instantane.refs.push_back(dkey);
+                    Py_INCREF(dval);
+                    instantane.refs.push_back(dval);
+                }
+            }
+            bool porte = true;
+            for (size_t i = 0; porte && i * 2 < instantane.refs.size(); i++) {
+                PyObject* dkey = instantane.refs[i * 2];
+                PyObject* dval = instantane.refs[i * 2 + 1];
+                CleNative entree;
+                entree.value = dval;
+                entree.non_ascii = false;
+                if (PyUnicode_CheckExact(dkey)) {
+                    Py_ssize_t kl;
+                    const char* ks = PyUnicode_AsUTF8AndSize(dkey, &kl);
+                    if (ks == nullptr)
+                        return false;
+                    entree.non_ascii = !PyUnicode_IS_ASCII(dkey);
+                    // clés réservées du format : toujours échappées ; sinon
+                    // préfiltre exact du premier caractère (miroir python),
+                    // sonde de parse pour les seules clés [, { ou "
+                    bool requote;
+                    if ((kl == 9 && memcmp(ks, "__class__", 9) == 0)
+                        || (kl == 4 && memcmp(ks, "$ref", 4) == 0)) {
+                        requote = true;
+                    } else if (kl == 0) {
+                        requote = false;
+                    } else if (ks[0] == '\'') {
+                        requote = ks[kl - 1] == '\'';
+                    } else if (ks[0] == 'b') {
+                        requote = ks[kl - 1] == '\''
+                            && ((kl >= 2 && ks[1] == '\'')
+                                || (kl >= 4 && memcmp(ks, "b64'", 4) == 0));
+                    } else if (ks[0] == '-' || (ks[0] >= '0' && ks[0] <= '9')) {
+                        requote = sj_cle_nombre_json(ks, (size_t) kl)
+                            || (kl == 9 && memcmp(ks, "-Infinity", 9) == 0);
+                    } else if (ks[0] == 't' || ks[0] == 'f' || ks[0] == 'n'
+                               || ks[0] == 'N' || ks[0] == 'I') {
+                        requote = (kl == 4 && memcmp(ks, "true", 4) == 0)
+                            || (kl == 5 && memcmp(ks, "false", 5) == 0)
+                            || (kl == 4 && memcmp(ks, "null", 4) == 0)
+                            || (kl == 3 && memcmp(ks, "NaN", 3) == 0)
+                            || (kl == 8 && memcmp(ks, "Infinity", 8) == 0);
+                    } else if (ks[0] == '[' || ks[0] == '{' || ks[0] == '"') {
+                        requote = sj_cle_parse_json(ks);
+                    } else {
+                        requote = false;
+                    }
+                    if (requote) {
+                        entree.texte.reserve((size_t) kl + 2);
+                        entree.texte += '\'';
+                        entree.texte.append(ks, (size_t) kl);
+                        entree.texte += '\'';
+                    } else {
+                        entree.texte.assign(ks, (size_t) kl);
+                        if ((kl == 8 && memcmp(ks, "__init__", 8) == 0)
+                            || (kl == 7 && memcmp(ks, "__new__", 7) == 0)) {
+                            porte = false;   // quirk SingleLine : voie python
+                            break;
+                        }
+                    }
+                } else if (PyLong_CheckExact(dkey)) {
+                    PyObject* txt = PyObject_Str(dkey);
+                    if (txt == nullptr)
+                        return false;
+                    Py_ssize_t tl;
+                    const char* ts = PyUnicode_AsUTF8AndSize(txt, &tl);
+                    if (ts == nullptr) {
+                        Py_DECREF(txt);
+                        return false;
+                    }
+                    entree.texte.assign(ts, (size_t) tl);
+                    Py_DECREF(txt);
+                } else if (dkey == Py_True) {
+                    entree.texte = "true";
+                } else if (dkey == Py_False) {
+                    entree.texte = "false";
+                } else if (dkey == Py_None) {
+                    entree.texte = "null";
+                } else if (PyFloat_CheckExact(dkey)
+                           && !IS_NAN(PyFloat_AS_DOUBLE(dkey))
+                           && !IS_INF(PyFloat_AS_DOUBLE(dkey))) {
+                    // graphie repr() (Ryu), la même que le dumps une-ligne
+                    char repr_buf[40];
+                    entree.texte.assign(
+                        repr_buf,
+                        (size_t) sjdtoa::ReprDouble(PyFloat_AS_DOUBLE(dkey),
+                                                    repr_buf));
+                } else if (PyBytes_CheckExact(dkey)) {
+                    const unsigned char* bd =
+                        (const unsigned char*) PyBytes_AS_STRING(dkey);
+                    Py_ssize_t bl = PyBytes_GET_SIZE(dkey);
+                    bool imprimable = true;   // jeu du codec ascii_printables
+                    for (Py_ssize_t j = 0; j < bl; j++) {
+                        unsigned char c = bd[j];
+                        if (!((c >= 0x20 && c <= 0x7E)
+                              || c == '\t' || c == '\n' || c == '\r')) {
+                            imprimable = false;
+                            break;
+                        }
+                    }
+                    if (imprimable) {
+                        entree.texte.reserve((size_t) bl + 3);
+                        entree.texte += "b'";
+                        entree.texte.append((const char*) bd, (size_t) bl);
+                        entree.texte += '\'';
+                    } else {
+                        size_t b64l = ((size_t) bl + 2) / 3 * 4;
+                        entree.texte.resize(b64l + 5);
+                        memcpy(&entree.texte[0], "b64'", 4);
+                        serializejson_b64_encode(bd, (size_t) bl,
+                                                 &entree.texte[4]);
+                        entree.texte[b64l + 4] = '\'';
+                    }
+                } else {
+                    // clé exotique (tuple, frozenset, float non fini, objet,
+                    // non-finis compris) : rappel python _cle_json, mémoïsé
+                    // par égalité — les clés sont hashables par construction
+                    PyObject* txt = nullptr;
+                    if (pathTracker->cleJsonCache != nullptr) {
+                        txt = PyDict_GetItemWithError(
+                            pathTracker->cleJsonCache, dkey);
+                        if (txt == nullptr && PyErr_Occurred())
+                            return false;
+                        Py_XINCREF(txt);
+                    }
+                    if (txt == nullptr) {
+                        txt = PyObject_CallFunctionObjArgs(
+                            pathTracker->cleJsonFn, dkey, nullptr);
+                        if (txt == nullptr)
+                            return false;   // même erreur que la voie python
+                        if (!PyUnicode_CheckExact(txt)) {
+                            Py_DECREF(txt);
+                            porte = false;   // forme inattendue : voie python
+                            break;
+                        }
+                        if (pathTracker->cleJsonCache == nullptr)
+                            pathTracker->cleJsonCache = PyDict_New();
+                        if (pathTracker->cleJsonCache != nullptr
+                            && PyDict_SetItem(pathTracker->cleJsonCache,
+                                              dkey, txt) < 0)
+                            PyErr_Clear();
+                    }
+                    Py_ssize_t tl;
+                    const char* ts = PyUnicode_AsUTF8AndSize(txt, &tl);
+                    if (ts == nullptr) {
+                        Py_DECREF(txt);
+                        return false;
+                    }
+                    entree.non_ascii = !PyUnicode_IS_ASCII(txt);
+                    entree.texte.assign(ts, (size_t) tl);
+                    Py_DECREF(txt);
+                }
+                entrees.push_back(std::move(entree));
+            }
+            if (porte) {
+                CONTAINER_MEMO_OR_REF()
+                writer->StartObject();
+                writer->Key("__class__", 9);
+                writer->String("dict", 4);
+                for (const CleNative& entree : entrees) {
+                    if (entree.non_ascii)
+                        writer->MarkMaybeNonAscii();
+                    writer->Key(entree.texte.data(),
+                                (SizeType) entree.texte.size());
+                    if (PyUnicode_CheckExact(entree.value)) {
+                        Py_ssize_t vl;
+                        const char* vs =
+                            PyUnicode_AsUTF8AndSize(entree.value, &vl);
+                        if (vs == nullptr)
+                            return false;
+                        if (!PyUnicode_IS_ASCII(entree.value))
+                            writer->MarkMaybeNonAscii();
+                        writer->String(vs, (SizeType) vl);
+                        continue;
+                    }
+                    if (Py_EnterRecursiveCall(" while JSONifying dict object"))
+                        return false;
+                    PATH_PUSH_KEY(entree.texte.data(), entree.texte.size());
+                    bool r = RECURSE(entree.value);
+                    PATH_POP();
+                    Py_LeaveRecursiveCall();
+                    if (!r)
+                        return false;
+                }
+                writer->EndObject();
+                return PyErr_Occurred() ? false : true;
+            }
+        }
         // ----- chemin rapide par classe : objet ordinaire écrit tout en C++,
         // sans passer par default()/reduce Python. La décision est prise UNE
         // fois par classe (class_plan), le résultat doit être identique octet
@@ -6198,8 +6610,10 @@ dumps_internal(
                                 if (dict_it != pathTracker->memo.end()) {
                                     writer->Key("__dict__", 8);
                                     std::string ref_ = "{\"$ref\": \"";
-                                    ref_ += path_tracker_string(
-                                        pathTracker, dict_it->second);
+                                    sj_ref_append_escape(
+                                        ref_,
+                                        path_tracker_string(
+                                            pathTracker, dict_it->second));
                                     ref_ += "\"}";
                                     writer->RawValue(ref_.data(),
                                                      ref_.size());
@@ -6464,8 +6878,10 @@ dumps_internal(
                                     // {"$ref": ...}} et rien d'autre
                                     writer->Key("__dict__", 8);
                                     std::string ref_ = "{\"$ref\": \"";
-                                    ref_ += path_tracker_string(
-                                        pathTracker, dict_it->second);
+                                    sj_ref_append_escape(
+                                        ref_,
+                                        path_tracker_string(
+                                            pathTracker, dict_it->second));
                                     ref_ += "\"}";
                                     writer->RawValue(ref_.data(),
                                                      ref_.size());
@@ -6547,7 +6963,9 @@ dumps_internal(
                 auto memo_it = pathTracker->memo.find(object);
                 if (memo_it != pathTracker->memo.end()) {
                     std::string ref_ = "{\"$ref\": \"";
-                    ref_ += path_tracker_string(pathTracker, memo_it->second);
+                    sj_ref_append_escape(
+                        ref_,
+                        path_tracker_string(pathTracker, memo_it->second));
                     ref_ += "\"}";
                     writer->RawValue(ref_.data(), ref_.size());
                     return true;
@@ -6696,7 +7114,10 @@ dumps_internal(
                     if (shared_dict_node != -2) {
                         writer->Key("__dict__", 8);
                         std::string ref_ = "{\"$ref\": \"";
-                        ref_ += path_tracker_string(pathTracker, shared_dict_node);
+                        sj_ref_append_escape(
+                            ref_,
+                            path_tracker_string(pathTracker,
+                                                shared_dict_node));
                         ref_ += "\"}";
                         writer->RawValue(ref_.data(), ref_.size());
                     } else {
@@ -7735,6 +8156,18 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
             }
             Py_DECREF(seuil_obj);
         }
+    }
+    // rappel _cle_json pour l'écriture native des dicts à clés non-str
+    // (None : désactivé — sort_keys, ou recettes redéfinies par une
+    // sous-classe). Référence forte, relâchée par ~PathTracker
+    {
+        PyObject* cleFn = PyObject_GetAttr(self, cle_json_name);
+        if (cleFn == nullptr)
+            PyErr_Clear();
+        else if (cleFn == Py_None)
+            Py_DECREF(cleFn);
+        else
+            pathTracker.cleJsonFn = cleFn;
     }
     PyObject* dumpedClassesSet = PyObject_GetAttr(self, dumped_classes_name);
     if (dumpedClassesSet == nullptr)
@@ -8964,6 +9397,7 @@ module_exec(PyObject* m)
     resolve_duplicates_name = PyUnicode_InternFromString("_resolve_duplicates");
     dumped_classes_name = PyUnicode_InternFromString("dumped_classes");
     bytes_natif_seuil_name = PyUnicode_InternFromString("_bytes_natif_seuil");
+    cle_json_name = PyUnicode_InternFromString("_cle_json");
     bytes_class_name_str = PyUnicode_InternFromString("bytes");
     bytearray_class_name_str = PyUnicode_InternFromString("bytearray");
     collections_prefix_str = PyUnicode_InternFromString("collections.");

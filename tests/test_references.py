@@ -210,3 +210,47 @@ def test_tableau_numpy_bool():
     loaded = serializejson.loads(dumped)
     assert loaded.dtype == array.dtype
     assert numpy.array_equal(loaded, array)
+
+
+# --- références VERS l'intérieur d'une enveloppe de dict à clés non-str -------
+# (cassées depuis toujours : le chemin porte le texte ENCODÉ de la clé — '2',
+# b'k', [5,6] — alors que le dict reconstruit porte la clé DÉCODÉE ; corrigé
+# le 05/08/2026 des deux côtés : résolveur C et from_name décodent la clé)
+
+
+@pytest.mark.parametrize(
+    "cle",
+    [2, True, b"k", b"x'y", "true", "2", (5, 6), frozenset([7])],
+    ids=["int", "bool", "bytes", "bytes_quote", "str_true", "str_2",
+         "tuple", "frozenset"],
+)
+def test_ref_vers_valeur_de_dict_cle_non_str(cle):
+    shared = [9, 8]
+    dumped, loaded = roundtrip([{cle: shared}, shared])
+    assert dumped.count('"$ref"') == 1
+    assert loaded[0][cle] is loaded[1]
+
+
+def test_ref_vers_valeur_de_dict_cle_non_str_racine_dict():
+    shared = [9, 8]
+    data = {"a": {2: shared}, "b": shared}
+    dumped, loaded = roundtrip(data)
+    assert loaded["a"][2] is loaded["b"]
+
+
+def test_ref_style_historique_point_sur_enveloppe_dict():
+    # documents écrits par l'ancienne voie python : segment « .2 » (attribut)
+    # au lieu de « ['2'] » — doit rester lisible
+    legacy = ('[{"__class__": "dict", "2": [9,8],'
+              ' "p": {"$ref": "root[0].2"}}, {"$ref": "root[0].2"}]')
+    loaded = serializejson.loads(legacy)
+    assert loaded[0][2] is loaded[1] and loaded[0]["p"] is loaded[1]
+
+
+def test_ref_chemin_echappe_guillemet_dans_cle():
+    # une clé contenant un guillemet rendait le document INVALIDE (guillemet
+    # brut dans la chaîne $ref) — l'échappement JSON du chemin le corrige
+    shared = [9, 8]
+    for cle in ['a"b', b'x"y', 'x\ty', 'a\\b']:
+        dumped, loaded = roundtrip([{cle: shared}, shared])
+        assert loaded[0][cle] is loaded[1]

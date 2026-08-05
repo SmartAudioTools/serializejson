@@ -1367,7 +1367,9 @@ def from_name(path, accept_dict_as_object=False, **variables):
                     elif ch == "\\":  # \
                         # we are in a quote and we see a backslash; escape next char:
                         backslash_escape = True
-                    elif ch == "'":
+                    elif ch == "'" and path[i + 1 : i + 2] == "]":
+                        # la clé peut contenir des apostrophes (b'k',
+                        # 'true'...) : le segment ne se ferme que sur « '] »
                         in_simple_quotes = False
                     else:
                         element_chars.append(ch)
@@ -1391,7 +1393,21 @@ def from_name(path, accept_dict_as_object=False, **variables):
                                 if key in variables
                                 else __builtins__[key]
                             )
-                        current = current[key]
+                        if type(current) is dict and type(key) is str:
+                            # ENVELOPPE de dict à clés non-str : le chemin
+                            # porte le texte encodé de la clé, le dict
+                            # reconstruit la clé décodée — décodage d'abord
+                            # (une clé int 2 et une clé str '2' coexistantes
+                            # s'écrivent '2' et "'2'" : sans cette priorité,
+                            # ['2'] tomberait sur la mauvaise)
+                            from serializejson import _decode_cle
+                            cle = _decode_cle(key)
+                            if cle is not key and cle in current:
+                                current = current[cle]
+                            else:
+                                current = current[key]
+                        else:
+                            current = current[key]
                         # is_first = False
                         element_chars = []
                     else:
@@ -1505,7 +1521,14 @@ def from_name(path, accept_dict_as_object=False, **variables):
 
 def _getattr(obj, attribut, accept_dict_as_object):
     if accept_dict_as_object and type(obj) is dict :#and "__class__" in obj:
-        return obj[attribut]
+        try:
+            return obj[attribut]
+        except KeyError:
+            # valeur d'une ENVELOPPE de dict à clés non-str : le chemin porte
+            # le texte encodé de la clé ('2', b'k'...), le dict reconstruit
+            # porte la clé DÉCODÉE
+            from serializejson import _decode_cle
+            return obj[_decode_cle(attribut)]
     else:
         try:
             # permet de marcher avec slot et properties,mais pas getters

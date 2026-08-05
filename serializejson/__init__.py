@@ -891,6 +891,31 @@ class Encoder(rapidjson.Encoder):
         return self.dumped_classes
 
     # @profile
+    @staticmethod
+    def _echappe_chemin_ref(path):
+        # échappement JSON d'un chemin $ref composé en RawString : une clé de
+        # dict peut contenir guillemets, antislashs ou contrôles — insérée
+        # brute, elle rendait le document invalide (même règle que le C)
+        if '"' not in path and "\\" not in path and path.isprintable():
+            return path
+        morceaux = []
+        for ch in path:
+            if ch == '"':
+                morceaux.append('\\"')
+            elif ch == "\\":
+                morceaux.append("\\\\")
+            elif ch == "\t":
+                morceaux.append("\\t")
+            elif ch == "\n":
+                morceaux.append("\\n")
+            elif ch == "\r":
+                morceaux.append("\\r")
+            elif ch < " ":
+                morceaux.append("\\u%04x" % ord(ch))
+            else:
+                morceaux.append(ch)
+        return "".join(morceaux)
+
     def default(self, inst):
         # Equivalent au calback "default" qu'on peut passer à dump ou dumps
         id_ = id(inst)
@@ -908,7 +933,8 @@ class Encoder(rapidjson.Encoder):
                 else:
                     path = self.json_path_from_id(path_id)
                 if path is not None:
-                    return rapidjson.RawString(f'{{"$ref": "{path}"}}')
+                    return rapidjson.RawString(
+                        f'{{"$ref": "{self._echappe_chemin_ref(path)}"}}')
         else:
             self._already_serialized[id_] = self.json_path_id()
             self._already_serialized_keep_alive.append(inst)
@@ -948,7 +974,9 @@ class Encoder(rapidjson.Encoder):
                 )
             else:
                 path = self.json_path_from_id(path_id)
-            return rapidjson.RawString('{"$ref": "%s%s"}' % (path, inst.sup_str))
+            return rapidjson.RawString(
+                '{"$ref": "%s%s"}'
+                % (self._echappe_chemin_ref(path), inst.sup_str))
         else:
             dic = self._dict_from_instance(
                 inst
@@ -1367,7 +1395,8 @@ class Encoder(rapidjson.Encoder):
                     path_id = self.json_path_id_of(state)
                     if path_id is not None:
                         dictionnaire["__dict__"] = rapidjson.RawString(
-                            f'{{"$ref": "{self.json_path_from_id(path_id)}"}}'
+                            '{"$ref": "%s"}' % self._echappe_chemin_ref(
+                                self.json_path_from_id(path_id))
                         )
                         return dictionnaire
                     self.memo_state_dict(state)
@@ -1432,6 +1461,23 @@ class Encoder(rapidjson.Encoder):
                 if self.bytes_compression else (1 << 62))
         else:
             self.__dict__["_bytes_natif_seuil"] = 0
+        # écriture native C des dicts à clés non-str : le C compose lui-même
+        # l'enveloppe {"__class__": "dict", ...} et ne rappelle python que
+        # pour les clés exotiques (tuple, frozenset, float non fini...), via
+        # _cle_json. Désactivé si sort_keys (l'enveloppe python passe alors
+        # par le tri du writer) ou si une sous-classe a redéfini une des
+        # recettes que le C court-circuiterait
+        cls = type(self)
+        if (not self.sort_keys
+                and cls.default is Encoder.default
+                and cls._dict_from_instance is Encoder._dict_from_instance
+                and cls._default_one_line is Encoder._default_one_line
+                and "default" not in self.__dict__
+                and "_dict_from_instance" not in self.__dict__
+                and "_default_one_line" not in self.__dict__):
+            self.__dict__["_cle_json"] = self._cle_json
+        else:
+            self.__dict__["_cle_json"] = None
         serialize_parameters.__dict__.update(self.__dict__)
         serialize_parameters.__dict__.update(self.plugins_parameters)
         # les plugins lisent la valeur résolue (le "determinist" symbolique
@@ -1439,6 +1485,22 @@ class Encoder(rapidjson.Encoder):
         serialize_parameters.bytes_compression_threads = resolved
         serialize_parameters._owner = self
         serialize_parameters._decoder_owner = None
+
+    def _cle_json(self, key):
+        # encodage d'une clé de dict non portée par le C (tuple, frozenset,
+        # float non fini, objet...), à l'IDENTIQUE du repli de
+        # _dict_from_instance : tuple aplati en liste, puis dumps une-ligne
+        if type(key) is tuple:
+            key = list(key)
+        return rapidjson.dumps(
+            key,
+            default=self._default_one_line,
+            ensure_ascii=self.ensure_ascii,
+            sort_keys=self.sort_keys,
+            bytes_mode=self.bytes_mode,
+            number_mode=rapidjson.NM_NATIVE,
+            iterable_mode=rapidjson.IM_ONLY_LISTS,
+        )
 
     def _reset(self):
         self.dumped_classes = set()
