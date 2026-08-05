@@ -5660,8 +5660,15 @@ dumps_internal(
                                       arg_slots[slot_index].key_length)
                         PyObject* single = nullptr;
                         bool write_list = false;
+                        bool verbatim_list = false;
                         if (PyDict_CheckExact(args)) {
                             single = args;   // arguments nommés : dict tel quel
+                        } else if (PyList_CheckExact(args)) {
+                            // liste EXACTE = valeur TELLE QUELLE : le
+                            // déballage remove_add_braces des recettes
+                            // set/frozenset (un set d'un seul élément
+                            // reste [x], jamais dépouillé en scalaire)
+                            verbatim_list = true;
                         } else {
                             Py_ssize_t nargs = PySequence_Fast_GET_SIZE(args);
                             if (nargs == 1) {
@@ -5683,7 +5690,17 @@ dumps_internal(
                                 write_list = true;
                             }
                         }
-                        if (single != nullptr) {
+                        if (verbatim_list) {
+                            bool args_compact = (slot_index == 0
+                                                 ? pathTracker->singleLineNew
+                                                 : pathTracker->singleLineInit)
+                                && !writer->InCompact();
+                            if (args_compact)
+                                writer->PushCompact();
+                            wrote_ok = RECURSE(args);
+                            if (args_compact)
+                                writer->PopCompact();
+                        } else if (single != nullptr) {
                             wrote_ok = RECURSE(single);
                         } else if (write_list) {
                             // default() enveloppe les listes __init__/__new__

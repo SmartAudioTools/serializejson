@@ -1019,13 +1019,24 @@ class Encoder(rapidjson.Encoder):
             # recette builtins à forme chaîne : type / function / module —
             # leur fonction du tableau builtins rend déjà (nom_str, args,
             # état), exactement la forme que la branche recette C émet.
-            # Les autres builtins (bytes, bytearray...) gardent leur voie
-            # (branches C dédiées ou déballages particuliers en amont)
+            # bytes et bytearray aussi depuis le 05/08 au soir : leurs formes
+            # (chaîne ascii seule, ou [charge, étiquette]) sont écrites par
+            # la recette C à l'identique du chemin Python — seul Python
+            # restant : l'appel du plugin par objet
             builtin_fn = serializejson_builtins.get(class_)
             if builtin_fn is not None:
-                if class_ in (type, types.FunctionType):
+                if class_ in (type, types.FunctionType, bytes, bytearray):
                     return (None, builtin_fn, bool(self.numpy_array_to_list))
                 return None
+            # set / frozenset : recette privée « éléments à plat » — la
+            # branche recette C écrit alors {"__class__": "set",
+            # "__init__": [éléments]}, la même forme que le chemin Python
+            # (reduce puis déballage remove_add_braces)
+            if class_ is set:
+                return (None, _recette_set, bool(self.numpy_array_to_list))
+            if class_ is frozenset:
+                return (None, _recette_frozenset,
+                        bool(self.numpy_array_to_list))
             method = getattr(class_, "__serializejson__", None)
             if method is not None:
                 if (
@@ -2457,6 +2468,18 @@ def dict_non_str_keys(dict_):
     for key, value in dict_.items():
         d[_decode_cle(key)] = value
     return d
+
+
+# recettes privées des sets pour la branche recette C de l'encodeur : les
+# éléments à PLAT en position __init__ (le C écrit les éléments de la
+# séquence, ce qui rend exactement la forme déballée — remove_add_braces —
+# du chemin Python)
+def _recette_set(inst):
+    return "set", list(inst), None
+
+
+def _recette_frozenset(inst):
+    return "frozenset", list(inst), None
 
 
 # noms PORTEURS d'une enveloppe d'objet : un attribut ainsi nommé ne peut
