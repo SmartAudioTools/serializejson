@@ -2030,6 +2030,27 @@ vitesse — de ×0,4 à ×0,01 selon le profil — et achète du poids (jusqu'à
 ÷300 sur les surfaces lisses). Les rapports contre pickle sont durs sur
 les PETITS tableaux (la référence tient en cache : 18-33 Go/s).
 
+SYNTHÈSE finale (conventions arrêtées le 05/08 midi : référence zstd
+niveau 1 sans filtre, rapports de TEMPS — ×2 = deux fois plus long —,
+écriture = compression pure, base64 mesuré à part, MÉDIANE d'~50
+essais, moyennes GÉOMÉTRIQUES sur les profils applicables ; les lignes
+émulées numpy ne sont pas reprises ici, leurs lectures sont plombées
+par l'inverse non porté en C) :
+
+| Chaîne (en production) | profils | poids moyen | ×écriture | ×lecture |
+|---|---|---|---|---|
+| zstd niveau 1 sans filtre (réf.) | 15 | 100 % | ×1,00 | ×1,00 |
+| octet_shuffle → zstd | 15 | 81 % | ×0,77 | ×0,84 |
+| octet_shuffle → delta (242) → zstd | 15 | 63 % | ×0,95 | ×1,10 |
+| dérivée blocs → octet_shuffle → zstd | 14 | 54 % | ×1,01 | ×1,17 |
+| dérivée blocs → 242 → zstd | 14 | 53 % | ×1,17 | ×1,33 |
+| dérivée blocs → zigzag (244) → bitshuffle → zstd | 14 | **46 %** | ×1,04 | ×1,72 |
+| rice M/S auto | 9 | 77 %* | ×3,26 | ×1,78 |
+
+*La moyenne de rice inclut bruit et rampes où il s'effondre — des cases
+que l'essai automatique, qui choisit par la taille, ne lui donne
+jamais ; sur son terrain (l'audio réel) il est 10-20 points devant.
+
 ⚠ MÉTHODE (leçon du 05/08, complète celle du §11 sur le bruit de
 build) : une comparaison de vitesses n'a de sens qu'entre mesures
 prises SOUS LA MÊME CHARGE — même passe, A/B immédiat, référence
@@ -2097,3 +2118,16 @@ Complété dans la foulée (demandes de Baptiste, même matinée) :
     → cumsum en UNE traversée C++ multithread, zéro passage Python.
     Bout en bout : timestamps 6,6 → **7,3 Go/s**, signal 1D 3,4 → 3,5
     (zstd domine désormais ce profil).
+
+Piste examinée et NOTÉE SANS SUITE — entrelacer le base64 bloc par bloc
+avec zstd : aujourd'hui le base64 est un étage séparé (une passe SIMD
+sur la trame COMPRESSÉE, vers/depuis un tampon de travail), pas fondu
+dans la boucle de blocs. Mais il porte sur des octets 2-10× plus petits
+que les données, et pour les tailles courantes ce tampon tient en L3 :
+la passe zstd le relit depuis le cache — « au plus proche » par
+accident de taille. Un vrai entrelacement exigerait un lecteur base64
+à accès aléatoire (blosc2 lit sa trame par offsets) pour un enjeu
+mesuré de +0 % (trame minuscule) à +38 % (bruit incompressible) du
+temps d'écriture ; le seul cas gagnant serait des trames plus grosses
+que le L3, donc des données énormes ET incompressibles — celles qu'on
+ferait mieux de ne pas compresser. Coût/bénéfice défavorable.
