@@ -68,26 +68,13 @@ def chrono(f, essais=50, plafond=2.0):
     return statistics.median(temps)
 
 
-def _image_photo(rng, canaux):
-    # image photographique synthétique 1600x1200 : dégradés doux (ciel,
-    # vignettage) + grain de capteur, en uint8, canaux corrélés pour le RVB
-    h, w = 1200, 1600
-    y, x = numpy.mgrid[0:h, 0:w]
-    lumiere = (120 + 60 * numpy.sin(x / 300) + 40 * numpy.cos(y / 200)
-               - ((x - w / 2) ** 2 + (y - h / 2) ** 2) / (w * h / 14))
-    image = numpy.empty((h, w, canaux), numpy.float64)
-    for c in range(canaux):
-        image[..., c] = lumiere * (1.0 - 0.12 * c) + rng.normal(0, 2, (h, w))
-    return numpy.clip(image, 0, 255).astype(numpy.uint8)
-
-
-def _images_classiques(rng):
+def _images_classiques():
     # les images des benchmarks de compression sont lues dans
     # images_benchmarks/ : tout fichier déposé là entre dans la matrice
     # (.png/.tif/.bmp... via PIL, .npy via numpy — le .npy porte les
     # profondeurs que PNG/PIL ne savent pas écrire, comme le RVB 10 bits).
-    # Le dépôt fournit cameraman, moon et astronaut en 8/10/16 bits ;
-    # à défaut du dossier, photo synthétique équivalente
+    # Le dépôt fournit classiques/ (cameraman, moon, astronaut en 8/10/16
+    # bits), kodak/ et usc_sipi/ — AUCUNE donnée synthétique : que du corpus
     dossier = RACINE / "images_benchmarks"
     images = []
     if dossier.is_dir():
@@ -113,17 +100,7 @@ def _images_classiques(rng):
             nom = prefixe + chemin.stem.replace("_", " ")
             images.append((f"{nom} ({tableau.nbytes / 1e6:.1f} Mo)",
                            numpy.ascontiguousarray(tableau)))
-    if images:
-        return images
-    return [
-        ("image mono 8 bits synthétique (2 Mpx)",
-         _image_photo(rng, 1)[..., 0]),
-        ("image mono 16 bits synthétique",
-         (_image_photo(rng, 1)[..., 0].astype(numpy.uint16) << 8)),
-        ("image RVB 8 bits/canal synthétique", _image_photo(rng, 3)),
-        ("image RVB 10 bits/canal synthétique",
-         (_image_photo(rng, 3).astype(numpy.uint16) << 2)),
-    ]
+    return images
 
 
 def _sons_classiques():
@@ -157,52 +134,32 @@ def _sons_classiques():
 
 
 def profils():
-    # données synthétiques DÉTERMINISTES (mêmes octets à chaque run),
-    # représentatives des usages : audio, mesures, images, et le pire cas
-    # honnête (bruit incompressible)
+    # QUE des données de CORPUS (demande de Baptiste, 05/08 soir) : les
+    # images de images_benchmarks/ et les sons de sons_benchmarks/ — aucune
+    # donnée synthétique pour évaluer la compression binaire. Un profil
+    # HORS CACHE est bâti en concaténant les images du corpus répétées
+    # jusqu'à ~200 Mo APRÈS dérangement de l'ordre des blocs (une répétition
+    # à l'identique serait un cadeau irréaliste fait à zstd)
+    liste = [*_images_classiques(), *_sons_classiques()]
+    if not liste:
+        raise SystemExit(
+            "aucun corpus : déposer des images dans images_benchmarks/ et"
+            " des sons dans sons_benchmarks/ (voir les commentaires du"
+            " script) — les données synthétiques ont été retirées")
     rng = numpy.random.default_rng(5)
-    t = numpy.linspace(0, 60, 500_000)
-    voix = numpy.zeros(400_000, numpy.int64)
-    for debut in range(50_000, 400_000, 100_000):
-        fin = debut + 50_000
-        tt = numpy.arange(fin - debut)
-        voix[debut:fin] = (8000 * numpy.sin(tt * 0.11)
-                           + rng.integers(-40, 41, fin - debut))
-    mid = (9000 * numpy.sin(t) + rng.integers(-200, 201, len(t)))
-    side = rng.integers(-60, 61, len(t))
-    stereo = numpy.stack([mid + side, mid - side], 1).astype(numpy.int16)
-    a2496 = ((stereo[:250_000].astype(numpy.int32)) << 8) + rng.integers(
-        -128, 128, (250_000, 2), dtype=numpy.int32)
-    x, y = numpy.meshgrid(numpy.arange(2000), numpy.arange(1000))
-    return [
-        ("audio voix int16 (0,8 Mo)", voix.astype(numpy.int16)),
-        ("audio stéréo int16 (2 Mo)", stereo),
-        ("audio 24 bits/96 kHz int32 (2 Mo)", a2496),
-        ("timestamps triés int64 (4 Mo)",
-         (numpy.cumsum(rng.integers(100, 200, 500_000))
-          + 1_700_000_000_000_000).astype(numpy.int64)),
-        ("signal lisse int16 (4 Mo)",
-         (10000 * numpy.sin(numpy.linspace(0, 60, 2_000_000))
-          + rng.integers(-5, 5, 2_000_000)).astype(numpy.int16)),
-        ("float64 lisse (8 Mo)",
-         numpy.sin(numpy.linspace(0, 100, 1_000_000))
-         + rng.normal(0, 1e-9, 1_000_000)),
-        ("surface lisse int32 (8 Mo)",
-         (1000 * numpy.sin(x / 50) + 800 * numpy.cos(y / 70)).astype(numpy.int32)),
-        ("bruit int16, incompressible (1 Mo)",
-         rng.integers(-30000, 30000, 500_000).astype(numpy.int16)),
-        # images CLASSIQUES des benchmarks de compression (scikit-image :
-        # cameraman, astronaut, moon), déclinées mono/RVB et 8/10/16 bits ;
-        # repli sur une photo synthétique si scikit-image manque
-        *_images_classiques(rng),
-        # sons classiques (corpus EBU SQAM) si déposés dans sons_benchmarks/
-        *_sons_classiques(),
-        # HORS CACHE : 200 Mo, la recopie de pickle retombe à la bande
-        # passante RAM — le régime des gros jeux de données
-        ("signal lisse int16, hors cache (200 Mo)",
-         (10000 * numpy.sin(numpy.linspace(0, 3000, 100_000_000))
-          + rng.integers(-5, 5, 100_000_000)).astype(numpy.int16)),
-    ]
+    morceaux = []
+    total = 0
+    sources = [t for _, t in liste]
+    while total < 200_000_000:
+        tableau = sources[rng.integers(0, len(sources))]
+        octets = numpy.frombuffer(tableau.tobytes(), dtype=numpy.uint8)
+        decalage = int(rng.integers(0, len(octets)))
+        morceaux.append(numpy.roll(octets, decalage))
+        total += len(octets)
+    hors_cache = numpy.concatenate(morceaux)
+    liste.append((f"corpus concaténé, hors cache"
+                  f" ({hors_cache.nbytes / 1e6:.0f} Mo)", hors_cache))
+    return liste
 
 
 def mesure_types_objets():
@@ -493,8 +450,12 @@ def figure_machines(donnees, sens, titre):
     # stockage) — une barre PETITE = avantage serializejson
     import matplotlib.pyplot as plt
 
-    profil = "signal lisse int16 (4 Mo)"
-    m = dict(donnees["profils"])[profil]
+    # profil d'ancrage : le plus gros profil individuel du corpus (le
+    # concaténé hors cache exclu — il représente un autre régime)
+    profil, m = max(
+        (ligne for ligne in donnees["profils"]
+         if "hors cache" not in ligne[0]),
+        key=lambda ligne: ligne[1]["nbytes"])
     noms = [nom for nom, _, _ in MACHINES]
     rapports = {}
     for cle in ("dumps", "loads"):
