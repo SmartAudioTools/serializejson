@@ -73,25 +73,24 @@ session `types_seuls.py` (scratchpad — VOLATIL, voir pièges).
 ## Reste à faire (par priorité, chiffres indicatifs pollués par la
 ## charge du soir — refaire la table au calme)
 
-1. Relancer la consolidation (ci-dessus), vérifier TOUT VERT.
-2. Écriture native C des bytes (dumps ~×20 : plancher = appel plugin
+1. Écriture native C des bytes (dumps ~×20 : plancher = appel plugin
    python par objet ; passer seuil/compression via pathTracker comme
    singleLineInit, ne traiter en C que len<seuil : ascii imprimable —
    codec = {tab, LF, CR} ∪ [0x20..0x7E] — sinon b64 via RawDataToBase64
    qui pose déjà le préfixe « n: » ; ≥seuil → voie python blosc).
-3. Collections ~×12 : formes `__items__` (OrderedDict, deque, Counter,
+2. Collections ~×12 : formes `__items__` (OrderedDict, deque, Counter,
    defaultdict) en C.
-4. `_replace_ref_placeholders` (parcours python de l'arbre en
+3. `_replace_ref_placeholders` (parcours python de l'arbre en
    post-passe des racines liste) → C.
-5. dict à clés non-str : le reste (~×12-15) est l'enveloppe par clé —
+4. dict à clés non-str : le reste (~×12-15) est l'enveloppe par clé —
    candidate voie C (écriture des clés + `dict_non_str_keys` C).
-6. tuple loads ~×9 : plancher = construction de l'enveloppe dict en C
+5. tuple loads ~×9 : plancher = construction de l'enveloppe dict en C
    puis conversion — candidat « exception consignée » ou reconnaissance
    des enveloppes au parse (éviter le dict intermédiaire).
-7. Scalaires (None/bool/int/float) dumps ×2-3,5 et
+6. Scalaires (None/bool/int/float) dumps ×2-3,5 et
    iterators/queue/range/slice loads ×2,5-3,5 : proches du plancher
    d'appel — mesurer au calme avant de trancher.
-8. Table finale sur machine calme + PGO ×5 + batterie + section rapport
+7. Table finale sur machine calme + PGO ×5 + batterie + section rapport
    dans l'audit (« chaque type sous ×2 : résultats et exceptions »).
 
 ## Pièges de la nuit (à ne pas repayer)
