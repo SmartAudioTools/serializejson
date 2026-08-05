@@ -184,7 +184,7 @@ import gc
 import copyreg
 import errno
 from copyreg import dispatch_table
-from collections import deque
+from collections import deque, Counter, OrderedDict, defaultdict
 from pybase64 import b64decode, b64encode_as_string
 from _collections_abc import list_iterator
 
@@ -396,6 +396,11 @@ def load(file, *, obj=None, iterator=False, **argsDict):
 def jsonpath(obj):
     """return the json path of loaded object"""
     return id_to_path.get(id(obj), None)
+
+
+# recette C dédiée des collections (voir class_plan) : classe EXACTE -> genre
+# entier lu par le C (2 deque, 3 Counter, 4 OrderedDict, 5 defaultdict)
+_collections_natives = {deque: 2, Counter: 3, OrderedDict: 4, defaultdict: 5}
 
 
 # --- CLASSES BASED API -------------------------------------------------------
@@ -1062,11 +1067,19 @@ class Encoder(rapidjson.Encoder):
             # branche recette C écrit alors {"__class__": "set",
             # "__init__": [éléments]}, la même forme que le chemin Python
             # (reduce puis déballage remove_add_braces)
+            if class_ is tuple:
+                # comme set/frozenset : recette triviale composée par le C
+                # (forme __new__ : (list(obj),), déballage remove_add_braces)
+                return (None, _recette_tuple,
+                        bool(self.numpy_array_to_list), "tuple")
             if class_ is set:
-                return (None, _recette_set, bool(self.numpy_array_to_list))
+                # 4e élément "set"/"frozenset" : le C compose lui-même le
+                # tuple recette (nom, list(obj), None) sans appel python
+                return (None, _recette_set, bool(self.numpy_array_to_list),
+                        "set")
             if class_ is frozenset:
                 return (None, _recette_frozenset,
-                        bool(self.numpy_array_to_list))
+                        bool(self.numpy_array_to_list), "frozenset")
             method = getattr(class_, "__serializejson__", None)
             if method is not None:
                 if (
@@ -1100,6 +1113,16 @@ class Encoder(rapidjson.Encoder):
                     class_str_from_class(class_),
                     hasattr(class_, "__setstate__"),
                 )
+            # collections deque/Counter/OrderedDict/defaultdict (classes
+            # EXACTES) : recette C dédiée — l'enveloppe {__class__,
+            # __init__[, __items__]} est composée entièrement en C, miroir
+            # du reduce à listitems/dictitems que la recette générale ne
+            # porte pas (plan (nom_de_classe, entier) — un bool n'est jamais
+            # un entier exact, pas de collision avec le plan attributs).
+            # deque à maxlen : repli voie python décidé par objet, côté C
+            if class_ in _collections_natives and class_ not in dispatch_table:
+                return (class_str_from_class(class_),
+                        _collections_natives[class_])
             # recette __reduce__ réimplémenté : un adaptateur minuscule
             # appelle obj.__reduce_ex__(protocole) et reforme le tuple pour
             # la branche recette C (classe, args, état). Formes hors recette
@@ -2609,6 +2632,10 @@ _cle_nombre_json = re.compile(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$")
 # du chemin Python)
 def _recette_set(inst):
     return "set", list(inst), None
+
+
+def _recette_tuple(inst):
+    return "tuple", None, None, None, None, (list(inst),)
 
 
 def _recette_frozenset(inst):

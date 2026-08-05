@@ -254,3 +254,36 @@ def test_ref_chemin_echappe_guillemet_dans_cle():
     for cle in ['a"b', b'x"y', 'x\ty', 'a\\b']:
         dumped, loaded = roundtrip([{cle: shared}, shared])
         assert loaded[0][cle] is loaded[1]
+
+
+def test_ref_vers_interieur_de_collections():
+    # les chemins .__items__ / .__init__ d'une enveloppe de collection
+    # se résolvent sur l'objet RECONSTRUIT (les éléments sont l'objet
+    # lui-même ; __init__ est la fabrique d'un defaultdict, jamais la
+    # méthode) — cassé depuis toujours, corrigé le 06/08/2026
+    import collections
+
+    shared = [9, 8]
+    cas = [
+        collections.deque([shared]),
+        collections.OrderedDict({"x": shared}),
+        collections.Counter(),  # __init__ vide : juste le roundtrip
+        collections.defaultdict(None, {"y": shared}),
+    ]
+    for objet in cas:
+        dumped, loaded = roundtrip([objet, shared])
+        obj = loaded[0]
+        assert type(obj) is type(objet)
+        if isinstance(obj, collections.deque):
+            assert obj[0] is loaded[1]
+        elif len(obj):
+            assert next(iter(obj.values())) is loaded[1]
+
+
+def test_deque_maxlen_reste_voie_python():
+    import collections
+
+    d = collections.deque([1, 2], maxlen=5)
+    dumped, loaded = roundtrip(d)
+    assert type(loaded) is collections.deque
+    assert loaded.maxlen == 5 and list(loaded) == [1, 2]

@@ -1393,7 +1393,7 @@ def from_name(path, accept_dict_as_object=False, **variables):
                                 if key in variables
                                 else __builtins__[key]
                             )
-                        if type(current) is dict and type(key) is str:
+                        if isinstance(current, dict) and type(key) is str:
                             # ENVELOPPE de dict à clés non-str : le chemin
                             # porte le texte encodé de la clé, le dict
                             # reconstruit la clé décodée — décodage d'abord
@@ -1530,6 +1530,15 @@ def _getattr(obj, attribut, accept_dict_as_object):
             from serializejson import _decode_cle
             return obj[_decode_cle(attribut)]
     else:
+        # chemin vers l'intérieur d'une ENVELOPPE de collection
+        # (root[0].__items__[0], root[0].__init__['a']...) : sur l'objet
+        # reconstruit, les éléments sont l'objet lui-même (deque,
+        # OrderedDict, Counter), et __init__ la fabrique d'un defaultdict.
+        # __init__ s'intercepte AVANT getattr (toujours résolu, en méthode) ;
+        # un vrai attribut de données ne porte jamais ces noms réservés
+        # (l'encodeur route un état à clé réservée sous __state__)
+        if attribut == "__init__":
+            return getattr(obj, "default_factory", obj)
         try:
             # permet de marcher avec slot et properties,mais pas getters
             return getattr(obj, attribut)
@@ -1541,6 +1550,8 @@ def _getattr(obj, attribut, accept_dict_as_object):
             ]:
                 if hasattr(obj, methode):
                     return getattr(obj, methode)()
+            if attribut == "__items__":
+                return obj
             raise
 
 

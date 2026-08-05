@@ -1313,7 +1313,23 @@ sj_resolve_ref_path(const char* path, Py_ssize_t length, PyObject* root)
             PyObject* key = PyUnicode_FromStringAndSize(start, p - start);
             if (key == nullptr)
                 break;
-            if (PyDict_CheckExact(current)) {
+            // chemin vers l'intérieur d'une ENVELOPPE de collection : sur
+            // l'objet reconstruit, __init__ est la fabrique d'un defaultdict
+            // sinon l'objet lui-même (Counter) — intercepté AVANT getattr,
+            // qui résoudrait la MÉTHODE __init__ (même règle que _getattr)
+            if (p - start == 8 && memcmp(start, "__init__", 8) == 0) {
+                next = PyObject_GetAttrString(current, "default_factory");
+                if (next == nullptr) {
+                    PyErr_Clear();
+                    next = current;
+                    Py_INCREF(next);
+                }
+                Py_DECREF(key);
+                Py_DECREF(current);
+                current = next;
+                continue;
+            }
+            if (PyDict_Check(current)) {
                 next = PyDict_GetItem(current, key);   // empruntée
                 Py_XINCREF(next);
                 if (next == nullptr) {
@@ -1334,6 +1350,13 @@ sj_resolve_ref_path(const char* path, Py_ssize_t length, PyObject* root)
                 if (next == nullptr)
                     PyErr_Clear();
             }
+            if (next == nullptr && p - start == 9
+                && memcmp(start, "__items__", 9) == 0) {
+                // les éléments d'une collection reconstruite sont l'objet
+                // lui-même (deque, OrderedDict, defaultdict)
+                next = current;
+                Py_INCREF(next);
+            }
             Py_DECREF(key);
         } else if (*p == '[' && p + 1 < end && p[1] == '\'') {
             const char* start = p + 2;
@@ -1351,7 +1374,7 @@ sj_resolve_ref_path(const char* path, Py_ssize_t length, PyObject* root)
             // (une clé int 2 et une clé str '2' coexistantes s'écrivent
             // '2' et "'2'" : sans cette priorité, ['2'] tomberait sur la
             // mauvaise), texte brut ensuite
-            if (PyDict_CheckExact(current)) {
+            if (PyDict_Check(current)) {
                 PyObject* decodee = sj_decode_cle_ref(start, q - start);
                 if (decodee != nullptr) {
                     next = PyDict_GetItem(current, decodee);  // empruntée
@@ -1604,6 +1627,9 @@ struct PyHandler {
     // repli PAR CLÉ du décodage C des dicts à clés non-str (attribut
     // _decode_cle_exotique du décodeur, résolu une fois par chargement)
     PyObject* decodeCleFn = nullptr;
+    // cache des chemins $ref RÉSOLUS le temps d'un parse (résolutions
+    // acceptées seulement — jamais une cible encore à l'état d'enveloppe)
+    PyObject* refPathCache = nullptr;
     // cache des clés EXOTIQUES décodées ('[5,6]' -> (5,6)...), le temps d'un
     // parse : les répliques d'un document répètent leurs clés, et chaque
     // décodage python coûte ~4 µs (résultats immuables : tuple, frozenset,
@@ -1754,6 +1780,7 @@ struct PyHandler {
         Py_CLEAR(decoderEndArray);
         Py_CLEAR(decoderString);
         Py_CLEAR(decodeCleFn);
+        Py_CLEAR(refPathCache);
         Py_CLEAR(cleExotiqueCache);
         Py_CLEAR(sharedKeys);
         ReleaseKeyCache();
@@ -3035,24 +3062,50 @@ struct PyHandler {
                     Py_INCREF(rootObject);
                 }
                 if (rootObject != nullptr) {
-                    Py_ssize_t path_length;
-                    const char* path_str = PyUnicode_AsUTF8AndSize(
-                        ref_path, &path_length);
-                    PyObject* resolved = (path_str == nullptr) ? nullptr
-                        : sj_resolve_ref_path(path_str, path_length,
-                                              rootObject);
-                    if (path_str == nullptr)
-                        PyErr_Clear();
-                    if (resolved != nullptr) {
-                        bool exotique = resolved == mapping
-                            || (PyDict_CheckExact(resolved)
-                                && PyDict_GetItem(resolved, class_key_name)
-                                       != nullptr);
-                        if (exotique)
-                            Py_DECREF(resolved);   // voie python
-                        else {
+                    // cache par CHEMIN le temps du parse : les documents à
+                    // répliques émettent des dizaines de fois le même $ref,
+                    // et chaque résolution remarche depuis la racine. Seules
+                    // les résolutions ACCEPTÉES sont mémorisées : une cible
+                    // encore à l'état d'enveloppe (__class__) est déclinée,
+                    // et sa forme finale ne s'obtient qu'en re-résolvant
+                    PyObject* resolved = nullptr;
+                    if (refPathCache != nullptr) {
+                        resolved = PyDict_GetItemWithError(refPathCache,
+                                                           ref_path);
+                        if (resolved != nullptr) {
+                            Py_INCREF(resolved);
                             replacement = resolved;
                             Py_DECREF(mapping);
+                        } else if (PyErr_Occurred())
+                            PyErr_Clear();
+                    }
+                    if (replacement == nullptr) {
+                        Py_ssize_t path_length;
+                        const char* path_str = PyUnicode_AsUTF8AndSize(
+                            ref_path, &path_length);
+                        resolved = (path_str == nullptr) ? nullptr
+                            : sj_resolve_ref_path(path_str, path_length,
+                                                  rootObject);
+                        if (path_str == nullptr)
+                            PyErr_Clear();
+                        if (resolved != nullptr) {
+                            bool exotique = resolved == mapping
+                                || (PyDict_CheckExact(resolved)
+                                    && PyDict_GetItem(resolved,
+                                                      class_key_name)
+                                           != nullptr);
+                            if (exotique)
+                                Py_DECREF(resolved);   // voie python
+                            else {
+                                if (refPathCache == nullptr)
+                                    refPathCache = PyDict_New();
+                                if (refPathCache != nullptr
+                                    && PyDict_SetItem(refPathCache, ref_path,
+                                                      resolved) < 0)
+                                    PyErr_Clear();
+                                replacement = resolved;
+                                Py_DECREF(mapping);
+                            }
                         }
                     }
                 }
@@ -6729,8 +6782,35 @@ dumps_internal(
                     }
                 } else {
 
-                PyObject* tup = PyObject_CallFunctionObjArgs(
-                    recipe_fn, object, nullptr);
+                PyObject* tup;
+                if (PyTuple_GET_SIZE(plan) == 4
+                    && (PySet_CheckExact(object)
+                        || PyFrozenSet_CheckExact(object)
+                        || PyTuple_CheckExact(object))
+                    && PyUnicode_Check(PyTuple_GET_ITEM(plan, 3))) {
+                    // set/frozenset/tuple : la recette est triviale —
+                    // composée ici, sans le rappel python par objet qui
+                    // pesait ~40 % du lot sets (set : (nom, éléments, None) ;
+                    // tuple : forme __new__ (nom, ..., (éléments,)))
+                    PyObject* elements = PySequence_List(object);
+                    if (elements == nullptr)
+                        return false;
+                    if (PyTuple_CheckExact(object)) {
+                        PyObject* new_args = PyTuple_Pack(1, elements);
+                        tup = new_args == nullptr ? nullptr
+                            : PyTuple_Pack(6, PyTuple_GET_ITEM(plan, 3),
+                                           Py_None, Py_None, Py_None,
+                                           Py_None, new_args);
+                        Py_XDECREF(new_args);
+                    } else {
+                        tup = PyTuple_Pack(3, PyTuple_GET_ITEM(plan, 3),
+                                           elements, Py_None);
+                    }
+                    Py_DECREF(elements);
+                } else {
+                    tup = PyObject_CallFunctionObjArgs(
+                        recipe_fn, object, nullptr);
+                }
                 if (tup == nullptr)
                     return false;
                 Py_ssize_t tup_size =
@@ -7005,6 +7085,122 @@ dumps_internal(
                 // objet y répondront par le même $ref que default()
                 Py_DECREF(tup);
                 }   // fin de la variante tuple (__serializejson__/registre)
+            } else if (plan != Py_None && PyTuple_GET_SIZE(plan) == 2
+                       && PyLong_CheckExact(PyTuple_GET_ITEM(plan, 1))) {
+                // ----- recette collections native (plan (nom, genre)) :
+                // l'enveloppe {__class__, __init__[, __items__]} du reduce à
+                // listitems/dictitems est composée ici, octet pour octet
+                // comme la voie python — plus aucun rappel par objet.
+                // Genres : 2 deque, 3 Counter, 4 OrderedDict, 5 defaultdict
+                long genre = PyLong_AsLong(PyTuple_GET_ITEM(plan, 1));
+                PyObject* class_name = PyTuple_GET_ITEM(plan, 0);
+                bool eligible = genre >= 2 && genre <= 5;
+                PyObject* factory = nullptr;   // defaultdict.default_factory
+                if (genre == 2) {
+                    // deque à maxlen : init composite (tuple vide, maxlen),
+                    // voie python — décidé par OBJET
+                    PyObject* maxlen =
+                        PyObject_GetAttrString(object, "maxlen");
+                    if (maxlen == nullptr) {
+                        PyErr_Clear();
+                        eligible = false;
+                    } else {
+                        eligible = maxlen == Py_None;
+                        Py_DECREF(maxlen);
+                    }
+                } else if (genre == 5) {
+                    factory =
+                        PyObject_GetAttrString(object, "default_factory");
+                    if (factory == nullptr) {
+                        PyErr_Clear();
+                        eligible = false;
+                    }
+                }
+                if (eligible) {
+                    CONTAINER_MEMO_OR_REF()
+
+                    if (pathTracker->dumpedClasses != nullptr
+                        && PySet_Add(pathTracker->dumpedClasses,
+                                     class_name) < 0)
+                        PyErr_Clear();
+
+                    Py_ssize_t name_length;
+                    const char* name_str =
+                        PyUnicode_AsUTF8AndSize(class_name, &name_length);
+                    if (name_str == nullptr) {
+                        Py_XDECREF(factory);
+                        return false;
+                    }
+                    writer->StartObject();
+                    writer->Key("__class__", 9);
+                    writer->String(name_str, (SizeType) name_length);
+                    writer->Key("__init__", 8);
+
+                    // __init__ : [] (deque, OrderedDict, defaultdict sans
+                    // fabrique), la fabrique (defaultdict), ou la COPIE
+                    // plate du contenu (Counter) — même arbre que le reduce
+                    bool ok = true;
+                    if (genre == 3) {
+                        PyObject* copie = PyDict_Copy(object);
+                        if (copie == nullptr) {
+                            Py_XDECREF(factory);
+                            return false;
+                        }
+                        if (pathTracker) {
+                            pathTracker->segments.push_back(
+                                {PathSegment::ATTR, "__init__", 8, 0});
+                            pathTracker->registered.push_back(-1);
+                        }
+                        ok = RECURSE(copie);
+                        PATH_POP();
+                        Py_DECREF(copie);
+                    } else if (genre == 5 && factory != Py_None) {
+                        if (pathTracker) {
+                            pathTracker->segments.push_back(
+                                {PathSegment::ATTR, "__init__", 8, 0});
+                            pathTracker->registered.push_back(-1);
+                        }
+                        ok = RECURSE(factory);
+                        PATH_POP();
+                    } else {
+                        writer->StartArray();
+                        writer->EndArray();
+                    }
+                    Py_XDECREF(factory);
+                    if (!ok)
+                        return false;
+
+                    // __items__ : liste des éléments (deque) ou copie plate
+                    // (OrderedDict, defaultdict), omis si vide — comme les
+                    // listitems/dictitems du reduce
+                    Py_ssize_t taille = PyObject_Size(object);
+                    if (taille < 0) {
+                        PyErr_Clear();
+                        taille = 0;
+                    }
+                    if (genre != 3 && taille > 0) {
+                        PyObject* contenu = genre == 2
+                            ? PySequence_List(object)
+                            : PyDict_Copy(object);
+                        if (contenu == nullptr)
+                            return false;
+                        writer->Key("__items__", 9);
+                        if (pathTracker) {
+                            pathTracker->segments.push_back(
+                                {PathSegment::ATTR, "__items__", 9, 0});
+                            pathTracker->registered.push_back(-1);
+                        }
+                        ok = RECURSE(contenu);
+                        PATH_POP();
+                        Py_DECREF(contenu);
+                        if (!ok)
+                            return false;
+                    }
+                    writer->EndObject();
+                    return PyErr_Occurred() ? false : true;
+                }
+                Py_XDECREF(factory);
+                // objet particulier (deque à maxlen) : chemin Python
             } else if (plan != Py_None) {
                 PyObject* class_name = PyTuple_GET_ITEM(plan, 0);
                 bool filter_underscore =

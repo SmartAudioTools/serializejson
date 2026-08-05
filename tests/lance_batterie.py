@@ -95,8 +95,9 @@ def rapport_pdf(resultats, chemin):
     ax.text(0.5, 0.97, "serializejson — rapport de batterie",
             ha="center", fontsize=17, weight="bold")
     ax.text(0.5, 0.935, date, ha="center", fontsize=11)
+    # parse_math=False : un message de commit peut contenir « $ » (mathtext)
     ax.text(0.5, 0.91, f"{platform.node()} — {commit}",
-            ha="center", fontsize=8, color="gray")
+            ha="center", fontsize=8, color="gray", parse_math=False)
     verdict = "TOUT VERT" if tout_vert else "ÉCHECS — voir détail"
     ax.text(0.5, 0.865, verdict, ha="center", fontsize=14, weight="bold",
             color="green" if tout_vert else "red")
@@ -123,6 +124,7 @@ def rapport_pdf(resultats, chemin):
     y = 0.5
     for r in resultats:
         ax.text(0.05, y, f"{r['version']} : {r['ligne']}", fontsize=7,
+                parse_math=False,
                 family="monospace")
         y -= 0.018
         for f in r["diffs"]:
