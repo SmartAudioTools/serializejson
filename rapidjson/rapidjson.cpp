@@ -96,6 +96,7 @@ static PyObject* decimal_type = nullptr;
 static PyObject* timezone_type = nullptr;
 static PyObject* timezone_utc = nullptr;
 static PyObject* uuid_type = nullptr;
+static PyObject* struct_time_type = nullptr;
 static PyObject* validation_error = nullptr;
 static PyObject* decode_error = nullptr;
 
@@ -226,41 +227,6 @@ static PyObject* properties_name = nullptr;
 static PyObject* minus_inf_string_value = nullptr;
 static PyObject* nan_string_value = nullptr;
 static PyObject* plus_inf_string_value = nullptr;
-
-// time.struct_time : type résolu une fois (module time déjà importé en
-// pratique — l'import ne fait que retrouver l'entrée de sys.modules)
-static PyObject*
-sj_struct_time_type()
-{
-    static PyObject* type_st = nullptr;
-    if (type_st == nullptr) {
-        PyObject* module_time = PyImport_ImportModule("time");
-        if (module_time != nullptr) {
-            type_st = PyObject_GetAttrString(module_time, "struct_time");
-            Py_DECREF(module_time);
-        }
-        if (type_st == nullptr)
-            PyErr_Clear();
-    }
-    return type_st;
-}
-
-// decimal.Decimal : même résolution paresseuse, une fois
-static PyObject*
-sj_decimal_type()
-{
-    static PyObject* type_dec = nullptr;
-    if (type_dec == nullptr) {
-        PyObject* module_dec = PyImport_ImportModule("decimal");
-        if (module_dec != nullptr) {
-            type_dec = PyObject_GetAttrString(module_dec, "Decimal");
-            Py_DECREF(module_dec);
-        }
-        if (type_dec == nullptr)
-            PyErr_Clear();
-    }
-    return type_dec;
-}
 
 
 struct HandlerContext {
@@ -3013,12 +2979,9 @@ struct PyHandler {
             break;
         case 15:  // decimal.Decimal : "<str(d)>" — le constructeur C parse
             if (memcmp(cls, "decimal.Decimal", 15) == 0
-                && PyUnicode_CheckExact(ctor_args)) {
-                PyObject* type_dec = sj_decimal_type();
-                if (type_dec != nullptr)
-                    replacement = PyObject_CallFunctionObjArgs(
-                        type_dec, ctor_args, nullptr);
-            }
+                && PyUnicode_CheckExact(ctor_args))
+                replacement = PyObject_CallFunctionObjArgs(
+                    decimal_type, ctor_args, nullptr);
             break;
         case 16:  // time.struct_time : [tuple de 9 entiers, dict des deux
             // champs hors séquence] — le constructeur accepte (seq, dict)
@@ -3026,13 +2989,10 @@ struct PyHandler {
                 && PyList_CheckExact(ctor_args)
                 && PyList_GET_SIZE(ctor_args) == 2
                 && PyTuple_CheckExact(PyList_GET_ITEM(ctor_args, 0))
-                && PyDict_CheckExact(PyList_GET_ITEM(ctor_args, 1))) {
-                PyObject* type_st = sj_struct_time_type();
-                if (type_st != nullptr)
-                    replacement = PyObject_CallFunctionObjArgs(
-                        type_st, PyList_GET_ITEM(ctor_args, 0),
-                        PyList_GET_ITEM(ctor_args, 1), nullptr);
-            }
+                && PyDict_CheckExact(PyList_GET_ITEM(ctor_args, 1)))
+                replacement = PyObject_CallFunctionObjArgs(
+                    struct_time_type, PyList_GET_ITEM(ctor_args, 0),
+                    PyList_GET_ITEM(ctor_args, 1), nullptr);
             break;
         case 17:  // datetime.datetime : forme reduce 10 octets (rapide,
             // celle de l'encodeur depuis le 06/08), ou l'ancienne forme
@@ -6316,7 +6276,7 @@ dumps_internal(
 	// "tm_gmtoff": ...}]} — la forme reduce de la voie python. Un struct
 	// sequence EST un tuple : les 9 champs se lisent par PyTuple_GET_ITEM
 	else if (pathTracker != nullptr && PyTuple_Check(object)
-             && (PyObject*) Py_TYPE(object) == sj_struct_time_type()
+             && (PyObject*) Py_TYPE(object) == struct_time_type
              && PyTuple_GET_SIZE(object) >= 9) {
         CONTAINER_MEMO_OR_REF()
         writer->EnvelopeHead("time.struct_time", 16, "__init__", 8);
@@ -6362,7 +6322,7 @@ dumps_internal(
 	// decimal.Decimal : {"__class__": "decimal.Decimal", "__init__":
 	// "<str(d)>"} — la graphie de Decimal est toujours ascii sans échappement
 	else if (pathTracker != nullptr
-             && (PyObject*) Py_TYPE(object) == sj_decimal_type()) {
+             && (PyObject*) Py_TYPE(object) == decimal_type) {
         CONTAINER_MEMO_OR_REF()
         PyObject* graphie = PyObject_Str(object);
         if (graphie == nullptr)
@@ -10200,6 +10160,16 @@ module_exec(PyObject* m)
     Py_DECREF(uuidModule);
 
     if (uuid_type == nullptr)
+        return -1;
+
+    PyObject* timeModule = PyImport_ImportModule("time");
+    if (timeModule == nullptr)
+        return -1;
+
+    struct_time_type = PyObject_GetAttrString(timeModule, "struct_time");
+    Py_DECREF(timeModule);
+
+    if (struct_time_type == nullptr)
         return -1;
 
     astimezone_name = PyUnicode_InternFromString("astimezone");

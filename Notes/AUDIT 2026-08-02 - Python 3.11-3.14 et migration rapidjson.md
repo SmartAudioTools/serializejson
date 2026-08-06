@@ -2573,22 +2573,74 @@ c'est ce qui porte les Counter à clés non-str).
 subsistent les remplissages de caches (24 résolutions de valeurs de
 type et 1 clé exotique, une fois par processus).
 
-TABLE_FINALE_ICI
+### TABLE FINALE (06/08/2026, 10 h, machine calme)
 
-**Exceptions consignées** (résiduels au-dessus de ×2, et pourquoi) :
-  - `bytes` dumps (~×12) et une part de `bytesarray`/`binary` : c'est
-    la COMPRESSION zstd elle-même — 5,2 µs pour compresser 512 octets
-    là où pickle fait un memcpy (0,2 µs). Mesuré : le greffon complet
-    coûte 5,6 µs, dont 5,2 de `BloscToBase64` (déjà du C). Porter la
-    compression dans l'écrivain ferait gagner ~0,4 µs par entrée : le
-    résiduel est le prix du POIDS gagné, pas de la plomberie —
-    l'écriture C de la compression (point 3 de la liste de reprise)
-    est ABANDONNÉE sur cette mesure ;
-  - `set`/`frozenset` dumps (~×3-4) : plus un rappel python — le
-    résiduel est l'enveloppe `{"__class__": ..., "__init__": [...]}`
-    par objet (mémo, chemin, clés) contre un opcode pickle ;
-  - les catégories microscopiques (None/queue/iterators, lots de 3 à
-    8 µs) oscillent avec le coût fixe d'appel — au plancher.
+Binaires PGO des cinq versions, batterie 117 tests verte partout
+(`tests/rapport_batterie_2026-08-06_1010.pdf`). Mesures
+`tests/types_seuls.py` sous python 3.12.13, charge 1,2-1,5 — DEUX
+passes successives, concordantes à ~5 % sauf sur les catégories vides ;
+les ratios ci-dessous en sont la moyenne, les microsecondes celles de
+la première passe (lot de 32 répliques par catégorie, `min` de
+plusieurs séries).
+
+| catégorie | dumps | pickle → sj (µs) | loads | pickle → sj (µs) |
+|---|---|---|---|---|
+| datetime | **×0,73** | 74,4 → 53,7 | ×1,95 | 33,1 → 64,8 |
+| decimales | **×0,89** | 12,6 → 12,1 | ×1,47 | 6,9 → 10,5 |
+| slice | **×0,95** | 12,0 → 11,2 | ×1,77 | 5,4 → 9,5 |
+| complex | ×1,17 | 10,6 → 12,2 | ×1,43 | 5,9 → 8,6 |
+| range | ×1,19 | 12,7 → 14,7 | ×1,89 | 5,2 → 9,4 |
+| collections | ×1,20 | 316,2 → 376,1 | ×2,23 | 248,8 → 556,9 |
+| binary | ×1,38 | 175,5 → 244,2 | ×2,50 | 96,0 → 235,4 |
+| composeds | ×1,66 | 6,2 → 10,3 | **×0,87** | 8,8 → 7,5 |
+| str | ×1,75 | 18,5 → 33,6 | **×0,86** | 49,3 → 41,7 |
+| bool | ×1,79 | 3,5 → 6,5 | ×1,36 | 3,7 → 5,4 |
+| list | ×2,02 | 36,5 → 74,2 | **×0,82** | 61,3 → 50,7 |
+| bytesarray | ×2,10 | 52,4 → 106,8 | ×2,63 | 23,0 → 59,1 |
+| dict | ×2,13 | 39,0 → 80,0 | ×1,69 | 59,9 → 102,6 |
+| int | ×2,14 | 4,2 → 8,9 | ×1,49 | 4,1 → 6,5 |
+| None | ×2,42 | 2,3 → 6,1 | ×1,66 | 2,6 → 4,2 |
+| float | ×2,43 | 8,4 → 21,2 | ×1,11 | 14,4 → 15,8 |
+| *queue* | *×2,51* | *1,4 → 3,3* | *×2,73* | *1,0 → 2,7* |
+| *iterators* | *×2,73* | *1,4 → 3,2* | *×2,42* | *1,1 → 2,6* |
+| types | ×2,82 | 35,8 → 102,3 | ×2,74 | 48,0 → 131,9 |
+| frozenset | ×2,85 | 51,6 → 148,4 | ×1,75 | 66,8 → 119,3 |
+| tuple | ×2,87 | 34,4 → 100,2 | ×2,59 | 39,0 → 99,6 |
+| set | ×3,29 | 42,1 → 142,1 | ×1,81 | 66,6 → 118,2 |
+| bytes | ×9,06 | 13,1 → 116,2 | ×4,51 | 15,1 → 68,1 |
+
+Six catégories sont désormais PLUS RAPIDES que pickle dans un sens au
+moins (datetime, decimales et slice en écriture ; str, list et
+composeds en lecture) ; quinze des vingt-trois sont sous ×2 en
+lecture, et onze le sont en écriture. Point de départ de la nuit, pour
+mémoire : la moitié du catalogue dépassait ×3, `collections` était à
+×3,2 en écriture et `datetime` à ×3,3.
+
+**Exceptions consignées** (résiduels au-dessus de ×2, et pourquoi) —
+aucune ne contient plus de rappel python à retirer, le comptage du
+catalogue entier est à zéro dans les deux sens :
+  - `bytes` (×9,0 en écriture, ×4,5 en lecture) et une part de
+    `bytesarray`/`binary` : c'est la COMPRESSION zstd elle-même —
+    2,7 µs pour compresser 512 octets (5,2 avant le cache de
+    contexte) là où pickle fait un memcpy à 0,2 µs. Le greffon
+    complet coûte 5,6 µs dont la quasi-totalité dans
+    `BloscToBase64`, déjà du C ; porter la compression dans
+    l'écrivain gagnerait ~0,4 µs par entrée. Le résiduel est le prix
+    du POIDS gagné, pas de la plomberie — l'écriture C de la
+    compression est ABANDONNÉE sur cette mesure ;
+  - `set`/`tuple`/`frozenset`/`types` (×2,5-3,3) : le mur de format.
+    L'enveloppe `{"__class__": ..., "__init__": [...]}` par objet —
+    mémo, chemin, clés, ~35 à 40 octets — contre un ou deux opcodes
+    pickle. Rien à gagner sans changer le format ;
+  - `dict`, `None`, `int`, `float`, `list` en écriture (×2,0-2,5) :
+    même mur, à l'échelle du scalaire — la graphie décimale d'un
+    entier contre son opcode binaire ;
+  - `collections` et `binary` en lecture (×2,2-2,5) : construction
+    des conteneurs et décompression, mêmes deux causes que ci-dessus ;
+  - `iterators` et `queue` (en italique dans la table) sont des
+    catégories VIDES du catalogue : leurs lots de 1 à 3 µs ne
+    mesurent que le coût fixe d'appel. Ce ne sont pas des cibles, et
+    il ne faut pas les lire comme des régressions.
 
 ### 17 terdecies. Nuit du 6/08, reprise sur demande — sets natifs, cache des types, et la mort du hack SingleLine
 
@@ -2677,3 +2729,82 @@ au memcpy ; sur les charges réelles (contenu dominant), l'écart
 s'efface. bytes ≥ seuil reste le prix de la COMPRESSION (5,2 µs de
 zstd pour 512 octets contre le memcpy de pickle) — c'est un échange
 octets contre microsecondes, assumé.
+
+### 17 quindecies. Fin de nuit — campagne de ciblage, contextes de compression, et les trois derniers types python
+
+À 03 h 32, demande dictée : « lance une campagne de test pour
+identifier les cas les plus problématiques et continue d'avancer ».
+La campagne (`tests/types_seuls.py`, ratios interlacés dans le même
+processus) a séparé deux populations que le ratio seul confondait —
+ce qui coûte de la PLOMBERIE, et ce qui coûte le FORMAT.
+
+**Deux coûts fixes payés par appel, invisibles au profil de code.**
+`bytes` sortait à ×12,4 en écriture : `BloscToBase64_new` créait et
+détruisait un contexte de compression blosc2 PAR OBJET, et cette
+création alloue le contexte zstd interne. Un cache à une place
+(`sj_cctx_cache`, clé = tous les paramètres de compression, pris et
+rendu sous le GIL, jamais pour le chemin préfiltre dont les
+paramètres pointent la pile) : 5,2 → 2,7 µs les 512 octets, bytes
+dumps ×12,4 → ×9,8, bytesarray ×3,2 → ×2,4. Les octets produits
+restent identiques (vérifié cache chaud contre processus frais, et
+par les goldens de la batterie qui contiennent du b64 compressé).
+
+Le second était propre au BAC À SABLE : `std::thread::hardware_-
+concurrency()` y est un appel système coûteux (~1,7 µs), et
+`FlushPendingB64` l'appelait DEUX fois par vidange — donc à chaque
+parse contenant du base64. Passé en `static const` : la lecture d'un
+document à un petit b64 tombe de 5,11 à 1,69 µs. Ce défaut ne se
+voyait sur aucun profil de la machine hôte ; il ne se voyait que
+d'ici. Leçon : un coût mesuré dans le bac à sable n'est pas
+transposable, mais il est bien réel POUR CE QUI Y TOURNE.
+
+**Les trois derniers types encore servis par python.** La
+décomposition unitaire de la catégorie `datetime` a montré que
+datetime/date/time étaient déjà au niveau de pickle, et que la
+moyenne était tirée par deux retardataires — puis `decimales` par un
+troisième :
+  - `datetime.timedelta` : branche native aux deux bouts (écriture
+    par les macros `PyDateTime_DELTA_GET_*`, lecture par
+    `Delta_FromDelta` avec garde de débordement qui rend la main à
+    python) — dumps 2,29 → 1,71 µs, soit le temps de pickle ;
+  - `time.struct_time` : c'est un SOUS-TYPE DE TUPLE, ses neuf champs
+    se lisent par `PyTuple_GET_ITEM` et seuls `tm_zone`/`tm_gmtoff`
+    demandent un `GetAttr` — dumps 3,28 → 1,43 µs, loads 4,24 →
+    2,34 µs. Catégorie `datetime` : dumps ×1,22 → ×0,75 (SOUS pickle),
+    loads ×3,08 → ×2,40 ;
+  - `decimal.Decimal` : la graphie de `str(d)` est toujours de
+    l'ascii sans échappement, l'écriture est donc un `String()` direct
+    et la lecture un appel au constructeur C. NaN, sNaN, -Infinity,
+    -0.000 et -1E+27 conservent leur graphie exacte ; les sous-classes
+    restent sur la voie python. Catégorie `decimales` : dumps ×1,97 →
+    ×0,82 (sous pickle), loads ×2,32 → ×1,65.
+
+**Un piège de MESURE, à ne pas repayer.** L'espion qui compte les
+rappels python en surchargeant `Encoder.default` MENT sur l'écriture :
+la garde de `_configure` (« ni `default`, ni `_dict_from_instance`, ni
+`_default_one_line` redéfinis ») DÉSACTIVE le chemin natif des dicts à
+clés non-str dès qu'on le sous-classe. L'espion accusait donc un
+rappel python par dict exotique — un rappel que sa propre présence
+créait. Compté correctement (en enveloppant `_cle_json`, hors de la
+garde), le bilan du catalogue entier est : **zéro repli python en
+écriture, zéro en lecture**, à l'exception des trois clés VRAIMENT
+exotiques (tuple et frozenset EN CLÉ) des deux dicts non-str du
+catalogue, et du remplissage des caches au premier passage.
+
+Ce qui reste au-dessus de ×2 après cette passe ne contient donc plus
+une seule ligne de python à retirer : c'est le mur de format et le
+prix de zstd, tous deux chiffrés ci-dessus.
+
+**Passe de simplification, avant de clore.** Les branches Decimal et
+struct_time avaient chacune été écrites avec son propre accesseur
+paresseux (`sj_decimal_type()`, `sj_struct_time_type()`) important le
+module au premier appel. C'était du code en double : `decimal_type`
+existe déjà comme global du fichier, résolu à l'initialisation du
+module (`return -1` en cas d'échec, donc jamais nul ensuite). Les deux
+accesseurs ont été supprimés ; `struct_time_type` est devenu un global
+déclaré et résolu comme `uuid_type`, par le mécanisme que le fichier
+emploie déjà partout. Les gardes des deux branches d'écriture passent
+d'un appel de fonction à une comparaison de pointeur, et les deux cas
+de `EnvelopeConstruct` perdent leur test de nullité. Rejoué ensuite :
+allers-retours des deux types, batterie ×5 verte, puis PGO complète
+pour que les cinq binaires correspondent à la source simplifiée.

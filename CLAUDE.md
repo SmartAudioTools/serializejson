@@ -1,68 +1,73 @@
-# Passation — nuit du 05 au 06/08/2026
+# Passation — nuit du 05 au 06/08/2026, close le 06 à 10 h
 
-Deux missions successives cette nuit, dictées par Baptiste :
-« chaque type sous ×2 de pickle » (20 h 26), puis à 00 h 59 la barre
-remontée : « optimise jusqu'à 8 h, jusqu'aux performances de pickle »
-(« mieux que pickle c'est bien aussi »). Récit détaillé dans
-`Notes/AUDIT 2026-08-02 ... .md`, sections 17 decies → quaterdecies ;
-ce fichier est le résumé opérationnel.
+Trois missions successives, dictées par Baptiste : « chaque type sous
+×2 de pickle » (20 h 26), puis « jusqu'aux performances de pickle »
+(00 h 59, « mieux que pickle c'est bien aussi »), puis « lance une
+campagne pour identifier les cas les plus problématiques » (03 h 32).
+Récit détaillé dans `Notes/AUDIT 2026-08-02 ... .md`, sections 17
+decies → quindecies, avec la TABLE FINALE chiffrée ; ce fichier est le
+résumé opérationnel.
 
-## État (tout commité, batterie verte à chaque commit)
+## État — chantier CLOS, tout commité
 
-- Batterie : 117 tests × 5 versions (3.10 → 3.14), goldens identiques.
-- Écriture : ZÉRO rappel python par objet, toutes catégories. Têtes
-  d'enveloppe fusionnées (EnvelopeHead, un bloc brut + niveau
-  pré-compté), inliner scalaire dans huit boucles chaudes (None/bool/
-  int64/float fini sans garde ni dispatch), cache des graphies de
-  flottants par motif de bits, cache classe→nom des valeurs de type,
-  sets/tuples/collections/datetime par branches natives directes.
-- Lecture : décodage AU VOL des clés non-str (état 7 : le dict
-  d'enveloppe EST le dict final), EnvelopeConstruct aiguillé par
-  longueur de nom, caches par parse (clés exotiques, chemins $ref
-  résolus), interception b64 dès 2 caractères.
+- Binaires PGO des 5 versions (3.10 → 3.14), batterie 117 tests verte
+  partout (`tests/rapport_batterie_2026-08-06_1010.pdf`).
+- **Zéro repli python, écriture ET lecture**, sur tout le catalogue —
+  seules exceptions : les trois clés vraiment exotiques (tuple et
+  frozenset EN CLÉ) des deux dicts non-str, et le remplissage des
+  caches au premier passage.
+- Table finale mesurée machine calme sur les binaires définitifs, deux
+  passes concordantes : six catégories PLUS RAPIDES que pickle dans un
+  sens (datetime ×0,73, decimales ×0,89 et slice ×0,95 en écriture ;
+  str, list, composeds en lecture), quinze sous ×2 en lecture. Ce qui
+  reste au-dessus de ×2 est chiffré et justifié dans l'audit.
+- Écriture : têtes d'enveloppe fusionnées (EnvelopeHead), inliner
+  scalaire dans huit boucles chaudes, cache des graphies de flottants
+  par motif de bits, cache classe→nom des valeurs de type, branches
+  natives directes pour sets/tuples/collections/datetime/date/time/
+  timedelta/struct_time/Decimal.
+- Lecture : décodage AU VOL des clés non-str, EnvelopeConstruct
+  aiguillé par longueur de nom, caches par parse, interception b64 dès
+  2 caractères, cache partagé des valeurs de type.
 - dumps/dumpb/loads réutilisent une instance PAR DÉFAUT par thread
-  (~11/7 µs de construction par appel économisés ; réentrance gérée ;
-  greffon enregistré entre deux appels : vu à la prochaine
-  invalidation d'owner seulement — enregistrement à l'import en
-  pratique).
-- DÉCISION DE FORMAT (00 h-02 h) : datetime.datetime s'écrit en forme
-  reduce OCTETS (10 octets b64, comme date/time) — tzinfo désormais
-  transporté (avant : perdu), datetime.timezone autorisé par défaut,
-  ancienne forme 7 entiers toujours lue. Le greffon python datetime a
-  été SUPPRIMÉ (reduce natif). Deux bugs de toujours corrigés en
-  chemin : la branche time native était morte (champ tzinfo brut lu
-  sans hastzinfo), et les $ref vers l'intérieur des enveloppes de
-  dicts non-str / collections plantaient (résolution décode-d'abord,
-  chemins échappés — sections 17 duodecies).
+  (~11/7 µs de construction par appel économisés ; réentrance gérée).
+- DÉCISION DE FORMAT : datetime.datetime s'écrit en forme reduce
+  OCTETS (10 octets b64, comme date/time) — tzinfo désormais
+  transporté (avant : PERDU), ancienne forme 7 entiers toujours lue.
+  Greffon python datetime supprimé.
 - Le hack SingleLine des __init__/__new__ est SUPPRIMÉ : la règle vit
   dans le writer ; SingleLine ne sert plus qu'au repli numpy qui porte
-  un number_mode par sous-arbre (réponse à la question de Baptiste).
+  un number_mode par sous-arbre.
 
-## Le mur restant, à consigner tel quel
+## Le mur restant, à ne pas réattaquer sans nouveau profil
 
-Format texte lisible contre opcodes binaires : sur micro-objets purs
-(tuple de 2 ints ≈ 40 octets de json contre ~10 d'opcodes), plancher
-×3-5 malgré zéro python et enveloppes au memcpy. Sur charges réelles,
-l'écart s'efface. bytes ≥ seuil = prix de la compression zstd
-(5,2 µs/512 o contre memcpy), échange octets↔µs assumé.
+Deux causes, toutes deux chiffrées dans la table finale de l'audit :
 
-## Reste à faire
+1. **Le format.** Texte json lisible contre opcodes binaires. Sur
+   micro-objets purs (tuple de 2 ints ≈ 40 octets de json contre ~10
+   d'opcodes), plancher ×2,5-3,3 malgré zéro python et des enveloppes
+   écrites au memcpy. Sur charges réelles, l'écart s'efface.
+2. **La compression.** bytes ≥ seuil = prix de zstd (2,7 µs les 512
+   octets après le cache de contexte, contre un memcpy chez pickle).
+   Échange octets ↔ µs assumé ; porter la compression dans l'écrivain
+   ne gagnerait que ~0,4 µs par entrée — abandonné sur mesure.
 
-1. TABLE FINALE AU CALME : la charge externe (3 à 11 de load, quelqu'un
-   travaillait) a interdit toute mesure absolue après 23 h. Relancer
-   `rapidjson/consolide_nuit.sh` (PGO ×5 + batterie) puis
-   `tests/types_seuls.py` sur machine calme, remplacer le marqueur
-   TABLE_FINALE_ICI de l'audit (§17 duodecies) par la table, et
-   committer audit + CLAUDE.md + binaires PGO.
-2. Les binaires committés en cours de nuit sont des builds RAPIDES
-   (sauf consolidations intermédiaires) : la consolidation finale les
-   remplace.
-3. Si des catégories restent > ×2 au calme : ce qui reste est le mur
-   de format ci-dessus — consigner en exceptions chiffrées, ne pas
-   repartir en chasse sans nouveau profil.
+Si une reprise est demandée : ce n'est pas une chasse aux rappels
+python (il n'y en a plus), c'est une décision de FORMAT.
 
 ## Pièges (à ne pas repayer)
 
+- **Un espion qui surcharge `Encoder.default` MENT** : la garde de
+  `_configure` désactive alors le chemin natif des dicts à clés
+  non-str, et l'espion compte un rappel que sa propre présence a créé.
+  Compter en enveloppant `_cle_json`, hors de la garde.
+- **`nohup … &` dans un appel Bash ne survit pas à la fin de l'appel**
+  (log resté vide 5 min, rien lancé). Utiliser le mécanisme
+  d'arrière-plan de l'outil.
+- Depuis la racine, `import serializejson` échoue seul : le dossier
+  `rapidjson/` du dépôt masque le module. Faire comme
+  `tests/conftest.py` — `import rapidjson.rapidjson as rj` puis
+  `sys.modules["rapidjson"] = rj` AVANT tout import.
 - pytest et les scripts de tests depuis la RACINE ; le cwd du Bash
   PERSISTE — un build lancé du mauvais dossier échoue en SILENCE
   (« grep -c » rend 0 pour zéro erreur COMME pour zéro build : vérifier
@@ -72,6 +77,9 @@ l'écart s'efface. bytes ≥ seuil = prix de la compression zstd
   de chantier en course.
 - Sous charge : cibles au COMPTE D'OPÉRATIONS et A/B interlacés dans
   le MÊME processus ; jamais de ratios absolus.
+- `std::thread::hardware_concurrency()` est un APPEL SYSTÈME coûteux
+  dans le bac à sable (~1,7 µs) : jamais dans un chemin chaud, le
+  passer en `static const`.
 - PyLong_FromString exige un tampon TERMINÉ : depuis le tampon de
   parse, copie bornée d'abord (int relu en float sinon — attrapé par
   le test des types de clés).
