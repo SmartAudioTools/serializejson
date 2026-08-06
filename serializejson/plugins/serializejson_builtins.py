@@ -22,7 +22,7 @@ except:
     from serializejson import serialize_parameters
 
 import types
-from pybase64 import b64decode, b64decode_as_bytearray
+from base64 import b64decode
 
 # base64 écrit directement dans la sortie, et compression blosc2 faite en C
 from rapidjson import RawBytesToBase64, BloscToBase64
@@ -57,7 +57,9 @@ def bytearrayB64(string, compression=None):
             string, "ascii"
         )  # A REVOIR : 2 COPIES !!! a priori n'arrive jamsi d'encoder bytearray en "ascii"
     elif compression == "b64":
-        return b64decode_as_bytearray(sans_prefixe_longueur(string), validate=True)
+        # voie FROIDE : en usage normal le parseur C++ décode le base64
+        # lui-même et cette recette reçoit directement des bytearray
+        return bytearray(b64decode(sans_prefixe_longueur(string), validate=True))
     elif compression in ("b64_blosc", "b64_blosc2"):
         return blosc_decompress(
             b64decode(sans_prefixe_longueur(string), validate=True),

@@ -1,5 +1,4 @@
 apply
-pybase64
 blosc
 Sphinx
 sphinx-rtd-theme

@@ -586,7 +586,6 @@ Future Versions (TODO)
         - PySide2
 
     * Optimization:
-        - numpy array: need pybase64.b64decode directly to bytearray.
         - list of numbers: speed up _onlyOneDimNumbers function with Cython ?
         - json iterator:
             - speed up _json_object_file_iterator function with Cython ?

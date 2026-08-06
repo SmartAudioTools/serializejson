@@ -5,7 +5,7 @@
 except ModuleNotFoundError:
     pass
 else:
-    from pybase64 import b64decode_as_bytearray
+    from base64 import b64decode
 
     # base64 écrit directement dans la sortie, et compression blosc2 faite en C
     from rapidjson import (RawBytesToBase64, BloscToBase64, _cumsum_axis0,
@@ -87,8 +87,9 @@ else:
             # sans chaîne intermédiaire
             decoded_bytearray = str64
         else:
-            decoded_bytearray = b64decode_as_bytearray(
-                sans_prefixe_longueur(str64), validate=True
+            # voie FROIDE : en usage normal le parseur C++ a déjà décodé
+            decoded_bytearray = bytearray(
+                b64decode(sans_prefixe_longueur(str64), validate=True)
             )
         if isinstance(shape_len_compression, str):
             compression = shape_len_compression

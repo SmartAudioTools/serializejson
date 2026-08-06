@@ -23,8 +23,7 @@ serializejson
 of python objects in `JSON <http://json.org>`_  designed as a safe, interoperable and human-readable drop-in replacement for the Python `pickle <https://docs.python.org/3/library/pickle.html>`_ package.
 Complex python object hierarchies are serializable, deserializable or updatable in once, allowing for example to save or restore a complete application state in few lines of code.
 The library is build upon
-`python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_,
-`pybase64 <https://github.com/mayeut/pybase64>`_ and
+`python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_ and
 `blosc <https://github.com/Blosc/python-blosc>`_  for optional `zstandard <https://github.com/facebook/zstd>`_ compression.
 
 Some of the main features:
@@ -34,7 +33,7 @@ Some of the main features:
 - calls the same objects methods as pickle. Therefore almost all pickable objects are serializable with serializejson without any modification.
 - for not already pickable object, you will allways be able to serialize it by adding methodes to the object or creating plugins for pickle or serializejson.
 - generally 2x slower than pickle for dumping and 3x slower than pickle for loading (on your benchmark) except for big arrays (optimisation will soon be done).
-- serializes and deserializes bytes and bytearray very quickly in base64 thanks to `pybase64 <https://github.com/mayeut/pybase64>`_ and lossless `blosc <https://github.com/Blosc/python-blosc>`_ compression.
+- serializes and deserializes bytes and bytearray very quickly in base64, encoded and decoded in C++ directly from and into the JSON stream, with lossless `blosc <https://github.com/Blosc/python-blosc>`_ compression.
 - serialize properties and attributes with getters and setters if wanted (unlike pickle).
 - json data will still be directly loadable if you have transform some attributes in slots or properties in your code since your last serialization. (unlike pickle)
 - can serialize `__init__(self,..)` arguments by name instead of positions, allowing to skip arguments with defauts values and making json datas robust to a change of `__init__` parameters order.

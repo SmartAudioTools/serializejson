@@ -59,7 +59,6 @@ if __name__ == "__main__":
         python_requires=">=3",
         install_requires=[
             'importlib_metadata; python_version < "3.8"',
-            "pybase64>=1.1.1",
             "apply",
             # python-blosc n'est plus requis : la lecture des trames v1 passe
             # par la libblosc2 embarquée (repli optionnel si elle manque)

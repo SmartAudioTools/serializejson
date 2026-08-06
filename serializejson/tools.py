@@ -9,7 +9,7 @@ from SmartFramework.tools.objects import (
 from SmartFramework.tools.functions import cached_one_arg_func
 from inspect import isclass, signature
 import types
-from pybase64 import b64decode
+from base64 import b64decode
 from apply import apply
 from pickle import PicklingError
 from copyreg import __newobj__, __newobj_ex__, dispatch_table
