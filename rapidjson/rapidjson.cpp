@@ -227,6 +227,24 @@ static PyObject* minus_inf_string_value = nullptr;
 static PyObject* nan_string_value = nullptr;
 static PyObject* plus_inf_string_value = nullptr;
 
+// time.struct_time : type résolu une fois (module time déjà importé en
+// pratique — l'import ne fait que retrouver l'entrée de sys.modules)
+static PyObject*
+sj_struct_time_type()
+{
+    static PyObject* type_st = nullptr;
+    if (type_st == nullptr) {
+        PyObject* module_time = PyImport_ImportModule("time");
+        if (module_time != nullptr) {
+            type_st = PyObject_GetAttrString(module_time, "struct_time");
+            Py_DECREF(module_time);
+        }
+        if (type_st == nullptr)
+            PyErr_Clear();
+    }
+    return type_st;
+}
+
 
 struct HandlerContext {
     PyObject* object;
@@ -2128,7 +2146,9 @@ struct PyHandler {
             std::atomic<size_t> next(0);
             std::atomic<bool> good(true);
             std::vector<PendingB64>* jobs = &pendingB64;
-            size_t hw0 = std::thread::hardware_concurrency();
+            // figé au premier appel : l'interrogation refait un appel
+            // système à chaque fois, payé PAR PARSE même pour un job
+            static const size_t hw0 = std::thread::hardware_concurrency();
             size_t budget = hw0 ? (hw0 > 8 ? 8 : hw0) : 1;
             // moins de jobs que de coeurs : le parallélisme passe DANS le
             // dctx (MT interne blosc2), sinon un job par thread
@@ -2207,8 +2227,7 @@ struct PyHandler {
                 if (dctx != nullptr)
                     sj_blosc2_free_ctx(dctx);
             };
-            size_t hw = std::thread::hardware_concurrency();
-            size_t nthreads = hw ? (hw > 8 ? 8 : hw) : 1;
+            size_t nthreads = budget;
             if (nthreads > count)
                 nthreads = count;
             if (petit)
@@ -2975,6 +2994,20 @@ struct PyHandler {
                 }
             }
             break;
+        case 16:  // time.struct_time : [tuple de 9 entiers, dict des deux
+            // champs hors séquence] — le constructeur accepte (seq, dict)
+            if (memcmp(cls, "time.struct_time", 16) == 0
+                && PyList_CheckExact(ctor_args)
+                && PyList_GET_SIZE(ctor_args) == 2
+                && PyTuple_CheckExact(PyList_GET_ITEM(ctor_args, 0))
+                && PyDict_CheckExact(PyList_GET_ITEM(ctor_args, 1))) {
+                PyObject* type_st = sj_struct_time_type();
+                if (type_st != nullptr)
+                    replacement = PyObject_CallFunctionObjArgs(
+                        type_st, PyList_GET_ITEM(ctor_args, 0),
+                        PyList_GET_ITEM(ctor_args, 1), nullptr);
+            }
+            break;
         case 17:  // datetime.datetime : forme reduce 10 octets (rapide,
             // celle de l'encodeur depuis le 06/08), ou l'ancienne forme
             // 7 entiers (fichiers existants) via le TYPE (validation python)
@@ -2995,6 +3028,30 @@ struct PyHandler {
                         Py_DECREF(args_tuple);
                     }
                 }
+            }
+            break;
+        case 18:  // datetime.timedelta : [jours, secondes, microsecondes],
+            // les arguments reduce natifs (déjà normalisés à l'écriture)
+            if (memcmp(cls, "datetime.timedelta", 18) == 0
+                && PyList_CheckExact(ctor_args)
+                && PyList_GET_SIZE(ctor_args) == 3) {
+                long long v[3];
+                bool td_ok = true;
+                for (int i = 0; i < 3; i++) {
+                    PyObject* e = PyList_GET_ITEM(ctor_args, i);
+                    int td_ovf = 0;
+                    v[i] = PyLong_CheckExact(e)
+                        ? PyLong_AsLongLongAndOverflow(e, &td_ovf) : 0;
+                    if (!PyLong_CheckExact(e) || td_ovf != 0
+                        || v[i] < INT_MIN || v[i] > INT_MAX) {
+                        td_ok = false;   // exotique : voie python
+                        break;
+                    }
+                }
+                if (td_ok)
+                    replacement = PyDateTimeAPI->Delta_FromDelta(
+                        (int) v[0], (int) v[1], (int) v[2], 1,
+                        PyDateTimeAPI->DeltaType);
             }
             break;
         }
@@ -5809,8 +5866,10 @@ dumps_internal(
                         }
                     }
                     if (extractable) {
+                        static const size_t sj_hw =
+                            std::thread::hardware_concurrency();
                         size_t nthreads = std::min<size_t>(
-                            std::min<size_t>(8, std::thread::hardware_concurrency()),
+                            std::min<size_t>(8, sj_hw),
                             (size_t) size / SJ_NUM_MT_CHUNK);
                         if (nthreads >= 2) {
                             size_t nchunks = ((size_t) size + SJ_NUM_MT_CHUNK - 1)
@@ -5887,8 +5946,10 @@ dumps_internal(
                         vals[(size_t) i] = v;
                     }
                     if (extractable) {
+                        static const size_t sj_hw =
+                            std::thread::hardware_concurrency();
                         size_t nthreads = std::min<size_t>(
-                            std::min<size_t>(8, std::thread::hardware_concurrency()),
+                            std::min<size_t>(8, sj_hw),
                             (size_t) size / SJ_NUM_MT_CHUNK);
                         if (nthreads >= 2) {
                             size_t nchunks = ((size_t) size + SJ_NUM_MT_CHUNK - 1)
@@ -6204,6 +6265,72 @@ dumps_internal(
             writer->PopCompact();
         writer->EndObject();
         writer->EndObject();
+    }
+
+	// datetime.timedelta : {"__class__": "datetime.timedelta", "__init__":
+	// [jours, secondes, microsecondes]} — les arguments reduce natifs
+	else if (PyDelta_CheckExact(object) && pathTracker != nullptr) {
+        CONTAINER_MEMO_OR_REF()
+        writer->EnvelopeHead("datetime.timedelta", 18, "__init__", 8);
+        bool td_compact = pathTracker->singleLineInit && !writer->InCompact();
+        if (td_compact)
+            writer->PushCompact();
+        writer->StartArray();
+        writer->Int(PyDateTime_DELTA_GET_DAYS(object));
+        writer->Int(PyDateTime_DELTA_GET_SECONDS(object));
+        writer->Int(PyDateTime_DELTA_GET_MICROSECONDS(object));
+        writer->EndArray();
+        if (td_compact)
+            writer->PopCompact();
+        writer->EndObject();
+    }
+
+	// time.struct_time : {"__class__": "time.struct_time", "__init__":
+	// [{"__class__": "tuple", "__new__": [9 entiers]}, {"tm_zone": ...,
+	// "tm_gmtoff": ...}]} — la forme reduce de la voie python. Un struct
+	// sequence EST un tuple : les 9 champs se lisent par PyTuple_GET_ITEM
+	else if (pathTracker != nullptr && PyTuple_Check(object)
+             && (PyObject*) Py_TYPE(object) == sj_struct_time_type()
+             && PyTuple_GET_SIZE(object) >= 9) {
+        CONTAINER_MEMO_OR_REF()
+        writer->EnvelopeHead("time.struct_time", 16, "__init__", 8);
+        bool st_compact = pathTracker->singleLineInit && !writer->InCompact();
+        if (st_compact)
+            writer->PushCompact();
+        writer->StartArray();
+        writer->EnvelopeHead("tuple", 5, "__new__", 7);
+        writer->StartArray();
+        bool st_ok = true;
+        for (Py_ssize_t sti = 0; sti < 9 && st_ok; sti++)
+            st_ok = sj_write_scalar_inline(writer, PyTuple_GET_ITEM(object,
+                                                                    sti))
+                    || RECURSE(PyTuple_GET_ITEM(object, sti));
+        writer->EndArray();
+        writer->EndObject();
+        static const char* st_attrs[2] = {"tm_zone", "tm_gmtoff"};
+        if (st_ok) {
+            writer->StartObject();
+            for (int sta = 0; sta < 2 && st_ok; sta++) {
+                writer->Key(st_attrs[sta], sta == 0 ? 7 : 9);
+                PyObject* champ = PyObject_GetAttrString(object,
+                                                         st_attrs[sta]);
+                if (champ == nullptr) {
+                    PyErr_Clear();
+                    writer->Null();
+                    continue;
+                }
+                st_ok = sj_write_scalar_inline(writer, champ)
+                        || RECURSE(champ);
+                Py_DECREF(champ);
+            }
+            writer->EndObject();
+        }
+        writer->EndArray();
+        if (st_compact)
+            writer->PopCompact();
+        writer->EndObject();
+        if (!st_ok)
+            return false;
     }
 
 	// complex / range / slice : {"__class__": ..., "__init__": [...]} — les

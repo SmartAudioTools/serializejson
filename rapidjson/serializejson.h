@@ -884,6 +884,18 @@ static sj_blosc2_compname_to_compcode_t sj_blosc2_compname_to_compcode = nullptr
 static sj_blosc1_cbuffer_sizes_t sj_blosc1_cbuffer_sizes = nullptr;
 static bool serializejson_blosc2_ctx_ok = false;
 
+// cache d'UN contexte de compression : sa création (contexte zstd interne)
+// domine le coût des petits tampons. Pris/rendu sous GIL — pas de verrou
+// dédié ; jamais pour le chemin préfiltre (preparams pointe la pile d'appel).
+struct SjCctxKey {
+    uint8_t compcode; uint8_t clevel; int32_t typesize;
+    int16_t nthreads; int32_t blocksize; uint8_t splitmode;
+    uint8_t filters[BLOSC2_MAX_FILTERS];
+    uint8_t filters_meta[BLOSC2_MAX_FILTERS];
+};
+static blosc2_context* sj_cctx_cache = nullptr;
+static SjCctxKey sj_cctx_cache_key;
+
 // --- somme de préfixe (défaire une dérivée) ---------------------------------
 // scalaire par défaut ; en SSE, préfixe EN REGISTRE par décalages-additions
 // puis propagation du report — le scalaire bute sur la chaîne de dépendance
@@ -1598,15 +1610,38 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
             return nullptr;
         }
         int delta_csize = -1;
+        SjCctxKey key;
+        memset(&key, 0, sizeof(key));
+        key.compcode = cparams.compcode; key.clevel = cparams.clevel;
+        key.typesize = cparams.typesize; key.nthreads = cparams.nthreads;
+        key.blocksize = cparams.blocksize; key.splitmode = cparams.splitmode;
+        memcpy(key.filters, cparams.filters, sizeof(key.filters));
+        memcpy(key.filters_meta, cparams.filters_meta,
+               sizeof(key.filters_meta));
+        bool cacheable = (diff_cols <= 0);
+        blosc2_context* delta_ctx = nullptr;
+        if (cacheable && sj_cctx_cache != nullptr
+            && memcmp(&key, &sj_cctx_cache_key, sizeof(key)) == 0) {
+            delta_ctx = sj_cctx_cache;   // pris sous GIL
+            sj_cctx_cache = nullptr;
+        }
         Py_BEGIN_ALLOW_THREADS
-        blosc2_context* delta_ctx = sj_blosc2_create_cctx(cparams);
+        if (delta_ctx == nullptr)
+            delta_ctx = sj_blosc2_create_cctx(cparams);
         if (delta_ctx != nullptr) {
             delta_csize = sj_blosc2_compress_ctx(
                 delta_ctx, view.buf, (int32_t) view.len, delta_dest,
                 (int32_t) delta_dest_size);
-            sj_blosc2_free_ctx(delta_ctx);
         }
         Py_END_ALLOW_THREADS
+        if (delta_ctx != nullptr) {
+            if (cacheable && sj_cctx_cache == nullptr) {
+                sj_cctx_cache = delta_ctx;   // rendu sous GIL (UN ctx vit
+                sj_cctx_cache_key = key;     // jusqu'à la fin du processus)
+            } else {
+                sj_blosc2_free_ctx(delta_ctx);
+            }
+        }
         PyBuffer_Release(&view);
         if (delta_csize <= 0) {
             free(delta_dest);
