@@ -69,7 +69,7 @@ Infinity
 {"__class__":"decimal.Decimal","__init__":"0.33"}
 {"__class__":"datetime.datetime","__init__":{"__class__":"bytes","__new__":["16:B+QDChEeAAAAAA==","b64"]}}
 {"__class__":"datetime.date","__init__":{"__class__":"bytes","__new__":["B+QDCg==","b64"]}}
-{"__class__":"datetime.time","__init__":{"__class__":"bytes","__new__":["8:ER4AAAAA","b64"]}}
+{"__class__":"datetime.time","__init__":{"__class__":"bytes","__new__":["ER4AAAAA","b64"]}}
 {"__class__":"datetime.timedelta","__init__":[30,0,0]}
 {"__class__":"time.struct_time","__init__":[{"__class__":"tuple","__new__":[2020,5,7,16,8,55,3,128,1]},{"tm_zone":null,"tm_gmtoff":null}]}
 {"__class__":"array._array_reconstructor","__init__":[{"__class__":"type","__init__":"array.array"},"b",1,{"__class__":"bytes","__new__":["4:AQID","b64"]}]}

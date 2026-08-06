@@ -299,7 +299,10 @@ Infinity
 }
 {
 	"__class__": "datetime.datetime",
-	"__init__": [2020,3,10,17,30,0,0]
+	"__init__": {
+		"__class__": "bytes",
+		"__new__": ["B+QDChEeAAAAAA==","b64"]
+	}
 }
 {
 	"__class__": "datetime.date",
@@ -312,7 +315,7 @@ Infinity
 	"__class__": "datetime.time",
 	"__init__": {
 		"__class__": "bytes",
-		"__new__": ["8:ER4AAAAA","b64"]
+		"__new__": ["ER4AAAAA","b64"]
 	}
 }
 {

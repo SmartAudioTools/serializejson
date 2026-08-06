@@ -2498,3 +2498,182 @@ sous ×6 sauf bytesarray (~×11, ~7 µs par élément compressé restant à
 profiler) ; en ÉCRITURE restent dict (×17), bytes (×12, compression),
 collections (×8,5), sets/types (×4-6). Le reste à faire priorisé vit
 dans le CLAUDE.md du dépôt.
+
+### 17 duodecies. Nuit du 5 au 6/08, troisième partie — plus un rappel python par objet, et deux défauts de toujours
+
+Sept marches de plus, batterie verte et commit à chacune. La boussole a
+changé en cours de route : sous une charge machine de 3 à 6 (travail
+en parallèle sur le poste), les ratios n'étaient plus fiables — les
+cibles ont donc été choisies au COMPTE DE RAPPELS PYTHON par lot
+(espion sur `Encoder.default` et `Decoder.end_object`), une mesure
+insensible à la charge, et les chiffres publiés ci-dessous ont été
+pris au calme sur les binaires PGO.
+
+**Dict à clés non-str en ÉCRITURE** (la marche ×15,7 → ×2,3).
+L'enveloppe plate `{"__class__": "dict", clés encodées...}` est
+composée par le C : préfiltre str exact (sonde de parse C pour les
+clés `[`, `{`, `"` — mêmes acceptations que `rapidjson.loads`), int
+python arbitraires, bool/None, flottants finis en graphie repr
+(`sjdtoa`), bytes ascii/b64. Python n'est rappelé que pour les clés
+exotiques (tuple aplati, frozenset, float non fini) via `_cle_json`,
+mémoïsé par ÉGALITÉ le temps du dump — les répliques partagent leurs
+clés. Repli du dict ENTIER si `sort_keys`, recette redéfinie par une
+sous-classe, ou clé `__init__`/`__new__` nue (quirk SingleLine de la
+voie python). Effet de bord heureux : les collections à clés non-str
+(Counter_no_string_keys...) passaient par là — collections dumps
+×8,3 → ×3,3 sans y toucher.
+
+**Deux défauts de TOUJOURS trouvés et corrigés en chemin** (présents
+avant la migration, vérifiés sur c63c1a8) :
+  - une référence `$ref` VERS l'intérieur d'une enveloppe de dict à
+    clés non-str plantait en KeyError : le chemin porte le texte
+    ENCODÉ de la clé (`['2']`, `['b'k'']`) alors que le dict
+    reconstruit porte la clé DÉCODÉE. Résolveur C et
+    `from_name`/`_getattr` décodent désormais la clé (décodage
+    PRIORITAIRE : une clé int 2 et une clé str '2' coexistantes
+    s'écrivent `2` et `'2'`) ; les segments `['...']` ne se ferment
+    plus que sur la séquence `']` (une clé peut contenir des
+    apostrophes) ; les chemins `.2` historiques restent lisibles ;
+  - une clé contenant un guillemet rendait le document INVALIDE : le
+    chemin était inséré BRUT dans la chaîne JSON du `$ref`.
+    Échappement JSON du chemin aux 5 sites C et 3 sites python
+    (RawString). Même famille : `.__items__`/`.__init__` d'une
+    enveloppe de collection se résolvent désormais sur l'objet
+    reconstruit (les éléments SONT l'objet ; `__init__` est la
+    fabrique d'un defaultdict — intercepté AVANT getattr, qui rendait
+    la MÉTHODE). Onze tests paramétrés verrouillent le tout.
+
+**Trois coûts par RÉPÉTITION rabotés.** L'interception base64 accepte
+les charges courtes (seuil 8 → 2, cas « 0: » vide — le bytearray VIDE
+était le seul élément du lot encore décodé par le greffon python) ;
+cache des clés exotiques DÉCODÉES le temps d'un parse (~4 µs le
+décodage python de `'[5,6]'`, répété par réplique) ; cache du
+`{"$ref": ...}` RENDU ET ÉCHAPPÉ sur le PathNode (~0,4 µs la
+composition, émise des centaines de fois dans les documents à
+répliques) ; et cache des chemins `$ref` RÉSOLUS en lecture
+(résolutions acceptées seulement — jamais une cible encore à l'état
+d'enveloppe, dont la forme finale exige de re-résoudre).
+
+**Collections en écriture, et la fin des recettes python.** Plan
+`(nom_de_classe, genre)` pour deque/Counter/OrderedDict/defaultdict :
+l'enveloppe `{__class__, __init__[, __items__]}` du reduce à
+listitems/dictitems est composée en C (deque à maxlen : repli python
+décidé par OBJET) — collections dumps ×3,2 → ×1,3. Les recettes
+TRIVIALES de set/frozenset/tuple sont composées sans rappel python
+(interception du plan à 4 éléments). En lecture, la chaîne de fin
+d'objet accepte les enveloppes de collections à TROIS clés dont la
+capture au parse a été versée (argument imbriqué ; dans les documents
+à répliques, la première clé `$ref` verse TOUTES les captures), et
+l'init dict de Counter/OrderedDict s'appelle POSITIONNEL comme la voie
+python (`remove_add_braces` remet l'init sous tuple → `cls(LE dict)` —
+c'est ce qui porte les Counter à clés non-str).
+
+**Bilan des rappels python par lot de 32 répliques** : ZÉRO en
+écriture pour TOUTES les catégories du catalogue ; en lecture, seuls
+subsistent les remplissages de caches (24 résolutions de valeurs de
+type et 1 clé exotique, une fois par processus).
+
+TABLE_FINALE_ICI
+
+**Exceptions consignées** (résiduels au-dessus de ×2, et pourquoi) :
+  - `bytes` dumps (~×12) et une part de `bytesarray`/`binary` : c'est
+    la COMPRESSION zstd elle-même — 5,2 µs pour compresser 512 octets
+    là où pickle fait un memcpy (0,2 µs). Mesuré : le greffon complet
+    coûte 5,6 µs, dont 5,2 de `BloscToBase64` (déjà du C). Porter la
+    compression dans l'écrivain ferait gagner ~0,4 µs par entrée : le
+    résiduel est le prix du POIDS gagné, pas de la plomberie —
+    l'écriture C de la compression (point 3 de la liste de reprise)
+    est ABANDONNÉE sur cette mesure ;
+  - `set`/`frozenset` dumps (~×3-4) : plus un rappel python — le
+    résiduel est l'enveloppe `{"__class__": ..., "__init__": [...]}`
+    par objet (mémo, chemin, clés) contre un opcode pickle ;
+  - les catégories microscopiques (None/queue/iterators, lots de 3 à
+    8 µs) oscillent avec le coût fixe d'appel — au plancher.
+
+### 17 terdecies. Nuit du 6/08, reprise sur demande — sets natifs, cache des types, et la mort du hack SingleLine
+
+À 00 h 17, demande dictée : reprendre TOUT ce qui dépasse ×2, sans
+s'arrêter aux exceptions déjà consignées. Trois marches de plus :
+
+**set/frozenset par branche native directe.** La recette générique
+repassait par la branche liste ENTIÈRE pour les éléments : mémo d'une
+liste temporaire que rien ne peut référencer, et balayage
+d'homogénéité sous compact — ~180 ns par set, mesurés par A/B
+interlacé (la charge machine rendait les ratios inutilisables : les
+comparaisons se font désormais dans le même processus, l'un contre
+l'autre). La branche calque celle des tuples (découverte au passage :
+une branche native tuple existait déjà — le « plan tuple » ajouté plus
+tôt dans la nuit était mort-né, retiré). ~305 → ~175 ns par set.
+
+**Cache d'écriture des valeurs de type.** La recette rappelait python
+à CHAQUE dump pour les mêmes classes (26 rappels par dump du lot
+types). Un cache classe → nom émis, rempli au premier passage par la
+recette, est servi ensuite par une branche native — 26 → 1 rappels
+(le seul restant : `type` lui-même, forme sans `__init__`).
+
+**Le hack SingleLine retiré** (question de Baptiste, 00 h 20 : « ne
+peux-tu pas éviter le hack en implémentant la fonctionnalité
+directement dans RapidJson ? » — si, exactement). L'emballage des
+listes `__init__`/`__new__` par `rapidjson.SingleLine` dans
+`default()` était un contournement du PrettyWriter d'origine, qui ne
+savait pas compacter un sous-arbre. Le fork le sait
+(`PushCompact`/`PopCompact`) : la règle est désormais appliquée par la
+branche dict du writer aux enveloppes d'état (isinstance côté init,
+type exact côté new — la voie python à l'identique, goldens
+inchangés). `SingleLine` ne survit qu'au repli numpy exotique
+(float16, ndim > 2), où l'objet transporte un `number_mode` PROPRE au
+sous-arbre — une donnée que le writer ne peut pas deviner, pas une
+consigne de mise en page.
+
+### 17 quaterdecies. Nuit du 6/08, seconde reprise — « jusqu'aux performances de pickle »
+
+À 00 h 59, la barre remonte : plus de seuil ×2, viser pickle lui-même,
+toute la nuit. Les marches de cette phase (chacune committée batterie
+verte, sous une charge machine de 3 à 11 qui a imposé de choisir les
+cibles à la STRUCTURE — comptes d'opérations, A/B interlacés dans le
+même processus — plutôt qu'aux ratios) :
+
+- **dumps/dumpb/loads réutilisent une instance par défaut** (une par
+  thread, drapeau de réentrance) : la construction Encoder/Decoder
+  coûtait ~11/7 µs PAR APPEL — le plancher qui écrasait tout objet
+  modeste. dumps(1) 11,8 → 1,4 µs ; loads('1') 7,4 → 1,9 µs.
+- **Têtes d'enveloppe fusionnées** (`EnvelopeHead`) : `{"__class__":
+  "X", "clé"` écrit d'un bloc brut, le niveau objet empilé avec trois
+  jetons comptés — le writer reprend exactement où la tête s'arrête.
+  Neuf branches natives converties (tuple, set/frozenset, type,
+  datetime/date/time, complex/range/slice, bytes intérieurs).
+- **EnvelopeConstruct aiguillé par LONGUEUR de nom** (un memcmp par
+  candidat de même taille) au lieu de la chaîne de comparaisons.
+- **datetime.datetime passe à la forme reduce en octets** (10 octets
+  b64, comme date et time) : le greffon 7 entiers retiré, la classe
+  suit son __reduce_ex__ natif — tzinfo désormais TRANSPORTÉ au lieu
+  d'être perdu, relecture par le constructeur rapide datetime(bytes),
+  l'ancienne forme 7 entiers toujours lue. Et un vrai bug débusqué :
+  la branche native des time lisait le champ tzinfo BRUT, qui n'existe
+  que si hastzinfo — jamais Py_None sur un time naïf, la branche était
+  MORTE et tous les times passaient par python.
+- **Décodage des clés non-str AU VOL** (état 7 de la capture) : le
+  dict d'enveloppe devient LUI-MÊME le dict final, chaque clé décodée
+  depuis le tampon brut du parse (DecodeCleCore à double entrée), plus
+  d'intermédiaire à clés encodées ni de reconversion (~80 ns par clé).
+  Piège attrapé par test : PyLong_FromString lisait AU-DELÀ de la clé
+  (tampon non terminé) — un int 2 relu en float 2.0 passait l'égalité
+  de dict, pas le test de types ajouté.
+- **Inliner scalaire partagé** (huit boucles chaudes) : None, bool,
+  int64 exact et float fini écrits sans garde de récursion ni
+  dispatch — chaque scalaire payait un RECURSE complet (~50 ns). Le
+  cache des graphies repr() de flottants (256 entrées par motif de
+  bits, ~45 ns → ~6 ns sur valeurs répétées) partagé entre branche
+  générale et inliner.
+- **Sets par branche native directe** et **cache d'écriture des
+  valeurs de type** (26 → 1 rappels python par dump du lot types) —
+  décrits en 17 terdecies, complétés ici par l'inliner.
+
+Le mur restant est celui du FORMAT : du texte json lisible face aux
+opcodes binaires de pickle. Sur micro-objets purs (tuple de deux ints,
+~40 octets de json contre ~10 octets d'opcodes), l'écart plancher
+mesuré reste ×3-5 malgré zéro rappel python et des enveloppes écrites
+au memcpy ; sur les charges réelles (contenu dominant), l'écart
+s'efface. bytes ≥ seuil reste le prix de la COMPRESSION (5,2 µs de
+zstd pour 512 octets contre le memcpy de pickle) — c'est un échange
+octets contre microsecondes, assumé.

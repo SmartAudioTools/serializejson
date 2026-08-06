@@ -245,6 +245,23 @@ sj_struct_time_type()
     return type_st;
 }
 
+// decimal.Decimal : même résolution paresseuse, une fois
+static PyObject*
+sj_decimal_type()
+{
+    static PyObject* type_dec = nullptr;
+    if (type_dec == nullptr) {
+        PyObject* module_dec = PyImport_ImportModule("decimal");
+        if (module_dec != nullptr) {
+            type_dec = PyObject_GetAttrString(module_dec, "Decimal");
+            Py_DECREF(module_dec);
+        }
+        if (type_dec == nullptr)
+            PyErr_Clear();
+    }
+    return type_dec;
+}
+
 
 struct HandlerContext {
     PyObject* object;
@@ -2992,6 +3009,15 @@ struct PyHandler {
                         (PyObject*) PyDateTimeAPI->TimeType, ctor_args,
                         nullptr);
                 }
+            }
+            break;
+        case 15:  // decimal.Decimal : "<str(d)>" — le constructeur C parse
+            if (memcmp(cls, "decimal.Decimal", 15) == 0
+                && PyUnicode_CheckExact(ctor_args)) {
+                PyObject* type_dec = sj_decimal_type();
+                if (type_dec != nullptr)
+                    replacement = PyObject_CallFunctionObjArgs(
+                        type_dec, ctor_args, nullptr);
             }
             break;
         case 16:  // time.struct_time : [tuple de 9 entiers, dict des deux
@@ -6331,6 +6357,26 @@ dumps_internal(
         writer->EndObject();
         if (!st_ok)
             return false;
+    }
+
+	// decimal.Decimal : {"__class__": "decimal.Decimal", "__init__":
+	// "<str(d)>"} — la graphie de Decimal est toujours ascii sans échappement
+	else if (pathTracker != nullptr
+             && (PyObject*) Py_TYPE(object) == sj_decimal_type()) {
+        CONTAINER_MEMO_OR_REF()
+        PyObject* graphie = PyObject_Str(object);
+        if (graphie == nullptr)
+            return false;
+        Py_ssize_t dec_lg;
+        const char* dec_u8 = PyUnicode_AsUTF8AndSize(graphie, &dec_lg);
+        if (dec_u8 == nullptr) {
+            Py_DECREF(graphie);
+            return false;
+        }
+        writer->EnvelopeHead("decimal.Decimal", 15, "__init__", 8);
+        writer->String(dec_u8, (SizeType) dec_lg);
+        writer->EndObject();
+        Py_DECREF(graphie);
     }
 
 	// complex / range / slice : {"__class__": ..., "__init__": [...]} — les

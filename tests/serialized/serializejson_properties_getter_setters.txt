@@ -67,9 +67,9 @@ Infinity
 {"__class__":"collections.OrderedDict","__init__":[],"__items__":{"__class__":"dict","":"value","string_key":"value","string'key":"value","string\"key":"value","b'bytes_key'":"value","b'bytes'key'":"value","b'bytes\"key'":"value","b64'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8='":"value","true":"value","2":"value","3.4":"value","[5,6]":"value","[5,{\"__class__\":\"tuple\",\"__new__\":[6,8]}]":"value","{\"__class__\":\"frozenset\",\"__init__\":[8,7]}":"value","'b'bytes_key''":"value","'b64'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=''":"value","'true'":"value","'2'":"value","'3.4'":"value","'[5,6]'":"value","'{\"__class__\":\"frozenset\",\"__init__\":[8,7]}'":"value","''false''":"value","''7''":"value","''8.9''":"value"}}
 {"__class__":"collections.defaultdict","__init__":{"__class__":"type","__init__":"list"},"__items__":{"__class__":"dict","":"value","string_key":"value","string'key":"value","string\"key":"value","b'bytes_key'":"value","b'bytes'key'":"value","b'bytes\"key'":"value","b64'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8='":"value","true":"value","2":"value","3.4":"value","[5,6]":"value","[5,{\"__class__\":\"tuple\",\"__new__\":[6,8]}]":"value","{\"__class__\":\"frozenset\",\"__init__\":[8,7]}":"value","'b'bytes_key''":"value","'b64'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=''":"value","'true'":"value","'2'":"value","'3.4'":"value","'[5,6]'":"value","'{\"__class__\":\"frozenset\",\"__init__\":[8,7]}'":"value","''false''":"value","''7''":"value","''8.9''":"value"}}
 {"__class__":"decimal.Decimal","__init__":"0.33"}
-{"__class__":"datetime.datetime","__init__":[2020,3,10,17,30,0,0]}
+{"__class__":"datetime.datetime","__init__":{"__class__":"bytes","__new__":["B+QDChEeAAAAAA==","b64"]}}
 {"__class__":"datetime.date","__init__":{"__class__":"bytes","__new__":["B+QDCg==","b64"]}}
-{"__class__":"datetime.time","__init__":{"__class__":"bytes","__new__":["8:ER4AAAAA","b64"]}}
+{"__class__":"datetime.time","__init__":{"__class__":"bytes","__new__":["ER4AAAAA","b64"]}}
 {"__class__":"datetime.timedelta","__init__":[30,0,0]}
 {"__class__":"time.struct_time","__init__":[{"__class__":"tuple","__new__":[2020,5,7,16,8,55,3,128,1]},{"tm_zone":null,"tm_gmtoff":null}]}
 {"__class__":"array.array","__init__":["b",{"__class__":"bytes","__new__":["4:AQID","b64"]}]}
