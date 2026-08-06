@@ -205,6 +205,7 @@ static PyObject* resolve_duplicates_name = nullptr;
 static PyObject* dumped_classes_name = nullptr;
 static PyObject* bytes_natif_seuil_name = nullptr;
 static PyObject* cle_json_name = nullptr;             // "_cle_json"
+static PyObject* default_one_line_name = nullptr;     // "_default_one_line"
 static PyObject* bytes_class_name_str = nullptr;      // "bytes"
 static PyObject* bytearray_class_name_str = nullptr;  // "bytearray"
 static PyObject* collections_prefix_str = nullptr;    // "collections."
@@ -689,6 +690,10 @@ struct PathTracker {
     // partagent leurs clés), créé au premier besoin, relâché en fin de dump
     PyObject* cleJsonFn = nullptr;
     PyObject* cleJsonCache = nullptr;
+    // recette _default_one_line de l'Encoder (réf FORTE) : celle que
+    // _cle_json passait à rapidjson.dumps. Sert de defaultFn au
+    // sous-document des clés tuple/frozenset écrites nativement
+    PyObject* defaultOneLineFn = nullptr;
     // vrai si le prochain dict rencontré est l'état d'un objet retourné par
     // default() : ses clés sont alors des attributs (".attr" et non "['clef']")
     bool next_dict_is_attrs = false;
@@ -708,6 +713,7 @@ struct PathTracker {
             Py_DECREF(entry.second);
         Py_XDECREF(cleJsonFn);
         Py_XDECREF(cleJsonCache);
+        Py_XDECREF(defaultOneLineFn);
     }
 };
 
@@ -5466,6 +5472,14 @@ sj_cle_parse_json(const char* s)
 }
 
 
+// Écrit la GRAPHIE JSON d'une clé tuple ou frozenset dans `texte` (voir la
+// définition, après dumps_internal). Retourne false, erreur python posée.
+static bool
+sj_cle_native(PyObject* key, PathTracker* pathTracker, unsigned datetimeMode,
+              unsigned uuidMode, unsigned bytesMode, unsigned iterableMode,
+              unsigned mappingMode, std::string& texte, bool* non_ascii);
+
+
 template<typename WriterT>
 static bool
 dumps_internal(
@@ -6959,9 +6973,18 @@ dumps_internal(
                                                  &entree.texte[4]);
                         entree.texte[b64l + 4] = '\'';
                     }
+                } else if ((PyTuple_CheckExact(dkey)
+                            || PyFrozenSet_CheckExact(dkey))
+                           && pathTracker->defaultOneLineFn != nullptr) {
+                    // clé tuple ou frozenset : sous-document écrit ici
+                    if (!sj_cle_native(dkey, pathTracker, datetimeMode,
+                                       uuidMode, bytesMode, iterableMode,
+                                       mappingMode, entree.texte,
+                                       &entree.non_ascii))
+                        return false;
                 } else {
-                    // clé exotique (tuple, frozenset, float non fini, objet,
-                    // non-finis compris) : rappel python _cle_json, mémoïsé
+                    // clé exotique restante (float non fini, complexe, objet)
+                    // : rappel python _cle_json, mémoïsé
                     // par égalité — les clés sont hashables par construction
                     PyObject* txt = nullptr;
                     if (pathTracker->cleJsonCache != nullptr) {
@@ -8086,6 +8109,53 @@ dumps_internal(
 }
 
 
+// Graphie JSON d'une clé tuple ou frozenset, écrite par dumps_internal dans
+// un tampon à part — mêmes octets que le rappel python _cle_json, qui
+// appelait rapidjson.dumps(clé, default=_default_one_line, NM_NATIVE,
+// IM_ONLY_LISTS), sans le rappel.
+//   - le tuple EXTÉRIEUR est aplati en liste ("[5, 6]"), comme le faisait
+//     _cle_json ; les tuples IMBRIQUÉS gardent leur enveloppe __new__ ;
+//   - le traqueur extérieur est réemprunté (branches natives tuple,
+//     frozenset et plans de classe), mais son MÉMO est suspendu : une clé
+//     n'émet ni "$ref" ni entrée de mémo — la voie python dumpait sans
+//     traqueur, donc sans mémo.
+static bool
+sj_cle_native(PyObject* key, PathTracker* pathTracker, unsigned datetimeMode,
+              unsigned uuidMode, unsigned bytesMode, unsigned iterableMode,
+              unsigned mappingMode, std::string& texte, bool* non_ascii)
+{
+    PyObject* cible = key;
+    if (PyTuple_CheckExact(key)) {
+        cible = PySequence_List(key);
+        if (cible == nullptr)
+            return false;
+    } else
+        Py_INCREF(cible);
+    bool ok = false;
+    const bool memo = pathTracker->memoContainers;
+    pathTracker->memoContainers = false;
+    try {
+        PyBytesBuffer buf(64);
+        Writer<PyBytesBuffer> keywriter(buf);
+        if (dumps_internal(&keywriter, cible, pathTracker->defaultOneLineFn,
+                           nullptr, nullptr, pathTracker, NM_NATIVE,
+                           datetimeMode, uuidMode, bytesMode, iterableMode,
+                           mappingMode)) {
+            buf.Flush();
+            texte.assign(buf.GetBuffer(), buf.GetSize());
+            *non_ascii = buf.maybe_non_ascii;
+            ok = true;
+        }
+    } catch (const std::bad_alloc&) {
+        if (!PyErr_Occurred())
+            PyErr_NoMemory();
+    }
+    pathTracker->memoContainers = memo;
+    Py_DECREF(cible);
+    return ok;
+}
+
+
 typedef struct {
     PyObject_HEAD
     bool ensureAscii;
@@ -9024,6 +9094,16 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
             Py_DECREF(cleFn);
         else
             pathTracker.cleJsonFn = cleFn;
+    }
+    // recette des sous-documents de clés natives (voir defaultOneLineFn)
+    {
+        PyObject* fn = PyObject_GetAttr(self, default_one_line_name);
+        if (fn == nullptr)
+            PyErr_Clear();
+        else if (fn == Py_None)
+            Py_DECREF(fn);
+        else
+            pathTracker.defaultOneLineFn = fn;
     }
     PyObject* dumpedClassesSet = PyObject_GetAttr(self, dumped_classes_name);
     if (dumpedClassesSet == nullptr)
@@ -10264,6 +10344,7 @@ module_exec(PyObject* m)
     dumped_classes_name = PyUnicode_InternFromString("dumped_classes");
     bytes_natif_seuil_name = PyUnicode_InternFromString("_bytes_natif_seuil");
     cle_json_name = PyUnicode_InternFromString("_cle_json");
+    default_one_line_name = PyUnicode_InternFromString("_default_one_line");
     bytes_class_name_str = PyUnicode_InternFromString("bytes");
     bytearray_class_name_str = PyUnicode_InternFromString("bytearray");
     collections_prefix_str = PyUnicode_InternFromString("collections.");

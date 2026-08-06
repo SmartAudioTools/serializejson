@@ -169,10 +169,13 @@ def test_deux_objets_partageant_le_meme_dict():
 
 
 def test_gros_bytes_compresses():
+    # les bytes nus ne sont plus compressés par défaut : le chemin bytes ->
+    # blosc -> b64 se demande par le seuil (06/08/2026)
     data = bytes(range(256)) * 5000  # 1.28 Mo compressibles
-    dumped, loaded = roundtrip(data)
+    dumped = serializejson.dumps(data, indent=None,
+                                 bytes_size_compression_threshold=512)
     assert len(dumped) < len(data)  # la compression a bien eu lieu
-    assert loaded == data
+    assert serializejson.loads(dumped) == data
 
 
 def test_gros_bytes_incompressibles():
@@ -300,3 +303,18 @@ def test_types_de_cles_non_str_preserves():
     assert loaded == d
     assert sorted(type(k).__name__ for k in loaded) == sorted(
         type(k).__name__ for k in d)
+
+
+@pytest.mark.parametrize("partage", [(6, 8), frozenset([1, 2])])
+@pytest.mark.parametrize("cle_dabord", [True, False])
+def test_conteneur_partage_entre_une_cle_et_une_valeur(partage, cle_dabord):
+    # une clé tuple/frozenset est écrite par le même dumps_internal que le
+    # reste : sans suspension du mémo, l'occurrence hors clé sortait en
+    # {"$ref": ...} vers un chemin INTERNE à la clé, illisible (KeyError à
+    # la relecture). Vérifié en retirant la suspension : ce test échoue,
+    # et lui seul de toute la batterie
+    entrees = [((5, partage), 0), ("v", partage)]
+    d = dict(entrees if cle_dabord else reversed(entrees))
+    dumped, loaded = roundtrip(d)
+    assert "$ref" not in dumped
+    assert loaded == d

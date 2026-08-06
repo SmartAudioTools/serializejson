@@ -65,22 +65,21 @@ PK_DICT = pickle.dumps(DICT, PROTO)
 PK_TUPLE = pickle.dumps(TUPLE, PROTO)
 PK_GROUP = pickle.dumps(DICT_GROUP, PROTO)
 PK_LIST = pickle.dumps(LIST, PROTO)
+PK_MICRO = pickle.dumps(MICRO_DICT, PROTO)
 SJ_DICT = E(DICT)
 SJ_TUPLE = E(TUPLE)
 SJ_GROUP = E(DICT_GROUP)
 SJ_LIST = E(LIST)
+SJ_MICRO = E(MICRO_DICT)
 
 
-def bench(fn, inner, repeat=800):
+def bench(fn, repeat=800):
     best = 1e9
-    total = 0.0
     for _ in range(repeat):
         t0 = time.perf_counter()
         fn()
-        dt = time.perf_counter() - t0
-        best = min(best, dt)
-        total += dt
-    return best * 1e6, total / repeat * 1e6   # µs par itération
+        best = min(best, time.perf_counter() - t0)
+    return best * 1e6   # µs par itération
 
 
 def pk_pickle():
@@ -143,30 +142,57 @@ def sj_pickle_dict():
         e(MICRO_DICT)
 
 
-rows = [
-    ("pickle       (60 dumps)", pk_pickle, sj_pickle),
-    ("unpickle     (60 loads)", pk_unpickle, sj_unpickle),
-    ("pickle_list  (10 dumps)", pk_pickle_list, sj_pickle_list),
-    ("unpickle_list(10 loads)", pk_unpickle_list, sj_unpickle_list),
-    ("pickle_dict  ( 5 dumps)", pk_pickle_dict, sj_pickle_dict),
+def pk_unpickle_dict():
+    l = pickle.loads
+    for _ in range(5):
+        l(PK_MICRO)
+
+
+def sj_unpickle_dict():
+    d = D
+    for _ in range(5):
+        d(SJ_MICRO)
+
+
+# les charges par COUPLE écriture/lecture, pour se lire comme le reste du
+# rapport (mêmes octets à l'aller et au retour). pyperformance ne fournit pas
+# de `unpickle_dict` : sa lecture est ajoutée ici, sur la charge officielle de
+# `pickle_dict`, pour que la troisième colonne ait ses deux sens comme les
+# autres. Les octets TRANSPORTÉS par une itération ne pèsent rien tant que
+# tout reste en mémoire, mais ce sont eux qui décident du temps total dès que
+# la charge part sur un disque ou un réseau
+GROUPES = [
+    ("pickle / unpickle (60 dumps, 60 loads)",
+     pk_pickle, sj_pickle, pk_unpickle, sj_unpickle,
+     20 * (len(PK_DICT) + len(PK_TUPLE) + len(PK_GROUP)),
+     20 * (len(SJ_DICT) + len(SJ_TUPLE) + len(SJ_GROUP))),
+    ("pickle_list / unpickle_list (10, 10)",
+     pk_pickle_list, sj_pickle_list, pk_unpickle_list, sj_unpickle_list,
+     10 * len(PK_LIST), 10 * len(SJ_LIST)),
+    ("pickle_dict / unpickle_dict (5, 5)",
+     pk_pickle_dict, sj_pickle_dict, pk_unpickle_dict, sj_unpickle_dict,
+     5 * len(PK_MICRO), 5 * len(SJ_MICRO)),
 ]
 
 
 def mesures(repeat=800):
-    # rend [(nom, pickle_min_µs, serializejson_min_µs)] — importable par le
-    # rapport de benchmarks (tests/lance_benchmarks.py)
+    # rend [(nom, écriture pickle µs, écriture serializejson µs, lecture
+    # pickle µs, lecture serializejson µs, octets pickle, octets
+    # serializejson)] — importable par le rapport de benchmarks
+    # (tests/lance_benchmarks.py)
     resultats = []
-    for name, pk, sj in rows:
-        pk(); sj()  # échauffement
-        pk_min, _ = bench(pk, name, repeat)
-        sj_min, _ = bench(sj, name, repeat)
-        resultats.append((name, pk_min, sj_min))
+    for nom, pk_e, sj_e, pk_l, sj_l, octets_pk, octets_sj in GROUPES:
+        temps = []
+        for fonction in (pk_e, sj_e, pk_l, sj_l):
+            fonction()  # échauffement
+            temps.append(bench(fonction, repeat))
+        resultats.append((nom, *temps, octets_pk, octets_sj))
     return resultats
 
 
 if __name__ == "__main__":
     print("python %d.%d.%d  (protocole pickle %d)"
           % (*sys.version_info[:3], PROTO))
-    for name, pk_min, sj_min in mesures():
-        print("  %-24s pickle %8.1f us   serializejson %8.1f us   ratio x%.2f"
-              % (name, pk_min, sj_min, sj_min / pk_min))
+    for nom, pk_e, sj_e, pk_l, sj_l, *_ in mesures():
+        print("  %-38s écriture x%.2f   lecture x%.2f"
+              % (nom, sj_e / pk_e, sj_l / pk_l))

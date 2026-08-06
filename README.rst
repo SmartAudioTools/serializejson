@@ -37,7 +37,7 @@ Some of the main features:
 - serialize properties and attributes with getters and setters if wanted (unlike pickle).
 - json data will still be directly loadable if you have transform some attributes in slots or properties in your code since your last serialization. (unlike pickle)
 - can serialize `__init__(self,..)` arguments by name instead of positions, allowing to skip arguments with defauts values and making json datas robust to a change of `__init__` parameters order.
-- serialized objects take generally less space than when serialized with pickle: for binary data, the 30% increase due to base64 encoding is in general largely compensated using the lossless `c-blosc2 <https://github.com/Blosc/c-blosc2>`_ compression (see the benchmarks below).
+- serialized objects take generally less space than when serialized with pickle: for binary data, the 30% increase due to base64 encoding is in general largely compensated using the lossless `c-blosc2 <https://github.com/Blosc/c-blosc2>`_ compression, whose ``bytes_compression="smart"`` ladder trades size for speed by a single level number, from the fast default up to 59 % of pickle's size (see the benchmarks below).
 - serialized objects are human-readable and easy to read. Unlike pickled data, your data will never become unreadable if your code evolves: you will always be able to modify your datas with a text editor (with find & replace for example if you change an attribut name).
 - serialized objects are text and therefore versionable and comparable with versionning and comparaison tools.
 - can safely load untrusted / unauthenticated sources if authorized_classes list parameter is set carefully with strictly necessary objects (unlike pickle).
@@ -63,33 +63,54 @@ Some of the main features:
 Benchmarks against pickle
 =========================
 
-All charts below compare serializejson **with its default settings** (the
-"smart" compression chain: blocked derivative → zigzag → bitshuffle → zstd
-level 1, base64 and JSON envelope **included**) against ``pickle.dumps``
-protocol 4, on deterministic synthetic profiles (audio, sorted timestamps,
-smooth signals and surfaces, incompressible noise as the honest worst case).
+All charts below compare serializejson **with its default settings** (level 1
+of the ``bytes_compression="smart"`` ladder: zigzag → bitshuffle → lz4 level
+1, base64 and JSON envelope **included**) against ``pickle.dumps``
+protocol 4, on REAL corpora (photographic and screenshot images, SQAM audio
+references, and the whole set concatenated into a single 200 MB array as the
+out-of-cache case).
 Every value is a ratio serializejson / pickle: **below ×1 — the smaller the
 bar, the bigger the advantage for serializejson**. They are produced by
 ``python tests/lance_benchmarks.py`` (median of ~50 trials, alternated in
-the same process).
+the same process, **cache flushed before each trial** — the RAM regime is the
+only one a real application gets on data it has just produced).
 
-Pure in-memory conversion — serialized size is typically **2 to 20× smaller**
-(geometric mean: 40 % of pickle's size), while pickle, which is a simple
-memory copy (~20 GB/s from cache), stays faster on CPU time alone:
+Pure in-memory conversion — with the **default** level 1 the serialized size is
+**82 % of pickle's on geometric average** (up to 1.5× smaller on audio, but
+14 to 24 % *larger* on the most photographic images, which no generic chain
+compresses), and the whole ladder is one number away: its **last level brings
+that to 59 %** of pickle's size, for about a quarter more CPU time. Pickle,
+which is a simple memory copy, stays faster on CPU time alone in every case.
+Every chart uses the same device: four time bars — writing then reading back,
+first in RAM, then to and from the measuring machine's disk (NVMe PCIe 3,
+~3.5 GB/s, transfer time included) — under an unfilled **blue frame whose top
+edge is the size ratio**, as wide as the four bars together, so nothing is ever
+hidden. One chart per ladder setting, since the size depends neither on the
+direction nor on the device. The vertical scale is linear below ×1 and logarithmic
+above it. The three charts are the default level, the smallest level of the
+ladder, and its level 0, which drops compression altogether (plain base64) —
+writing then becomes **faster than pickle** on most profiles, at the cost of a
+payload one third larger:
 
-.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_dumps.svg
-   :alt: dumps: memory and speed ratios against pickle
+.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_memoire_smart.svg
+   :alt: default smart level: size and speed ratios against pickle
    :width: 100%
 
-.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_loads.svg
-   :alt: loads: memory and speed ratios against pickle
+.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_memoire_min.svg
+   :alt: smallest smart level: size and speed ratios against pickle
+   :width: 100%
+
+.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_memoire_b64.svg
+   :alt: no compression at all: size and speed ratios against pickle
    :width: 100%
 
 As soon as the bytes have to reach a storage device or a network, the saved
 bytes also save time: the curves below show the **total** time ratio
-(serialization + transfer at the given throughput). On a hard drive or a
-SATA SSD, serializejson is faster than pickle on almost every profile — on
-fast NVMe drives, pickle stays ahead for barely-compressible data:
+(serialization + transfer at the given throughput). At the default level, the
+break-even throughput is around 700 MB/s to 1.4 GB/s on the audio corpora and
+below 500 MB/s on the images, so serializejson wins on a hard drive and on a
+SATA SSD for everything that compresses, while pickle keeps the lead on a fast
+NVMe and on data that does not compress:
 
 .. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_ecriture_support.svg
    :alt: total write time ratio against storage throughput
@@ -101,29 +122,51 @@ fast NVMe drives, pickle stays ahead for barely-compressible data:
 
 On realistic machines — pairing each CPU with a storage of the same class,
 from a Raspberry Pi 5 on a microSD (or on an NVMe capped by its single
-PCIe 2.0 lane) to a Ryzen 9 desktop on a PCIe 5 NVMe — serializejson wins
-both write and read on every machine below the very fastest combinations
-(compute times scaled by each CPU's approximate relative speed, "smooth
-int16 signal" profile):
+PCIe 2.0 lane) to a Ryzen 9 desktop on a PCIe 5 NVMe — the balance follows
+the storage: the slower it is, the more the saved bytes pay back the compute
+time. On the anchor profile, a screenshot corpus that barely compresses (96 %
+of pickle's size at the default level), pickle stays ahead everywhere, from
+×1.07 on the microSD Pi to ×2.64 on the PCIe 5 desktop — the slow machine is
+where the gap almost closes, and a level of the ladder that actually shrinks
+the payload turns it around. The chart is anchored on the corpus's largest
+single profile, named in its title, with compute times scaled by each CPU's
+approximate relative speed:
 
 .. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_machines.svg
    :alt: total write and read time ratios on realistic machines
    :width: 100%
 
 Against dedicated lossless image codecs on the image corpora, serializejson
-does not predict in 2D so PNG and JPEG XL compress 1.3-2× smaller — but the
-smart chain encodes and decodes **10 to 50× faster** than both:
+does not predict in 2D so PNG compresses 1.6-2.2× smaller and lossless
+JPEG XL 1.8-3.3× smaller — but the default level **encodes more than 20×
+faster than both**, and decodes 8 to 10× faster than PNG (27 to 70× faster
+than JPEG XL, whose times include the process launch):
 
 .. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_codecs_images.svg
    :alt: serializejson against PNG and JPEG XL on the image corpora
+   :width: 100%
+
+The next two charts put each codec in the usual device — size frame over the
+four time bars — with the codec, not pickle, as the reference:
+
+.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_codecs_png.svg
+   :alt: serializejson against PNG: size and time ratios
+   :width: 100%
+
+.. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_codecs_jxl.svg
+   :alt: serializejson against lossless JPEG XL: size and time ratios
    :width: 100%
 
 Beyond big binary data, the repository's object catalog (every python type
 category from ``tests/objects/basic_objects.py``) and the official
 pyperformance ``bm_pickle`` workloads (myriads of small dicts, tuples and
 lists — pickle's historical home turf) give the honest picture on small
-objects: serializejson stays within ×1.3-1.9 of pickle on the official
-workloads, with a few identified slow paths on exotic categories:
+objects: serializejson stays within ×1.3-2.0 of pickle when writing and
+×1.4-2.4 when reading on the official workloads, with a few identified slow
+paths on exotic categories. At those
+sizes RAM and cache are not distinguishable — a few kilobytes stay in cache in
+real life too — so the first two bars are cache times and the disk bars add
+almost nothing:
 
 .. image:: https://raw.githubusercontent.com/SmartAudioTools/serializejson/master/docs_source/images/benchmark_types_objets.svg
    :alt: time ratios per python type category

@@ -22,7 +22,9 @@ spec.loader.exec_module(lb)
 
 lignes, ecartees = lb.mesure_types_objets()
 pires = []
-for nom, pk_d, sj_d, pk_l, sj_l in lignes:
+for nom, m in lignes:
+    pk_d, sj_d = m["dumps_pickle"], m["dumps_sj"]
+    pk_l, sj_l = m["loads_pickle"], m["loads_sj"]
     rd, rl = sj_d / pk_d, sj_l / pk_l
     marque = " <== " if max(rd, rl) > 2 else "     "
     pires.append((max(rd, rl), nom))

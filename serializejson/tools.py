@@ -68,6 +68,49 @@ blosc2_compressions = {
     for name in _blosc_cnames
     if name != "snappy"  # absent de c-blosc2
 }
+# barème « smart » : le NIVEAU choisit la configuration la plus RAPIDE qui
+# atteint son poids, codec ET chaîne de prétraitement comprises — niveau →
+# (compression blosc2, niveau du codec, chaîne de prétraitement).
+# Poids et temps mesurés le 06/08/2026 sur le corpus d'images et de sons, DE
+# BOUT EN BOUT (enveloppe JSON et base64 comprises), pickle protocole 4 étant
+# mesuré à côté de CHAQUE configuration (référence = médiane de 17 mesures).
+# Deux règles ont taillé le barème, et elles ont éliminé plus de configurations
+# qu'elles n'en ont gardé :
+#  - AUCUN barreau ne coûte plus cher à écrire qu'un barreau plus petit. Tout
+#    ce qui pèse plus de x0,955 est ainsi tombé : compresser « un peu » (raw
+#    ou shuffle d'octets, blosclz ou lz4) coûte 122 à 180 ms là où la chaîne
+#    zigzag+lz4 écrit en 112 ms ET pèse moins. Sont tombés de même les paliers
+#    lz4hc et zlib, qui triplent l'écriture pour quelques points de poids.
+#  - aucun doublon : deux configurations à moins de 1 % de poids l'une de
+#    l'autre ne font qu'un barreau, le moins cher.
+# Il reste sept barreaux, dont le prix se paie à l'ÉCRITURE bien plus qu'à la
+# lecture (colonnes ci-dessous). Deux chaînes se partagent l'échelle :
+# « zigzag » (zigzag → bitshuffle), qui se lit vite, et « smart » (dérivée par
+# blocs en plus), qui gagne le poids que les codecs seuls ne savent pas gagner.
+# Au niveau 0 le codec ne compte pas : la règle générale du niveau 0 annule
+# la compression (base64 seul).
+# Les niveaux 7, 8 et 9 sont LIBRES, réservés aux méthodes qui passeront sous
+# x0,7 : en dessous de x0,722, zstd 2 puis 3 demandent 344 puis 539 ms
+# d'écriture pour 1,9 % et 2,4 % de poids — le format doit changer, pas le
+# réglage.
+bareme_smart = {
+    #      compression       codec  chaîne     poids   ecriture  lecture
+    0: ("blosc2", 0, "raw"),  # x1.333   x0.43    x1.89
+    1: ("blosc2_lz4", 1, "zigzag"),  # x0.955   x0.87    x2.12
+    2: ("blosc2_lz4", 9, "zigzag"),  # x0.928   x0.92    x2.10
+    3: ("blosc2_lz4", 1, "smart"),  # x0.866   x0.97    x2.71
+    4: ("blosc2_lz4", 9, "smart"),  # x0.837   x1.05    x2.84
+    5: ("blosc2_zstd", 1, "zigzag"),  # x0.769   x1.27    x2.28
+    6: ("blosc2_zstd", 1, "smart"),  # x0.722   x1.49    x2.96
+}
+# barreau pris quand « smart » est demandé sans niveau (choix de Baptiste,
+# 06/08) : le premier qui compresse, donc le moins cher à écrire de tous ceux
+# qui compressent — les plus petits se demandent par leur numéro
+bareme_smart_defaut = 1
+# niveaux réservés : ce qui RESTE de l'échelle 0-9 une fois le barème posé,
+# donc rien à tenir à jour le jour où un barreau est ajouté. Ils sont refusés
+# avec un message qui le dit, plutôt que rabattus en silence sur le dernier
+bareme_smart_reserves = tuple(n for n in range(10) if n not in bareme_smart)
 use_blosc2_cpp = False
 # vrai quand la libblosc2 chargée est NOTRE fork déterministe : son
 # multi-thread INTERNE produit alors des octets identiques au mono-thread

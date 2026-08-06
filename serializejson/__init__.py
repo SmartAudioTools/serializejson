@@ -223,6 +223,9 @@ from .tools import (
     _onlyOneDimNumbers,
     blosc_compressions,
     blosc2_compressions,
+    bareme_smart,
+    bareme_smart_defaut,
+    bareme_smart_reserves,
     use_blosc2_cpp,
     use_blosc2_fork,
     serializejson_,
@@ -238,6 +241,16 @@ from .tools import (
     Reference,
     constructors,
 )
+
+
+# seuils de compression par ESPÈCE de charge (voir bytes_size_compression_
+# threshold) : les tableaux numpy portent un dtype et une forme, leur contenu
+# est assez régulier pour que la compression se paie dès 512 octets ; les
+# bytes et bytearray nus sont des blocs opaques, le plus souvent DÉJÀ
+# compressés (jpeg, zip, chiffré...) — ils ne sont compressés que sur demande
+SEUILS_COMPRESSION_DEFAUT = {"numpy": 512, "bytes": None}
+# seuil qu'aucune taille n'atteint : la traduction de « jamais compressé »
+JAMAIS = 1 << 62
 
 
 authorized_classes.update(
@@ -549,9 +562,12 @@ class Encoder(rapidjson.Encoder):
             Since python 3.7 dictionary order is guaranteed to be insertion order.
             Some codes may now rely on this particular order, like the key order of the state returned by __gestate__.
 
-        bytes_compression(None or str):
+        bytes_compression(None, str or tuple):
             Compression for bytes, bytesarray and numpy arrays:
 
+            - `"smart"` (the DEFAULT) : the LEVEL alone is chosen, and it
+              picks the fastest configuration reaching that size — codec AND
+              preprocessing chain. See the ladder below.
             - `None` : no compression, use only base 64.
             - `str` : compression name, with the default compression level (1):
               "blosc2_zstd", "blosc2", "blosc2_lz4", "blosc2_lz4hc" or "blosc2_zlib"
@@ -560,14 +576,46 @@ class Encoder(rapidjson.Encoder):
               python-blosc2 wheel).
             - `tuple` : (compression name, compression level) with compression level from 0 (no compression) to 9 (maximum compression)
 
-            By default the "blosc2_zstd" compression is used with compression level 1.
-            For the highest compression (but with slower dumping) use "blosc2_zstd" with compression level 9.
+            The "smart" ladder, measured on 06/08/2026 over a corpus of
+            images and sounds, end to end (whole dumps/loads, JSON envelope
+            and base64 included) — every figure is a RATIO to pickle, pickle
+            being measured BESIDE each configuration (reference = median of
+            17 measurements, each one the median of 9 cold trials) :
+
+            ===== ===================== ======= ====== ======
+            level chain                 size    dump   load
+            ===== ===================== ======= ====== ======
+            0     base64 only           x1.333  x0.43  x1.89
+            1     zigzag chain, lz4 1   x0.955  x0.87  x2.12
+            2     zigzag chain, lz4 9   x0.928  x0.92  x2.10
+            3     smart chain, lz4 1    x0.866  x0.97  x2.71
+            4     smart chain, lz4 9    x0.837  x1.05  x2.84
+            5     zigzag chain, zstd 1  x0.769  x1.27  x2.28
+            6     smart chain, zstd 1   x0.722  x1.49  x2.96
+            ===== ===================== ======= ====== ======
+
+            Each level is the FASTEST configuration reaching its size, and
+            two rules kept the ladder honest: no level may cost more to DUMP
+            than a smaller one, and two configurations within 1 % of size are
+            a single level. That is what makes the ladder start at x0.955:
+            compressing "a little" (no filter, or plain byte shuffle, with
+            blosclz or lz4) turns out to cost MORE to dump than the zigzag
+            chain, which is also smaller. The price of the high levels is
+            paid when DUMPING (x0.43 to x1.49); loading varies much less
+            (x1.89 to x2.96). `"smart"` without a level means level 1, the
+            first one that compresses and the last whose dumping stays under
+            pickle's; level 6 gives the bytes of the historical default
+            ("blosc2_zstd" 1).
+            Levels 7, 8 and 9 are deliberately FREE, reserved for future
+            methods going below x0.7: past level 6, zstd 2 then 3 ask for
+            1.8x then 2.8x the dump time to gain 1.9 % and 2.4 % of size —
+            what has to change there is the format, not the setting.
             Writing the legacy python-blosc v1 formats ("blosc_zstd",
             "blosclz"...) was removed on 05/08/2026; every v1 file remains
             READABLE (the bundled libblosc2 fork reads v1 frames, python-blosc
             is no longer a dependency).
 
-        bytes_compression_diff_dtypes ("smart", tuple of dtype, or None)
+        bytes_compression_diff_dtypes ("smart", "zigzag", "delta", "raw", tuple of dtype, or None)
             Delta stage added before the entropy coder, reducing a lot the
             compressed size of smooth data (signals, gradients, sorted
             values, timestamps...).
@@ -576,17 +624,30 @@ class Encoder(rapidjson.Encoder):
             blosc2 PREFILTER while the library builds each 512 KB block),
             then a registered zigzag filter (folding negatives between
             positives so that ±ε share their bits), then blosc2's native
-            bitshuffle, then the chosen codec at the chosen level (zstd by
-            default) ; at load the cumulative sum is fused in a blosc2
+            bitshuffle, then the chosen codec at the chosen level ; at load
+            the cumulative sum is fused in a blosc2
             POSTFILTER, per block, multithreaded. Non-integer dtypes
             (floats included, whose arithmetic differences would not
             round-trip exactly) go through the registered byte-delta filter
             (byte delta after shuffle), bit-exact for all dtypes. No
             sampling, no probing: the chain is applied directly, and the
             compression level pilots the codec level.
+            Two lighter chains exist beside it. `"zigzag"` is the smart chain
+            WITHOUT its derivative (zigzag then bitshuffle, for every dtype)
+            — it loads about twice as fast as a byte shuffle, blosc2's
+            bitshuffle being vectorized, and it reaches sizes neither of the
+            two others reach: the ladder uses it for its lighter levels, the
+            DEFAULT one included. Two more are only reachable by hand, no
+            level of the ladder using them: `"delta"` is shuffle then the
+            registered byte-delta filter, for every dtype, without the
+            blocked derivative, the zigzag and the bitshuffle ; `"raw"`
+            disables every filter, leaving the codec alone — the cheapest
+            chain to LOAD.
             A tuple of dtypes keeps the historical opt-in behavior (delta
             only for those dtypes, via the byte-delta filter). `None` or an
             empty tuple disables the delta stage entirely (plain shuffle).
+            Left at its default `"smart"`, the value is chosen by the
+            `bytes_compression="smart"` ladder; any other value wins over it.
             Every frame ever written ("_diff", "_diffb", v1 python-blosc)
             remains readable.
 
@@ -605,11 +666,21 @@ class Encoder(rapidjson.Encoder):
               multithread with stable bytes) — otherwise one thread. The
               compressed bytes are identical whatever the thread count.
 
-        bytes_size_compression_threshold (int):
+        bytes_size_compression_threshold (int or dict):
             bytes size threshold beyond compression is tried to reduce size of
             bytes, bytesarray and numpy array if `bytes_compression` is not None.
-            The default value is 512, generaly beside the compression is not
-            worth it due to the header size and the additional cpu cost.
+
+            - `int` : same threshold for numpy arrays and for plain bytes and
+              bytearray.
+            - `dict` (default) : one threshold per kind, `None` meaning never
+              compressed. The default is `{"numpy": 512, "bytes": None}` :
+              numpy arrays carry a dtype and a shape, and their content is
+              regular enough for the compression to pay for itself from 512
+              bytes on, whereas plain bytes and bytearray are opaque blobs,
+              most often already compressed (jpeg, zip, encrypted...) — they
+              are only compressed if you ask for it, with for instance
+              `bytes_size_compression_threshold={"numpy": 512, "bytes": 512}`
+              or simply `bytes_size_compression_threshold=512`.
 
         array_readable_max_size (int,None or dict):
             Defines the maximum array.array size for serialization in readable numbers.
@@ -711,9 +782,9 @@ class Encoder(rapidjson.Encoder):
         single_line_new=True,
         single_line_list_numbers=True,
         sort_keys=False,
-        bytes_compression="blosc2_zstd",
+        bytes_compression="smart",
         bytes_compression_diff_dtypes="smart",
-        bytes_size_compression_threshold=512,
+        bytes_size_compression_threshold=SEUILS_COMPRESSION_DEFAUT,
         bytes_compression_threads="determinist",
         array_use_arrayB64=True,  # le laisser ?
         array_readable_max_size=0,  # 'int32':-1
@@ -779,10 +850,36 @@ class Encoder(rapidjson.Encoder):
         self._dump_one_line = indent is None
         self.dumped_classes = set()
         self.chunk_size = chunk_size
-        bytes_compression_level = 1  # niveau par défaut, défini ici et nulle part ailleurs (un tuple explicite le remplace)
+        bytes_compression_level = None  # niveau non précisé : voir plus bas
         if bytes_compression is not None:
             if isinstance(bytes_compression, (list, tuple)):
                 bytes_compression, bytes_compression_level = bytes_compression
+            if bytes_compression == "smart":
+                # barème : le NIVEAU choisit la configuration la plus RAPIDE
+                # qui atteint son poids — codec ET chaîne de prétraitement.
+                # Une chaîne demandée explicitement (bytes_compression_diff_-
+                # dtypes autre que le défaut « smart ») reste prioritaire
+                if bytes_compression_level is None:
+                    bytes_compression_level = bareme_smart_defaut
+                if bytes_compression_level not in bareme_smart:
+                    reserve = (" (reserved for future methods going below"
+                               " x0.7)"
+                               if bytes_compression_level
+                               in bareme_smart_reserves else "")
+                    raise Exception(
+                        f"smart compression level {bytes_compression_level}"
+                        f"{reserve} unknown: smart levels go from 0 (no"
+                        " compression, base64 only) to"
+                        f" {max(bareme_smart)} (smallest)"
+                    )
+                (bytes_compression, bytes_compression_level,
+                 chaine) = bareme_smart[bytes_compression_level]
+                if bytes_compression_diff_dtypes == "smart":
+                    bytes_compression_diff_dtypes = chaine
+            if bytes_compression_level is None:
+                # niveau par défaut d'une compression NOMMÉE, défini ici et
+                # nulle part ailleurs (un tuple explicite le remplace)
+                bytes_compression_level = 1
             if bytes_compression in blosc_compressions:
                 # noms v1 python-blosc : l'écriture a été retirée (05/08/2026),
                 # la lecture des fichiers v1 demeure
@@ -796,11 +893,39 @@ class Encoder(rapidjson.Encoder):
                     f"{bytes_compression} compression unknown. Available values for bytes_compression are "
                     f"{', '.join(blosc2_compressions)}"
                 )
+            if bytes_compression_level == 0:
+                # niveau 0 = AUCUNE compression : ni en-tête blosc2, ni copie
+                # dans un tampon de compression — la charge part en base64
+                # comme avec bytes_compression=None, aux mêmes performances
+                bytes_compression = None
         self.bytes_compression = bytes_compression
         self.bytes_compression_threads = bytes_compression_threads
         self.bytes_compression_diff_dtypes = bytes_compression_diff_dtypes
-        self.bytes_compression_level = bytes_compression_level
+        # sans compression le niveau est inerte : 0, le niveau qui la désigne
+        self.bytes_compression_level = (
+            0 if bytes_compression is None else bytes_compression_level)
         self.bytes_size_compression_threshold = bytes_size_compression_threshold
+        # un seuil PAR ESPÈCE, résolu ici une fois pour toutes : les greffons
+        # lisent les deux entiers, jamais le paramètre brut. `None` (jamais
+        # compressé) devient un seuil qu'aucune taille n'atteint
+        if isinstance(bytes_size_compression_threshold, dict):
+            inconnues = set(bytes_size_compression_threshold) - {"numpy",
+                                                                 "bytes"}
+            if inconnues:
+                raise Exception(
+                    f"unknown bytes_size_compression_threshold keys"
+                    f" {sorted(inconnues)}: available keys are 'numpy' and"
+                    " 'bytes'"
+                )
+            seuils = {**SEUILS_COMPRESSION_DEFAUT,
+                      **bytes_size_compression_threshold}
+        else:
+            seuils = {"numpy": bytes_size_compression_threshold,
+                      "bytes": bytes_size_compression_threshold}
+        self._seuil_numpy = (JAMAIS if seuils["numpy"] is None
+                             else seuils["numpy"])
+        self._seuil_bytes = (JAMAIS if seuils["bytes"] is None
+                             else seuils["bytes"])
         self.array_use_arrayB64 = array_use_arrayB64
         self.array_readable_max_size = array_readable_max_size
         self.numpy_array_to_list = numpy_array_to_list
@@ -1511,8 +1636,7 @@ class Encoder(rapidjson.Encoder):
                 and getattr(recette_bytearray, "__name__", "")
                 == "serializejson_bytearray"):
             self.__dict__["_bytes_natif_seuil"] = (
-                self.bytes_size_compression_threshold
-                if self.bytes_compression else (1 << 62))
+                self._seuil_bytes if self.bytes_compression else JAMAIS)
         else:
             self.__dict__["_bytes_natif_seuil"] = 0
         # écriture native C des dicts à clés non-str : le C compose lui-même
@@ -1534,9 +1658,13 @@ class Encoder(rapidjson.Encoder):
             self.__dict__["_cle_json"] = None
         serialize_parameters.__dict__.update(self.__dict__)
         serialize_parameters.__dict__.update(self.plugins_parameters)
-        # les plugins lisent la valeur résolue (le "determinist" symbolique
-        # ne doit pas leur parvenir)
+        # les plugins lisent les valeurs RÉSOLUES (ni le "determinist"
+        # symbolique, ni le seuil par espèce, ne doivent leur parvenir)
         serialize_parameters.bytes_compression_threads = resolved
+        serialize_parameters.bytes_size_compression_threshold = \
+            self._seuil_bytes
+        serialize_parameters.numpy_size_compression_threshold = \
+            self._seuil_numpy
         serialize_parameters._owner = self
         serialize_parameters._decoder_owner = None
 

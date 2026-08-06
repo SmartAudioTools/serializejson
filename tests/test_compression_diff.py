@@ -9,6 +9,10 @@ import pytest
 import serializejson
 from serializejson.tools import sans_prefixe_longueur
 
+# codec FIGÉ des tests qui comparent des CHAÎNES entre elles : le barreau
+# par défaut du barème peut changer, ce qu'ils mesurent ne doit pas
+ZSTD = ("blosc2_zstd", 1)
+
 
 def _trame(blosc_to_base64):
     # dumps d'un BloscToBase64 : « "<n>:<base64>" » — retire les guillemets
@@ -69,14 +73,17 @@ def test_floats_bit_exacts_via_filtre():
 
 def test_filtre_sans_etiquette_et_plus_compact():
     # la voie blosc2 n'étiquette plus : le filtre est porté par la trame,
-    # et le pipeline shuffle->delta bat la dérivée globale d'hier
+    # et le pipeline shuffle->delta bat la dérivée globale d'hier.
+    # Codec FIGÉ des deux côtés : ce qu'on compare est le filtre, pas le
+    # codec du barreau par défaut
     rng = numpy.random.default_rng(5)
     signal = (10000 * numpy.sin(numpy.linspace(0, 60, 200_000))
               + rng.integers(-5, 5, 200_000)).astype(numpy.int16)
     sans = serializejson.Encoder(
-        return_bytes=True, bytes_compression_diff_dtypes=None)(signal)
+        return_bytes=True, bytes_compression=ZSTD,
+        bytes_compression_diff_dtypes=None)(signal)
     avec = serializejson.Encoder(
-        return_bytes=True,
+        return_bytes=True, bytes_compression=ZSTD,
         bytes_compression_diff_dtypes=(numpy.int16,))(signal)
     assert b"_diff" not in avec
     assert len(avec) < len(sans) * 0.75
@@ -126,14 +133,17 @@ def test_diff_cumsum_c_identiques_a_numpy():
 
 
 def test_smart_1d_lisse():
-    # DÉFAUT « smart » (sans sonde) : entiers -> dérivée par blocs (étiquette
+    # chaîne « smart » (sans sonde) : entiers -> dérivée par blocs (étiquette
     # _diff/_diffb) + zigzag + bitshuffle, nettement plus petit que sans delta
     rng = numpy.random.default_rng(10)
     signal = (10000 * numpy.sin(numpy.linspace(0, 60, 200_000))
               + rng.integers(-5, 5, 200_000)).astype(numpy.int16)
     sans = serializejson.Encoder(
-        return_bytes=True, bytes_compression_diff_dtypes=None)(signal)
-    smart = serializejson.Encoder(return_bytes=True)(signal)  # défaut
+        return_bytes=True, bytes_compression=ZSTD,
+        bytes_compression_diff_dtypes=None)(signal)
+    smart = serializejson.Encoder(
+        return_bytes=True, bytes_compression=ZSTD,
+        bytes_compression_diff_dtypes="smart")(signal)
     assert b"_diff" in smart
     assert len(smart) < len(sans) * 0.75
     assert numpy.array_equal(serializejson.Decoder()(smart), signal)
@@ -198,12 +208,15 @@ def test_smart_1d_entiers_larges():
     rng = numpy.random.default_rng(15)
     stamps = (numpy.cumsum(rng.integers(100, 200, 500_000))
               + 1_700_000_000_000_000).astype(numpy.int64)
-    smart = serializejson.Encoder(return_bytes=True)(stamps)  # défaut
+    smart = serializejson.Encoder(
+        return_bytes=True, bytes_compression=ZSTD,
+        bytes_compression_diff_dtypes="smart")(stamps)
     filtre_seul = serializejson.Encoder(
-        return_bytes=True,
+        return_bytes=True, bytes_compression=ZSTD,
         bytes_compression_diff_dtypes=(numpy.int64,))(stamps)
     sans = serializejson.Encoder(
-        return_bytes=True, bytes_compression_diff_dtypes=None)(stamps)
+        return_bytes=True, bytes_compression=ZSTD,
+        bytes_compression_diff_dtypes=None)(stamps)
     assert b"_diff" in smart         # la dérivée est appliquée
     assert len(smart) < len(filtre_seul) * 1.10
     assert len(smart) < len(sans) * 0.80

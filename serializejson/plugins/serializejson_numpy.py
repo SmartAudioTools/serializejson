@@ -230,7 +230,7 @@ else:
             compression = serialize_parameters.bytes_compression
             if (
                 compression
-                and data.nbytes >= serialize_parameters.bytes_size_compression_threshold
+                and data.nbytes >= serialize_parameters.numpy_size_compression_threshold
             ):
 
                 # dérivée avant compression (opt-in par dtype) : réservée aux
@@ -243,7 +243,10 @@ else:
                 # l'ancien essai automatique par sondes, est rabattu dessus —
                 # le dispositif de sondes a été retiré
                 smart = diff_dtypes == "smart" or diff_dtypes is True
-                use_diff = smart or bool(
+                # « delta » : le filtre delta d'octets pour TOUS les dtypes,
+                # sans en nommer aucun (aucun barreau du barème ne s'en sert,
+                # il reste demandable à la main)
+                use_diff = smart or diff_dtypes == "delta" or bool(
                     diff_dtypes and not isinstance(diff_dtypes, str)
                     and data.dtype in diff_dtypes)
                 # écriture blosc2 seulement (l'écriture v1 python-blosc et sa
@@ -265,9 +268,18 @@ else:
                 # côtés, trame auto-descriptive — aucune étiquette)
                 contiguous = numpy.ascontiguousarray(data)
                 level = serialize_parameters.bytes_compression_level
-                shuffle = 2 if use_diff else 1  # 2 = filtre delta + shuffle
+                # 2 = filtre delta + shuffle ; 0 = « raw », aucun filtre, le
+                # codec seul : la chaîne la moins chère À LA LECTURE
+                shuffle = 0 if diff_dtypes == "raw" else 2 if use_diff else 1
                 diff0 = False  # dérivée d'axe 0, par blocs (étiquette _diffb)
-                if smart and contiguous.dtype.kind in "iu":
+                if diff_dtypes == "zigzag":
+                    # la chaîne smart PRIVÉE de sa dérivée : zigzag →
+                    # bitshuffle, pour TOUS les dtypes. Elle occupe la bande
+                    # de poids que ni le shuffle d'octets ni la chaîne smart
+                    # complète n'atteignent, et se lit deux fois plus vite
+                    # que le shuffle d'octets (bitshuffle vectorisé)
+                    shuffle = 3
+                elif smart and contiguous.dtype.kind in "iu":
                     # DÉFAUT « smart » (choix de Baptiste, 05/08) : la
                     # chaîne dérivée blocs → zigzag → bitshuffle → zstd
                     # appliquée DIRECTEMENT, sans sonde, aux entiers ;
