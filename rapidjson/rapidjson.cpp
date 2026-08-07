@@ -20,6 +20,7 @@
 #include <structmember.h>
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -8425,9 +8426,6 @@ typedef struct {
     SjMtScratch* mtScratch;
     // taille de sortie atteinte au dump précédent (capacité initiale du suivant)
     size_t outputHighWater;
-    // index de position construit PENDANT l'écriture (voir indexscan.h),
-    // relevé par _index_texte() juste après le dump ; nullptr = pas demandé
-    std::string* indexTexte;
 } EncoderObject;
 
 
@@ -8544,27 +8542,7 @@ encoder_json_path_from_id(PyObject* self, PyObject* arg)
 }
 
 
-// Texte de l'index de position du dernier dump, ou None si le dernier dump
-// n'en a pas construit (pas demandé, ou cible sans descripteur). Le relever le
-// VIDE : un index ne vaut que pour le document qui vient d'être écrit.
-static PyObject*
-encoder_index_texte(PyObject* self, PyObject* Py_UNUSED(unused))
-{
-    EncoderObject* e = (EncoderObject*) self;
-    if (e->indexTexte == nullptr)
-        Py_RETURN_NONE;
-    std::string* texte = e->indexTexte;
-    e->indexTexte = nullptr;
-    PyObject* out = PyUnicode_FromStringAndSize(texte->data(),
-                                                (Py_ssize_t) texte->size());
-    delete texte;
-    return out;
-}
-
-
 static PyMethodDef encoder_methods[] = {
-    {"_index_texte", (PyCFunction) encoder_index_texte, METH_NOARGS,
-     "Index de position construit au dernier dump (None s'il n'y en a pas)."},
     {"json_path", (PyCFunction) encoder_json_path, METH_NOARGS,
      "Chemin JSON de la valeur en cours d'encodage (None hors encodage)."},
     {"json_path_id", (PyCFunction) encoder_json_path_id, METH_NOARGS,
@@ -9032,7 +9010,6 @@ static void encoder_dealloc(PyObject* self)
 {
     // libère les brouillons réutilisables du multithread numérique
     delete (SjMtScratch*) ((EncoderObject*) self)->mtScratch;
-    delete ((EncoderObject*) self)->indexTexte;
     Py_TYPE(self)->tp_free(self);
 }
 
@@ -9224,6 +9201,63 @@ do_stream_encode(PyObject* value, PyObject* stream, size_t chunkSize, PyObject* 
 }
 
 
+// Où ranger l'index d'un document qui part droit dans un descripteur : les
+// deux destinations et la forme retenue, en octets à NOUS. Le thread
+// d'écriture les relit après le retour de dump, quand plus aucun objet python
+// ne peut être touché — d'où la copie, plutôt que les bytes du convertisseur.
+struct SjIndexRangement {
+    std::string chemin;
+    std::string sidecar;
+    bool en_sidecar = false;
+    size_t seuil = 0;
+};
+
+// (chemin du json, chemin du sidecar, index dans le sidecar), tel que le dump
+// python le compose AVANT d'écrire — c'est ce qui permet à l'écrivain de
+// ranger seul, sans plus rien demander à personne.
+static bool
+sj_index_ou_ranger(PyObject* tuple, SjIndexRangement& out)
+{
+    PyObject* chemin = nullptr;
+    PyObject* sidecar = nullptr;
+    int en_sidecar;
+    if (!PyArg_ParseTuple(tuple, "O&O&p:index_range",
+                          PyUnicode_FSConverter, &chemin,
+                          PyUnicode_FSConverter, &sidecar, &en_sidecar))
+        return false;
+    out.chemin.assign(PyBytes_AS_STRING(chemin),
+                      (size_t) PyBytes_GET_SIZE(chemin));
+    out.sidecar.assign(PyBytes_AS_STRING(sidecar),
+                       (size_t) PyBytes_GET_SIZE(sidecar));
+    out.en_sidecar = en_sidecar != 0;
+    Py_DECREF(chemin);
+    Py_DECREF(sidecar);
+    return true;
+}
+
+// Le rangement lui-même : la queue éventuelle du fichier donne la fin du
+// document, le texte des chemins se complète de `root`, se dégonfle et se
+// pose. Rend un ERRNO plutôt qu'une exception : il tourne dans le thread
+// d'écriture, où plus aucun objet python n'est à portée.
+static int
+sj_index_range_fichier(const SjIndexRangement& ou, const char* chemins,
+                       size_t len)
+{
+    SjIndexQueue q;
+    errno = 0;
+    if (!sj_index_fichier_queue(ou.chemin.c_str(), &q))
+        return errno ? errno : EIO;
+    std::string texte;
+    if (len)
+        sj_index_compose(ou.seuil, chemins, len, q.fin, texte);
+    errno = 0;
+    if (!sj_index_fichier_range(ou.chemin.c_str(), ou.sidecar.c_str(),
+                                ou.en_sidecar, q.taille, q.fin, texte))
+        return errno ? errno : EIO;
+    return 0;
+}
+
+
 // Même chose, mais droit dans un descripteur, et par un thread d'écriture :
 // les octets déposés n'appartenant à aucun objet python, la sérialisation et
 // l'écriture se RECOUVRENT au lieu de se suivre (voir writerthread.h pour la
@@ -9236,7 +9270,7 @@ do_fd_encode(PyObject* value, int fd, size_t chunkSize, bool bloquant,
              PyObject* defaultFn,
              PyObject* defaultDictFn, PyObject* defaultListFn,
              PathTracker* pathTracker,
-             std::string** indexTexte, size_t indexSeuil,
+             const SjIndexRangement* indexOu,
              bool ensureAscii, unsigned writeMode, char indentChar,
              unsigned indentCount, unsigned numberMode, unsigned datetimeMode,
              unsigned uuidMode, unsigned bytesMode, unsigned iterableMode,
@@ -9268,11 +9302,11 @@ do_fd_encode(PyObject* value, int fd, size_t chunkSize, bool bloquant,
         // ce chemin-ci, le seul dont les positions soient celles du FICHIER.
         SjIndexEcriture index;
         index.segments = &pathTracker->segments;
-        index.seuil = indexSeuil;
+        index.seuil = indexOu ? indexOu->seuil : 0;
 
         if (writeMode == WM_COMPACT) {
             Writer<FdWriteStream> writer(os);
-            if (indexTexte) writer.SetIndex(&index);
+            if (indexOu) writer.SetIndex(&index);
             result = DUMP_INTERNAL_CALL;
         } else {
             PrettyWriter<FdWriteStream> writer(os);
@@ -9280,11 +9314,22 @@ do_fd_encode(PyObject* value, int fd, size_t chunkSize, bool bloquant,
             if (writeMode & WM_SINGLE_LINE_ARRAY) {
                 writer.SetFormatOptions(kFormatSingleLineArray);
             }
-            if (indexTexte) writer.SetIndex(&index);
+            if (indexOu) writer.SetIndex(&index);
             result = DUMP_INTERNAL_CALL;
         }
-        if (indexTexte && result != nullptr)
-            *indexTexte = new std::string(std::move(index.texte));
+        if (indexOu != nullptr && result != nullptr) {
+            // l'écrivain range l'index lui-même, son dernier octet posé : dump
+            // rend la main sans attendre ni le disque, ni le dégonflage du
+            // bloc. Le texte passe par un pointeur partagé — la lambda est
+            // copiée, les 800 ko de chemins ne le sont pas
+            std::shared_ptr<std::string> chemins(
+                new std::string(std::move(index.texte)));
+            const SjIndexRangement ou = *indexOu;
+            ecrivain->rangeApres([ou, chemins]() {
+                return sj_index_range_fichier(ou, chemins->data(),
+                                              chemins->size());
+            });
+        }
         // tout est déposé (writer.Flush) : la taille du document est connue,
         // et c'est le dernier moment où le disque peut encore dire non
         ecrivain->reservePlace();
@@ -9292,8 +9337,12 @@ do_fd_encode(PyObject* value, int fd, size_t chunkSize, bool bloquant,
     }
     if (bloquant) {
         ecrivain->attends();
+        // termine() joint le thread, et c'est LÀ que l'index se range :
+        // l'erreur du rangement n'existe pas encore avant, `erreur()` seul ne
+        // verrait que les écritures
+        const int fin = ecrivain->termine();
         if (erreur == 0)
-            erreur = ecrivain->erreur();
+            erreur = fin;
         delete ecrivain;
     } else {
         // à partir d'ici l'écrivain vit sa vie : plus un seul accès au pointeur
@@ -9339,6 +9388,7 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         "fd",
         "blocking_write",
         "index_threshold",
+        "index_range",
         nullptr
     };
     PyObject* value;
@@ -9350,13 +9400,15 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     int bloquant = false;
     // seuil de l'index de position construit à l'écriture, 0 = pas d'index
     Py_ssize_t indexSeuil = 0;
+    // où le ranger, quand l'écrivain peut s'en charger lui-même (voir dump)
+    PyObject* indexRangeObj = nullptr;
     size_t chunkSize = 65536;
     PyObject* defaultFn = nullptr;
     PyObject* defaultDictFn = nullptr;
     PyObject* defaultListFn = nullptr;
     PyObject* result;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OO$OOOpn",
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OO$OOOpnO",
                                      (char**) kwlist,
                                      &value,
                                      &fp,
@@ -9365,15 +9417,21 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
                                      &chunkSizeObj,
                                      &fdObj,
                                      &bloquant,
-                                     &indexSeuil))
+                                     &indexSeuil,
+                                     &indexRangeObj))
         return nullptr;
 
-    EncoderObject* e = (EncoderObject*) self;
-    // l'index du dump PRÉCÉDENT ne vaut plus rien : le relever après un dump
-    // qui n'en construit pas rendrait les positions d'un autre document
-    delete e->indexTexte;
-    e->indexTexte = nullptr;
+    SjIndexRangement indexRange;
+    const SjIndexRangement* indexOu = nullptr;
+    if (indexRangeObj != nullptr && indexRangeObj != Py_None
+            && indexSeuil > 0) {
+        if (!sj_index_ou_ranger(indexRangeObj, indexRange))
+            return nullptr;
+        indexRange.seuil = (size_t) indexSeuil;
+        indexOu = &indexRange;
+    }
 
+    EncoderObject* e = (EncoderObject*) self;
     // protocole serializejson (l'ancien Encoder.__call__ Python) : poussée
     // amortie des paramètres globaux, remise à zéro des attributs volatils
     bool sjProtocol = sj_is_registered(self, sj_encoder_type);
@@ -9542,8 +9600,7 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         if (fd >= 0)
             result = do_fd_encode(value, fd, chunkSize, bloquant, defaultFn,
                                   defaultDictFn, defaultListFn, &pathTracker,
-                                  indexSeuil > 0 ? &e->indexTexte : nullptr,
-                                  (size_t) indexSeuil,
+                                  indexOu,
                                   e->ensureAscii,
                                   e->writeMode, e->indentChar, e->indentCount,
                                   e->numberMode, e->datetimeMode, e->uuidMode,
@@ -9715,7 +9772,6 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
     e->memoHighWater = 0;
     e->mtScratch = nullptr;
     e->outputHighWater = 0;
-    e->indexTexte = nullptr;
     e->singleLineNumbers = singleLineNumbers? true : false;
     e->singleLineInit = singleLineInit? true : false;
     e->singleLineNew = singleLineNew? true : false;
@@ -10406,35 +10462,6 @@ sj_index_queue_py(PyObject* Py_UNUSED(module), PyObject* arg)
                          (unsigned long long) q.date);
 }
 
-// Range l'index relevé PENDANT l'écriture. `chemins` est déjà le texte des
-// entrées ; vide, il dit que rien n'atteint le seuil, et l'index qui traînait
-// est retiré plutôt que laissé périmé.
-static PyObject*
-sj_index_range_py(PyObject* Py_UNUSED(module), PyObject* args)
-{
-    SjIndexChemin chemin, sidecar;
-    int en_sidecar;
-    Py_ssize_t seuil;
-    const char* chemins;
-    Py_ssize_t chemins_len;
-    if (!PyArg_ParseTuple(args, "O&O&pns#:_index_range",
-                          PyUnicode_FSConverter, &chemin.octets,
-                          sj_index_chemin_converti, &sidecar, &en_sidecar,
-                          &seuil, &chemins, &chemins_len))
-        return nullptr;
-    SjIndexQueue q;
-    if (!sj_index_fichier_queue(*chemin, &q))
-        return PyErr_SetFromErrnoWithFilename(PyExc_OSError, *chemin);
-    std::string texte;
-    if (chemins_len)
-        sj_index_compose((size_t) seuil, chemins, (size_t) chemins_len,
-                         q.fin, texte);
-    if (!sj_index_fichier_range(*chemin, *sidecar, en_sidecar != 0, q.taille,
-                                q.fin, texte))
-        return PyErr_SetFromErrnoWithFilename(PyExc_OSError, *chemin);
-    Py_RETURN_NONE;
-}
-
 // Index d'un fichier déjà écrit : balayé, composé, rangé, et rendu tel qu'il
 // est composé — l'appelant n'a plus qu'à le relire en json.
 static PyObject*
@@ -10733,9 +10760,6 @@ static PyMethodDef functions[] = {
     {"_index_queue", (PyCFunction) sj_index_queue_py, METH_O,
      "(fin du document, date de l'index) d'un json à index en commentaire,"
      " None s'il n'en porte pas — sans rien dégonfler."},
-    {"_index_range", (PyCFunction) sj_index_range_py, METH_VARARGS,
-     "Range un index relevé à l'écriture (json, sidecar ou None, seuil,"
-     " texte des entrées) ; entrées vides = retirer l'index."},
     {"_index_construit", (PyCFunction) sj_index_construit_py, METH_VARARGS,
      "Balaye, compose et range l'index d'un json écrit (json, sidecar ou"
      " None, seuil) ; rend l'index composé."},

@@ -39,6 +39,7 @@
 #include <cstring>
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <sys/types.h>
 #include <thread>
@@ -146,13 +147,32 @@ public:
     }
 
     // Écrit ce qui reste, puis rend la main.
-    ~WriterThread() {
+    ~WriterThread() { termine(); }
+
+    // Ferme l'écrivain et rend son errno. À préférer au destructeur quand
+    // l'erreur intéresse : la tâche de fin ne s'exécute qu'ici, si bien qu'un
+    // `erreur()` lu avant la destruction ne verrait que les écritures.
+    int termine() {
         {
             std::unique_lock<std::mutex> verrou(m);
             fini = true;
         }
         aBloc.notify_one();
-        th.join();
+        if (th.joinable())
+            th.join();
+        return erreur();
+    }
+
+    // Ce qu'il reste à faire une fois le DERNIER octet posé, exécuté par le
+    // thread d'écriture avant qu'il ne se signale terminé — ranger l'index du
+    // document, aujourd'hui, et c'est tout son coût qui sort du retour de
+    // dump. La tâche rend un errno, 0 si tout va bien, et n'est pas appelée si
+    // l'écriture a déjà raté : un index sur un document tronqué vaut moins que
+    // pas d'index. Elle ne doit toucher aucun objet python — comme les blocs,
+    // et pour la même raison, elle tourne quand plus personne n'attend.
+    void rangeApres(std::function<int()> tache) {
+        std::unique_lock<std::mutex> verrou(m);
+        apres = std::move(tache);
     }
 
     // Prend possession du bloc : il sera libéré par le thread, une fois écrit.
@@ -356,6 +376,16 @@ private:
             }
             aVide.notify_all();          // le frein attend cette descente
         }
+        std::function<int()> tache;
+        {
+            std::unique_lock<std::mutex> verrou(m);
+            tache.swap(apres);
+        }
+        if (tache && erreur() == 0) {
+            const int rate = tache();
+            if (rate)
+                manque(rate);
+        }
         signalePose();
     }
 
@@ -444,6 +474,7 @@ private:
     bool pose;                           // sous enVol().m
     bool tue;                            // erreur déjà relevée, sous m
     std::deque<Bloc> file;               // sous m
+    std::function<int()> apres;          // à faire le dernier octet posé, sous m
     mutable std::mutex m;
     std::condition_variable aBloc;       // un bloc à écrire
     std::condition_variable aVide;       // la file s'est allégée

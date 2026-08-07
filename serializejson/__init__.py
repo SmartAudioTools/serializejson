@@ -1104,23 +1104,40 @@ class Encoder(rapidjson.Encoder):
             self.fp = open(file, "wb")
         else:
             self.fp = file
+        fd = _descripteur(self.fp)
+        # où ira l'index, calculé AVANT d'écrire : donnée à l'écrivain, cette
+        # destination lui suffit à le ranger lui-même son dernier octet posé,
+        # et dump rend la main sans avoir composé, dégonflé ni écrit le bloc
+        ou = self._ou_ranger_index(file) if fd is not None else None
         self.__call__(obj, fp=self.fp, chunk_size=self.chunk_size,
-                      fd=_descripteur(self.fp),
+                      fd=fd,
                       blocking_write=self.disk_write_mode == "blocking",
                       index_threshold=(self.index_threshold if self.index
-                                       else 0))
+                                       else 0),
+                      index_range=ou)
         if close:
             self.fp.close()
             del self.fp
-        self._index_apres_ecriture(file)
+        if ou is None:
+            self._index_apres_ecriture(file)
 
-    def _index_apres_ecriture(self, file):
-        # l'index a été construit PENDANT l'écriture si le json est parti droit
-        # dans un descripteur ; sinon (flux python, fichier compressé) il se
-        # construit par balayage du json écrit, exactement comme pour un
-        # fichier déjà là (serializejson.index)
-        if self.index is None:
-            return
+    def _ou_ranger_index(self, file):
+        # l'écrivain ne range seul que là où tout est réuni : un index demandé,
+        # d'une forme connue, et un fichier NOMMÉ dont les octets du json sont
+        # ceux du fichier. Partout ailleurs c'est _index_apres_ecriture qui
+        # décide — et qui crie, quand un index demandé n'a pas de place
+        # un seuil nul n'est pas relevé à l'écriture (le C n'indexe qu'au-delà
+        # de zéro) : c'est le balayage qui rend alors l'index, comme avant
+        if self.index not in indexation.FORMES or self.index_threshold <= 0:
+            return None
+        chemin = self._chemin_index(file)
+        if chemin is None:
+            return None
+        return (chemin, indexation.chemin_sidecar(chemin),
+                self.index == "sidecar")
+
+    @staticmethod
+    def _chemin_index(file):
         # un index ne se range que là où les octets du json tombent TELS QUELS,
         # dans un fichier nommé : un GzipFile a bien un nom, mais ce que son
         # fichier contient n'est pas le document, et l'y indexer ne donnerait
@@ -1128,7 +1145,17 @@ class Encoder(rapidjson.Encoder):
         chemin = (file if isinstance(file, str)
                   else getattr(file, "name", None)
                   if isinstance(file, _FLUX_A_DESCRIPTEUR) else None)
-        if not isinstance(chemin, str):
+        return chemin if isinstance(chemin, str) else None
+
+    def _index_apres_ecriture(self, file):
+        # ce qui reste à faire quand l'écrivain n'a pas pu s'en charger : le
+        # json n'est pas parti droit dans un descripteur (flux python, fichier
+        # compressé), et l'index se construit par BALAYAGE du document écrit,
+        # exactement comme pour un fichier déjà là (serializejson.index)
+        if self.index is None:
+            return
+        chemin = self._chemin_index(file)
+        if chemin is None:
             # posé d'office, l'index se tait là où il n'a pas de place ;
             # demandé, il crie plutôt que de se perdre
             if self._index_demande:
@@ -1140,11 +1167,7 @@ class Encoder(rapidjson.Encoder):
         if hasattr(ouvert, "flush"):
             ouvert.flush()
         rapidjson.wait_writes()
-        chemins = self._index_texte()
-        if chemins is None:
-            indexation.construit(chemin, self.index, self.index_threshold)
-        else:
-            indexation.pose(chemin, self.index, self.index_threshold, chemins)
+        indexation.construit(chemin, self.index, self.index_threshold)
 
     def dumps(self, obj):
         """

@@ -205,16 +205,6 @@ def construit(chemin, forme=FORME_DEFAUT, seuil=SEUIL_DEFAUT):
         rapidjson._index_construit(chemin, *_ou_ranger(chemin, forme), seuil))
 
 
-def pose(chemin, forme, seuil, chemins):
-    """Range l'index construit PENDANT l'écriture (voir rapidjson/indexscan.h).
-
-    `chemins` est déjà du json — « "chemin":[début,fin],… » — et n'a donc pas
-    à repasser par un dict python : seule l'entrée `root`, que l'écrivain
-    laisse au rangement puisqu'elle vaut le document entier, s'y ajoute.
-    """
-    rapidjson._index_range(chemin, *_ou_ranger(chemin, forme), seuil, chemins)
-
-
 def _ou_ranger(chemin, forme):
     # le chemin du sidecar et la forme retenue : le premier est donné dans les
     # deux cas, puisque la forme écrite retire l'autre. Passage obligé des deux

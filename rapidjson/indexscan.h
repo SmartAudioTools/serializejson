@@ -583,13 +583,22 @@ inline bool sj_index_tasse(const std::string& texte, std::string& out)
         return false;
     blosc2_cparams cparams = BLOSC2_CPARAMS_DEFAULTS;
     cparams.compcode = (uint8_t) compcode;
-    // 5, le même niveau que les tableaux — soit zstd 9 (blosc2 double le
-    // sien moins un, blosc2.c:571). Le 9 de blosc2, lui, demande
-    // ZSTD_maxCLevel(), le MAXIMUM : sur 1,2 Mo de texte d'index il coûtait
-    // 2,0 s là où le 5 met 2,1 ms, pour onze pour cent d'octets sur un bloc
-    // qui pèse déjà moins d'un vingtième du document. C'est ce seul chiffre
-    // qui rendait l'indexation fine inabordable à l'écriture.
-    cparams.clevel = 5;
+    // 1, soit zstd 1 (blosc2 double le sien moins un, blosc2.c:571) — le
+    // niveau le plus bas, et pas celui des tableaux. Un index n'est pas une
+    // donnée qu'on garde : il se refait à chaque écriture du document, il pèse
+    // moins d'un dixième de lui, et c'est le temps qu'il prend qui décide si
+    // l'indexation fine est abordable. Mesuré à la compilation des deux
+    // niveaux (3.13, trois passes) : le rangement tombe de 16-20 ms à 4-5 sur
+    // 20 000 entrées et de 63-66 à 20-22 sur 100 000, contre au pire 1,7 %
+    // d'octets en plus sur le document ET son index. La monotonie n'est même
+    // pas acquise dans l'autre sens — blosc2 choisit sa taille de bloc d'après
+    // le niveau, et sur des entrées longues le niveau 1 rend l'index PLUS
+    // petit — 25 625 octets au niveau 1 contre 30 467 au niveau 5, sur
+    // 2 000 entrées de ~700 o.
+    // Rien à reprendre côté lecture : la trame blosc2 porte son propre niveau.
+    // Le 9 de blosc2, lui, restait hors de portée — il demande ZSTD_maxCLevel()
+    // et coûtait 2,0 s là où le 5 mettait 2,1 ms.
+    cparams.clevel = 1;
     cparams.typesize = 1;     // du texte : ni colonnes ni mots à transposer
     cparams.nthreads = 1;
     for (int f = 0; f < BLOSC2_MAX_FILTERS; f++) {

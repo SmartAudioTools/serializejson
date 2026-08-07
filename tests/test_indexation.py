@@ -40,6 +40,11 @@ class Client:
 def ecrit(tmp_path, obj, forme="sidecar", seuil=64):
     chemin = str(tmp_path / "base.json")
     serializejson.dump(obj, chemin, index=forme, index_threshold=seuil)
+    # dump rend la main avant le disque (disk_write_mode vaut "fast_release"),
+    # et l'index se range dans le thread d'écriture avec le reste : les tests
+    # qui ouvrent le fichier EUX-MÊMES doivent attendre, comme n'importe quel
+    # appelant qui le confie à autre chose. load, paths et index le font seuls
+    serializejson.wait_writes()
     return chemin
 
 
@@ -156,8 +161,8 @@ def test_dump_indexe_d_office(tmp_path):
     # document lisible par n'importe quel lecteur json
     chemin = str(tmp_path / "defaut.json")
     serializejson.dump(corpus(), chemin, index_threshold=64)
-    assert os.path.exists(indexation.chemin_sidecar(chemin))
     serializejson.wait_writes()
+    assert os.path.exists(indexation.chemin_sidecar(chemin))
     with open(chemin, "rb") as f:
         json.loads(f.read())           # rien n'a été collé derrière
     assert "root['clients']" in serializejson.paths(chemin)
@@ -371,6 +376,7 @@ def test_index_ecrit_identique_au_balayage(tmp_path, indent):
             encodeur = serializejson.Encoder(index="sidecar", indent=indent,
                                              index_threshold=seuil)
             encodeur.dump(objet, chemin)
+            serializejson.wait_writes()
             with open(chemin, "rb") as f:
                 donnees = f.read()
             assert (indexation.lit(chemin)["paths"]
@@ -383,6 +389,7 @@ def test_index_decale_crie(tmp_path):
     chemin = str(tmp_path / "decale.json")
     objet = {"a": list(range(200)), "b": list(range(200))}
     serializejson.dump(objet, chemin, index="sidecar", index_threshold=16)
+    serializejson.wait_writes()
     sidecar = indexation.chemin_sidecar(chemin)
     index = json.loads(rapidjson._index_lit(chemin, sidecar)[1])
     assert serializejson.load(chemin, path="root['a']") == objet["a"]
@@ -429,6 +436,33 @@ def test_index_et_base64_encode_par_le_thread(tmp_path, bloquant):
     index = indexation.lit(chemin)["paths"]
     assert index == indexation.balaye(donnees, 64)
     assert "root['apres'][199]" in index
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
+                    reason="un dossier en lecture seule n'arrête pas root")
+@pytest.mark.parametrize("mode", ("blocking", "fast_release"))
+def test_index_impossible_a_ranger_crie(tmp_path, mode):
+    # PIÈGE : l'index se range dans le THREAD d'écriture, où plus personne
+    # n'attend — un sidecar impossible à écrire n'y a plus d'appelant à qui le
+    # dire. L'erreur doit sortir quand même : de dump en écriture bloquante,
+    # de la prochaine attente en libération rapide. Sans quoi un index
+    # silencieusement absent ferait relire tout le document, sans un mot.
+    dossier = tmp_path / "ferme"
+    dossier.mkdir()
+    chemin = str(dossier / "x.json")
+    encodeur = serializejson.Encoder(index="sidecar", index_threshold=16,
+                                     disk_write_mode=mode)
+    fichier = open(chemin, "wb")     # ouvert AVANT : le json, lui, s'écrit
+    os.chmod(str(dossier), 0o500)    # plus rien de neuf dans le dossier
+    try:
+        with pytest.raises(OSError):
+            encodeur.dump({"a": list(range(200))}, fichier)
+            serializejson.wait_writes()
+    finally:
+        os.chmod(str(dossier), 0o700)
+    assert not os.path.exists(indexation.chemin_sidecar(chemin))
+    # l'erreur est CONSOMMÉE : elle ne doit pas revenir hanter le dump suivant
+    serializejson.wait_writes()
 
 
 def test_balaye_donne_des_tranches_json_valides(tmp_path):
