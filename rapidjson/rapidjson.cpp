@@ -236,6 +236,16 @@ static PyObject* nan_string_value = nullptr;
 static PyObject* plus_inf_string_value = nullptr;
 
 
+// Au-delà de ce nombre d'éléments, la tranche en attente est versée et la
+// liste reprend sa croissance ordinaire : le différé économise les
+// allocations successives, mais ajoute une recopie du tampon, qui cesse
+// d'être gratuite dès qu'elle sort du cache. 4 096 pointeurs tiennent en
+// 32 ko. Sans plafond, un tableau plat perd 9,5 % à 200 000 entiers et
+// 17,7 % à 2 millions ; avec, il est au niveau de l'ancien code (+0,7 %),
+// et les gains sur les listes courantes sont intacts. Les valeurs voisines
+// (256, 1 024, 65 536) ne s'en séparent pas sous la charge de la mesure.
+static const size_t SJ_ATTENTE_MAX = 4096;
+
 struct HandlerContext {
     PyObject* object;
     const char* key;
@@ -266,6 +276,17 @@ struct HandlerContext {
     PyObject* envArgs;        // référence possédée (ou nullptr)
     PyObject* envItems;       // référence possédée (ou nullptr)
     PyObject* envDictKey;     // référence possédée (ou nullptr)
+    // Remplissage DIFFÉRÉ des listes json : les éléments s'empilent dans
+    // `attente` et la liste n'est remplie qu'à sa fermeture, d'un bloc, à la
+    // taille EXACTE. La faire grandir par appends demande une allocation à 4,
+    // 8, 16, 25… éléments : sur des documents entiers, A/B interlacé, le load
+    // gagne 14 % (dicts et petites listes), 27 % (tableau de tableaux de 50)
+    // et 14 à 17 % (listes de 20), sans rien perdre ailleurs. Le compte vient
+    // de rapidjson (EndArray) : l'index de positions, lui, ne retient que
+    // les conteneurs d'au moins 1 ko, où il n'y a justement plus rien à
+    // gagner (mesuré 1,7 %).
+    size_t attenteBase;       // premier élément de CE niveau dans `attente`
+    bool differe;             // faux dès que les éléments sont dans la liste
 };
 
 
@@ -1675,6 +1696,11 @@ struct PyHandler {
     unsigned uuidMode;
     unsigned numberMode;
     std::vector<HandlerContext> stack;
+    // éléments des listes encore ouvertes, dans l'ordre où ils arrivent :
+    // chaque niveau y possède une tranche qui commence à son attenteBase, et
+    // les tranches s'empilent comme les niveaux. Références POSSÉDÉES jusqu'à
+    // leur versement dans la liste (VerseAttente) ou au destructeur.
+    std::vector<PyObject*> attente;
     // chemin rapide de décodage : decode_class_plan(nom_de_classe), appelé
     // UNE fois par classe et par chargement, retourne None (end_object
     // Python) ou la CLASSE — l'objet est alors instancié en C++ (tp_new puis
@@ -1856,6 +1882,9 @@ struct PyHandler {
         }
 
     ~PyHandler() {
+        // parse interrompu : les éléments jamais versés sont encore à nous
+        for (PyObject* v : attente)
+            Py_DECREF(v);
         while (!stack.empty()) {
             HandlerContext& ctx = stack.back();
             if (ctx.copiedKey)
@@ -2250,6 +2279,59 @@ struct PyHandler {
         return ok;
     }
 
+    // Verse les éléments en attente d'un niveau dans SA liste, en une seule
+    // allocation à la taille exacte. La liste garde son identité — des $ref
+    // peuvent déjà la désigner, et son parent la tient depuis son ouverture :
+    // on ne lui donne que son tampon interne, qu'elle n'a pas encore (elle
+    // sort de PyList_New(0) et n'a jamais reçu d'élément, `differe` ne
+    // repassant jamais à vrai). PyMem_* est l'allocateur dont CPython se sert
+    // lui-même pour ob_item, et c'est lui qui le libérera : la batterie
+    // tourne sous PYTHONMALLOC=debug, qui refuse tout mélange d'allocateurs.
+    bool VerseAttente(HandlerContext& ctx) {
+        if (!ctx.differe)
+            return true;
+        ctx.differe = false;
+        const size_t n = attente.size() - ctx.attenteBase;
+        if (n == 0)
+            return true;
+        // la seule allocation qui puisse vraiment manquer ici : 16 Mo pour un
+        // tableau de deux millions d'éléments. Échouer en silence rendrait
+        // une liste VIDE, ce que l'appelant ne verrait pas
+        PyObject** tampon = (PyObject**) PyMem_Malloc(n * sizeof(PyObject*));
+        if (tampon == nullptr) {
+            PyErr_NoMemory();   // les éléments restent à `attente`, qui les
+            return false;       // relâchera à la destruction du handler
+        }
+        memcpy(tampon, attente.data() + ctx.attenteBase, n * sizeof(PyObject*));
+        PyListObject* liste = (PyListObject*) ctx.object;
+        liste->ob_item = tampon;           // avant la taille : un parcours du
+        Py_SET_SIZE(liste, (Py_ssize_t) n);   // ramasse-miettes lirait sinon
+        liste->allocated = (Py_ssize_t) n;    // n pointeurs dans un tampon nul
+        attente.resize(ctx.attenteBase);
+        return true;
+    }
+
+    // Tous les niveaux versés, du plus profond au plus haut : chaque
+    // versement retire SA tranche du sommet de `attente`, donc l'ordre
+    // inverse est le seul qui ne jette pas les tranches des fils. Appelé
+    // avant de résoudre un $ref, qui parcourt l'arbre depuis la racine et
+    // doit y trouver les listes déjà remplies : sans lui, 2 000 renvois vers
+    // une liste encore ouverte repartent en post-passe python, cinq fois
+    // plus cher. Un échec n'a rien à propager — l'erreur est posée, et la
+    // résolution ne trouvera simplement pas sa cible.
+    void VerseTout() {
+        for (size_t i = stack.size(); i-- > 0;)
+            VerseAttente(stack[i]);
+    }
+
+    // le fils qui vient d'être fermé est le DERNIER élément de la tranche de
+    // son parent, et c'est sa forme finale qui l'y remplace
+    void RemplaceDernier(PyObject* replacement) {
+        PyObject*& emplacement = attente.back();
+        Py_DECREF(emplacement);
+        emplacement = replacement;         // référence volée
+    }
+
     bool Handle(PyObject* value) {
 
         if (root) {
@@ -2331,6 +2413,11 @@ struct PyHandler {
                 if (rc == -1) {
                     return false;
                 }
+            } else if (current.differe) {
+                attente.push_back(value);      // référence volée
+                if (attente.size() - current.attenteBase >= SJ_ATTENTE_MAX
+                    && !VerseAttente(stack.back()))   // `current` est const
+                    return false;
             } else {
                 PyList_Append(current.object, value);
                 Py_DECREF(value);
@@ -2494,6 +2581,8 @@ struct PyHandler {
         ctx.envArgs = nullptr;
         ctx.envItems = nullptr;
         ctx.envDictKey = nullptr;
+        ctx.attenteBase = attente.size();
+        ctx.differe = false;          // un dict remplit sa table au vol
         Py_INCREF(mapping);
 
         stack.push_back(ctx);
@@ -3395,6 +3484,11 @@ struct PyHandler {
                             PyErr_Clear();
                     }
                     if (replacement == nullptr) {
+                        // la résolution PARCOURT l'arbre depuis la racine :
+                        // les listes encore ouvertes doivent y être pleines,
+                        // sans quoi un renvoi vers un élément déjà lu d'une
+                        // liste en cours repartirait en post-passe python
+                        VerseTout();
                         Py_ssize_t path_length;
                         const char* path_str = PyUnicode_AsUTF8AndSize(
                             ref_path, &path_length);
@@ -3519,6 +3613,8 @@ struct PyHandler {
                         return false;
                     }
                 }
+            } else if (current.differe) {
+                RemplaceDernier(replacement);
             } else {
                 // Change these to PySequence_Size() and PySequence_SetItem(),
                 // should we implement Decoder.start_array()
@@ -3562,6 +3658,8 @@ struct PyHandler {
         ctx.envArgs = nullptr;
         ctx.envItems = nullptr;
         ctx.envDictKey = nullptr;
+        ctx.attenteBase = attente.size();
+        ctx.differe = true;
         Py_INCREF(list);
 
         stack.push_back(ctx);
@@ -3570,6 +3668,10 @@ struct PyHandler {
     }
 
     bool EndArray(SizeType elementCount) {
+        // la liste doit être pleine avant tout le reste ; le destructeur du
+        // handler défera la pile si l'allocation manque
+        if (!VerseAttente(stack.back()))
+            return false;
         const HandlerContext& ctx = stack.back();
 
         if (ctx.copiedKey)
@@ -3617,6 +3719,8 @@ struct PyHandler {
                 if (rc == -1) {
                     return false;
                 }
+            } else if (current.differe) {
+                RemplaceDernier(replacement);
             } else {
                 // Change these to PySequence_Size() and PySequence_SetItem(),
                 // should we implement Decoder.start_array()
@@ -4002,6 +4106,16 @@ struct PyHandler {
             return Handle(value);
     }
 
+    // Combien d'éléments un niveau liste a DÉJÀ reçus. Sa taille python ne le
+    // dit plus : tant que le niveau est différé, ses éléments attendent et
+    // elle vaut zéro. Deux tests de « premier élément » en dépendent, celui
+    // qui décode une charge base64 depuis le tampon de parse et celui qui
+    // l'annonce au lecteur.
+    Py_ssize_t NbRecus(const HandlerContext& ctx) const {
+        return ctx.differe ? (Py_ssize_t) (attente.size() - ctx.attenteBase)
+                           : PyList_GET_SIZE(ctx.object);
+    }
+
     // vrai si la prochaine chaîne est la charge base64 d'une classe binaire
     // (premier élément, encore absent, de la liste __init__/__new__ d'une
     // classe enregistrée) : le parseur peut alors sauter le scan d'une
@@ -4012,7 +4126,7 @@ struct PyHandler {
             return false;
         const HandlerContext& top = stack.back();
         if (top.isObject || !PyList_CheckExact(top.object)
-            || PyList_GET_SIZE(top.object) != 0)
+            || NbRecus(top) != 0)
             return false;
         const HandlerContext& parent = stack[stack.size() - 2];
         if (!parent.isObject || parent.key == nullptr
@@ -4054,7 +4168,7 @@ struct PyHandler {
         if (!b64PayloadClasses.empty() && length >= 2 && stack.size() >= 2) {
             const HandlerContext& top = stack.back();
             if (!top.isObject && PyList_CheckExact(top.object)
-                && PyList_GET_SIZE(top.object) == 0) {
+                && NbRecus(top) == 0) {
                 const HandlerContext& parent = stack[stack.size() - 2];
                 if (parent.isObject && parent.key != nullptr
                     && ((parent.keyLength == 8
