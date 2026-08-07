@@ -10,6 +10,10 @@
 // échappement) — la machine cible compile déjà en -march=native
 #define RAPIDJSON_SSE42
 
+// exigée par les formats « # » de PyArg_ParseTuple/Py_BuildValue, qui sans
+// elle lèvent SystemError avant Python 3.13 (où Python.h la pose d'office)
+#define PY_SSIZE_T_CLEAN
+
 #include <locale.h>
 #include <Python.h>
 #include <datetime.h>
@@ -72,6 +76,7 @@ static inline PyObject* sj_unicode_from_utf8_hint(const char* s, size_t len,
 #include "pywritestreamwrapper.h"
 #include "pybytesbuffer.h"
 #include "fdwritestream.h"
+#include "indexscan.h"
 
 
 using namespace rapidjson;
@@ -430,12 +435,9 @@ static PyObject* decoder_new(PyTypeObject* type, PyObject* args, PyObject* kwarg
 // pour que les hooks default/default_dict/default_list puissent mémoriser où
 // chaque objet a été écrit et émettre des {"$ref": chemin} sans avoir à
 // remonter le graphe avec gc.get_referrers côté Python.
-struct PathSegment {
-    enum Kind { INDEX, KEY, ATTR } kind;
-    const char* str;   // clé utf-8 empruntée, valide pendant la récursion sous cette clé
-    size_t len;
-    Py_ssize_t index;
-};
+// (défini dans indexscan.h : l'index construit à l'écriture vit dans
+// l'écrivain, qui n'inclut pas ce fichier, et compose les mêmes chemins)
+using PathSegment = SjSegment;
 // noeud matérialisé d'un chemin : arbre à partage structurel, un noeud par
 // position réellement demandée via json_path_id() (la clé y est COPIÉE car
 // les pointeurs empruntés des segments peuvent mourir avant la fin du dump)
@@ -1395,6 +1397,11 @@ sj_resolve_ref_path(const char* path, Py_ssize_t length, PyObject* root)
                 p++;
             if (p == start)
                 break;
+            // charge d'une ENVELOPPE d'objet : sur l'objet reconstruit, les
+            // arguments de __new__ SONT l'objet (tuple), le niveau est donc
+            // transparent — avant getattr, qui rendrait la MÉTHODE __new__
+            if (p - start == 7 && memcmp(start, "__new__", 7) == 0)
+                continue;
             PyObject* key = PyUnicode_FromStringAndSize(start, p - start);
             if (key == nullptr)
                 break;
@@ -6099,6 +6106,12 @@ dumps_internal(
              && pathTracker != nullptr) {
         CONTAINER_MEMO_OR_REF()
         writer->EnvelopeHead("tuple", 5, "__new__", 7);
+        // segments en style ".attr" : le chemin qu'écrit la recette, et que le
+        // balayage lit dans le fichier — sans lui, un $ref vers l'intérieur du
+        // tuple désignait « root['t'][0] », que rien n'écrit ni ne balaye.
+        // (pathTracker non nul : la branche l'exige)
+        pathTracker->segments.push_back({PathSegment::ATTR, "__new__", 7, 0});
+        pathTracker->registered.push_back(-1);
         // compact si single_line_new, ou si single_line_numbers et tuple
         // homogène de nombres (même règle que les listes)
         bool tuple_numbers = false;
@@ -6151,6 +6164,7 @@ dumps_internal(
             }
         }
         writer->EndArray();
+        PATH_POP()
         if (tuple_compact)
             writer->PopCompact();
         writer->EndObject();
@@ -6299,6 +6313,9 @@ dumps_internal(
         if (st_compact)
             writer->PushCompact();
         writer->StartArray();
+        // les deux éléments du __init__ sont des CONTENEURS : sans leur rang,
+        // ils porteraient le chemin de la liste elle-même
+        PATH_PUSH_INDEX(0)
         writer->EnvelopeHead("tuple", 5, "__new__", 7);
         writer->StartArray();
         bool st_ok = true;
@@ -6308,8 +6325,10 @@ dumps_internal(
                     || RECURSE(PyTuple_GET_ITEM(object, sti));
         writer->EndArray();
         writer->EndObject();
+        PATH_POP()
         static const char* st_attrs[2] = {"tm_zone", "tm_gmtoff"};
         if (st_ok) {
+            PATH_PUSH_INDEX(1)
             writer->StartObject();
             for (int sta = 0; sta < 2 && st_ok; sta++) {
                 writer->Key(st_attrs[sta], sta == 0 ? 7 : 9);
@@ -6325,6 +6344,7 @@ dumps_internal(
                 Py_DECREF(champ);
             }
             writer->EndObject();
+            PATH_POP()
         }
         writer->EndArray();
         if (st_compact)
@@ -8188,6 +8208,9 @@ typedef struct {
     SjMtScratch* mtScratch;
     // taille de sortie atteinte au dump précédent (capacité initiale du suivant)
     size_t outputHighWater;
+    // index de position construit PENDANT l'écriture (voir indexscan.h),
+    // relevé par _index_texte() juste après le dump ; nullptr = pas demandé
+    std::string* indexTexte;
 } EncoderObject;
 
 
@@ -8304,7 +8327,27 @@ encoder_json_path_from_id(PyObject* self, PyObject* arg)
 }
 
 
+// Texte de l'index de position du dernier dump, ou None si le dernier dump
+// n'en a pas construit (pas demandé, ou cible sans descripteur). Le relever le
+// VIDE : un index ne vaut que pour le document qui vient d'être écrit.
+static PyObject*
+encoder_index_texte(PyObject* self, PyObject* Py_UNUSED(unused))
+{
+    EncoderObject* e = (EncoderObject*) self;
+    if (e->indexTexte == nullptr)
+        Py_RETURN_NONE;
+    std::string* texte = e->indexTexte;
+    e->indexTexte = nullptr;
+    PyObject* out = PyUnicode_FromStringAndSize(texte->data(),
+                                                (Py_ssize_t) texte->size());
+    delete texte;
+    return out;
+}
+
+
 static PyMethodDef encoder_methods[] = {
+    {"_index_texte", (PyCFunction) encoder_index_texte, METH_NOARGS,
+     "Index de position construit au dernier dump (None s'il n'y en a pas)."},
     {"json_path", (PyCFunction) encoder_json_path, METH_NOARGS,
      "Chemin JSON de la valeur en cours d'encodage (None hors encodage)."},
     {"json_path_id", (PyCFunction) encoder_json_path_id, METH_NOARGS,
@@ -8772,6 +8815,7 @@ static void encoder_dealloc(PyObject* self)
 {
     // libère les brouillons réutilisables du multithread numérique
     delete (SjMtScratch*) ((EncoderObject*) self)->mtScratch;
+    delete ((EncoderObject*) self)->indexTexte;
     Py_TYPE(self)->tp_free(self);
 }
 
@@ -8975,6 +9019,7 @@ do_fd_encode(PyObject* value, int fd, size_t chunkSize, bool bloquant,
              PyObject* defaultFn,
              PyObject* defaultDictFn, PyObject* defaultListFn,
              PathTracker* pathTracker,
+             std::string** indexTexte, size_t indexSeuil,
              bool ensureAscii, unsigned writeMode, char indentChar,
              unsigned indentCount, unsigned numberMode, unsigned datetimeMode,
              unsigned uuidMode, unsigned bytesMode, unsigned iterableMode,
@@ -9001,9 +9046,16 @@ do_fd_encode(PyObject* value, int fd, size_t chunkSize, bool bloquant,
     int erreur;
     {
         FdWriteStream os(chunkSize, ecrivain);
+        // index de position relevé À L'ÉCRITURE : les bornes viennent du flux
+        // lui-même, et les chemins des mêmes segments que les $ref. Réservé à
+        // ce chemin-ci, le seul dont les positions soient celles du FICHIER.
+        SjIndexEcriture index;
+        index.segments = &pathTracker->segments;
+        index.seuil = indexSeuil;
 
         if (writeMode == WM_COMPACT) {
             Writer<FdWriteStream> writer(os);
+            if (indexTexte) writer.SetIndex(&index);
             result = DUMP_INTERNAL_CALL;
         } else {
             PrettyWriter<FdWriteStream> writer(os);
@@ -9011,8 +9063,11 @@ do_fd_encode(PyObject* value, int fd, size_t chunkSize, bool bloquant,
             if (writeMode & WM_SINGLE_LINE_ARRAY) {
                 writer.SetFormatOptions(kFormatSingleLineArray);
             }
+            if (indexTexte) writer.SetIndex(&index);
             result = DUMP_INTERNAL_CALL;
         }
+        if (indexTexte && result != nullptr)
+            *indexTexte = new std::string(std::move(index.texte));
         // tout est déposé (writer.Flush) : la taille du document est connue,
         // et c'est le dernier moment où le disque peut encore dire non
         ecrivain->reservePlace();
@@ -9066,6 +9121,7 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         "chunk_size",
         "fd",
         "blocking_write",
+        "index_threshold",
         nullptr
     };
     PyObject* value;
@@ -9075,13 +9131,15 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     PyObject* chunkSizeObj = nullptr;
     PyObject* fdObj = nullptr;
     int bloquant = false;
+    // seuil de l'index de position construit à l'écriture, 0 = pas d'index
+    Py_ssize_t indexSeuil = 0;
     size_t chunkSize = 65536;
     PyObject* defaultFn = nullptr;
     PyObject* defaultDictFn = nullptr;
     PyObject* defaultListFn = nullptr;
     PyObject* result;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OO$OOOp",
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OO$OOOpn",
                                      (char**) kwlist,
                                      &value,
                                      &fp,
@@ -9089,10 +9147,15 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
                                      &stream,
                                      &chunkSizeObj,
                                      &fdObj,
-                                     &bloquant))
+                                     &bloquant,
+                                     &indexSeuil))
         return nullptr;
 
     EncoderObject* e = (EncoderObject*) self;
+    // l'index du dump PRÉCÉDENT ne vaut plus rien : le relever après un dump
+    // qui n'en construit pas rendrait les positions d'un autre document
+    delete e->indexTexte;
+    e->indexTexte = nullptr;
 
     // protocole serializejson (l'ancien Encoder.__call__ Python) : poussée
     // amortie des paramètres globaux, remise à zéro des attributs volatils
@@ -9262,6 +9325,8 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         if (fd >= 0)
             result = do_fd_encode(value, fd, chunkSize, bloquant, defaultFn,
                                   defaultDictFn, defaultListFn, &pathTracker,
+                                  indexSeuil > 0 ? &e->indexTexte : nullptr,
+                                  (size_t) indexSeuil,
                                   e->ensureAscii,
                                   e->writeMode, e->indentChar, e->indentCount,
                                   e->numberMode, e->datetimeMode, e->uuidMode,
@@ -9433,6 +9498,7 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
     e->memoHighWater = 0;
     e->mtScratch = nullptr;
     e->outputHighWater = 0;
+    e->indexTexte = nullptr;
     e->singleLineNumbers = singleLineNumbers? true : false;
     e->singleLineInit = singleLineInit? true : false;
     e->singleLineNew = singleLineNew? true : false;
@@ -10032,6 +10098,186 @@ done:
                          backslash_escape, in_chunk_start, shedule_break);
 }
 
+
+// balayage d'index : {chemin: [début, fin]} des conteneurs d'au moins `seuil`
+// octets (voir indexscan.h). `fin` borne le document dans le tampon, la forme
+// « comment » ayant son index écrit derrière.
+static PyObject*
+sj_scan_index(PyObject* Py_UNUSED(module), PyObject* args)
+{
+    Py_buffer view;
+    Py_ssize_t seuil;
+    Py_ssize_t fin = -1;
+    if (!PyArg_ParseTuple(args, "y*n|n:_scan_index", &view, &seuil, &fin))
+        return nullptr;
+    if (fin < 0 || fin > view.len)
+        fin = view.len;
+    PyObject* entrees = PyDict_New();
+    if (entrees == nullptr) {
+        PyBuffer_Release(&view);
+        return nullptr;
+    }
+    bool ok = sj_index_balaye((const char*) view.buf, (size_t) fin,
+                              seuil > 0 ? (size_t) seuil : 0, entrees);
+    PyBuffer_Release(&view);
+    if (!ok) {
+        Py_DECREF(entrees);
+        return nullptr;
+    }
+    // la racine est indexée quelle que soit sa taille : c'est elle qui donne
+    // l'étendue du document, et le point de départ de toute recherche
+    PyObject* bornes = Py_BuildValue("[nn]", (Py_ssize_t) 0, fin);
+    if (bornes == nullptr
+            || PyDict_SetItemString(entrees, "root", bornes) != 0) {
+        Py_XDECREF(bornes);
+        Py_DECREF(entrees);
+        return nullptr;
+    }
+    Py_DECREF(bornes);
+    return entrees;
+}
+
+// --- rangement de l'index sur le disque (voir indexscan.h) -----------------
+// serializejson/indexation.py ne fait plus AUCUNE mise en forme : composition
+// du bloc, dégonflage zstd, base 64, queue de la forme "comment" et relecture
+// se font toutes ici. Il lui reste le mémo, la grammaire des chemins et le
+// chargement par tranches, qui sont de la politique, pas de la mise en forme.
+
+// chemin de fichier vers un char*, sous l'encodage du système de fichiers
+struct SjIndexChemin {
+    PyObject* octets = nullptr;
+    ~SjIndexChemin() { Py_XDECREF(octets); }
+    const char* operator*() const {
+        return octets == nullptr ? nullptr : PyBytes_AS_STRING(octets);
+    }
+};
+
+static int
+sj_index_chemin_converti(PyObject* obj, void* adresse)
+{
+    SjIndexChemin* out = (SjIndexChemin*) adresse;
+    if (obj == Py_None)
+        return 1;                    // sidecar absent : la forme "comment"
+    return PyUnicode_FSConverter(obj, &out->octets);
+}
+
+// Fin du document json dans un tampon qui porte peut-être sa queue d'index.
+static PyObject*
+sj_index_fin_py(PyObject* Py_UNUSED(module), PyObject* arg)
+{
+    Py_buffer view;
+    if (PyObject_GetBuffer(arg, &view, PyBUF_SIMPLE) != 0)
+        return nullptr;
+    const size_t fin = sj_index_fin((const char*) view.buf, (size_t) view.len);
+    PyBuffer_Release(&view);
+    return PyLong_FromSize_t(fin);
+}
+
+// (fin du document, date de composition de l'index) d'un fichier qui porte une
+// queue, None sinon — en UNE lecture de seize octets, donc sans rien
+// dégonfler : c'est ce qui permet de décider si cet index-ci vaut le seek.
+static PyObject*
+sj_index_queue_py(PyObject* Py_UNUSED(module), PyObject* arg)
+{
+    SjIndexChemin chemin;
+    if (!PyUnicode_FSConverter(arg, &chemin.octets))
+        return nullptr;
+    SjIndexQueue q;
+    if (!sj_index_fichier_queue(*chemin, &q) || !q.present)
+        Py_RETURN_NONE;
+    return Py_BuildValue("(nK)", (Py_ssize_t) q.fin,
+                         (unsigned long long) q.date);
+}
+
+// Range l'index relevé PENDANT l'écriture. `chemins` est déjà le texte des
+// entrées ; vide, il dit que rien n'atteint le seuil, et l'index qui traînait
+// est retiré plutôt que laissé périmé.
+static PyObject*
+sj_index_range_py(PyObject* Py_UNUSED(module), PyObject* args)
+{
+    SjIndexChemin chemin, sidecar;
+    int en_sidecar;
+    Py_ssize_t seuil;
+    const char* chemins;
+    Py_ssize_t chemins_len;
+    if (!PyArg_ParseTuple(args, "O&O&pns#:_index_range",
+                          PyUnicode_FSConverter, &chemin.octets,
+                          sj_index_chemin_converti, &sidecar, &en_sidecar,
+                          &seuil, &chemins, &chemins_len))
+        return nullptr;
+    SjIndexQueue q;
+    if (!sj_index_fichier_queue(*chemin, &q))
+        return PyErr_SetFromErrnoWithFilename(PyExc_OSError, *chemin);
+    std::string texte;
+    if (chemins_len)
+        sj_index_compose((size_t) seuil, chemins, (size_t) chemins_len,
+                         q.fin, texte);
+    if (!sj_index_fichier_range(*chemin, *sidecar, en_sidecar != 0, q.taille,
+                                q.fin, texte))
+        return PyErr_SetFromErrnoWithFilename(PyExc_OSError, *chemin);
+    Py_RETURN_NONE;
+}
+
+// Index d'un fichier déjà écrit : balayé, composé, rangé, et rendu tel qu'il
+// est composé — l'appelant n'a plus qu'à le relire en json.
+static PyObject*
+sj_index_construit_py(PyObject* Py_UNUSED(module), PyObject* args)
+{
+    SjIndexChemin chemin, sidecar;
+    int en_sidecar;
+    Py_ssize_t seuil;
+    if (!PyArg_ParseTuple(args, "O&O&pn:_index_construit",
+                          PyUnicode_FSConverter, &chemin.octets,
+                          sj_index_chemin_converti, &sidecar, &en_sidecar,
+                          &seuil))
+        return nullptr;
+    SjIndexQueue q;
+    std::string document;
+    if (!sj_index_fichier_queue(*chemin, &q)
+            || !sj_index_fichier_lit(*chemin, 0, q.fin, document))
+        return PyErr_SetFromErrnoWithFilename(PyExc_OSError, *chemin);
+    std::string chemins;
+    if (!sj_index_balaye(document.data(), q.fin,
+                         seuil > 0 ? (size_t) seuil : 0, nullptr, &chemins))
+        return nullptr;
+    std::string texte;
+    sj_index_compose((size_t) seuil, chemins.data(), chemins.size(), q.fin,
+                     texte);
+    if (!sj_index_fichier_range(*chemin, *sidecar, en_sidecar != 0, q.taille,
+                                q.fin, chemins.empty() ? std::string() : texte))
+        return PyErr_SetFromErrnoWithFilename(PyExc_OSError, *chemin);
+    return PyUnicode_FromStringAndSize(texte.data(),
+                                       (Py_ssize_t) texte.size());
+}
+
+// (fin du document, index en json) tel qu'il est rangé, None s'il n'y en a
+// pas — base 64 défaite et zstd dégonflé.
+static PyObject*
+sj_index_lit_py(PyObject* Py_UNUSED(module), PyObject* args)
+{
+    SjIndexChemin chemin, sidecar;
+    if (!PyArg_ParseTuple(args, "O&O&:_index_lit",
+                          PyUnicode_FSConverter, &chemin.octets,
+                          sj_index_chemin_converti, &sidecar))
+        return nullptr;
+    SjIndexQueue q;
+    if (!sj_index_fichier_queue(*chemin, &q))
+        Py_RETURN_NONE;
+    std::string bloc;
+    if (*sidecar != nullptr) {
+        if (!sj_index_fichier_tout(*sidecar, bloc))
+            Py_RETURN_NONE;
+    } else if (!q.present
+               || !sj_index_fichier_lit(*chemin, q.debut, q.longueur, bloc)) {
+        Py_RETURN_NONE;
+    }
+    std::string texte;
+    if (!sj_index_debloc(bloc.data(), bloc.size(), *sidecar == nullptr, texte))
+        Py_RETURN_NONE;
+    return Py_BuildValue("(ny#)", (Py_ssize_t) q.fin, texte.data(),
+                         (Py_ssize_t) texte.size());
+}
+
 // (sj_cumsum_rows et sj_cumsum_slice vivent dans serializejson.h, où le
 // postfiltre de fusion cache et le worker de décompression les utilisent)
 
@@ -10262,6 +10508,23 @@ static PyMethodDef functions[] = {
     {"_diff_axis0", (PyCFunction) sj_diff_axis0, METH_VARARGS,
      "Dérivée le long de l'axe 0 (tampon, itemsize, éléments par ligne),"
      " rendue en un bytes d'une seule allocation — prepend 0 fusionné."},
+    {"_scan_index", (PyCFunction) sj_scan_index, METH_VARARGS,
+     "Balayage d'index : {chemin: [début, fin]} des conteneurs d'au moins"
+     " `seuil` octets (tampon, seuil[, fin du document])."},
+    {"_index_fin", (PyCFunction) sj_index_fin_py, METH_O,
+     "Fin du document json dans un tampon qui porte peut-être son index."},
+    {"_index_queue", (PyCFunction) sj_index_queue_py, METH_O,
+     "(fin du document, date de l'index) d'un json à index en commentaire,"
+     " None s'il n'en porte pas — sans rien dégonfler."},
+    {"_index_range", (PyCFunction) sj_index_range_py, METH_VARARGS,
+     "Range un index relevé à l'écriture (json, sidecar ou None, seuil,"
+     " texte des entrées) ; entrées vides = retirer l'index."},
+    {"_index_construit", (PyCFunction) sj_index_construit_py, METH_VARARGS,
+     "Balaye, compose et range l'index d'un json écrit (json, sidecar ou"
+     " None, seuil) ; rend l'index composé."},
+    {"_index_lit", (PyCFunction) sj_index_lit_py, METH_VARARGS,
+     "(fin du document, index en json) d'un fichier (json, sidecar ou None),"
+     " None s'il n'en porte pas."},
     {"_scan_appended", (PyCFunction) sj_scan_appended, METH_VARARGS,
      "Scanner C des fichiers d'objets appendés (machine à états de"
      " _json_object_file_iterator.read())."},

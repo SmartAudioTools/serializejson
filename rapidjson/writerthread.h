@@ -170,6 +170,12 @@ public:
         pousses += base64 ? tailleBase64(taille) : taille;
     }
 
+    // Position dans le FICHIER juste après le dernier octet déposé. `debut` est
+    // lu du descripteur à la construction et `pousses` compte les octets une
+    // fois ENCODÉS (base64 compris) : c'est ce qui permet à l'écrivain d'indexer
+    // ce qu'il écrit sans jamais supposer où il écrit.
+    size_t depose() const { return (size_t) debut + pousses; }
+
     // Réserve sur le disque la place du document. Appelé une fois, la
     // sérialisation FINIE : sa taille exacte est alors connue, si bien que le
     // manque de place devient une erreur de dump, relevée avant son retour, au

@@ -29,6 +29,7 @@ public:
 
     PyWriteStreamWrapper(PyObject* stream_, size_t chunkSize_){
         currentBytes = nullptr;
+        bufferBegin = bufferCursor = bufferEnd = nullptr;
         stream = stream_;
         Py_INCREF(stream);
         chunkSize = chunkSize_ ;
@@ -58,11 +59,14 @@ public:
         size_t currentSize = bufferCursor - bufferBegin;
         if (currentSize){
             _PyBytes_Resize(&currentBytes, currentSize);
-            sendBytesEtLache(currentBytes);
+            sendBytesEtLache(currentBytes, currentSize);
         } else {
             Py_DECREF(currentBytes);   // rien dedans : rien à envoyer, mais
         }                              // le prochain Reserve en crée un autre
         currentBytes = nullptr;
+        // la tranche est partie : le curseur ne doit plus rien mesurer, sans
+        // quoi Tell() recompterait ce qui vient d'être envoyé
+        bufferBegin = bufferCursor = bufferEnd = nullptr;
     }
     
     char* Reserve(size_t size) {
@@ -87,25 +91,34 @@ public:
 		}
 		else {
 			Flush();
-			sendBytesEtLache(PyMemoryView_FromMemory((char*)json,size,PyBUF_READ));
+			sendBytesEtLache(PyMemoryView_FromMemory((char*)json,size,PyBUF_READ), size);
 		}
     }
     
     void RawString(PyObject* string){
         Flush();
-        sendBytesEtLache(PyUnicode_AsUTF8String(string));
+        PyObject* utf8 = PyUnicode_AsUTF8String(string);
+        sendBytesEtLache(utf8, utf8 == nullptr ? 0 : (size_t) PyBytes_GET_SIZE(utf8));
     }
     
     void RawBytes(PyObject* bytes){
         Flush();
-        sendBytes(bytes);
+        sendBytes(bytes, (size_t) PyBytes_GET_SIZE(bytes));
     }
     
     void RawBytesToPutInQuotes(PyObject* bytes){
         Put('\"');
         Flush();
-        sendBytes(bytes);
+        sendBytes(bytes, (size_t) PyBytes_GET_SIZE(bytes));
         Put('\"');
+    }
+
+    // Position du prochain octet écrit, comptée DEPUIS LE DÉBUT DU DOCUMENT :
+    // ce qui est déjà parti dans le flux python, plus ce qui attend en tranche.
+    // Ce n'est une position de FICHIER que si le flux en est un, ouvert à zéro
+    // et sans transformation — d'où l'index réservé au flux à descripteur.
+    size_t Tell() const {
+        return envoyes + (size_t)(bufferCursor - bufferBegin);
     }
 
     // Rien à prendre : sans thread d'écriture, il n'y a personne à qui
@@ -160,7 +173,8 @@ private:
     }
 
     // Envoi d'un objet EMPRUNTÉ : celui qui l'a passé le garde (RawBytes).
-    void sendBytes(PyObject* bytes){
+    void sendBytes(PyObject* bytes, size_t taille){
+        envoyes += taille;
         // ce que rend write() — None le plus souvent — est un objet neuf :
         // sans ce relâchement, il en fuit un par tranche écrite
         PyObject* rendu = PyObject_CallMethodObjArgs(stream, write_name, bytes, nullptr);
@@ -171,10 +185,10 @@ private:
     // découpée, mémoire vue, chaîne encodée en utf-8. Sans ce relâchement,
     // c'est tout le document qui reste en mémoire après un dump (mesuré :
     // 14 Mo retenus par dump de 14 Mo dans un BytesIO).
-    void sendBytesEtLache(PyObject* bytes){
+    void sendBytesEtLache(PyObject* bytes, size_t taille){
         if (bytes == nullptr)
             return;            // l'erreur python sera vue en fin d'encodage
-        sendBytes(bytes);
+        sendBytes(bytes, taille);
         Py_DECREF(bytes);
     }
 
@@ -183,6 +197,7 @@ private:
     Ch* bufferBegin;
     Ch* bufferEnd;
     size_t chunkSize;
+    size_t envoyes = 0;      // octets déjà remis au flux python
 };
 
 

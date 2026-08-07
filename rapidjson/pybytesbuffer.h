@@ -166,6 +166,8 @@ struct PyBytesBuffer { // a revoir c'est quoi la différence entre struc et clas
     void Pop(size_t count) {bufferCursor -= count ;}
     const char* GetBuffer(){return bufferBegin;}
     size_t GetSize() const { return bufferCursor - bufferBegin; }
+    // tampon mémoire : la position du prochain octet écrit est sa taille
+    size_t Tell() const { return GetSize(); }
     size_t GetCapacity() const { return bufferEnd - bufferBegin; }
     bool Empty() const { return bufferCursor == bufferBegin; }    
     char* Reserve(size_t count) {

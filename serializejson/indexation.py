@@ -7,30 +7,52 @@ range au choix, par le paramètre `index` de l'encodeur :
 
 - ``"sidecar"`` : un fichier caché du même nom précédé d'un point, posé à
   côté du json — le json reste un json valide pour tout le monde ;
-- ``"comment"`` : deux lignes de commentaire ajoutées à la fin du json — un
-  seul fichier à déplacer, mais le fichier n'est plus du json standard.
+- ``"comment"`` : une ligne de commentaire ajoutée à la fin du json — un seul
+  fichier à déplacer, mais le fichier n'est plus du json standard.
 
-L'index est CONSTRUIT PAR BALAYAGE du json produit, pas par instrumentation
-de l'écrivain : la même fonction indexe donc un fichier déjà écrit, et
-l'écriture ne paie rien quand l'index n'est pas demandé.
+L'index rangé est dégonflé en zstd dès qu'il y gagne, et rien n'est écrit du
+tout quand aucun conteneur n'atteint le seuil : un petit json ne s'alourdit
+pas d'un index qui ne dirait rien que sa taille ne dise déjà.
+
+L'index se construit de deux façons, qui doivent rendre le MÊME index :
+
+- PENDANT l'écriture, quand le json part droit dans un descripteur de fichier
+  (`pose`) : l'écrivain relève les bornes des conteneurs qu'il ouvre et
+  ferme, et compose leurs chemins des mêmes segments que les `$ref` ;
+- par BALAYAGE du json écrit (`construit`), sinon — et c'est aussi ce qui
+  indexe un fichier déjà là (`serializejson.index`).
+
+Balayage, composition du bloc, dégonflage, base 64, queue de commentaire et
+relecture se font tous en C++ (rapidjson/indexscan.h) : ce module n'en garde
+que le mémo, la grammaire des chemins et le chargement par tranches. Le
+balayage ne regarde que la structure et tourne à plus d'un gigaoctet par
+seconde, cinq fois plus vite que la désérialisation complète du document.
 """
 
 import json
 import os
 import re
 
-# lignes ajoutées en fin de json par la forme "comment". Le pied est de
-# LARGEUR FIXE : une seule lecture de sa longueur, en fin de fichier, donne la
-# position de l'index — sans quoi il faudrait remonter le fichier à l'aveugle
-MARQUEUR = b"//serializejson_index "
-PIED = b"//serializejson_index_start:"
-LARGEUR_POSITION = 20
-LONGUEUR_PIED = len(PIED) + LARGEUR_POSITION + 1
+import rapidjson
 
 FORMES = ("sidecar", "comment")
+
+# `index` non précisé : la forme que `dump` pose d'office. Un index n'a de
+# place que là où les octets du json tombent tels quels, dans un fichier
+# NOMMÉ ; demandé explicitement sur une cible qui n'en est pas une (une
+# chaîne, un flux anonyme, un fichier compressé), il crie — posé d'office, il
+# se tait, sans quoi `dumps` et les flux cesseraient de marcher.
+#
+# C'est le FICHIER VOISIN qui est posé d'office, pas le commentaire : mesuré
+# le 07/08/2026, le commentaire de queue fait échouer les lecteurs json
+# ordinaires (`json` de la bibliothèque standard : « Extra data » ; JSON.parse
+# de Node ; jq, code 5), la RFC 8259 n'en prévoyant aucun. Le fichier voisin,
+# lui, laisse le document valide partout.
+FORME_DEFAUT = "sidecar"
+NON_PRECISE = object()
 SEUIL_DEFAUT = 1024
 
-# index déjà lus, par chemin : {chemin: ((taille, mtime_ns), index)}
+# index déjà lus : {chemin: (état du document et de ses deux index, index)}
 _memoire = {}
 
 # jetons de STRUCTURE du json : chaînes complètes (pour sauter d'un coup ce
@@ -68,14 +90,16 @@ def _decode_cle(jeton):
 
 
 class _Conteneur:
-    __slots__ = ("chemin", "debut", "liste", "attrs", "n", "cle", "attend_cle",
-                 "premiere")
+    __slots__ = ("chemin", "debut", "liste", "attrs", "renvoi", "attend_classe",
+                 "n", "cle", "attend_cle", "premiere")
 
     def __init__(self, chemin, debut, liste):
         self.chemin = chemin
         self.debut = debut
         self.liste = liste
         self.attrs = False
+        self.renvoi = False
+        self.attend_classe = False
         self.n = 0
         self.cle = ""
         self.attend_cle = not liste
@@ -97,6 +121,17 @@ def balaye(donnees, seuil=SEUIL_DEFAUT, fin=None):
         seuil: containers smaller than that many bytes are not indexed.
         fin: end of the json document in `donnees` (its length by default).
     """
+    return rapidjson._scan_index(donnees, seuil,
+                                 len(donnees) if fin is None else fin)
+
+
+def _balaye_python(donnees, seuil=SEUIL_DEFAUT, fin=None):
+    """Version python de `balaye`, gardée comme RÉFÉRENCE du portage C.
+
+    Elle ne sert plus qu'au test, qui compare les deux sur tout le catalogue :
+    c'est ce qui rend le portage vérifiable. Le balayage lui-même se fait en C
+    (18 Mo/s ici, 1,4 Go/s là-bas — indexer coûtait vingt fois désérialiser).
+    """
     if fin is None:
         fin = len(donnees)
     entrees = {}
@@ -107,9 +142,13 @@ def balaye(donnees, seuil=SEUIL_DEFAUT, fin=None):
         if tete == 0x7B or tete == 0x5B:            # { ou [
             chemin = pile[-1].chemin_enfant() if pile else "root"
             pile.append(_Conteneur(chemin, m.start(), tete == 0x5B))
+        elif not pile:
+            # hors de tout conteneur : un document réduit à un scalaire, et
+            # rien d'autre — une chaîne seule est un json valide
+            continue
         elif tete == 0x7D or tete == 0x5D:          # } ou ]
             conteneur = pile.pop()
-            if m.end() - conteneur.debut >= seuil:
+            if not conteneur.renvoi and m.end() - conteneur.debut >= seuil:
                 entrees[conteneur.chemin] = [conteneur.debut, m.end()]
         elif tete == 0x22:                          # une chaîne
             conteneur = pile[-1]
@@ -118,9 +157,24 @@ def balaye(donnees, seuil=SEUIL_DEFAUT, fin=None):
                 if conteneur.premiere:
                     # une enveloppe d'objet commence par "__class__" : ses
                     # autres clés sont des ATTRIBUTS (chemins en « .nom »),
-                    # exactement la règle attrsDict de l'écrivain
-                    conteneur.attrs = conteneur.cle == "__class__"
+                    # exactement la règle attrsDict de l'écrivain — sauf
+                    # l'enveloppe de dict à clés non-str, dont la classe est
+                    # lue juste après
+                    conteneur.attend_classe = conteneur.cle == "__class__"
+                    conteneur.attrs = conteneur.attend_classe
+                    # un marqueur {"$ref": "chemin"} RENVOIE à un objet, il n'en
+                    # porte pas les octets : l'indexer donnerait une tranche
+                    # qu'il faudrait résoudre à nouveau. L'écrivain, qui l'écrit
+                    # d'un bloc, ne l'indexe pas davantage
+                    conteneur.renvoi = conteneur.cle == "$ref"
                     conteneur.premiere = False
+            elif conteneur.attend_classe:
+                # {"__class__": "dict", "2": …} : les clés d'un dict à clés
+                # non-str s'écrivent ['2'], jamais .2 — le texte encodé d'une
+                # clé tuple ou frozenset ne serait pas relisible en segment
+                # d'attribut (voir test_references)
+                conteneur.attrs = _decode_cle(jeton) != "dict"
+                conteneur.attend_classe = False
         elif tete == 0x3A:                          # :
             pile[-1].attend_cle = False
         else:                                       # ,
@@ -135,62 +189,55 @@ def balaye(donnees, seuil=SEUIL_DEFAUT, fin=None):
     return entrees
 
 
-def etendue(f):
-    """Return (end of the json document, start of the index line) of a binary
-    file that may carry an index in comment form — (its size, None) if not.
-
-    Le fichier est laissé au début, prêt à être lu. Le pied de largeur fixe
-    évite de remonter le fichier : une seule lecture, à la fin.
-    """
-    taille = os.fstat(f.fileno()).st_size
-    debut = None
-    if taille > LONGUEUR_PIED:
-        f.seek(taille - LONGUEUR_PIED)
-        pied = f.read(LONGUEUR_PIED)
-        if pied.startswith(PIED):
-            debut = int(pied[len(PIED):])
-    f.seek(0)
-    return (taille, None) if debut is None else (debut - 1, debut)
-
-
-def construit(chemin, forme="sidecar", seuil=SEUIL_DEFAUT):
+def construit(chemin, forme=FORME_DEFAUT, seuil=SEUIL_DEFAUT):
     """Build the index of an already written json file.
 
     Args:
         chemin: path of the json file.
-        forme: `"sidecar"` (hidden file) or `"comment"` (end of the json).
+        forme: `"comment"` (end of the json) or `"sidecar"` (hidden file).
         seuil: containers smaller than that many bytes are not indexed.
 
     Return:
-        the index, as the dict written on disk.
+        the index. It holds only `root` when no container reaches `seuil`, and
+        nothing is then written on disk.
     """
+    return json.loads(
+        rapidjson._index_construit(chemin, *_ou_ranger(chemin, forme), seuil))
+
+
+def pose(chemin, forme, seuil, chemins):
+    """Range l'index construit PENDANT l'écriture (voir rapidjson/indexscan.h).
+
+    `chemins` est déjà du json — « "chemin":[début,fin],… » — et n'a donc pas
+    à repasser par un dict python : seule l'entrée `root`, que l'écrivain
+    laisse au rangement puisqu'elle vaut le document entier, s'y ajoute.
+    """
+    rapidjson._index_range(chemin, *_ou_ranger(chemin, forme), seuil, chemins)
+
+
+def _ou_ranger(chemin, forme):
+    # le chemin du sidecar et la forme retenue : le premier est donné dans les
+    # deux cas, puisque la forme écrite retire l'autre. Passage obligé des deux
+    # constructions, donc seul endroit où valider la forme
     if forme not in FORMES:
         raise ValueError("index must be one of %s"
                          % ", ".join(repr(f) for f in FORMES))
-    with open(chemin, "rb") as f:
-        # un index déjà en place ne fait pas partie du document à indexer
-        fin, _ = etendue(f)
-        donnees = f.read(fin)
-    index = {"serializejson_index": 1, "size": fin, "threshold": seuil,
-             "paths": balaye(donnees, seuil, fin)}
-    texte = json.dumps(index, ensure_ascii=False).encode("utf-8")
-    if forme == "sidecar":
-        with open(chemin_sidecar(chemin), "wb") as f:
-            f.write(texte)
-    else:
-        with open(chemin, "r+b") as f:
-            f.truncate(fin)
-            f.seek(fin)
-            f.write(b"\n" + MARQUEUR + texte + b"\n")
-            f.write(PIED + b"%0*d\n" % (LARGEUR_POSITION, fin + 1))
-    return index
+    return chemin_sidecar(chemin), forme == "sidecar"
 
 
 def lit(chemin):
     """Return the index of a json file, or None if it has none or a stale one.
 
-    Le contrôle de fraîcheur est la TAILLE du document : un fichier réécrit
-    sans son index laisse un index périmé, qu'il vaut mieux ignorer que
+    Les deux formes se cherchent, et c'est la DATE qui tranche : celle que la
+    queue de commentaire porte à côté de sa longueur, celle que le sidecar tire
+    de son mtime — l'une comme l'autre se lisent sans rien dégonfler, la
+    première en seize octets pris en fin de json. Le plus récent des deux
+    l'emporte, l'autre ne servant que s'il se révèle périmé : c'est ce qui fait
+    qu'un index refait à côté d'un document qui porte encore l'ancien en
+    commentaire est bien celui qu'on suit.
+
+    Le contrôle de fraîcheur, lui, est la TAILLE du document : un fichier
+    réécrit sans son index laisse un index périmé, qu'il vaut mieux ignorer que
     suivre vers de mauvaises positions.
 
     L'index est mémorisé d'un appel à l'autre : aller chercher plusieurs
@@ -199,43 +246,47 @@ def lit(chemin):
     """
     try:
         etat = os.stat(chemin)
-        taille = etat.st_size
     except OSError:
         return None
+    queue = rapidjson._index_queue(chemin)
+    try:
+        cote_stat = os.stat(chemin_sidecar(chemin))
+    except OSError:
+        cote_stat = None
+    # les deux dates se comparent en MILLISECONDES, l'échelle de celle que la
+    # queue transporte ; le mémo, lui, garde la nanoseconde, sans quoi deux
+    # écritures dans la même milliseconde se confondraient
+    cote = cote_stat is not None and (
+        queue is None or cote_stat.st_mtime_ns // 1000000 >= queue[1])
+    cle = (etat.st_size, etat.st_mtime_ns, queue,
+           None if cote_stat is None else (cote_stat.st_size,
+                                           cote_stat.st_mtime_ns))
     memoire = _memoire.get(chemin)
-    if memoire is not None and memoire[0] == (taille, etat.st_mtime_ns):
+    if memoire is not None and memoire[0] == cle:
         return memoire[1]
-    index = _lit_du_disque(chemin, taille)
+    index = _lit_du_disque(chemin, cote)
+    if index is None and cote_stat is not None and queue is not None:
+        # le plus récent des deux est périmé : l'autre peut être encore bon
+        index = _lit_du_disque(chemin, not cote)
     if len(_memoire) > 8:
         _memoire.clear()
-    _memoire[chemin] = ((taille, etat.st_mtime_ns), index)
+    _memoire[chemin] = (cle, index)
     return index
 
 
-def _lit_du_disque(chemin, taille):
-    index = None
-    sidecar = chemin_sidecar(chemin)
-    if os.path.exists(sidecar):
-        try:
-            with open(sidecar, "rb") as f:
-                index = json.loads(f.read())
-        except (OSError, ValueError):
+def _lit_du_disque(chemin, cote):
+    lu = rapidjson._index_lit(chemin,
+                              chemin_sidecar(chemin) if cote else None)
+    if lu is None:
+        return None
+    fin, texte = lu
+    try:
+        index = json.loads(texte)
+        # la fraîcheur se lit sur `root`, qui porte DÉJÀ l'étendue du document :
+        # une taille redite à côté aurait coûté ses octets pour rien
+        if index["paths"]["root"] != [0, fin]:
             return None
-    else:
-        with open(chemin, "rb") as f:
-            fin, debut_index = etendue(f)
-            if debut_index is None:
-                return None
-            f.seek(debut_index)
-            ligne = f.read(taille - debut_index - LONGUEUR_PIED)
-            if not ligne.startswith(MARQUEUR):
-                return None
-            try:
-                index = json.loads(ligne[len(MARQUEUR):])
-            except ValueError:
-                return None
-        taille = fin
-    if not isinstance(index, dict) or index.get("size") != taille:
+    except (ValueError, KeyError, TypeError):
         return None
     return index
 
@@ -274,6 +325,12 @@ def rebase_refs(tranche, prefixe):
         return b'{"$ref": ' + json.dumps(nouveau).encode("utf-8") + b"}"
 
     return _REF.sub(remplace, tranche)
+
+
+class IndexDecale(Exception):
+    """Une entrée de l'index ne tombe pas sur un conteneur : le fichier a été
+    modifié sous l'index, ou l'index est faux — dans les deux cas, ce qu'on
+    lirait là n'est pas l'objet demandé."""
 
 
 class Circulaire(Exception):
@@ -345,6 +402,17 @@ def charge(fichier, chemin_objet, fabrique_decodeur, index=None):
         try:
             f.seek(debut)
             tranche = f.read(fin - debut)
+            # Deux octets suffisent à faire CRIER un index décalé : une entrée
+            # borne toujours un conteneur, donc ouvre et referme. Sans ce test,
+            # un décalage d'un octet rendrait un objet plausible et faux — et
+            # l'index construit à l'écriture n'a, lui, jamais relu le fichier.
+            # « root » est hors du test : il vaut tout le document, que la
+            # taille donne, et un document peut se réduire à un scalaire.
+            if prefixe != "root" and (
+                    tranche[:1] not in (b"{", b"[")
+                    or tranche[-1:] != (b"}" if tranche[:1] == b"{" else b"]")):
+                raise IndexDecale("%s: the index of %s does not fall on a "
+                                  "container" % (prefixe, fichier))
             if b'"$ref"' in tranche:
                 tranche = rebase_refs(tranche, prefixe)
                 decodeur = fabrique_decodeur()

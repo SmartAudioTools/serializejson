@@ -308,6 +308,8 @@ public:
             typename Base::Level(false);
         Base::level_stack_.template Top<typename Base::Level>()->valueCount
             = 3;
+        Base::OuvreIndex();   // l'accolade est écrite ici, pas par WriteStartObject
+        Base::AttendIndex(key, key_length);   // et la clé nommera la charge
         Base::os_->Put('{');
         if (!compact) {
             Base::os_->Put('\n');
@@ -335,13 +337,17 @@ public:
     bool BytesEnvelope(const unsigned char* data, size_t length,
                        bool printable, bool is_bytearray) {
         PrettyPrefix();
+        const size_t debut = Base::PositionIndex();
         if (compactDepth_ > 0) {
             // sous-arbre compact : mêmes octets que le Writer
             Base::WriteRawSmall(is_bytearray
                                     ? "{\"__class__\":\"bytearray\",\"__init__\":"
                                     : "{\"__class__\":\"bytes\",\"__new__\":");
+            const size_t debutCharge = Base::PositionIndex();
             Base::WriteBytesPayload(data, length, printable);
+            const size_t finCharge = Base::PositionIndex();
             Base::os_->Put('}');
+            Base::IndexEnveloppe(debut, debutCharge, finCharge, printable, is_bytearray);
             return true;
         }
         size_t profondeur =
@@ -357,11 +363,14 @@ public:
                         (profondeur + 1) * indentCharCount_);
         Base::WriteRawSmall(is_bytearray ? "\"__init__\": "
                                          : "\"__new__\": ");
+        const size_t debutCharge = Base::PositionIndex();
         Base::WriteBytesPayload(data, length, printable);
+        const size_t finCharge = Base::PositionIndex();
         Base::os_->Put('\n');
         Base::os_->PutN(static_cast<typename OutputStream::Ch>(indentChar_),
                         profondeur * indentCharCount_);
         Base::os_->Put('}');
+        Base::IndexEnveloppe(debut, debutCharge, finCharge, printable, is_bytearray);
         return true;
     }
 

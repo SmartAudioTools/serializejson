@@ -193,6 +193,12 @@ public:
         PyBuffer_Release(&view);
     }
 
+    // Position, DANS LE FICHIER, du prochain octet écrit : ce qui est déjà
+    // parti chez l'écrivain, plus ce qui attend dans le tampon.
+    size_t Tell() const {
+        return ecrivain->depose() + (size_t) (bufferCursor - bufferBegin);
+    }
+
     // errno de la première écriture qui a échoué, 0 sinon
     int Erreur() const {
         return erreur != 0 ? erreur : ecrivain->erreur();

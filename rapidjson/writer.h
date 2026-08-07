@@ -17,6 +17,7 @@
 
 #include "serializejson.h"
 #include "stream.h"
+#include "indexscan.h"
 #include "internal/clzll.h"
 #include "internal/meta.h"
 #include "internal/stack.h"
@@ -297,6 +298,12 @@ public:
     // ecritures en masse (listes de nombres converties en parallele) qui
     // contournent Prefix()/PrettyPrefix()
     OutputStream& Os() { return *os_; }
+
+    //! Fait relever à l'écrivain les bornes de chaque conteneur qu'il écrit.
+    //! Réservé aux flux dont les octets tombent tels quels dans un fichier :
+    //! ailleurs, les positions relevées ne désigneraient rien.
+    void SetIndex(SjIndexEcriture* index) { index_ = index; }
+
     void AnnounceArrayValues(size_t n) {
         if (level_stack_.GetSize() != 0)
             level_stack_.template Top<Level>()->valueCount += n;
@@ -358,7 +365,9 @@ public:
     bool EnvelopeHead(const char* cls, size_t cls_length,
                       const char* key, size_t key_length) {
         Prefix();
-        WriteRawSmall("{\"__class__\":\"");
+        OuvreIndex();          // l'accolade est écrite ici, pas par
+        AttendIndex(key, key_length);        // WriteStartObject, et la clé
+        WriteRawSmall("{\"__class__\":\""); // nommera la charge (voir attente)
         for (size_t i = 0; i < cls_length; i++)
             os_->Put(cls[i]);
         WriteRawSmall("\",\"");
@@ -373,11 +382,15 @@ public:
     bool BytesEnvelope(const unsigned char* data, size_t length,
                        bool printable, bool is_bytearray) {
         Prefix();
+        const size_t debut = PositionIndex();
         WriteRawSmall(is_bytearray
                           ? "{\"__class__\":\"bytearray\",\"__init__\":"
                           : "{\"__class__\":\"bytes\",\"__new__\":");
+        const size_t debutCharge = PositionIndex();
         WriteBytesPayload(data, length, printable);
+        const size_t finCharge = PositionIndex();
         os_->Put('}');
+        IndexEnveloppe(debut, debutCharge, finCharge, printable, is_bytearray);
         return true;
     }
 
@@ -385,6 +398,23 @@ protected:
     void WriteRawSmall(const char* s) {
         while (*s)
             os_->Put(*s++);
+    }
+
+    // bornes d'une enveloppe écrite d'un bloc : ni ses accolades ni la liste
+    // [base64,"b64"] de sa charge ne passent par les primitives, il faut donc
+    // poser ses deux niveaux à la main — le balayage, lui, les voit comme
+    // n'importe quels autres conteneurs. Sert aussi au PrettyWriter.
+    void IndexEnveloppe(size_t debut, size_t debutCharge, size_t finCharge,
+                        bool printable, bool is_bytearray) {
+        if (!index_)
+            return;
+        index_->ouvre(debut);
+        if (!printable) {
+            AttendIndex(is_bytearray ? "__init__" : "__new__",
+                        is_bytearray ? 8 : 7);
+            index_->plat(debutCharge, finCharge);
+        }
+        index_->ferme(os_->Tell());
     }
 
     // charge d'un bytes : chaîne ascii imprimable échappée ({tab, LF, CR}
@@ -579,10 +609,24 @@ protected:
     }
 
 
-    bool WriteStartObject() { os_->Put('{'); return true; }
-    bool WriteEndObject()   { os_->Put('}'); return true; }
-    bool WriteStartArray()  { os_->Put('['); return true; }
-    bool WriteEndArray()    { os_->Put(']'); return true; }
+    // index de position construit au vol : ces quatre primitives sont le seul
+    // endroit par où passent les crochets des conteneurs, PrettyWriter compris
+    // (il ne redéfinit que ce qu'il y a autour). index_ nul = rien à payer.
+    bool WriteStartObject() { OuvreIndex(); os_->Put('{'); return true; }
+    bool WriteEndObject()   { os_->Put('}'); FermeIndex(); return true; }
+    bool WriteStartArray()  { OuvreIndex(); os_->Put('['); return true; }
+    bool WriteEndArray()    { os_->Put(']'); FermeIndex(); return true; }
+
+    void OuvreIndex() { if (index_) index_->ouvre(os_->Tell()); }
+    void FermeIndex() { if (index_) index_->ferme(os_->Tell()); }
+    // position courante, relevée seulement si un index l'attend
+    size_t PositionIndex() const { return index_ ? os_->Tell() : 0; }
+    void AttendIndex(const char* key, size_t key_length) {
+        if (index_) {
+            index_->attente = key;
+            index_->attenteLen = key_length;
+        }
+    }
 
     void Prefix() {
         //(void)type;
@@ -615,6 +659,9 @@ protected:
     internal::Stack<StackAllocator> level_stack_;
     int maxDecimalPlaces_;
     bool hasRoot_;
+    // index de position à remplir en écrivant, nullptr quand aucun n'est
+    // demandé — c'est-à-dire presque toujours (voir SetIndex)
+    SjIndexEcriture* index_ = nullptr;
 	Ch hexDigits[16] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
 
 private:

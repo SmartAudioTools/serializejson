@@ -1,7 +1,16 @@
 Version suivante (non publiée)
 ------------------------------
-:Date: 2026-08-03
+:Date: 2026-08-07
 
+* position index: ``load(file, path="root['a'][0].b")`` reads one object of a
+  json file without parsing the rest, ``serializejson.index()`` indexes a file
+  already written and ``serializejson.paths()`` lists what it holds
+* ``dump`` to a named file now writes that index by default, zstd compressed
+  in a hidden sidecar file of the same name preceded by a dot, which leaves
+  the json itself standard (``index="comment"`` appends it to the json as a
+  comment line instead — one single file to move, but no other parser reads it
+  any more; ``index=None`` writes none); files whose containers all stay under
+  ``index_threshold`` keep no index at all
 * Python 3.11 to 3.14 support (default ``object.__getstate__`` handled), numpy 2 support
 * circular references and duplicates now handled for lists and dicts too (``$ref``),
   including physically shared ``__dict__`` (restored at load, beyond pickle)

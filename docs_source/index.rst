@@ -46,6 +46,12 @@ Decode
     .. autofunction:: serializejson.load
     .. autofunction:: serializejson.loads
 
+Index
+-------
+    .. autofunction:: serializejson.index
+    .. autofunction:: serializejson.paths
+    .. autofunction:: serializejson.wait_writes
+
 
 
 

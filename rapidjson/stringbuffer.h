@@ -83,6 +83,8 @@ public:
 
     //! Get the size of string in bytes in the string buffer.
     size_t GetSize() const { return stack_.GetSize(); }
+    // tampon mémoire : la position du prochain octet écrit est sa taille
+    size_t Tell() const { return GetSize(); }
 
     //! Get the length of string in Ch in the string buffer.
     size_t GetLength() const { return stack_.GetSize() / sizeof(Ch); }

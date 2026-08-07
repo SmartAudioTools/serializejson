@@ -455,20 +455,23 @@ def load(file, *, obj=None, iterator=False, path=None, **argsDict):
         return Decoder(**argsDict).load(file=file, obj=obj, path=path)
 
 
-def index(file, form="sidecar", threshold=indexation.SEUIL_DEFAUT):
+def index(file, form=indexation.FORME_DEFAUT,
+          threshold=indexation.SEUIL_DEFAUT):
     """
     Build (or rebuild) the position index of an existing json file.
 
     Args:
         file (str): the json path.
         form:
-            `"sidecar"` for a hidden file of the same name preceded by a dot,
-            `"comment"` for two comment lines added at the end of the json.
+            `"sidecar"` (default) for a hidden file of the same name preceded
+            by a dot, `"comment"` for a comment line added at the end of the
+            json (see the `index` parameter of the Encoder).
         threshold:
             containers smaller than that many bytes are not indexed.
 
     Return:
-        the index, as written on disk.
+        the index. It holds only `root` when no container reaches `threshold`,
+        and nothing is then written on disk.
     """
     rapidjson.wait_writes()
     return indexation.construit(file, form, threshold)
@@ -478,9 +481,9 @@ def paths(file):
     """
     Return the sorted paths indexed in a json file, `None` if it has no index.
 
-    Ce sont les chemins que `load(file, path=...)` atteint sans lire le reste
-    du document ; tout autre chemin reste chargeable, par son plus proche
-    ancêtre indexé.
+    Those are the paths `load(file, path=...)` reaches without reading the
+    rest of the document; any other path stays loadable, through its closest
+    indexed ancestor.
     """
     rapidjson.wait_writes()
     index_ = indexation.lit(file)
@@ -825,6 +828,29 @@ class Encoder(rapidjson.Encoder):
              whether numpy integers and floats outside of a array must be convert to python types.
              It save space and generally don't affect
 
+        index ("sidecar", "comment" or None):
+            Where `dump` writes the position index that lets
+            `load(file, path=...)` read one object without parsing the rest.
+
+            - "sidecar" (default) : a hidden file of the same name preceded by
+              a dot. The json itself stays standard, readable by any parser.
+            - "comment" : a zstd compressed comment line added at the end of
+              the json. One single file to move, but the file is no longer
+              standard json — `json.load`, `JSON.parse` and `jq` all stop on
+              that line.
+            - `None` : no index at all.
+
+            The index is only written where the bytes of the json land as they
+            are, in a named file: asked for elsewhere (a string, an anonymous
+            stream, a compressed file) it raises, left to its default it keeps
+            quiet. Nothing is written when no container reaches
+            `index_threshold`, and an index left there by a previous `dump` is
+            then removed.
+
+        index_threshold:
+            Containers smaller than that many bytes are not indexed. Their
+            path stays loadable, through the closest indexed ancestor.
+
         strict_pickle (False by default)
             If True serialize with exactly the same behaviour than pickle:
 
@@ -888,7 +914,7 @@ class Encoder(rapidjson.Encoder):
         numpy_array_readable_max_size=0,  # 'int32':-1
         numpy_array_to_list=False,
         numpy_types_to_python_types=True,
-        index=None,
+        index=indexation.NON_PRECISE,
         index_threshold=indexation.SEUIL_DEFAUT,
         protocol=4,  # protocol pour pickle
         **plugins_parameters,
@@ -1035,7 +1061,10 @@ class Encoder(rapidjson.Encoder):
         self.numpy_types_to_python_types = numpy_types_to_python_types
         # forme refusée ici plutôt qu'au dump : l'erreur arriverait sinon
         # après l'écriture, sur un fichier déjà en place
-        if index is not None and index not in indexation.FORMES:
+        self._index_demande = index is not indexation.NON_PRECISE
+        if not self._index_demande:
+            index = indexation.FORME_DEFAUT
+        elif index is not None and index not in indexation.FORMES:
             raise Exception(
                 "index unknown: available values are None (no index), "
                 + " and ".join(repr(f) for f in indexation.FORMES))
@@ -1077,34 +1106,51 @@ class Encoder(rapidjson.Encoder):
             self.fp = file
         self.__call__(obj, fp=self.fp, chunk_size=self.chunk_size,
                       fd=_descripteur(self.fp),
-                      blocking_write=self.disk_write_mode == "blocking")
+                      blocking_write=self.disk_write_mode == "blocking",
+                      index_threshold=(self.index_threshold if self.index
+                                       else 0))
         if close:
             self.fp.close()
             del self.fp
         self._index_apres_ecriture(file)
 
     def _index_apres_ecriture(self, file):
-        # l'index se construit par BALAYAGE du json écrit : l'écriture ne paie
-        # rien quand il n'est pas demandé, et un fichier déjà écrit s'indexe
-        # exactement de la même façon (serializejson.index)
+        # l'index a été construit PENDANT l'écriture si le json est parti droit
+        # dans un descripteur ; sinon (flux python, fichier compressé) il se
+        # construit par balayage du json écrit, exactement comme pour un
+        # fichier déjà là (serializejson.index)
         if self.index is None:
             return
-        chemin = file if isinstance(file, str) else getattr(file, "name", None)
+        # un index ne se range que là où les octets du json tombent TELS QUELS,
+        # dans un fichier nommé : un GzipFile a bien un nom, mais ce que son
+        # fichier contient n'est pas le document, et l'y indexer ne donnerait
+        # que des positions fausses — silencieusement
+        chemin = (file if isinstance(file, str)
+                  else getattr(file, "name", None)
+                  if isinstance(file, _FLUX_A_DESCRIPTEUR) else None)
         if not isinstance(chemin, str):
-            raise Exception("index needs a file path, not %r" % (file,))
+            # posé d'office, l'index se tait là où il n'a pas de place ;
+            # demandé, il crie plutôt que de se perdre
+            if self._index_demande:
+                raise Exception("index needs a file path, not %r" % (file,))
+            return
         # le json est relu depuis le disque : ce qui reste dans le tampon d'un
         # fichier encore ouvert n'y serait pas
         ouvert = getattr(self, "fp", file)
         if hasattr(ouvert, "flush"):
             ouvert.flush()
         rapidjson.wait_writes()
-        indexation.construit(chemin, self.index, self.index_threshold)
+        chemins = self._index_texte()
+        if chemins is None:
+            indexation.construit(chemin, self.index, self.index_threshold)
+        else:
+            indexation.pose(chemin, self.index, self.index_threshold, chemins)
 
     def dumps(self, obj):
         """
         Dump object into json string.
         """
-        if self.index is not None:
+        if self.index is not None and self._index_demande:
             raise Exception("index needs a file: use dump, not dumps")
         return self.__call__(obj, return_bytes=False)
 
@@ -1112,7 +1158,7 @@ class Encoder(rapidjson.Encoder):
         """
         Dump object into json bytes.
         """
-        if self.index is not None:
+        if self.index is not None and self._index_demande:
             raise Exception("index needs a file: use dump, not dumpb")
         return self.__call__(obj, return_bytes=True)
 
@@ -2204,13 +2250,13 @@ class Decoder(rapidjson.Decoder):
                 # tout le document d'un coup : le parseur va ~4 fois plus vite
                 # sur des octets que sur un flux (mesuré). Qui veut économiser
                 # la mémoire sur un très gros json a `iterator=True`.
+                file = fichier.read()
                 if "b" in getattr(fichier, "mode", ""):
                     # un index en fin de fichier (index="comment") ne fait pas
                     # partie du document : le parseur buterait dessus
-                    fin, _ = indexation.etendue(fichier)
-                    file = fichier.read(fin)
-                else:
-                    file = fichier.read()
+                    fin = rapidjson._index_fin(file)
+                    if fin != len(file):
+                        file = file[:fin]
         elif file is None:  # a priori pointeur vers fichier
             raise ValueError('Encoder.load need a "file" path/file argument')
 

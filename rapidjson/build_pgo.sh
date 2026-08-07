@@ -14,7 +14,9 @@ SERIALIZEJSON_PGO=generate "$PY" setup.py build_ext --inplace >/dev/null
 
 (
     cd ..
-    "$PY" -m pytest tests/ -q -p no:typeguard >/dev/null
+    # sortie NON masquée : un échec sortait d'ici en silence (set -e), en
+    # laissant en place le .so INSTRUMENTÉ de la passe 1, qu'on croyait final
+    "$PY" -m pytest tests/ -q -p no:typeguard
     "$PY" rapidjson/pgo_workload.py
     git checkout -- tests/serialized/ my_list.json 2>/dev/null || true
 )
