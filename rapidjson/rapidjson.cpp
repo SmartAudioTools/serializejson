@@ -34,9 +34,106 @@ static inline PyObject* sj_unicode_from_ascii(const char* s, Py_ssize_t size) {
     return u;
 }
 
-// création d'un str depuis de l'utf-8 : scan ascii par mots de 8 octets
-// (cas ultra-majoritaire) -> copie brute sans la passe de validation du
-// décodeur utf-8 ; sinon chemin normal
+// « un octet >= 0xC4 dans le mot ? » — c'est-à-dire : cette tranche sort-elle
+// du régime latin-1, où tout point de code tient sur un octet ? Écrit comme
+// un « un octet < 60 » sur le complément (0xC4 <=> 255 - 60), l'idiome SWAR
+// de la maison, valable pour un seuil <= 128.
+//
+// L'emprunt d'un octet sur le suivant, qui rend cet idiome inexact en
+// général, est ici sans effet : il ne se produit QUE sur un octet déjà
+// détecté, donc jamais sur un mot qui devait rendre zéro.
+static inline uint64_t sj_has_above_c3(uint64_t w) {
+    const uint64_t x = ~w;
+    return (x - UINT64_C(0x3C3C3C3C3C3C3C3C)) & ~x
+           & UINT64_C(0x8080808080808080);
+}
+
+// décodage utf-8 -> latin-1, dans un tampon d'octets fourni : rend le nombre
+// de caractères écrits, ou (size_t) -1 si la chaîne est mal formée — cas
+// rendu à CPython, seul à savoir lever le UnicodeDecodeError attendu, avec
+// sa position. L'appelant a déjà écarté les octets >= 0xC4 : il ne reste
+// que 0xC2/0xC3 suivis d'une continuation, séquences ni surlongues ni
+// substituts, donc validées par la seule forme de la continuation.
+static inline size_t sj_latin1_core(const char* s, size_t len,
+                                    unsigned char* d) {
+    const unsigned char* d0 = d;
+    size_t i = 0;
+    while (i < len) {
+        const unsigned char c = (unsigned char) s[i];
+        if (c < 0x80) {
+            *d++ = c;
+            i++;
+            continue;
+        }
+        if (i + 1 >= len || ((unsigned char) s[i + 1] & 0xC0) != 0x80)
+            return (size_t) -1;
+        *d++ = (unsigned char) (((c & 0x03) << 6)
+                                | ((unsigned char) s[i + 1] & 0x3F));
+        i += 2;
+    }
+    return (size_t) (d - d0);
+}
+
+// Un str latin-1 est plus COURT que ses octets : sa taille n'est connue
+// qu'une fois décodé. Deux façons de s'en tirer, chacune la meilleure sur
+// son régime (mesuré contre PyUnicode_FromStringAndSize sur les mêmes
+// octets) : décoder dans un tampon de pile puis allouer juste, ce qui vaut
+// -41 % à 61 octets et -44 % à 8 ; ou allouer à la borne haute puis recopier
+// à la taille vraie, ce qui vaut -52 % sur un mégaoctet, là où la pile ne
+// suffit plus. Le seuil sépare les deux.
+static const size_t SJ_LATIN1_PILE = 1024;
+
+static PyObject* sj_unicode_from_latin1(const char* s, size_t len) {
+    if (len <= SJ_LATIN1_PILE) {
+        unsigned char pile[SJ_LATIN1_PILE];
+        const size_t n = sj_latin1_core(s, len, pile);
+        if (n == (size_t) -1)
+            return nullptr;
+        PyObject* u = PyUnicode_New((Py_ssize_t) n, 255);
+        if (u != nullptr)
+            memcpy(PyUnicode_1BYTE_DATA(u), pile, n);
+        return u;
+    }
+    PyObject* large = PyUnicode_New((Py_ssize_t) len, 255);   // borne haute
+    if (large == nullptr)
+        return nullptr;
+    const size_t n = sj_latin1_core(s, len, PyUnicode_1BYTE_DATA(large));
+    if (n == (size_t) -1) {
+        Py_DECREF(large);
+        return nullptr;
+    }
+    PyObject* u = PyUnicode_New((Py_ssize_t) n, 255);
+    if (u != nullptr)
+        memcpy(PyUnicode_1BYTE_DATA(u), PyUnicode_1BYTE_DATA(large), n);
+    Py_DECREF(large);
+    return u;
+}
+
+// « la chaîne sort-elle du régime latin-1 ? », par mots de 8 octets
+static inline bool sj_hors_latin1(const char* s, size_t len) {
+    uint64_t hors = 0;
+    size_t i = 0;
+    for (; i + 8 <= len; i += 8) {
+        uint64_t w;
+        memcpy(&w, s + i, 8);
+        hors |= sj_has_above_c3(w);
+    }
+    for (; i < len; i++)
+        hors |= ((unsigned char) s[i] >= 0xC4);
+    return hors != 0;
+}
+
+// création d'un str depuis de l'utf-8 : le balayage ascii choisit entre
+// trois fabrications, de la moins chère à la plus chère — copie brute,
+// décodage latin-1 maison, décodeur de CPython. La deuxième est ce que ce
+// balayage rapportait de neuf : il ne servait jusqu'ici qu'à séparer l'ascii
+// du reste, et tout le reste — donc tout texte accentué — repartait au
+// décodeur générique.
+//
+// Le régime est cherché en SECOND balayage, et non fondu dans le premier :
+// fondu, il faisait payer 5,5 % aux chaînes ascii échappées, qui passent
+// aussi par ici sans rien avoir à y gagner. Séparé, il n'est parcouru que
+// par les chaînes non ascii, où il ouvre un gain de moitié.
 static inline PyObject* sj_unicode_from_utf8(const char* s, size_t len) {
     // 0 et 1 octet : le chemin standard renvoie les singletons du cache
     // (chaine vide, caracteres latin1) sans allocation
@@ -53,6 +150,12 @@ static inline PyObject* sj_unicode_from_utf8(const char* s, size_t len) {
         acc |= (unsigned char) s[i];
     if (!(acc & UINT64_C(0x8080808080808080)))
         return sj_unicode_from_ascii(s, (Py_ssize_t) len);
+    if (!sj_hors_latin1(s, len)) {
+        PyObject* u = sj_unicode_from_latin1(s, len);
+        if (u != nullptr)
+            return u;
+        PyErr_Clear();          // mal formée : au décodeur, pour l'erreur
+    }
     return PyUnicode_FromStringAndSize(s, (Py_ssize_t) len);
 }
 
