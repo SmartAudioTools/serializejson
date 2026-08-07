@@ -472,13 +472,28 @@ protected:
     // taille de tranche d'échappement : voir Escape
     static const SizeType SJ_ESCAPE_TRANCHE = 32768;
 
-    // écrit « \x » pour l'octet à échapper ; la place est déjà réservée par
-    // l'appelant, qui a pris le pire cas
+    // écrit la forme échappée de l'octet ; la place est déjà réservée par
+    // l'appelant, qui a pris le pire cas. Les commandes C0 sans forme courte
+    // sortent en « \u00xx », comme le veut json — écrites brutes, elles
+    // rendaient le document illisible par tout lecteur, le nôtre compris.
+    // Même graphie que sj_ref_append_escape, qui échappe les mêmes clés
+    // dans les chemins de $ref.
     static char* EchappeUn(Ch c, char* d) {
+        static const char HEXA[] = "0123456789abcdef";
+        const unsigned char u = (unsigned char) c;
         *d++ = '\\';
-        *d++ = (c == '\\' || c == '"') ? c
-             : (c == '\t') ? 't'
-             : (c == '\r') ? 'r' : 'n';
+        switch (c) {
+        case '\\': case '"': *d++ = c;   break;
+        case '\t':           *d++ = 't'; break;
+        case '\n':           *d++ = 'n'; break;
+        case '\r':           *d++ = 'r'; break;
+        default:
+            *d++ = 'u';
+            *d++ = '0';
+            *d++ = '0';
+            *d++ = HEXA[u >> 4];
+            *d++ = HEXA[u & 0xF];
+        }
         return d;
     }
 
@@ -495,26 +510,27 @@ protected:
     //
     // Ce que la fusion coûte, c'est d'écrire par blocs de seize alors que la
     // chaîne finit où elle veut : la place est donc réservée EN UNE FOIS, au
-    // pire cas (deux octets par caractère, plus le débordement du dernier
-    // bloc), au lieu d'un Reserve par tranche propre.
+    // pire cas (six octets par caractère, la longueur d'un « \u00xx », plus le
+    // débordement du dernier bloc), au lieu d'un Reserve par tranche propre.
+    // Sur-réservation transitoire, rendue au Flush, et bornée par la tranche.
     bool EscapeTranche(const Ch* str, SizeType length)  {
-        char* d = os_->Reserve(2 * (size_t) length + 16);
+        char* d = os_->Reserve(6 * (size_t) length + 16);
         SizeType k = 0;
 #if defined(__SSE2__)
         const __m128i quote = _mm_set1_epi8('"');
         const __m128i backslash = _mm_set1_epi8('\\');
-        const __m128i tabulation = _mm_set1_epi8('\t');
-        const __m128i newline = _mm_set1_epi8('\n');
-        const __m128i carriage = _mm_set1_epi8('\r');
+        const __m128i commande = _mm_set1_epi8(0x1F);
         while (k + 16 <= length) {
             __m128i chunk = _mm_loadu_si128((const __m128i*) (str + k));
             _mm_storeu_si128((__m128i*) d, chunk);
+            // « <= 0x1F » se prend en NON SIGNÉ (min_epu8), sans quoi tout
+            // octet >= 0x80 — donc chaque caractère accentué — passerait
+            // pour une commande. Ce seul test remplace les trois anciennes
+            // comparaisons de tabulation, saut de ligne et retour chariot.
             __m128i hits = _mm_or_si128(
                 _mm_or_si128(_mm_cmpeq_epi8(chunk, quote),
                              _mm_cmpeq_epi8(chunk, backslash)),
-                _mm_or_si128(_mm_cmpeq_epi8(chunk, tabulation),
-                             _mm_or_si128(_mm_cmpeq_epi8(chunk, newline),
-                                          _mm_cmpeq_epi8(chunk, carriage))));
+                _mm_cmpeq_epi8(_mm_min_epu8(chunk, commande), chunk));
             int mask = _mm_movemask_epi8(hits);
             if (RAPIDJSON_LIKELY(!mask)) {
                 d += 16;
@@ -530,8 +546,8 @@ protected:
 #endif
         while (k < length) {
             const Ch c = str[k];
-            if (RAPIDJSON_UNLIKELY(c == '\\' || c == '"' || c == '\t'
-                                   || c == '\n' || c == '\r'))
+            if (RAPIDJSON_UNLIKELY(c == '\\' || c == '"'
+                                   || (unsigned char) c <= 0x1F))
                 d = EchappeUn(c, d);
             else
                 *d++ = c;
@@ -542,10 +558,9 @@ protected:
     }
 
     // Le pire cas réservé d'un coup vaut tant qu'il reste petit ; sur un long
-    // texte il ferait doubler le tampon de sortie pour rien. Les tranches sont
-    // indépendantes — les cinq caractères à échapper sont ascii, couper au
-    // milieu d'une séquence utf-8 ne change rien à des octets recopiés tels
-    // quels.
+    // texte il ferait enfler le tampon de sortie pour rien. Les tranches sont
+    // indépendantes — tout ce qui s'échappe est ascii, couper au milieu d'une
+    // séquence utf-8 ne change rien à des octets recopiés tels quels.
     bool Escape(const Ch* str, SizeType length)  {
         while (RAPIDJSON_UNLIKELY(length > SJ_ESCAPE_TRANCHE)) {
             EscapeTranche(str, SJ_ESCAPE_TRANCHE);
