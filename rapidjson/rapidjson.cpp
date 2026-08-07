@@ -71,6 +71,7 @@ static inline PyObject* sj_unicode_from_utf8_hint(const char* s, size_t len,
 #include "error/en.h"
 #include "pywritestreamwrapper.h"
 #include "pybytesbuffer.h"
+#include "fdwritestream.h"
 
 
 using namespace rapidjson;
@@ -8962,6 +8963,98 @@ do_stream_encode(PyObject* value, PyObject* stream, size_t chunkSize, PyObject* 
 }
 
 
+// Même chose, mais droit dans un descripteur, et par un thread d'écriture :
+// les octets déposés n'appartenant à aucun objet python, la sérialisation et
+// l'écriture se RECOUVRENT au lieu de se suivre (voir writerthread.h pour la
+// mesure qui justifie ce chemin). Le choix de l'y envoyer est pris côté
+// python, qui seul sait si l'objet fichier écrit bien ses octets tels quels —
+// un GzipFile a un fileno() et le court-circuiter écrirait à côté de la
+// compression.
+static PyObject*
+do_fd_encode(PyObject* value, int fd, size_t chunkSize, bool bloquant,
+             PyObject* defaultFn,
+             PyObject* defaultDictFn, PyObject* defaultListFn,
+             PathTracker* pathTracker,
+             bool ensureAscii, unsigned writeMode, char indentChar,
+             unsigned indentCount, unsigned numberMode, unsigned datetimeMode,
+             unsigned uuidMode, unsigned bytesMode, unsigned iterableMode,
+             unsigned mappingMode)
+{
+    // En libération rapide, le thread écrit APRÈS notre retour : il lui faut
+    // un descripteur à lui, que l'appelant ne puisse pas refermer sous ses
+    // pieds. dup() en donne un second sur le même fichier, que l'écrivain
+    // refermera lui-même. En écriture bloquante on attend avant de rendre la
+    // main, donc celui de l'appelant fait l'affaire.
+    int fdEcrivain = fd;
+    if (!bloquant) {
+#ifdef _WIN32
+        fdEcrivain = _dup(fd);
+#else
+        fdEcrivain = dup(fd);
+#endif
+        if (fdEcrivain < 0)
+            return PyErr_SetFromErrno(PyExc_OSError);
+    }
+
+    WriterThread* ecrivain = new WriterThread(fdEcrivain);
+    PyObject* result;
+    int erreur;
+    {
+        FdWriteStream os(chunkSize, ecrivain);
+
+        if (writeMode == WM_COMPACT) {
+            Writer<FdWriteStream> writer(os);
+            result = DUMP_INTERNAL_CALL;
+        } else {
+            PrettyWriter<FdWriteStream> writer(os);
+            writer.SetIndent(indentChar, indentCount);
+            if (writeMode & WM_SINGLE_LINE_ARRAY) {
+                writer.SetFormatOptions(kFormatSingleLineArray);
+            }
+            result = DUMP_INTERNAL_CALL;
+        }
+        // tout est déposé (writer.Flush) : la taille du document est connue,
+        // et c'est le dernier moment où le disque peut encore dire non
+        ecrivain->reservePlace();
+        erreur = os.Erreur();   // à lire AVANT de lâcher l'écrivain
+    }
+    if (bloquant) {
+        ecrivain->attends();
+        if (erreur == 0)
+            erreur = ecrivain->erreur();
+        delete ecrivain;
+    } else {
+        // à partir d'ici l'écrivain vit sa vie : plus un seul accès au pointeur
+        ecrivain->laisseFiler(erreur != 0);
+    }
+
+    // une écriture déjà ratée (descripteur fermé) n'a pas d'exception python
+    // attachée : elle est relevée ici, à partir de l'errno gardé. Celles qui
+    // rateront après notre retour sont relevées par le prochain wait_writes.
+    if (erreur != 0) {
+        Py_XDECREF(result);
+        errno = erreur;
+        return PyErr_SetFromErrno(PyExc_OSError);
+    }
+    return result;
+}
+
+
+// Attend que toutes les écritures encore en vol soient posées sur le disque.
+// Appelé avant toute RELECTURE d'un fichier qu'on vient peut-être d'écrire —
+// sans quoi on lirait un document tronqué — et à la fin de l'interpréteur.
+static PyObject*
+wait_writes(PyObject* Py_UNUSED(module), PyObject* Py_UNUSED(unused))
+{
+    int erreur = WriterThread::attendsToutes();
+    if (erreur != 0) {
+        errno = erreur;
+        return PyErr_SetFromErrno(PyExc_OSError);
+    }
+    Py_RETURN_NONE;
+}
+
+
 static PyObject*
 encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
 {
@@ -8971,6 +9064,8 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         "return_bytes",
         "stream",
         "chunk_size",
+        "fd",
+        "blocking_write",
         nullptr
     };
     PyObject* value;
@@ -8978,19 +9073,23 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     PyObject* returnBytesObj = nullptr;
     PyObject* stream = nullptr;
     PyObject* chunkSizeObj = nullptr;
+    PyObject* fdObj = nullptr;
+    int bloquant = false;
     size_t chunkSize = 65536;
     PyObject* defaultFn = nullptr;
     PyObject* defaultDictFn = nullptr;
     PyObject* defaultListFn = nullptr;
     PyObject* result;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OO$OO",
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OO$OOOp",
                                      (char**) kwlist,
                                      &value,
                                      &fp,
                                      &returnBytesObj,
                                      &stream,
-                                     &chunkSizeObj))
+                                     &chunkSizeObj,
+                                     &fdObj,
+                                     &bloquant))
         return nullptr;
 
     EncoderObject* e = (EncoderObject*) self;
@@ -9145,12 +9244,36 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
             return nullptr;
         }
 
-        result = do_stream_encode(value, stream, chunkSize, defaultFn,
+        // fd donné par l'Encoder python quand le flux écrit ses octets tels
+        // quels : on écrit alors dans le descripteur, sans passer par write()
+        int fd = -1;
+        if (fdObj != nullptr && fdObj != Py_None) {
+            fd = (int) PyLong_AsLong(fdObj);
+            if (fd == -1 && PyErr_Occurred()) {
+                e->activePathTracker = nullptr;
+                Py_XDECREF(defaultFn);
+                Py_XDECREF(defaultDictFn);
+                Py_XDECREF(defaultListFn);
+                Py_XDECREF(classPlanFn);
+                return nullptr;
+            }
+        }
+
+        if (fd >= 0)
+            result = do_fd_encode(value, fd, chunkSize, bloquant, defaultFn,
                                   defaultDictFn, defaultListFn, &pathTracker,
                                   e->ensureAscii,
                                   e->writeMode, e->indentChar, e->indentCount,
                                   e->numberMode, e->datetimeMode, e->uuidMode,
                                   e->bytesMode, e->iterableMode, e->mappingMode);
+        else
+            result = do_stream_encode(value, stream, chunkSize, defaultFn,
+                                      defaultDictFn, defaultListFn, &pathTracker,
+                                      e->ensureAscii,
+                                      e->writeMode, e->indentChar, e->indentCount,
+                                      e->numberMode, e->datetimeMode, e->uuidMode,
+                                      e->bytesMode, e->iterableMode,
+                                      e->mappingMode);
     } else {
         result = do_encode(value, defaultFn, defaultDictFn, defaultListFn,
                            &pathTracker,
@@ -10130,6 +10253,9 @@ sj_cumsum_axis0(PyObject* Py_UNUSED(module), PyObject* args)
 }
 
 static PyMethodDef functions[] = {
+    {"wait_writes", (PyCFunction) wait_writes, METH_NOARGS,
+     "Attend que les écritures encore en vol soient posées sur le disque,"
+     " et relève l'erreur de celle qui aurait raté après le retour de dump."},
     {"_cumsum_axis0", (PyCFunction) sj_cumsum_axis0, METH_VARARGS,
      "Somme cumulée en place le long de l'axe 0 (tampon, itemsize,"
      " éléments par ligne) — défait la dérivée _diff au chargement."},

@@ -66,7 +66,9 @@ if cxx and 'g++' in cxx:
     # aucun -O, donc -O0 et rien d'inliné) : imposer l'optimisation ici
     extension_options['extra_compile_args'] = [
         '-pedantic', '-Wno-long-long', '-std=c++11',
-        '-O3', '-fno-semantic-interposition']
+        '-O3', '-fno-semantic-interposition',
+        '-pthread']   # thread d'écriture (writerthread.h)
+    extension_options.setdefault('extra_link_args', []).append('-pthread')
 
     # optimisation guidée par profil (voir build_pgo.sh) :
     #   SERIALIZEJSON_PGO=generate -> instrumente, écrit les .gcda dans le

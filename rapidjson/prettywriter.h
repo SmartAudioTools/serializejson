@@ -284,8 +284,13 @@ public:
 
     bool BloscToBase64_(PyObject* object) {
         PrettyPrefix();
-        Base::os_->RawDataToBase64((const unsigned char*) ((BloscToBase64*) object)->data,
-                                   (size_t) ((BloscToBase64*) object)->size);
+        BloscToBase64* blosc = (BloscToBase64*) object;
+        // voir Writer::BloscToBase64_ : le flux prend la trame, ou l'encode ici
+        if (Base::os_->RawDataToBase64Owned(blosc->data, (size_t) blosc->size))
+            blosc->data = nullptr;
+        else
+            Base::os_->RawDataToBase64((const unsigned char*) blosc->data,
+                                       (size_t) blosc->size);
         return true;
     }
 

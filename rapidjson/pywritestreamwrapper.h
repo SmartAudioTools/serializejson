@@ -52,16 +52,17 @@ public:
         }
     }
     
-    void Flush(){        
-        if (currentBytes != nullptr){
-            size_t currentSize = bufferCursor - bufferBegin;
-            if (currentSize){
-                _PyBytes_Resize(&currentBytes, currentSize);
-                sendBytes(currentBytes);
-                //Py_DECREF(currentBytes);
-                currentBytes = nullptr;
-            }
-        }
+    void Flush(){
+        if (currentBytes == nullptr)
+            return;
+        size_t currentSize = bufferCursor - bufferBegin;
+        if (currentSize){
+            _PyBytes_Resize(&currentBytes, currentSize);
+            sendBytesEtLache(currentBytes);
+        } else {
+            Py_DECREF(currentBytes);   // rien dedans : rien à envoyer, mais
+        }                              // le prochain Reserve en crée un autre
+        currentBytes = nullptr;
     }
     
     char* Reserve(size_t size) {
@@ -86,13 +87,13 @@ public:
 		}
 		else {
 			Flush();
-			sendBytes(PyMemoryView_FromMemory((char*)json,size,PyBUF_READ));
+			sendBytesEtLache(PyMemoryView_FromMemory((char*)json,size,PyBUF_READ));
 		}
     }
     
     void RawString(PyObject* string){
         Flush();
-        sendBytes(PyUnicode_AsUTF8String(string));
+        sendBytesEtLache(PyUnicode_AsUTF8String(string));
     }
     
     void RawBytes(PyObject* bytes){
@@ -106,6 +107,10 @@ public:
         sendBytes(bytes);
         Put('\"');
     }
+
+    // Rien à prendre : sans thread d'écriture, il n'y a personne à qui
+    // déléguer l'encodage (voir FdWriteStream).
+    bool RawDataToBase64Owned(char*, size_t) { return false; }
 
     void RawDataToBase64(const unsigned char* src, size_t remaining){
         // encode le base64 par morceaux dans les chunks du flux,
@@ -154,9 +159,23 @@ private:
         bufferEnd = bufferBegin + size;
     }
 
+    // Envoi d'un objet EMPRUNTÉ : celui qui l'a passé le garde (RawBytes).
     void sendBytes(PyObject* bytes){
-        PyObject_CallMethodObjArgs(stream, write_name, bytes, nullptr); // copy inside ? 
-        //Py_DECREF(bytes);
+        // ce que rend write() — None le plus souvent — est un objet neuf :
+        // sans ce relâchement, il en fuit un par tranche écrite
+        PyObject* rendu = PyObject_CallMethodObjArgs(stream, write_name, bytes, nullptr);
+        Py_XDECREF(rendu);
+    }
+
+    // Envoi d'un objet dont on est PROPRIÉTAIRE : tranche fraîchement
+    // découpée, mémoire vue, chaîne encodée en utf-8. Sans ce relâchement,
+    // c'est tout le document qui reste en mémoire après un dump (mesuré :
+    // 14 Mo retenus par dump de 14 Mo dans un BytesIO).
+    void sendBytesEtLache(PyObject* bytes){
+        if (bytes == nullptr)
+            return;            // l'erreur python sera vue en fin d'encodage
+        sendBytes(bytes);
+        Py_DECREF(bytes);
     }
 
     PyObject* write_name;

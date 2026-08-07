@@ -181,6 +181,7 @@ import io
 import rapidjson
 import gc
 import copyreg
+import atexit
 import errno
 from copyreg import dispatch_table
 from collections import deque, Counter, OrderedDict, defaultdict
@@ -195,6 +196,7 @@ try:
 except ModuleNotFoundError:
     use_numpy = False
 from . import serialize_parameters
+from . import indexation
 from enum import Enum
 
 
@@ -279,6 +281,9 @@ __all__ = [
     "loads",
     "load",
     "append",
+    "index",
+    "paths",
+    "wait_writes",
     "Encoder",
     "Decoder",
     "getstate",
@@ -303,11 +308,8 @@ def dump(obj, file, **argsDict):
         file (str or file-like): path or file.
         **argsDict: parameters passed to the Encoder (see documentation).
     """
-    if isinstance(file, str):
-        fp = open(file, "wb")
-    else:
-        fp = file
-    Encoder(**argsDict)(obj, fp)
+    # on ne referme que ce qu'on a ouvert soi-même
+    Encoder(**argsDict).dump(obj, file, close=isinstance(file, str))
 
 
 # instances PAR DÉFAUT réutilisées par dumps/dumpb/loads (une par thread) :
@@ -348,7 +350,9 @@ def dumps(obj, **argsDict):
             return encoder(obj)
         finally:
             cache._occupe = False
-    return Encoder(return_bytes=False, **argsDict)(obj)
+    # par la méthode, et non par __call__ : c'est elle qui refuse un index,
+    # qui n'a de sens que dans un fichier
+    return Encoder(**argsDict).dumps(obj)
 
 
 def dumpb(obj, **argsDict):
@@ -368,7 +372,7 @@ def dumpb(obj, **argsDict):
             return encoder(obj)
         finally:
             cache._occupe = False
-    return Encoder(return_bytes=True, **argsDict)(obj)
+    return Encoder(**argsDict).dumpb(obj)
 
 
 def append(obj, file=None, *, indent="\t", **argsDict):
@@ -423,7 +427,7 @@ def loads(json, *, obj=None, iterator=False, **argsDict):
     return Decoder(**argsDict)(json=json, obj=obj)
 
 
-def load(file, *, obj=None, iterator=False, **argsDict):
+def load(file, *, obj=None, iterator=False, path=None, **argsDict):
     """
     Load an object from a json file.
 
@@ -434,6 +438,10 @@ def load(file, *, obj=None, iterator=False, **argsDict):
             if provided, the object `obj` will be updated and no new object will be created.
         iterator:
             if `True` and the json corresponds to a list then the items will be read one by one which reduces RAM consumption.
+        path (optional str):
+            path of the wanted object inside the json, in the `$ref` grammar
+            (`"root['clients'][3].name"`). If the file has an index, only the
+            bytes of that object are read and parsed.
         **argsDict:
             parameters passed to the Decoder (see documentation).
 
@@ -444,7 +452,51 @@ def load(file, *, obj=None, iterator=False, **argsDict):
     if iterator:
         return Decoder(**argsDict)
     else:
-        return Decoder(**argsDict).load(file=file, obj=obj)
+        return Decoder(**argsDict).load(file=file, obj=obj, path=path)
+
+
+def index(file, form="sidecar", threshold=indexation.SEUIL_DEFAUT):
+    """
+    Build (or rebuild) the position index of an existing json file.
+
+    Args:
+        file (str): the json path.
+        form:
+            `"sidecar"` for a hidden file of the same name preceded by a dot,
+            `"comment"` for two comment lines added at the end of the json.
+        threshold:
+            containers smaller than that many bytes are not indexed.
+
+    Return:
+        the index, as written on disk.
+    """
+    rapidjson.wait_writes()
+    return indexation.construit(file, form, threshold)
+
+
+def paths(file):
+    """
+    Return the sorted paths indexed in a json file, `None` if it has no index.
+
+    Ce sont les chemins que `load(file, path=...)` atteint sans lire le reste
+    du document ; tout autre chemin reste chargeable, par son plus proche
+    ancêtre indexé.
+    """
+    rapidjson.wait_writes()
+    index_ = indexation.lit(file)
+    return None if index_ is None else sorted(index_["paths"])
+
+
+def wait_writes():
+    """
+    Wait until the files dumped in `"fast_release"` mode are on the disk.
+
+    `load`, `index` and `paths` already do it for you: this is only needed
+    before handing a file over to something else — another process, `os.stat`,
+    a copy — or before an interpreter that would end without `atexit` running.
+    Raise the `OSError` of a write that failed after `dump` returned.
+    """
+    rapidjson.wait_writes()
 
 
 def jsonpath(obj):
@@ -455,6 +507,38 @@ def jsonpath(obj):
 # recette C dédiée des collections (voir class_plan) : classe EXACTE -> genre
 # entier lu par le C (2 deque, 3 Counter, 4 OrderedDict, 5 defaultdict)
 _collections_natives = {deque: 2, Counter: 3, OrderedDict: 4, defaultdict: 5}
+
+
+# les seuls flux dont write() dépose les octets tels quels dans le descripteur.
+# Volontairement une LISTE BLANCHE de classes, et non un test sur la présence
+# de fileno() : un GzipFile, un LZMAFile, un SSLSocket en ont un et écrire
+# dedans passerait à côté de la compression ou du chiffrement — silencieusement
+_FLUX_A_DESCRIPTEUR = (io.BufferedWriter, io.BufferedRandom, io.FileIO)
+
+
+# Un dump rendu sans attendre le disque ne doit pas être perdu si le programme
+# se termine dans la foulée : rien ne survit à la fin de l'interpréteur.
+atexit.register(rapidjson.wait_writes)
+
+
+def _descripteur(fp):
+    """Descripteur d'un flux qui écrit ses octets tels quels, sinon None.
+
+    Écrire dans le descripteur évite de fabriquer un objet bytes par tranche —
+    un tiers du temps — et surtout permet le thread d'écriture, puisque les
+    octets déposés n'appartiennent alors à aucun objet python : dump n'attend
+    plus le disque (voir rapidjson/fdwritestream.h pour les mesures).
+    """
+    if not isinstance(fp, _FLUX_A_DESCRIPTEUR):
+        return None
+    try:
+        fd = fp.fileno()
+    except (OSError, ValueError, AttributeError):
+        return None
+    # ce que l'appelant a déjà écrit dort peut-être dans le tampon python : il
+    # doit partir AVANT nos octets, sinon le document sort dans le désordre
+    fp.flush()
+    return fd
 
 
 # --- CLASSES BASED API -------------------------------------------------------
@@ -537,6 +621,17 @@ class Encoder(rapidjson.Encoder):
 
         chunk_size:
             Write the file in chunks of this size at a time.
+
+        disk_write_mode ("fast_release" or "blocking"):
+            When the file has a file descriptor, chunks are written by a
+            dedicated thread.
+
+            - "fast_release" (default) : `dump` returns as soon as the object is
+              serialized, without waiting for the disk. Reading the file back
+              with serializejson waits for you; anything else (another process,
+              `os.stat`) must call `serializejson.wait_writes()` first.
+            - "blocking" : `dump` returns only once everything is on the disk,
+              as it did before.
 
         ensure_ascii:
             Whether non-ascii str are dumped with escaped unicode or utf-8.
@@ -776,6 +871,7 @@ class Encoder(rapidjson.Encoder):
         getters=False,
         remove_default_values=False,
         chunk_size=65536,
+        disk_write_mode="fast_release",
         ensure_ascii=False,
         indent="\t",
         single_line_init=True,
@@ -792,6 +888,8 @@ class Encoder(rapidjson.Encoder):
         numpy_array_readable_max_size=0,  # 'int32':-1
         numpy_array_to_list=False,
         numpy_types_to_python_types=True,
+        index=None,
+        index_threshold=indexation.SEUIL_DEFAUT,
         protocol=4,  # protocol pour pickle
         **plugins_parameters,
     ):
@@ -850,6 +948,9 @@ class Encoder(rapidjson.Encoder):
         self._dump_one_line = indent is None
         self.dumped_classes = set()
         self.chunk_size = chunk_size
+        if disk_write_mode not in ("fast_release", "blocking"):
+            raise ValueError('disk_write_mode must be "fast_release" or "blocking"')
+        self.disk_write_mode = disk_write_mode
         bytes_compression_level = None  # niveau non précisé : voir plus bas
         if bytes_compression is not None:
             if isinstance(bytes_compression, (list, tuple)):
@@ -932,6 +1033,14 @@ class Encoder(rapidjson.Encoder):
         self.numpy_array_use_numpyB64 = numpy_array_use_numpyB64
         self.numpy_array_readable_max_size = numpy_array_readable_max_size
         self.numpy_types_to_python_types = numpy_types_to_python_types
+        # forme refusée ici plutôt qu'au dump : l'erreur arriverait sinon
+        # après l'écriture, sur un fichier déjà en place
+        if index is not None and index not in indexation.FORMES:
+            raise Exception(
+                "index unknown: available values are None (no index), "
+                + " and ".join(repr(f) for f in indexation.FORMES))
+        self.index = index
+        self.index_threshold = index_threshold
         self.strict_pickle = strict_pickle
 
         unexpected_keywords_arguments = set(plugins_parameters) - set(
@@ -966,21 +1075,45 @@ class Encoder(rapidjson.Encoder):
             self.fp = open(file, "wb")
         else:
             self.fp = file
-        self.__call__(obj, fp=self.fp, chunk_size=self.chunk_size)
+        self.__call__(obj, fp=self.fp, chunk_size=self.chunk_size,
+                      fd=_descripteur(self.fp),
+                      blocking_write=self.disk_write_mode == "blocking")
         if close:
             self.fp.close()
             del self.fp
+        self._index_apres_ecriture(file)
+
+    def _index_apres_ecriture(self, file):
+        # l'index se construit par BALAYAGE du json écrit : l'écriture ne paie
+        # rien quand il n'est pas demandé, et un fichier déjà écrit s'indexe
+        # exactement de la même façon (serializejson.index)
+        if self.index is None:
+            return
+        chemin = file if isinstance(file, str) else getattr(file, "name", None)
+        if not isinstance(chemin, str):
+            raise Exception("index needs a file path, not %r" % (file,))
+        # le json est relu depuis le disque : ce qui reste dans le tampon d'un
+        # fichier encore ouvert n'y serait pas
+        ouvert = getattr(self, "fp", file)
+        if hasattr(ouvert, "flush"):
+            ouvert.flush()
+        rapidjson.wait_writes()
+        indexation.construit(chemin, self.index, self.index_threshold)
 
     def dumps(self, obj):
         """
         Dump object into json string.
         """
+        if self.index is not None:
+            raise Exception("index needs a file: use dump, not dumps")
         return self.__call__(obj, return_bytes=False)
 
     def dumpb(self, obj):
         """
         Dump object into json bytes.
         """
+        if self.index is not None:
+            raise Exception("index needs a file: use dump, not dumpb")
         return self.__call__(obj, return_bytes=True)
 
     def close(self):
@@ -1969,6 +2102,14 @@ class Decoder(rapidjson.Decoder):
         dotdict=False,
         add_jsonpath=False,
     ):
+        # PREMIÈRE instruction : locals() ne contient alors que les paramètres,
+        # plus la cellule __class__ que pose l'appel à super(). Ils servent à
+        # refabriquer un décodeur identique pour les tranches d'un chargement
+        # par chemin (voir _fabrique_decodeur) — les recopier un à un se serait
+        # périmé au premier paramètre ajouté. Pris tel quel, sans le filtrer
+        # ici : le tri coûtait 1,5 µs à CHAQUE construction, pour un service
+        # rendu à un appel sur mille
+        parametres = locals()
 
         if accept_comments:
             parse_mode = rapidjson.PM_COMMENTS
@@ -1983,6 +2124,7 @@ class Decoder(rapidjson.Decoder):
             # par le fork rapidjson, kParseBigIntsAsStringsFlag)
             number_mode=rapidjson.NM_NATIVE | rapidjson.NM_NAN,
         )  # , **argsDict)
+        self._parametres = parametres
         self.strict_pickle = strict_pickle
         if strict_pickle:
             setters = False
@@ -2019,7 +2161,7 @@ class Decoder(rapidjson.Decoder):
             self.end_array = self._end_array_if_numpy_array_from_list
         return self
 
-    def load(self, file=None, obj=None):
+    def load(self, file=None, obj=None, path=None):
         """
         Load object from json file.
 
@@ -2032,15 +2174,25 @@ class Decoder(rapidjson.Decoder):
             obj (optional):
                 If provided, the object `obj` will be updated and no new object will be created.
 
+            path (optional str):
+                path of the wanted object inside the json, in the `$ref`
+                grammar. Without index, or without any indexed ancestor, the
+                whole document is read and the path walked in the result.
+
         Return:
             created object or updated object if passed obj.
         """
 
+        # un dump rend la main avant que le disque ait tout reçu : relire sans
+        # attendre donnerait un document tronqué
+        rapidjson.wait_writes()
         if file is None:
             file = self.file
-        path = None
+        if path is not None:
+            return self._load_path(file, path)
+        chemin_source = None
         if isinstance(file, str):
-            path = file
+            chemin_source = file
             # print("load",file)
             if not os.path.exists(file):
                 if self.default_value is no_default_value:
@@ -2048,15 +2200,51 @@ class Decoder(rapidjson.Decoder):
                         errno.ENOENT, os.strerror(errno.ENOENT), file
                     )
                 return self.default_value
-            file = _open_with_good_encoding(file)
+            with _open_with_good_encoding(file) as fichier:
+                # tout le document d'un coup : le parseur va ~4 fois plus vite
+                # sur des octets que sur un flux (mesuré). Qui veut économiser
+                # la mémoire sur un très gros json a `iterator=True`.
+                if "b" in getattr(fichier, "mode", ""):
+                    # un index en fin de fichier (index="comment") ne fait pas
+                    # partie du document : le parseur buterait dessus
+                    fin, _ = indexation.etendue(fichier)
+                    file = fichier.read(fin)
+                else:
+                    file = fichier.read()
         elif file is None:  # a priori pointeur vers fichier
             raise ValueError('Encoder.load need a "file" path/file argument')
 
         loaded = self.__call__(json=file, obj=obj)
-        if path:
+        if chemin_source:
             if self.add_jsonpath:
-                loaded._jsonpath = path
-            id_to_path[id(loaded)] = path
+                loaded._jsonpath = chemin_source
+            id_to_path[id(loaded)] = chemin_source
+        return loaded
+
+    def _fabrique_decodeur(self):
+        # un décodeur neuf par tranche : les tranches se chargent en cascade
+        # quand elles se référencent, un décodeur en cours de parse ne peut
+        # donc pas se prêter
+        args = dict(self._parametres)
+        for nom in ("cls", "file", "__class__"):
+            args.pop(nom, None)
+        return Decoder(**args)
+
+    def _load_path(self, file, path):
+        # chargement d'un seul objet : par l'index s'il y en a un, sinon par
+        # le document entier — même résultat, seul le temps change. Un cycle
+        # de références entre tranches ramène aussi au document entier
+        if isinstance(file, str):
+            try:
+                loaded = indexation.charge(
+                    file, path, self._fabrique_decodeur)
+            except indexation.Circulaire:
+                loaded = NotImplemented
+            if loaded is not NotImplemented:
+                return loaded
+        loaded = rapidjson._resolve_ref_path(path, self.load(file))
+        if loaded is None:
+            raise KeyError("%s not found in %s" % (path, file))
         return loaded
 
     def loads(self, json, obj=None):
@@ -2243,7 +2431,10 @@ class Decoder(rapidjson.Decoder):
                 return self._inst_from_dict(inst)
         # pour reconnaissant d'objet juste à partir des attributes
         elif "$ref" in inst and len(inst) == 1:
-            if self.root:
+            # les cibles HORS d'une tranche chargée par chemin ne se résolvent
+            # pas ici : leur marqueur est laissé intact jusqu'à la post-passe,
+            # qui seule sait aller les chercher dans le fichier
+            if self.root and not inst["$ref"].startswith(indexation.HORS):
                 # try:
                 inst_potential = from_name(
                     inst["$ref"], accept_dict_as_object=True, root=self.root

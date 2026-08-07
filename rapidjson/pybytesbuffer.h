@@ -106,6 +106,10 @@ struct PyBytesBuffer { // a revoir c'est quoi la différence entre struc et clas
         *bufferCursor++ = '\"';
     }
 
+    // Rien à prendre : ici l'encodage va droit dans le tampon de sortie, il
+    // n'y a personne à qui le déléguer (voir FdWriteStream).
+    bool RawDataToBase64Owned(char*, size_t) { return false; }
+
     void RawDataToBase64(const unsigned char* data, size_t length){
         // encode le base64 directement dans le buffer de sortie,
         // sans chaîne intermédiaire, précédé du préfixe « <n>: » (n = nombre

@@ -334,8 +334,15 @@ public:
 
     bool BloscToBase64_(PyObject* object) {
         Prefix();
-        os_->RawDataToBase64((const unsigned char*) ((BloscToBase64*) object)->data,
-                             (size_t) ((BloscToBase64*) object)->size);
+        BloscToBase64* blosc = (BloscToBase64*) object;
+        // la trame compressée nous appartient : le flux peut la PRENDRE et en
+        // faire faire le base64 par son thread d'écriture. S'il la prend, il
+        // la libérera lui-même (le dealloc laisse passer un data nul).
+        if (os_->RawDataToBase64Owned(blosc->data, (size_t) blosc->size))
+            blosc->data = nullptr;
+        else
+            os_->RawDataToBase64((const unsigned char*) blosc->data,
+                                 (size_t) blosc->size);
         return true;
     }
 
