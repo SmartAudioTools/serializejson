@@ -583,7 +583,13 @@ inline bool sj_index_tasse(const std::string& texte, std::string& out)
         return false;
     blosc2_cparams cparams = BLOSC2_CPARAMS_DEFAULTS;
     cparams.compcode = (uint8_t) compcode;
-    cparams.clevel = 9;
+    // 5, le même niveau que les tableaux — soit zstd 9 (blosc2 double le
+    // sien moins un, blosc2.c:571). Le 9 de blosc2, lui, demande
+    // ZSTD_maxCLevel(), le MAXIMUM : sur 1,2 Mo de texte d'index il coûtait
+    // 2,0 s là où le 5 met 2,1 ms, pour onze pour cent d'octets sur un bloc
+    // qui pèse déjà moins d'un vingtième du document. C'est ce seul chiffre
+    // qui rendait l'indexation fine inabordable à l'écriture.
+    cparams.clevel = 5;
     cparams.typesize = 1;     // du texte : ni colonnes ni mots à transposer
     cparams.nthreads = 1;
     for (int f = 0; f < BLOSC2_MAX_FILTERS; f++) {
