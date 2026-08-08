@@ -8461,7 +8461,61 @@ typedef struct {
     // (_ref_impossible) pour retirer le maillon, compter ceux déjà là, et
     // recommencer — un balayage qui ne se paie que dans ce cas
     bool refImpossible;
+    // Rappels de l'Encoder python cherchés à chaque appel (default,
+    // default_dict, class_plan, _cle_json…). Trois d'entre eux sont ABSENTS
+    // de l'Encoder de serializejson, et une recherche qui échoue lève une
+    // AttributeError puis l'efface : ~220 ns pièce, contre 44 ns quand
+    // l'attribut est là. À elles trois, ces absences coûtaient plus que
+    // l'encodage d'un petit objet. On garde donc l'ABSENCE d'un appel à
+    // l'autre — jamais les méthodes elles-mêmes : une méthode liée référence
+    // son Encoder, et l'Encoder n'étant pas suivi par le ramasse-miettes, la
+    // garder ici le rendrait incollectable (mesuré : 50 encodeurs vivants sur
+    // 50 au lieu d'un). Le cache vaut tant que la poussée amortie des
+    // paramètres globaux vaut (`_owner is self` : le __setattr__ python la
+    // casse dès qu'un attribut d'instance change) ET que le type n'a pas bougé
+    // (tp_version_tag : une classe repiquée en cours de route, ce que fait un
+    // espion de test, doit être vue).
+    unsigned char cbAbsents;
+    // valeurs, elles aussi cherchées à chaque appel, et sans lien retour vers
+    // l'Encoder : un entier se garde sans rien retenir (-1 : pas encore lu)
+    PyObject* cbChunkSize;
+    Py_ssize_t cbBytesSeuil;
+    unsigned int cbTypeVersion;
 } EncoderObject;
+
+
+// bits de EncoderObject::cbAbsents
+enum {
+    SJ_ABS_DEFAULT   = 1,
+    SJ_ABS_DICT      = 2,
+    SJ_ABS_LIST      = 4,
+    SJ_ABS_PLAN      = 8,
+    SJ_ABS_CLE       = 16,
+    SJ_ABS_ONE_LINE  = 32,
+    SJ_ABS_SEUIL     = 64,
+    SJ_ABS_CHUNK     = 128,
+};
+
+
+// Cherche un rappel de l'Encoder en se souvenant de son absence (voir
+// EncoderObject::cbAbsents). Rend une référence FORTE, ou nullptr si
+// l'attribut manque ou vaut None (rappel désactivé) — sans erreur posée.
+static PyObject*
+sj_rappel(EncoderObject* e, PyObject* self, PyObject* name, unsigned char bit)
+{
+    if (e->cbAbsents & bit)
+        return nullptr;
+    PyObject* fn = PyObject_GetAttr(self, name);
+    if (fn == nullptr) {
+        PyErr_Clear();
+        e->cbAbsents |= bit;
+    }
+    else if (fn == Py_None) {
+        Py_DECREF(fn);
+        return nullptr;
+    }
+    return fn;
+}
 
 
 // Chemin JSON de la valeur en cours d'encodage, au format des "$ref" de
@@ -9072,6 +9126,7 @@ static void encoder_dealloc(PyObject* self)
     // une liste laissée ouverte se referme ici : son crochet fermant dort
     // encore dans le tampon, et le perdre laisserait un json tronqué
     sj_append_ferme((EncoderObject*) self);
+    Py_CLEAR(((EncoderObject*) self)->cbChunkSize);
     delete ((EncoderObject*) self)->indexAppend;
     Py_TYPE(self)->tp_free(self);
 }
@@ -9750,11 +9805,15 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     // protocole serializejson (l'ancien Encoder.__call__ Python) : poussée
     // amortie des paramètres globaux, remise à zéro des attributs volatils
     bool sjProtocol = sj_is_registered(self, sj_encoder_type);
+    // la poussée tenait-elle en entrant ? Rien n'a alors changé sur
+    // l'instance depuis le dernier appel — ce qui valide aussi le cache des
+    // rappels, plus bas
+    bool pushed = false;
     if (sjProtocol) {
         PyObject* ownerObj = PyObject_GetAttr(sj_params_module, owner_name);
         if (ownerObj == nullptr)
             PyErr_Clear();
-        bool pushed = (ownerObj == self);
+        pushed = (ownerObj == self);
         Py_XDECREF(ownerObj);
         if (!pushed) {
             PyObject* r =
@@ -9788,18 +9847,22 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         returnBytes = rb ? true : false;
     }
 
-    if (PyObject_HasAttr(self, default_name)) {
-        defaultFn = PyObject_GetAttr(self, default_name);
+    // Les rappels de l'Encoder python se cherchent à chaque appel ; le prix,
+    // ce sont les ABSENTS, dont la recherche lève une AttributeError. La
+    // mémoire de ces absences (cbAbsents) ne vaut que sous le protocole
+    // serializejson, où la poussée amortie garantit qu'aucun attribut
+    // d'instance n'a bougé depuis le dernier appel.
+    if (!sjProtocol || !pushed
+            || e->cbTypeVersion != Py_TYPE(self)->tp_version_tag) {
+        e->cbAbsents = 0;
+        e->cbBytesSeuil = -1;
+        Py_CLEAR(e->cbChunkSize);
+        e->cbTypeVersion = Py_TYPE(self)->tp_version_tag;
     }
-    defaultDictFn = PyObject_GetAttr(self, default_dict_name);
-    if (defaultDictFn == nullptr)
-        PyErr_Clear();
-    defaultListFn = PyObject_GetAttr(self, default_list_name);
-    if (defaultListFn == nullptr)
-        PyErr_Clear();
-    PyObject* classPlanFn = PyObject_GetAttr(self, class_plan_name);
-    if (classPlanFn == nullptr)
-        PyErr_Clear();
+    defaultFn = sj_rappel(e, self, default_name, SJ_ABS_DEFAULT);
+    defaultDictFn = sj_rappel(e, self, default_dict_name, SJ_ABS_DICT);
+    defaultListFn = sj_rappel(e, self, default_list_name, SJ_ABS_LIST);
+    PyObject* classPlanFn = sj_rappel(e, self, class_plan_name, SJ_ABS_PLAN);
 
     PathTracker pathTracker;
     if (e->mtScratch == nullptr)
@@ -9833,44 +9896,31 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     pathTracker.strictPickle = e->strictPickle;
     pathTracker.classPlanFn = classPlanFn;
     // seuil d'écriture native des petits bytes/bytearray, calculé par
-    // l'Encoder python (_bytes_natif_seuil : 0 si greffons remplacés)
-    {
-        PyObject* seuil_obj = PyObject_GetAttr(self, bytes_natif_seuil_name);
-        if (seuil_obj == nullptr)
-            PyErr_Clear();
-        else {
+    // l'Encoder python (_bytes_natif_seuil : 0 si greffons remplacés ;
+    // absent de la classe de base, d'où la mémoire de son absence)
+    if (e->cbBytesSeuil < 0) {
+        PyObject* seuil_obj = sj_rappel(e, self, bytes_natif_seuil_name,
+                                       SJ_ABS_SEUIL);
+        if (seuil_obj != nullptr) {
             if (PyLong_CheckExact(seuil_obj)) {
                 Py_ssize_t seuil = PyLong_AsSsize_t(seuil_obj);
                 if (seuil == -1 && PyErr_Occurred())
                     PyErr_Clear();
                 else
-                    pathTracker.bytesNatifSeuil = seuil;
+                    e->cbBytesSeuil = seuil;
             }
             Py_DECREF(seuil_obj);
         }
     }
-    // rappel _cle_json pour l'écriture native des dicts à clés non-str
-    // (None : désactivé — sort_keys, ou recettes redéfinies par une
-    // sous-classe). Référence forte, relâchée par ~PathTracker
-    {
-        PyObject* cleFn = PyObject_GetAttr(self, cle_json_name);
-        if (cleFn == nullptr)
-            PyErr_Clear();
-        else if (cleFn == Py_None)
-            Py_DECREF(cleFn);
-        else
-            pathTracker.cleJsonFn = cleFn;
-    }
-    // recette des sous-documents de clés natives (voir defaultOneLineFn)
-    {
-        PyObject* fn = PyObject_GetAttr(self, default_one_line_name);
-        if (fn == nullptr)
-            PyErr_Clear();
-        else if (fn == Py_None)
-            Py_DECREF(fn);
-        else
-            pathTracker.defaultOneLineFn = fn;
-    }
+    if (e->cbBytesSeuil >= 0)
+        pathTracker.bytesNatifSeuil = e->cbBytesSeuil;
+    // rappel _cle_json pour l'écriture native des dicts à clés non-str, et
+    // recette des sous-documents de clés natives (voir defaultOneLineFn).
+    // None : désactivé — sort_keys, ou recettes redéfinies par une
+    // sous-classe. Références fortes, relâchées par ~PathTracker
+    pathTracker.cleJsonFn = sj_rappel(e, self, cle_json_name, SJ_ABS_CLE);
+    pathTracker.defaultOneLineFn = sj_rappel(e, self, default_one_line_name,
+                                             SJ_ABS_ONE_LINE);
     PyObject* dumpedClassesSet = PyObject_GetAttr(self, dumped_classes_name);
     if (dumpedClassesSet == nullptr)
         PyErr_Clear();
@@ -9894,10 +9944,11 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         // voie Python le passait explicitement à chaque appel)
         PyObject* ownedChunk = nullptr;
         if (sjProtocol && chunkSizeObj == nullptr) {
-            ownedChunk = PyObject_GetAttr(self, chunk_size_name);
-            if (ownedChunk == nullptr)
-                PyErr_Clear();
-            else
+            if (e->cbChunkSize == nullptr)
+                e->cbChunkSize = sj_rappel(e, self, chunk_size_name,
+                                           SJ_ABS_CHUNK);
+            ownedChunk = Py_XNewRef(e->cbChunkSize);
+            if (ownedChunk != nullptr)
                 chunkSizeObj = ownedChunk;
         }
         bool chunkOk = accept_chunk_size_arg(chunkSizeObj, chunkSize);
@@ -10110,6 +10161,10 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
     e->ecrivainAppend = nullptr;
     e->fluxAppend = nullptr;
     e->refImpossible = false;
+    e->cbAbsents = 0;
+    e->cbChunkSize = nullptr;
+    e->cbBytesSeuil = -1;
+    e->cbTypeVersion = 0;
     e->singleLineNumbers = singleLineNumbers? true : false;
     e->singleLineInit = singleLineInit? true : false;
     e->singleLineNew = singleLineNew? true : false;

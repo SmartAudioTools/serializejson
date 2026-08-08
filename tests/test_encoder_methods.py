@@ -64,3 +64,27 @@ if __name__ == "__main__":
     test_dump_to_file(__import__("pathlib").Path(os.environ.get("TMPDIR", "/tmp")))
     test_call_protocol_state()
     print("OK")
+
+
+def test_encodeur_liberable_apres_appel():
+    """Un Encoder jeté après usage doit redevenir collectable.
+
+    Garde-fou du cache des rappels : le C garde d'un appel à l'autre ce
+    qu'il a cherché sur l'instance. Y garder une METHODE LIÉE créerait un
+    cycle encodeur → méthode → encodeur, invisible du ramasse-miettes
+    puisque le type Encoder n'est pas suivi par lui — mesuré le 08/08/2026 :
+    50 encodeurs vivants sur 50. Seules des ABSENCES et des entiers sont
+    gardés depuis. Un seul survivant est normal : la poussée amortie des
+    paramètres globaux retient le dernier encodeur utilisé.
+    """
+    import gc
+    import weakref
+
+    refs = []
+    for i in range(30):
+        encoder = serializejson.Encoder(indent=None)
+        refs.append(weakref.ref(encoder))
+        encoder({"a": i})
+        del encoder
+    gc.collect()
+    assert len([r for r in refs if r() is not None]) <= 1

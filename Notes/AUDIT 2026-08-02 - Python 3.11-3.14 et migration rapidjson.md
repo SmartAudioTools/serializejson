@@ -3049,3 +3049,110 @@ porte des octets, le thread d'écriture couvre tout.
 Piège de mesure ajouté à la liste : **un `fsync` d'un seul côté fausse
 tout.** Le premier banc en mettait un sur pickle et pas sur
 serializejson, et donnait à pickle 49 ms là où il en fait 8.
+
+### 18.8 Nuit du 7 au 8/08 — « attaque le cas des tout petits objets »
+
+Suite directe du 18.7, qui laissait le coût FIXE par appel comme seule
+cible restante. Le profil ne montrait aucun rappel python par objet :
+tout se passait DANS `encoder_call`, avant même de regarder l'objet.
+
+**La dépense n'était pas les recherches d'attributs, c'étaient les
+ABSENCES.** Mesuré sur 3.12, dans le processus :
+
+    méthode PRÉSENTE, PyObject_GetAttr .............   43,8 ns
+    attribut ABSENT (AttributeError levée + effacée)  264,0 ns
+
+`encoder_call` cherchait sept rappels à chaque appel. Trois sont
+absents de l'`Encoder` de serializejson à TOUS les coups — `default_
+dict`, `default_list`, `class_plan` — et `_bytes_natif_seuil` l'est
+jusqu'à ce que `_configure` l'écrive. Soit ~790 ns d'exceptions levées
+puis jetées, sur un appel qui en coûtait 1460 : **plus de la moitié du
+prix d'un petit objet était payée à ne rien trouver.**
+
+Le correctif garde l'ABSENCE d'un appel à l'autre (`cbAbsents`, un
+octet de drapeaux), plus les deux valeurs qui ne renvoient à rien
+(`_bytes_natif_seuil` en `Py_ssize_t`, `chunk_size` en objet entier).
+Il est gardé deux fois : par la poussée amortie des paramètres globaux
+(`_owner is self`, que le `__setattr__` python casse dès qu'un attribut
+d'instance bouge) et par `tp_version_tag`, pour qu'une classe repiquée
+en cours de route — ce que fait un espion de test — soit vue.
+
+**Ce que la première version a coûté : une fuite mémoire.** Garder les
+méthodes elles-mêmes semblait le gain évident. Une méthode LIÉE
+référence son encodeur, et `Encoder_Type` est un type statique SANS
+support du ramasse-miettes (`tp_traverse = 0`) : le cycle encodeur →
+méthode → encodeur lui est invisible. A/B sur les deux binaires, 50
+encodeurs créés, utilisés, jetés, `gc.collect()` :
+
+    binaire commité ...........   1 vivant  sur 50   (le dernier, retenu
+                                                      par `_owner`)
+    cache de méthodes liées ...  50 vivants sur 50
+
+Le premier diagnostic était FAUX : j'ai vu « un encodeur non libéré »
+sur mon binaire et accusé le cache, alors qu'un survivant est normal.
+C'est la boucle de 50 qui a discriminé, pas la boucle de 1. Test de
+non-régression ajouté (`test_encodeur_liberable_apres_appel`), vérifié
+ROUGE avec le cache de méthodes. Prix de la correction, assumé :
+~0,14 µs rendus pour n'en garder que des absences et des entiers.
+
+Chiffres finaux, binaires PGO définitifs, deux passes concordantes
+(3.12, machine calme, `dict` de 4 clés) :
+
+    rapidjson.dumps(o), json nu ....  0,44 µs
+    pickle.dumps(o) ................  0,40 µs
+    Encoder(o) .....................  1,00 µs   (avant : 1,46)
+    Encoder.dumpb(o) ...............  1,25 µs   (avant : 1,69)
+    serializejson.dumpb(o) .........  1,33 µs   (avant : 1,88)
+
+Rapporté à l'étalon mesuré dans le MÊME processus (l'écrivain json nu),
+l'`Encoder` passe de ×3,0 à ×2,3. Ce qui reste au-dessus de l'étalon
+est le protocole lui-même ; ce qui sépare l'étalon de pickle est le
+FORMAT, et rien ne le fera disparaître.
+
+**Passe de simplification, par fichier du commit :**
+
+  - `rapidjson/rapidjson.cpp` — la réutilisation du `sjDumpedSet` pour
+    le `_reset` a été essayée puis RETIRÉE : 1,10 contre 1,11 µs, écart
+    non mesurable, le diff raccourcit d'autant. La réutilisation d'un
+    conteneur volatile côté python a été écartée AVANT d'être écrite :
+    trois allocations et quatre écritures d'attribut coûtent 55 ns en
+    tout, il n'y avait rien à gagner. La double recherche de `default`
+    (`PyObject_HasAttr` puis `PyObject_GetAttr`) disparaît au passage,
+    `sj_rappel` fait les deux en un.
+  - `tests/test_encoder_methods.py` — relu en entier, rien à enlever ;
+    le test ajouté est le seul du fichier qui mesure une propriété de
+    VIE d'objet, d'où son commentaire long.
+  - les cinq `.so` — reconstruits en PGO, batterie 117 tests verte sur
+    les cinq versions (204 tests pytest par version).
+
+**Trou honnête, à dire plutôt qu'à masquer :** la branche
+d'invalidation du cache (`!pushed`, ou `tp_version_tag` changé) n'a
+aucun levier observable depuis python — j'ai cherché `default_dict`
+(sans effet, les recettes de serializejson passent devant),
+`bytes_compression` (sortie identique) et `sort_keys` (non
+inscriptible). Aucun test ne peut donc échouer sans elle. Elle tient
+par construction, appariée à `_configure`, et pas par la mesure.
+
+### 18.9 Deux métriques ajoutées au rapport de benchmarks
+
+Demande de Baptiste dans la foulée : ajouter au rapport les métriques
+qui manquent. Le rapport mesurait des LOTS partout — ce qui est juste
+pour rapporter le prix d'un OBJET, et ce qui masque exactement le
+régime travaillé cette nuit. Deux pages nouvelles :
+
+  - **coût FIXE d'un appel** : un objet minuscule par appel, cinq
+    objets, quatre colonnes (pickle, `rapidjson.dumps` nu, `Encoder`,
+    fonction de module). Les trois dernières SITUENT la dépense au lieu
+    de la constater : l'écart json nu ↔ pickle est le format, l'écart
+    `Encoder` ↔ json nu est le protocole, le dernier est la recherche
+    de l'instance par défaut du thread.
+  - **sérialisation incrémentale sur disque réel** : `append` contre
+    `Pickler.dump()` en boucle, temps BLOQUÉ et temps TOTAL, sur des
+    micro-maillons puis sur des trames 1080p.
+
+Piège de mesure évité en les écrivant : **`chrono` mesure UN appel**, ce
+qui sous la microseconde mesure surtout `perf_counter`. Les cinq objets
+passent donc par `chrono_unitaire`, qui chronomètre une rafale de 2000
+appels et retranche la rafale à vide, mesurée dans la foulée et dans le
+même processus. Contrôle : les chiffres obtenus recoupent au centième
+de µs près ceux d'un `timeit` indépendant.
