@@ -11,6 +11,11 @@ Ce qui est mesuré, de bout en bout et à réglages PAR DÉFAUT des deux côtés
     len(serializejson.dumps(x)) — base64 et enveloppe JSON COMPRIS ;
   - temps : dumps et loads complets, alternés dans le même processus,
     burst de réveil CPU avant chaque chrono, médiane de ~50 essais ;
+  - disque : de VRAIES écritures et relectures sur le volume du dépôt,
+    mesurées et non projetées — écriture DURABLE (fsync compris) et
+    relecture cache du noyau ÉVINCÉ, meilleur de 5 essais. Côté
+    serializejson deux temps sont rendus : celui que `dump` bloque, et
+    celui qu'il faut de plus au fil d'écriture pour finir ;
   - seuil de débit : le débit de stockage/réseau en dessous duquel
     serializejson devient AUSSI plus rapide que pickle, temps de
     lecture/écriture du support compris — (octets épargnés) / (surcoût
@@ -19,7 +24,9 @@ Ce qui est mesuré, de bout en bout et à réglages PAR DÉFAUT des deux côtés
     les deux tableaux.
 """
 import datetime
+import os
 import pickle
+import shutil
 import statistics
 import subprocess
 import sys
@@ -43,13 +50,14 @@ perf = time.perf_counter
 
 # les trois réglages comparés à pickle, dans l'ordre des colonnes du tableau
 # et des figures : suffixe des clés de mesure → libellé. Ce sont les deux
-# BOUTS du barème « smart » et le défaut : le barreau par défaut (le plus
-# rapide qui compresse), le dernier barreau (le plus petit), et le niveau 0
-# (aucune compression, base64 seul)
+# BOUTS du barème « smart » et le défaut, pris dans l'ordre CROISSANT du
+# barème (choix de Baptiste, 07/08) : le niveau 0 (aucune compression, base64
+# seul), le barreau par défaut (le plus rapide qui compresse), puis le dernier
+# barreau (le plus petit)
 VARIANTES = {
+    "b64": "niveau 0, SANS compression (base64 seul)",
     "sj": f"défaut « smart » (barreau {bareme_smart_defaut})",
     "min": f"barreau {max(bareme_smart)}, le plus petit du barème",
-    "b64": "niveau 0, SANS compression (base64 seul)",
 }
 
 
@@ -96,6 +104,188 @@ def chrono(f, essais=50, plafond=2.0, froid=False):
         f()
         temps.append(perf() - t0)
     return statistics.median(temps)
+
+
+# --- LE DISQUE, MESURÉ ------------------------------------------------------
+# Les deux barres « disque » des figures étaient une PROJECTION : temps de
+# calcul + octets / débit constructeur. Elles sont désormais MESURÉES, sur le
+# vrai volume du dépôt (demande de Baptiste, 08/08 : « je veux les temps réels
+# avec de vraies écritures sur disque »). Un tmpfs ne mesurerait que de la
+# mémoire, d'où le dossier pris DANS le dépôt.
+_DOSSIER_DISQUE = RACINE / ".banc_disque"
+
+
+def _chemin_banc(nom):
+    _DOSSIER_DISQUE.mkdir(exist_ok=True)
+    return str(_DOSSIER_DISQUE / nom)
+
+
+def _evince(chemin):
+    # chasse du cache du noyau les pages du fichier — sans privilèges, mais
+    # seulement les pages PROPRES : d'où le fsync systématique en fin
+    # d'écriture, sans lequel la relecture mesurerait le cache et rien d'autre
+    fd = os.open(chemin, os.O_RDONLY)
+    try:
+        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+    finally:
+        os.close(fd)
+
+
+def _fsync(chemin):
+    fd = os.open(chemin, os.O_WRONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _fichiers_ecrits(chemin):
+    # `serializejson.dump` peut déposer DEUX entrées : le json, et l'index
+    # sidecar caché du même nom précédé d'un point (réglage `index="sidecar"`,
+    # le défaut). Son write() était déjà compté — le fil d'écriture le pose
+    # avant que `wait_writes` ne rende la main — mais pas son fsync, pas ses
+    # octets et pas son éviction : trois faveurs faites à serializejson.
+    # MESURÉ, A/B interlacé, avant de le croire grave : le sidecar n'existe que
+    # si un chemin dépasse `index_threshold`, donc PAS sur un lot de quelques
+    # kilo-octets comme ceux du catalogue de types (aucune faveur là où je la
+    # craignais la plus grosse) ; sur un tableau de 4 Mo il pèse 74 octets et
+    # son fsync coûte +0,34 ms, soit ×1,08 du geste durable. Petit, donc, mais
+    # réel et gratuit à rendre — un rapport qui annonce « fsync compris » doit
+    # synchroniser TOUT ce que la bibliothèque a écrit
+    sidecar = serializejson.indexation.chemin_sidecar(chemin)
+    return [c for c in (chemin, sidecar) if os.path.exists(c)]
+
+
+def _efface(chemin):
+    for ecrit in _fichiers_ecrits(chemin):
+        os.unlink(ecrit)
+
+
+def _ecrit_pickle(chemin, objet):
+    # le geste ORDINAIRE de pickle, puis ce qu'il reste à payer pour que les
+    # octets soient vraiment sur le disque. pickle n'a pas de fil d'écriture :
+    # tout ce qu'il fait est bloquant, et seul le fsync est différé — par le
+    # NOYAU, pas par la bibliothèque
+    t0 = perf()
+    f = open(chemin, "wb")
+    pickle.dump(objet, f, protocol=4)
+    f.flush()
+    bloque = perf() - t0
+    os.fsync(f.fileno())
+    f.close()
+    return bloque, perf() - t0
+
+
+def _ecrit_sj(chemin, objet, args):
+    # `dump` rend la main dès l'objet sérialisé (disk_write_mode
+    # « fast_release », le défaut) : base64, compression et write() partent
+    # dans le fil d'écriture. D'où les DEUX temps, et la barre coupée en deux
+    # des figures — le bas est ce que l'appelant attend, le haut ce qui se
+    # termine derrière lui
+    t0 = perf()
+    serializejson.dump(objet, chemin, **args)
+    bloque = perf() - t0
+    serializejson.wait_writes()
+    for ecrit in _fichiers_ecrits(chemin):
+        _fsync(ecrit)
+    return bloque, perf() - t0
+
+
+def sonde_disque_libre():
+    # UNE écriture durable étalon (4 Mo + fsync), à lancer avant et après la
+    # campagne. Sur ce volume, machine calme, elle se paie quelques
+    # millisecondes ; sous une autre charge d'ÉCRITURE elle en atteint des
+    # centaines — un fsync attend le journal du système de fichiers ENTIER,
+    # celui des autres processus compris, et aucun nombre d'essais n'y peut
+    # rien. Sans cette sonde, une campagne polluée ne se distingue pas d'un
+    # disque lent : elle rend des chiffres, simplement faux. C'est le troisième
+    # verdict, « conditions non réunies », distinct du succès et de l'échec
+    chemin = _chemin_banc("etalon")
+    donnees = os.urandom(4_000_000)
+    temps = []
+    for _ in range(3):
+        burst()
+        t0 = perf()
+        f = open(chemin, "wb")
+        f.write(donnees)
+        f.flush()
+        os.fsync(f.fileno())
+        f.close()
+        temps.append(perf() - t0)
+    os.unlink(chemin)
+    return min(temps)
+
+
+def _gestes_disque(chemin, objet, args, args_lecture):
+    # le couple écrire/relire d'un camp, par les fonctions de FICHIER
+    # publiques des deux bibliothèques — celles qu'emploie une application.
+    # `args is None` marque le camp pickle : le suffixe ne sert plus qu'à
+    # nommer les clés et le fichier
+    if args is None:
+        def ecrit():
+            return _ecrit_pickle(chemin, objet)
+
+        def lit():
+            with open(chemin, "rb") as f:
+                return pickle.load(f)
+    else:
+        def ecrit():
+            return _ecrit_sj(chemin, objet, args)
+
+        def lit():
+            return serializejson.load(chemin, **(args_lecture or {}))
+
+    return ecrit, lit
+
+
+ESSAIS_DISQUE = 5
+
+
+def mesures_disque(m, objet, camps, prefixe, args_lecture=None):
+    # un aller-retour disque RÉEL par camp, rangé dans `m` en clés SCALAIRES
+    # (agrege_par_groupe additionne les valeurs, un couple ne s'additionnerait
+    # pas).
+    #
+    # Les camps sont INTERLACÉS, un tour complet à la fois, et NON mesurés
+    # l'un après l'autre. Une rafale d'écritures durables congestionne le
+    # volume — chiffrement, journal, writeback — et dans une série consécutive
+    # le dernier camp paie pour tous ceux qui l'ont précédé : mesuré sur un son
+    # de 10,4 Mo, pickle en tête à 23 ms puis base64 en queue à 140, quand il
+    # en vaut 30 mesuré seul, et la sonde étalon passée de 7 à 42 ms au sortir
+    # de la campagne. Interlacés, tous les camps voient la même congestion
+    # moyenne, et le minimum par camp retient le tour le plus calme de chacun.
+    # C'est l'A/B interlacé du reste du rapport, appliqué au disque.
+    gestes = {}
+    for suffixe, args in camps:
+        chemin = _chemin_banc(f"{prefixe}_{suffixe}")
+        gestes[suffixe] = (chemin,
+                           *_gestes_disque(chemin, objet, args, args_lecture))
+    ecritures = {suffixe: [] for suffixe in gestes}
+    for _ in range(ESSAIS_DISQUE):
+        for suffixe, (chemin, ecrit, _) in gestes.items():
+            _efface(chemin)   # chaque essai écrit du NEUF, dans les deux camps
+            burst()
+            ecritures[suffixe].append(ecrit())
+    # les fichiers du DERNIER tour servent de matière à la relecture, elle
+    # aussi interlacée — et cache du noyau évincé juste avant chaque essai
+    lectures = {suffixe: [] for suffixe in gestes}
+    for _ in range(ESSAIS_DISQUE):
+        for suffixe, (chemin, _, lit) in gestes.items():
+            for ecrit in _fichiers_ecrits(chemin):
+                _evince(ecrit)
+            burst()
+            t0 = perf()
+            lit()
+            lectures[suffixe].append(perf() - t0)
+    for suffixe, (chemin, _, _) in gestes.items():
+        bloque, total = min(ecritures[suffixe], key=lambda paire: paire[1])
+        m[f"ecrit_bloque_{suffixe}"] = bloque
+        m[f"ecrit_total_{suffixe}"] = total
+        m[f"relit_{suffixe}"] = min(lectures[suffixe])
+        m[f"octets_disque_{suffixe}"] = sum(os.path.getsize(ecrit)
+                                            for ecrit
+                                            in _fichiers_ecrits(chemin))
+        _efface(chemin)
 
 
 def _images_classiques():
@@ -200,6 +390,12 @@ def mesure_codecs_images():
     # référence actuelle du compromis poids/vitesse ; temps = processus
     # complet, lancement compris). Les profondeurs que PNG/PIL ne porte pas
     # (RVB 16 bits) sont écartées et nommées. Agrégé par corpus.
+    # Côté serializejson c'est le DERNIER barreau du barème qui est comparé
+    # (choix de Baptiste, 07/08) : face à des codecs dont c'est le métier, le
+    # réglage à opposer est le plus petit qu'on sache produire, pas le plus
+    # rapide. Chaque corpus porte aussi le compte de ses images et de ses
+    # pixels : les temps se rendent PAR IMAGE, pas par corpus (voir le rendu)
+    import collections
     import io
     import shutil
     import subprocess
@@ -209,6 +405,9 @@ def mesure_codecs_images():
 
     if shutil.which("cjxl") is None or shutil.which("djxl") is None:
         return [], ["(cjxl/djxl introuvables : section sautée)"]
+
+    encodeur = serializejson.Encoder(
+        return_bytes=True, bytes_compression=("smart", max(bareme_smart)))
 
     def minimum(fonction, essais=3):
         temps = []
@@ -221,6 +420,7 @@ def mesure_codecs_images():
         return min(temps)
 
     groupes = {}
+    definitions = {}
     ecartees = []
     dossier_tmp = Path(tempfile.mkdtemp(prefix="codecs_images_"))
     for nom, tableau, groupe in _images_classiques():
@@ -246,21 +446,23 @@ def mesure_codecs_images():
         commande_djxl = ["djxl", str(chemin_jxl), str(chemin_sortie),
                          "--quiet"]
         subprocess.run(commande_djxl, check=True, capture_output=True)
-        j = serializejson.dumps(tableau)
+        j = encodeur(tableau)
 
         def encode_png():
             b = io.BytesIO()
             image.save(b, "PNG")
 
+        hauteur, largeur = tableau.shape[:2]
         m = {
             "nbytes": tableau.nbytes,
-            "taille_sj": len(serializejson.dumps(tableau)),
+            "pixels": hauteur * largeur,
+            "taille_min": len(j),
             "taille_png": len(png),
             "taille_jxl": len(jxl),
-            "enc_sj": chrono(lambda: serializejson.dumps(tableau),
-                             plafond=0.4, froid=True),
-            "dec_sj": chrono(lambda: serializejson.loads(j), plafond=0.4,
-                             froid=True),
+            "enc_min": chrono(lambda: encodeur(tableau),
+                              plafond=0.4, froid=True),
+            "dec_min": chrono(lambda: serializejson.loads(j), plafond=0.4,
+                              froid=True),
             "enc_png": chrono(encode_png, plafond=0.4, froid=True),
             "dec_png": chrono(lambda: Image.open(io.BytesIO(png)).load(),
                               plafond=0.4, froid=True),
@@ -272,8 +474,153 @@ def mesure_codecs_images():
         cumul = groupes.setdefault(groupe, {})
         for cle, valeur in m.items():
             cumul[cle] = cumul.get(cle, 0) + valeur
+        definitions.setdefault(groupe, collections.Counter())[
+            (largeur, hauteur)] += 1
     shutil.rmtree(dossier_tmp, ignore_errors=True)
+    for groupe, cumul in groupes.items():
+        compte = definitions[groupe]
+        (largeur, hauteur), _ = compte.most_common(1)[0]
+        cumul["definition"] = (largeur, hauteur)
+        cumul["definition_constante"] = len(compte) == 1
+        cumul["images"] = sum(compte.values())
+        # facteur qui ramène le temps CUMULÉ du corpus au temps d'UNE image de
+        # la définition la plus représentée, au prorata du nombre de pixels.
+        # Quand la définition est constante il rend simplement la moyenne par
+        # image ; sinon il rend ce que coûterait une image de cette définition
+        cumul["par_image"] = largeur * hauteur / cumul["pixels"]
     return sorted(groupes.items()), ecartees
+
+
+def _rien():
+    pass
+
+
+def _rafale(f, n):
+    for _ in range(n):
+        f()
+
+
+def chrono_unitaire(f, repets=2000):
+    # `chrono` mesure UN appel de f : sous la microseconde, elle mesurerait
+    # surtout perf_counter et la dispersion de l'ordonnanceur. On chronomètre
+    # donc une RAFALE de `repets` appels, et on retranche le coût de la rafale
+    # à vide — même boucle, même niveau d'indirection, mesuré dans la foulée
+    # et dans le même processus, seule façon qu'il se retranche vraiment.
+    plein = chrono(lambda: _rafale(f, repets), plafond=0.4)
+    vide = chrono(lambda: _rafale(_rien, repets), plafond=0.4)
+    return max(0.0, plein - vide) / repets
+
+
+def mesure_appel_unitaire():
+    # Le COÛT FIXE d'un appel, que tout le reste du rapport masque à dessein :
+    # partout ailleurs on mesure des LOTS, pour rapporter le prix d'un OBJET
+    # et non celui de l'appel qui l'enveloppe. Sur un objet minuscule c'est
+    # l'inverse qui domine — et c'est le régime d'une application qui range
+    # un événement, une ligne de journal ou une trame, un par un.
+    #
+    # Trois étages sont chronométrés sur le MÊME objet, ce qui SITUE la
+    # dépense au lieu de la constater : l'écrivain json nu (rapidjson.dumps,
+    # sans aucun protocole serializejson), l'Encoder appelé directement, puis
+    # la fonction de module (qui va chercher l'instance par défaut du thread).
+    # L'écart entre les deux premiers EST le prix du protocole ; celui entre
+    # le premier et pickle est le prix du FORMAT, texte contre opcodes.
+    rapidjson = sys.modules["rapidjson"]
+    objets = [
+        ("entier", 12345),
+        ("chaîne de 12 octets", "douze octets"),
+        ("tuple de 2 entiers", (3, 7)),
+        ("dict de 4 clés", {"i": 7, "nom": "maillon 7", "v": [7, 14, 21],
+                            "ok": True}),
+        ("dict de 30 clés", dict((str(i), i) for i in range(30))),
+    ]
+    encodeur = serializejson.Encoder(return_bytes=True)
+    lignes = []
+    for nom, objet in objets:
+        encodeur(objet)   # peuple les caches (classes vues, motifs de bits)
+        lignes.append((nom, {
+            "octets_pickle": len(pickle.dumps(objet, protocol=4)),
+            "octets_sj": len(encodeur(objet)),
+            "pickle": chrono_unitaire(lambda: pickle.dumps(objet, protocol=4)),
+            "json_nu": chrono_unitaire(lambda: rapidjson.dumps(objet)),
+            "encodeur": chrono_unitaire(lambda: encodeur(objet)),
+            "module": chrono_unitaire(lambda: serializejson.dumpb(objet)),
+        }))
+    return lignes
+
+
+def mesure_incremental():
+    # La sérialisation INCRÉMENTALE, sur le VRAI disque de la machine : des
+    # objets rangés un par un dans un document qui reste valide à tout
+    # instant. pickle a un équivalent — Pickler.dump() en boucle — mais il
+    # écrit une CONCATÉNATION d'enregistrements : pas de document englobant,
+    # pas d'index, pas d'accès direct, et une tranche relue par un Unpickler
+    # neuf échoue dès que le mémo a partagé un objet entre deux dumps.
+    #
+    # Deux temps sont rendus, et c'est le premier qui décide de la latence
+    # d'une application : le temps BLOQUÉ, celui que l'appel rend à
+    # l'appelant, et le temps TOTAL, jusqu'à ce que tout soit parti vers le
+    # noyau (fermeture comprise). serializejson délègue à son écrivain le
+    # base64, la compression et le write() ; pickle fait tout dans le thread
+    # appelant. AUCUN fsync d'aucun côté : on compare ce que les deux
+    # bibliothèques font, pas la latence du matériel. Un tmpfs ne mesurerait
+    # rien, d'où le dossier pris dans le dépôt.
+    dossier = RACINE / ".banc_incremental"
+    shutil.rmtree(dossier, ignore_errors=True)
+    dossier.mkdir()
+
+    def sj_append(objets, index):
+        chemin = dossier / "sj.json"
+        if chemin.exists():
+            chemin.unlink()
+        e = serializejson.Encoder(file=str(chemin), indent=None,
+                                  index="sidecar" if index else None)
+        t0 = perf()
+        for o in objets:
+            e.append(o)
+        bloque = perf() - t0
+        e.close()
+        serializejson.wait_writes()
+        return bloque, perf() - t0, chemin.stat().st_size
+
+    def pk_dump(objets):
+        chemin = dossier / "pk.pickle"
+        f = open(chemin, "wb")
+        p = pickle.Pickler(f, protocol=4)
+        t0 = perf()
+        for o in objets:
+            p.dump(o)
+        bloque = perf() - t0
+        f.close()
+        return bloque, perf() - t0, chemin.stat().st_size
+
+    essais = [
+        ("serializejson `append`", lambda o: sj_append(o, False)),
+        ("serializejson `append` + index", lambda o: sj_append(o, True)),
+        ("pickle `Pickler.dump()` en boucle", pk_dump),
+    ]
+    charges = [
+        ("20 000 dicts de ~57 octets",
+         [{"i": i, "nom": "maillon %d" % i, "v": [i, i * 2, i * 3],
+           "ok": True} for i in range(20000)], 3),
+        # bruit INCOMPRESSIBLE : le cas où compression, base64 et disque
+        # pèsent tous les trois. Une vraie trame RVB 1920x1080 fait 6,2 Mo
+        ("20 trames 1920×1080 RVB (6,2 Mo pièce)",
+         [{"n": i, "img": os.urandom(1920 * 1080 * 3)} for i in range(20)], 2),
+    ]
+    lignes = []
+    for titre, objets, tours in charges:
+        scores = {}
+        for _ in range(tours):
+            for nom, fonction in essais:
+                b, t, taille = fonction(objets)
+                garde = scores.setdefault(nom, [[], [], taille])
+                garde[0].append(b)
+                garde[1].append(t)
+        lignes.append((titre, len(objets),
+                       [(nom, min(bs), min(ts), taille)
+                        for nom, (bs, ts, taille) in scores.items()]))
+    shutil.rmtree(dossier, ignore_errors=True)
+    return lignes
 
 
 def mesure_types_objets():
@@ -312,13 +659,22 @@ def mesure_types_objets():
             # pickle) : la comparaison reste équitable, on ne l'interdit pas
             pickle.loads(p)
             decodeur(j)
+            # le disque se mesure par les fonctions de FICHIER, pas par les
+            # encodeurs ci-dessus : ce chemin-là doit lui aussi savoir rejouer
+            # la catégorie, sans quoi elle est écartée comme les autres
+            autorisees = list(encodeur.get_dumped_classes())
+            essai = _chemin_banc("essai_types")
+            serializejson.dump(lot, essai)
+            serializejson.wait_writes()
+            serializejson.load(essai, authorized_classes=autorisees)
+            _efface(essai)
         except Exception:
             ecartees.append(categorie)
             continue
         # PAS de vidage de cache ici, contrairement aux gros tableaux : un lot
         # de quelques kilo-octets tient en cache DANS LA VRAIE VIE aussi, et
         # l'évincer ne mesurerait que le rechargement de l'interpréteur
-        lignes.append((categorie, {
+        m = {
             "taille_pickle": len(p),
             "taille_sj": len(j),
             "dumps_pickle": chrono(lambda: pickle.dumps(lot, protocol=4),
@@ -326,7 +682,10 @@ def mesure_types_objets():
             "dumps_sj": chrono(lambda: encodeur(lot), plafond=0.4),
             "loads_pickle": chrono(lambda: pickle.loads(p), plafond=0.4),
             "loads_sj": chrono(lambda: decodeur(j), plafond=0.4),
-        }))
+        }
+        mesures_disque(m, lot, [("pickle", None), ("sj", {})], "types",
+                       {"authorized_classes": autorisees})
+        lignes.append((categorie, m))
     return lignes, ecartees
 
 
@@ -365,6 +724,11 @@ def mesure(tableau):
         "loads_min": chrono(lambda: serializejson.loads(j_min), froid=True),
         "loads_b64": chrono(lambda: serializejson.loads(j_b64), froid=True),
     }
+    mesures_disque(m, a, [("pickle", None), ("sj", {}),
+                          ("min", {"bytes_compression":
+                                   ("smart", max(bareme_smart))}),
+                          ("b64", {"bytes_compression": None})],
+                   "profil")
     return _avec_seuil(m)
 
 
@@ -488,50 +852,52 @@ def rendu_markdown(donnees, types_ecartes, codecs_ecartes, entete):
            "",
            "**Les quatre barres des figures.** Chaque figure porte, sous le"
            " cadre bleu du poids, quatre rapports de temps : écrire et relire"
-           " en RAM, puis écrire et relire sur le disque de la machine de"
-           f" mesure ({DISQUE}), temps de transfert des octets compris. Les"
-           " deux régimes de CACHE ont été retirés : aucune application réelle"
-           " ne les rencontre sur des données qu'elle produit ou range.",
+           " en RAM, puis écrire et relire SUR LE DISQUE. Les deux régimes de"
+           " CACHE ont été retirés : aucune application réelle ne les"
+           " rencontre sur des données qu'elle produit ou range.",
            "",
-           "**Machines réalistes.** Chaque CPU est apparié à un stockage de"
-           " sa gamme, le calcul mis à l'échelle du CPU et le transfert des"
-           " octets au débit du stockage — le temps TOTAL, celui que voit"
-           " l'application. Profil d'ancrage : le plus gros profil individuel"
-           f" du corpus, « {profil_machines} ».",
+           "**Les deux barres de disque sont MESURÉES, pas projetées.** Elles"
+           " l'étaient jusqu'au 08/08 : temps de calcul + octets / débit"
+           " constructeur. Ce sont désormais de vraies écritures et de vraies"
+           " relectures sur le volume du dépôt. L'écriture compte le geste"
+           " DURABLE entier — jusqu'au `fsync`, sans lequel on ne mesurerait"
+           " que le cache d'écriture du noyau ; la relecture est faite cache"
+           " du noyau ÉVINCÉ (`posix_fadvise(DONTNEED)`, vérifié : 2 556 Mo/s"
+           " à chaud contre 390 Mo/s après éviction). Meilleur de cinq essais"
+           " et non médiane : sans fsync le noyau reporte, et ce qu'un essai"
+           " ne paie pas, le suivant le paie (mesuré sur 210 Mo : 103 ms, puis"
+           " 801, puis 2 540). Le modèle qui les remplaçait tablait sur 3,5"
+           " Go/s ; le volume mesuré en rend 45 à 93 en écriture durable — la"
+           " projection SOUS-ESTIMAIT donc largement l'avantage du poids. Seule"
+           " la page pyperformance garde la projection, faute d'aller-retour"
+           " disque sur ces charges, et ses barres le disent.",
            "",
-           "| machine | écriture | lecture |",
-           "|---|---|---|"]
-    for (nom, _, _), e, l in zip(MACHINES, machines["dumps"],
-                                 machines["loads"]):
-        rapport = lambda v: f"**×{v:.2f}**" if v < 1 else f"×{v:.2f}"
-        md.append(f"| {nom.replace(chr(10), ' ')} | {rapport(e)}"
-                  f" | {rapport(l)} |")
+           "**La barre d'écriture disque est coupée en deux** (demande de"
+           " Baptiste, 08/08). Le segment FONCÉ du bas est ce que `dump`"
+           " bloque, c'est-à-dire ce que l'appelant attend vraiment ; le"
+           " segment CLAIR au-dessus est ce que le fil d'écriture termine"
+           " derrière lui — base64, compression et `write()` — plus le `fsync`."
+           " C'est le réglage par défaut `disk_write_mode=\"fast_release\"` :"
+           " `dump` rend la main dès l'objet sérialisé. pickle n'a pas"
+           " d'équivalent, tout son temps est bloquant sauf le `fsync` que le"
+           " noyau diffère ; les deux segments empilés se comparent donc bien"
+           " au temps durable total de pickle, qui est le dénominateur.",
+           "",
+           "| profil | pickle bloqué | pickle durable |"
+           " serializejson bloqué | serializejson durable |"
+           " relecture pickle | relecture serializejson |",
+           "|---|---|---|---|---|---|---|"]
+    for nom, m in resultats:
+        md.append(f"| {nom} | {fmt_ms(m['ecrit_bloque_pickle'])}"
+                  f" | {fmt_ms(m['ecrit_total_pickle'])}"
+                  f" | {fmt_ms(m['ecrit_bloque_sj'])}"
+                  f" | {fmt_ms(m['ecrit_total_sj'])}"
+                  f" | {fmt_ms(m['relit_pickle'])}"
+                  f" | {fmt_ms(m['relit_sj'])} |")
     md += ["",
-           "## corpus d'images : face aux codecs d'images spécialisés",
+           "Temps réels du tableau ci-dessus : réglages par défaut des deux"
+           " côtés, fichiers écrits dans le dépôt puis relus cache évincé.",
            "",
-           "PNG (PIL, réglages par défaut) et JPEG XL sans perte (cjxl -d 0"
-           " -e 3, la référence actuelle du compromis poids/vitesse ; ses"
-           " temps incluent le lancement du processus). Poids en % des"
-           " octets BRUTS ; ces codecs prédisent en 2D, notre chaîne"
-           " générique non — c'est l'écart attendu sur les photos.",
-           "",
-           "| corpus | brut | smart | PNG | JPEG XL |"
-           " enc. smart | enc. PNG | enc. JXL |"
-           " déc. smart | déc. PNG | déc. JXL |",
-           "|---|---|---|---|---|---|---|---|---|---|---|"]
-    for groupe, m in codecs_images:
-        md.append(
-            f"| {groupe} | {fmt_octets(m['nbytes'])}"
-            f" | {100 * m['taille_sj'] / m['nbytes']:.0f} %"
-            f" | {100 * m['taille_png'] / m['nbytes']:.0f} %"
-            f" | {100 * m['taille_jxl'] / m['nbytes']:.0f} %"
-            f" | {1e3 * m['enc_sj']:.0f} ms | {1e3 * m['enc_png']:.0f} ms"
-            f" | {1e3 * m['enc_jxl']:.0f} ms"
-            f" | {1e3 * m['dec_sj']:.0f} ms | {1e3 * m['dec_png']:.0f} ms"
-            f" | {1e3 * m['dec_jxl']:.0f} ms |")
-    if codecs_ecartes:
-        md += ["", "Écartées : " + ", ".join(codecs_ecartes) + "."]
-    md += ["",
            "## catalogue d'objets du dépôt, par catégorie de types python",
            "",
            "Les objets de `tests/objects/basic_objects.py` (ceux de"
@@ -543,9 +909,18 @@ def rendu_markdown(donnees, types_ecartes, codecs_ecartes, entete):
            " PAS distinguables — un lot de cette taille tient en cache dans la"
            " vraie vie aussi, et l'en évincer ne mesurerait que le"
            " rechargement de l'interpréteur. Les deux premières barres de la"
-           " figure sont donc des temps de cache, et les deux barres de disque"
-           " n'y ajoutent presque rien : à ces tailles, le transfert est du"
-           " bruit devant le calcul.",
+           " figure sont donc des temps de cache.",
+           "",
+           "Les deux barres de disque, elles, sont mesurées comme partout"
+           " ailleurs, et à ces tailles elles disent surtout ceci : le disque"
+           " coûte un FORFAIT. Un `fsync` sur un fichier de quelques kilo-octets"
+           " se paie de la milliseconde, cent fois le calcul des deux camps —"
+           " les rapports d'écriture s'écrasent donc vers ×1 quel que soit le"
+           " poids du document. Ce n'est pas que « le transfert est du bruit »,"
+           " c'est l'inverse : c'est le calcul qui l'est. Ce que la barre coupée"
+           " montre alors est la seule chose qui distingue encore les deux"
+           " camps sur un petit document — la part que `dump` rend"
+           " immédiatement à l'appelant.",
            "",
            "| catégorie | dumps pickle (µs) | dumps serializejson (µs) |"
            " rapport | loads pickle (µs) | loads serializejson (µs) |"
@@ -566,6 +941,46 @@ def rendu_markdown(donnees, types_ecartes, codecs_ecartes, entete):
         md.append("Catégories écartées (non rejouables aux réglages par"
                   " défaut d'un des deux camps) : "
                   + ", ".join(types_ecartes) + ".")
+    md += ["",
+           "## corpus d'images : face aux codecs d'images spécialisés",
+           "",
+           f"Le DERNIER barreau du barème (barreau {max(bareme_smart)}, le plus"
+           " petit) contre PNG (PIL, réglages par défaut) et JPEG XL sans perte"
+           " (cjxl -d 0 -e 3, la référence actuelle du compromis poids/vitesse ;"
+           " ses temps incluent le lancement du processus). Poids en % des"
+           " octets BRUTS ; ces codecs prédisent en 2D, notre chaîne générique"
+           " non — c'est l'écart attendu sur les photos.",
+           "",
+           "Les temps sont donnés PAR IMAGE, pas par corpus : les corpus n'ont"
+           " ni le même nombre d'images ni la même définition. Quand la"
+           " définition est constante sur le corpus, c'est la moyenne par image"
+           " et la définition est donnée telle quelle ; sinon le temps est"
+           " ramené à la définition la plus représentée, au prorata du nombre de"
+           " pixels (colonne « définition », mention « ramené »). La mise à"
+           " l'échelle suppose un coût proportionnel aux pixels : elle est juste"
+           " pour le calcul, optimiste pour JPEG XL dont le lancement de"
+           " processus est un coût FIXE qu'elle réduit avec le reste.",
+           "",
+           "| corpus | images | définition | brut |"
+           f" barreau {max(bareme_smart)} | PNG | JPEG XL |"
+           " enc. sj | enc. PNG | enc. JXL |"
+           " déc. sj | déc. PNG | déc. JXL |",
+           "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for groupe, m in codecs_images:
+        largeur, hauteur = m["definition"]
+        pourcent = lambda cle: f"{100 * m[cle] / m['nbytes']:.0f} %"
+        temps = lambda cle: fmt_ms(m[cle] * m["par_image"])
+        md.append(
+            f"| {groupe} | {m['images']}"
+            f" | {largeur}×{hauteur}"
+            + ("" if m["definition_constante"] else " (ramené)")
+            + f" | {fmt_octets(m['nbytes'])}"
+            f" | {pourcent('taille_min')} | {pourcent('taille_png')}"
+            f" | {pourcent('taille_jxl')}"
+            f" | {temps('enc_min')} | {temps('enc_png')} | {temps('enc_jxl')}"
+            f" | {temps('dec_min')} | {temps('dec_png')} | {temps('dec_jxl')} |")
+    if codecs_ecartes:
+        md += ["", "Écartées : " + ", ".join(codecs_ecartes) + "."]
     # les deux charges à citer en exemple sont CALCULÉES, pas écrites en dur :
     # celle que le transfert soulage le plus, celle qu'il pénalise le plus
     # chaque charge donne deux cas (écriture, lecture) ; on cite celui que le
@@ -619,6 +1034,89 @@ def rendu_markdown(donnees, types_ecartes, codecs_ecartes, entete):
         md.append(f"| {nom} | {pk_e:.1f} | {sj_e:.1f} | {gras(r_e)}"
                   f" | {pk_l:.1f} | {sj_l:.1f} | {gras(r_l)} |")
     md += ["",
+           "## coût FIXE d'un appel (objets minuscules)",
+           "",
+           "Tout le reste du rapport mesure des LOTS, pour rapporter le prix"
+           " d'un OBJET et non celui de l'appel qui l'enveloppe. Ici c'est"
+           " l'appel qu'on mesure, seul : un objet par appel, aussi petit que"
+           " possible. C'est le régime d'une application qui range un"
+           " événement, une ligne de journal ou une trame au fil de l'eau, et"
+           " c'est le seul où le coût fixe décide de tout.",
+           "",
+           "Les trois colonnes serializejson SITUENT la dépense au lieu de la"
+           " constater. `rapidjson.dumps` est l'écrivain json nu, sans aucun"
+           " protocole serializejson : son écart à pickle est le prix du"
+           " FORMAT (du texte lisible contre des opcodes binaires), et rien"
+           " ne le fera disparaître. L'`Encoder` appelé directement ajoute le"
+           " protocole (recettes, mémo des doublons, poussée des paramètres"
+           " globaux). La fonction de module ajoute la recherche de"
+           " l'instance par défaut du thread.",
+           "",
+           "| objet | pickle (µs) | `rapidjson.dumps` (µs) | `Encoder(o)`"
+           " (µs) | `serializejson.dumpb(o)` (µs) | octets pickle |"
+           " octets serializejson |",
+           "|---|---|---|---|---|---|---|"]
+    for nom, m in donnees["appel"]:
+        gras = lambda v, r: f"**{v:.2f}**" if r else f"{v:.2f}"
+        md.append(
+            f"| {nom} | {m['pickle']*1e6:.2f}"
+            f" | {gras(m['json_nu']*1e6, m['json_nu'] < m['pickle'])}"
+            f" | {gras(m['encodeur']*1e6, m['encodeur'] < m['pickle'])}"
+            f" | {gras(m['module']*1e6, m['module'] < m['pickle'])}"
+            f" | {m['octets_pickle']} | {m['octets_sj']} |")
+    md += ["",
+           "## sérialisation incrémentale (disque réel)",
+           "",
+           "Ranger des objets UN PAR UN dans un document qui reste valide à"
+           " tout instant. pickle a un équivalent — `Pickler.dump()` en"
+           " boucle — mais il écrit une CONCATÉNATION d'enregistrements :"
+           " pas de document englobant, pas d'index, pas d'accès direct, et"
+           " une tranche relue par un `Unpickler` neuf échoue dès que le mémo"
+           " a partagé un objet entre deux dumps. Le tableau compare donc des"
+           " garanties inégales, à l'avantage de pickle.",
+           "",
+           "Deux temps, et c'est le premier qui décide de la latence : le"
+           " temps **bloqué**, celui que l'appel rend à l'appelant, et le"
+           " temps **total**, jusqu'à ce que tout soit parti vers le noyau."
+           " serializejson délègue à son écrivain le base64, la compression et"
+           " le `write()` ; pickle fait tout dans le thread appelant. Aucun"
+           " `fsync` d'aucun côté : on compare ce que les deux bibliothèques"
+           " font, pas la latence du matériel.",
+           ""]
+    for titre, combien, essais in donnees["incremental"]:
+        md += [f"**{titre}** ({combien} objets)", "",
+               "| écrivain | bloqué | total | bloqué par objet | octets |",
+               "|---|---|---|---|---|"]
+        for nom, bloque, total, taille in essais:
+            md.append(f"| {nom} | {fmt_ms(bloque)} | {fmt_ms(total)}"
+                      f" | {bloque / combien * 1e6:.1f} µs"
+                      f" | {fmt_octets(taille)} |")
+        md.append("")
+    md += ["Lecture : sur les petits maillons, pickle écrit moins d'octets et"
+           " reste devant — le format décide, comme partout ailleurs sur les"
+           " micro-objets. Sur les trames, l'écart s'inverse et change"
+           " d'ordre de grandeur : le temps rendu à l'appelant ne dépend plus"
+           " que de la remise au fil d'écriture, alors que `Pickler.dump()`"
+           " porte la recopie ET l'attente du disque dans le thread appelant.",
+           "",
+           "## machines réalistes (projection)",
+           "",
+           "Chaque CPU est apparié à un stockage de sa gamme, le calcul mis à"
+           " l'échelle du CPU et le transfert des octets au débit du stockage —"
+           " le temps TOTAL, celui que voit l'application. Rien de neuf n'est"
+           " mesuré ici : les mesures précédentes sont projetées sur des couples"
+           " du commerce, ce qui ferme le rapport comme les deux courbes de"
+           " support des dernières pages. Profil d'ancrage : le plus gros profil"
+           f" individuel du corpus, « {profil_machines} ».",
+           "",
+           "| machine | écriture | lecture |",
+           "|---|---|---|"]
+    for (nom, _, _), e, l in zip(MACHINES, machines["dumps"],
+                                 machines["loads"]):
+        rapport = lambda v: f"**×{v:.2f}**" if v < 1 else f"×{v:.2f}"
+        md.append(f"| {nom.replace(chr(10), ' ')} | {rapport(e)}"
+                  f" | {rapport(l)} |")
+    md += ["",
            "Avantages non mesurables ici, pour mémoire : JSON lisible et"
            " diffable, chargement sans exécution de code arbitraire"
            " (contrairement à pickle), fichiers relisibles depuis d'autres"
@@ -666,23 +1164,55 @@ DEBIT_DISQUE = _MACHINE_MESURE[2]
 # l'étiquette, elle, reste dans le ton soutenu, sinon elle ne se lirait plus
 REGIMES = [("écrire vers la RAM", "#fbd7b5", ORANGE),
            ("relire depuis la RAM", "#f0c3b4", "#9c4221"),
-           (f"écrire vers le disque, {DISQUE}", "#2f855a", "#2f855a"),
-           (f"relire depuis le disque, {DISQUE}", "#22543d", "#22543d")]
+           ("écrire sur le disque, MESURÉ (fsync compris)",
+            "#2f855a", "#2f855a"),
+           ("relire depuis le disque, MESURÉ (cache du noyau évincé)",
+            "#22543d", "#22543d")]
+
+# la moitié HAUTE de la barre d'écriture disque, quand elle est coupée en deux :
+# ce que le fil d'écriture finit APRÈS que `dump` a rendu la main (demande de
+# Baptiste, 08/08). Même teinte, en clair — c'est la même dépense, pas la même
+# attente
+VERT_CLAIR = "#9ae6b4"
+LEGENDE_FIL = "…dont ce que finit le fil d'écriture, dump déjà rendu"
+
+# les figures qui n'ont PAS de mesure disque (pyperformance : les charges
+# viennent des benchmarks officiels, en mémoire) gardent la PROJECTION —
+# libellés distincts, pour que les deux sémantiques ne se confondent pas
+REGIMES_PROJETES = [REGIMES[0], REGIMES[1],
+                    (f"écrire vers le disque, PROJETÉ, {DISQUE}",
+                     "#4c9a77", "#2f855a"),
+                    (f"relire depuis le disque, PROJETÉ, {DISQUE}",
+                     "#3c7a5d", "#22543d")]
 
 
 def quatre_regimes(reference, candidat):
     # les quatre rapports candidat/référence tracés par `dispositif`, à partir
-    # de deux triplets (octets, temps d'écriture, temps de lecture) : écrire et
-    # relire en RAM, puis les deux mêmes sur le disque de la machine de mesure,
-    # où s'ajoute le temps de transfert des octets — c'est là que le poids
-    # gagné se change en temps gagné
+    # de deux quadruplets de TEMPS dans l'ordre des barres : écrire et relire
+    # en mémoire, puis écrire et relire sur le disque
+    return [c / r for r, c in zip(reference, candidat)]
+
+
+def quatre_regimes_projetes(reference, candidat):
+    # la variante MODÉLISÉE, pour les charges dont on n'a pas d'aller-retour
+    # disque mesuré : au temps de calcul s'ajoute celui du transfert des
+    # octets au débit constructeur du disque de la machine de mesure
     (o_r, e_r, l_r), (o_c, e_c, l_c) = reference, candidat
-    return [e_c / e_r, l_c / l_r,
-            (e_c + o_c / DEBIT_DISQUE) / (e_r + o_r / DEBIT_DISQUE),
-            (l_c + o_c / DEBIT_DISQUE) / (l_r + o_r / DEBIT_DISQUE)]
+    return quatre_regimes(
+        (e_r, l_r, e_r + o_r / DEBIT_DISQUE, l_r + o_r / DEBIT_DISQUE),
+        (e_c, l_c, e_c + o_c / DEBIT_DISQUE, l_c + o_c / DEBIT_DISQUE))
 
 
-def dispositif(noms, poids, regimes, titre, etiquette_poids, rotation=18):
+def quadruplet_mesure(m, suffixe):
+    # les quatre temps d'un camp, dans l'ordre des barres — mémoire d'abord,
+    # disque réel ensuite (l'écriture disque compte le geste DURABLE entier,
+    # fil d'écriture et fsync compris)
+    return (m[f"dumps_{suffixe}"], m[f"loads_{suffixe}"],
+            m[f"ecrit_total_{suffixe}"], m[f"relit_{suffixe}"])
+
+
+def dispositif(noms, poids, regimes, titre, etiquette_poids, rotation=18,
+               bloquants=None, libelles=REGIMES):
     # LE dispositif commun à toutes les figures de comparaison : quatre barres
     # de temps (écrire puis relire, en RAM puis sur le disque de la machine de
     # mesure) surmontées du CADRE bleu du poids, large comme les quatre barres
@@ -700,10 +1230,28 @@ def dispositif(noms, poids, regimes, titre, etiquette_poids, rotation=18):
     # écrasée en bas de l'axe (face aux codecs d'images, ×0,03 contre ×0,07)
     debout = len(noms) > 6
     for rang, (valeurs, (etiquette, couleur, couleur_texte)) in enumerate(
-            zip(regimes, REGIMES)):
+            zip(regimes, libelles)):
         position = x + (rang - 1.5) * LARGEUR
-        ax.bar(position, valeurs, LARGEUR, color=couleur, label=etiquette,
-               zorder=2)
+        # la barre d'ÉCRITURE DISQUE se coupe en deux quand on sait où passe la
+        # main : en bas ce que `dump` bloque, en haut ce que le fil d'écriture
+        # termine derrière l'appelant. Les deux segments empilés font le temps
+        # durable total, celui qui se compare à pickle
+        if rang == 2 and bloquants is not None:
+            ax.bar(position, bloquants, LARGEUR, color=couleur,
+                   label=etiquette, zorder=2)
+            ax.bar(position, valeurs - bloquants, LARGEUR, bottom=bloquants,
+                   color=VERT_CLAIR, label=LEGENDE_FIL, zorder=2)
+            for centre, b, v in zip(position, bloquants, valeurs):
+                # le bloqué n'est annoté que s'il se distingue du total :
+                # collées, les deux étiquettes ne se liraient plus
+                if not numpy.isnan(b) and b < 0.75 * v:
+                    ax.annotate(f"×{b:.2f}", (centre, b), ha="center",
+                                va="bottom", fontsize=5.5 if debout else 6.5,
+                                rotation=90 if debout else 0, color="#22543d",
+                                zorder=6)
+        else:
+            ax.bar(position, valeurs, LARGEUR, color=couleur, label=etiquette,
+                   zorder=2)
         for centre, v in zip(position, valeurs):
             # une case sans mesure vaut NaN : ni barre, ni étiquette
             if not numpy.isnan(v):
@@ -768,16 +1316,17 @@ def figure_barres(donnees, suffixe, titre):
     # fois par profil
     resultats = donnees["profils"]
     regimes = numpy.array([
-        quatre_regimes(
-            (m["taille_pickle"], m["dumps_pickle"], m["loads_pickle"]),
-            (m[f"taille_{suffixe}"], m[f"dumps_{suffixe}"],
-             m[f"loads_{suffixe}"]))
+        quatre_regimes(quadruplet_mesure(m, "pickle"),
+                       quadruplet_mesure(m, suffixe))
         for _, m in resultats]).T
     return dispositif(
         [nom for nom, _ in resultats],
         numpy.array([m[f"taille_{suffixe}"] / m["taille_pickle"]
                      for _, m in resultats]),
-        regimes, titre, "mémoire  (poids serializejson / pickle)")
+        regimes, titre, "mémoire  (poids serializejson / pickle)",
+        bloquants=numpy.array([m[f"ecrit_bloque_{suffixe}"]
+                               / m["ecrit_total_pickle"]
+                               for _, m in resultats]))
 
 
 def figure_support(donnees, sens, titre):
@@ -878,65 +1427,95 @@ def figure_types(donnees, sens, titre):
     # les deux premières barres sont donc des temps de cache
     lignes = donnees["types"]
     regimes = numpy.array([
-        quatre_regimes((m["taille_pickle"], m["dumps_pickle"],
-                        m["loads_pickle"]),
-                       (m["taille_sj"], m["dumps_sj"], m["loads_sj"]))
+        quatre_regimes(quadruplet_mesure(m, "pickle"),
+                       quadruplet_mesure(m, "sj"))
         for _, m in lignes]).T
     return dispositif(
         [nom for nom, _ in lignes],
         numpy.array([m["taille_sj"] / m["taille_pickle"] for _, m in lignes]),
         regimes, titre, "poids du document  (serializejson / pickle)",
-        rotation=25)
+        rotation=25,
+        bloquants=numpy.array([m["ecrit_bloque_sj"] / m["ecrit_total_pickle"]
+                               for _, m in lignes]))
+
+
+# les trois camps de la comparaison aux codecs d'images, dans l'ordre des
+# barres : libellé, suffixe des clés de mesure, couleur
+CODECS_IMAGES = [(f"serializejson (barreau {max(bareme_smart)})", "min", BLEU),
+                 ("PNG (PIL)", "png", "#4a9d6e"),
+                 ("JPEG XL sans perte (cjxl -e 3)", "jxl", ORANGE)]
+
+
+def fmt_ms(secondes):
+    ms = 1e3 * secondes
+    return f"{ms:.0f} ms" if ms >= 10 else (f"{ms:.1f} ms" if ms >= 1
+                                            else f"{ms:.2f} ms")
 
 
 def figure_codecs_images(donnees, sens, titre):
-    # poids par corpus, en % des octets bruts : serializejson smart contre
-    # PNG et JPEG XL sans perte — barre PETITE = meilleur
+    # UNE SEULE figure pour toute la comparaison aux codecs d'images spécialisés
+    # (choix de Baptiste, 07/08) : en haut le POIDS en % des octets bruts, en
+    # bas les TEMPS. Ici la référence n'est pas pickle mais le brut, d'où le
+    # pourcentage plutôt que le dispositif à cadre du reste du rapport.
+    # Les temps sont rendus PAR IMAGE : les corpus n'ont ni le même nombre
+    # d'images ni la même définition, un temps cumulé ne se comparerait pas
+    # d'un corpus à l'autre. Quand la définition est constante sur le corpus,
+    # c'est la moyenne par image et la définition est écrite telle quelle ;
+    # sinon le temps est ramené à la définition la PLUS REPRÉSENTÉE, au prorata
+    # du nombre de pixels (mention « ramené »)
     import matplotlib.pyplot as plt
 
     groupes = donnees["codecs"]
-    noms = [groupe for groupe, _ in groupes]
-    fig, ax = plt.subplots(figsize=(11.69, 8.27))
-    x = numpy.arange(len(noms))
-    series = [("serializejson (défaut smart)", "taille_sj", BLEU),
-              ("PNG (PIL)", "taille_png", "#4a9d6e"),
-              ("JPEG XL sans perte (cjxl -e 3)", "taille_jxl", ORANGE)]
+    noms = []
+    for groupe, m in groupes:
+        largeur, hauteur = m["definition"]
+        noms.append(f"{groupe}\n{m['images']} images, {largeur}×{hauteur}"
+                    + ("" if m["definition_constante"] else " (ramené)"))
+    fig, (haut, bas) = plt.subplots(
+        2, 1, figsize=(11.69, 8.27), sharex=True,
+        gridspec_kw={"height_ratios": (1, 1.25), "hspace": 0.08})
+    x = numpy.arange(len(groupes))
     for decalage, (etiquette, cle, couleur) in zip((-0.27, 0.0, 0.27),
-                                                   series):
-        valeurs = numpy.array(
-            [100 * m[cle] / m["nbytes"] for _, m in groupes])
-        barres = ax.bar(x + decalage, valeurs, 0.25, color=couleur,
-                        label=etiquette)
-        for barre in barres:
-            v = barre.get_height()
-            ax.annotate(f"{v:.0f} %",
-                        (barre.get_x() + barre.get_width() / 2, v),
-                        ha="center", va="bottom", fontsize=8)
-    ax.set_ylabel("poids compressé (% des octets bruts)")
-    ax.set_xticks(x)
-    ax.set_xticklabels(noms, fontsize=9)
-    ax.set_title(titre + " — barre petite : meilleur")
-    ax.legend(loc="upper left", fontsize=9)
+                                                   CODECS_IMAGES):
+        valeurs = [100 * m[f"taille_{cle}"] / m["nbytes"] for _, m in groupes]
+        haut.bar(x + decalage, valeurs, 0.25, color=couleur, label=etiquette)
+        for centre, v in zip(x + decalage, valeurs):
+            haut.annotate(f"{v:.0f} %", (centre, v), ha="center", va="bottom",
+                          fontsize=8)
+    haut.axhline(100, color="gray", ls="--", lw=1)
+    haut.annotate("octets bruts", (len(groupes) - 0.5, 100), fontsize=7,
+                  color="gray", ha="right", va="bottom")
+    haut.set_ylabel("poids (% des octets bruts)")
+    haut.set_ylim(top=max(125, 1.18 * max(
+        100 * m[f"taille_{cle}"] / m["nbytes"]
+        for _, m in groupes for _, cle, _ in CODECS_IMAGES)))
+    haut.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=3,
+                fontsize=9, frameon=False)
+    # six barres par corpus : les trois camps à l'écriture, puis les trois à la
+    # lecture. La couleur dit le camp (même que celle du poids au-dessus), la
+    # hachure dit le sens — deux lectures possibles sans doubler la légende
+    LARGEUR = 0.14
+    for rang, (mesure, hachure) in enumerate((("enc", None), ("dec", "///"))):
+        for i, (etiquette, cle, couleur) in enumerate(CODECS_IMAGES):
+            valeurs = [m[f"{mesure}_{cle}"] * m["par_image"]
+                       for _, m in groupes]
+            position = x + (3 * rang + i - 2.5) * LARGEUR
+            bas.bar(position, valeurs, LARGEUR, color=couleur, hatch=hachure,
+                    edgecolor="white",
+                    label=("écriture" if rang == 0 else "lecture")
+                    if i == 0 else None)
+            for centre, v in zip(position, valeurs):
+                bas.annotate(fmt_ms(v), (centre, v), ha="center", va="bottom",
+                             fontsize=6, rotation=90, color=couleur)
+    bas.set_yscale("log")
+    bas.set_ylabel("temps par image (échelle log)")
+    bas.set_ylim(top=bas.get_ylim()[1] * 4)
+    bas.set_xticks(x)
+    bas.set_xticklabels(noms, fontsize=9)
+    bas.legend(loc="upper left", fontsize=9, ncol=2)
+    haut.set_title(titre + " — barre petite : meilleur", pad=34)
     fig.tight_layout()
     return fig
-
-
-def figure_codecs_dispositif(donnees, codec, titre):
-    # le même dispositif que les autres figures, UNE page par codec : ici la
-    # référence n'est plus pickle mais le codec d'images spécialisé, et le
-    # candidat reste serializejson au défaut smart
-    groupes = donnees["codecs"]
-    regimes = numpy.array([
-        quatre_regimes((m[f"taille_{codec}"], m[f"enc_{codec}"],
-                        m[f"dec_{codec}"]),
-                       (m["taille_sj"], m["enc_sj"], m["dec_sj"]))
-        for _, m in groupes]).T
-    return dispositif(
-        [groupe for groupe, _ in groupes],
-        numpy.array([m["taille_sj"] / m[f"taille_{codec}"]
-                     for _, m in groupes]),
-        regimes, titre, f"poids  (serializejson / {codec.upper()})",
-        rotation=0)
 
 
 def rapports_pyperf(ligne):
@@ -944,8 +1523,8 @@ def rapports_pyperf(ligne):
     # aux quatre régimes du dispositif commun. Les temps y sont en µs, d'où la
     # mise en secondes avant `quatre_regimes`
     _, pk_e, sj_e, pk_l, sj_l, octets_pk, octets_sj = ligne
-    return quatre_regimes((octets_pk, 1e-6 * pk_e, 1e-6 * pk_l),
-                          (octets_sj, 1e-6 * sj_e, 1e-6 * sj_l))
+    return quatre_regimes_projetes((octets_pk, 1e-6 * pk_e, 1e-6 * pk_l),
+                                   (octets_sj, 1e-6 * sj_e, 1e-6 * sj_l))
 
 
 def figure_pyperformance(donnees, sens, titre):
@@ -960,33 +1539,97 @@ def figure_pyperformance(donnees, sens, titre):
         numpy.array([octets_sj / octets_pk
                      for *_, octets_pk, octets_sj in lignes]),
         regimes, titre, "poids du document  (serializejson / pickle)",
-        rotation=0)
+        rotation=0, libelles=REGIMES_PROJETES)
 
 
+def barres_groupees(noms, series, titre, etiquette_y, unite="µs"):
+    # Le dispositif des deux pages de COÛT FIXE. Il ne trace PAS des rapports
+    # mais des microsecondes ABSOLUES : ces deux pages ne comparent pas deux
+    # formats sur une charge, elles décomposent la dépense d'un seul appel —
+    # un rapport y cacherait justement ce qu'on vient lire, l'ordre de
+    # grandeur. Échelle log, parce que l'écart va du simple au centuple.
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(11.69, 8.27))
+    x = numpy.arange(len(noms))
+    largeur = 0.8 / len(series)
+    hauts = []
+    for rang, (etiquette, couleur, valeurs) in enumerate(series):
+        position = x + (rang - (len(series) - 1) / 2) * largeur
+        ax.bar(position, valeurs, largeur * 0.9, color=couleur,
+               label=etiquette, zorder=2)
+        hauts += [v for v in valeurs if v > 0]
+        for centre, v in zip(position, valeurs):
+            # virgule décimale, comme partout ailleurs dans le rapport
+            ax.annotate((("%.2f" if v < 10 else "%.0f") % v).replace(".", ","),
+                        (centre, v), ha="center", va="bottom", fontsize=7,
+                        zorder=4)
+    ax.set_yscale("log")
+    ax.set_ylim(bottom=min(hauts) * 0.5, top=max(hauts) * 2.2)
+    ax.set_xticks(x)
+    ax.set_xticklabels(noms, fontsize=8)
+    ax.set_ylabel(f"{etiquette_y} ({unite}, échelle log)")
+    ax.set_title(titre, pad=34)
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=4,
+              fontsize=8, frameon=False)
+    fig.tight_layout()
+    return fig
+
+
+def figure_appel(donnees, sens, titre):
+    lignes = donnees["appel"]
+    return barres_groupees(
+        [nom for nom, _ in lignes],
+        [("pickle", "#718096", [m["pickle"] * 1e6 for _, m in lignes]),
+         ("rapidjson.dumps (json nu)", "#90cdf4",
+          [m["json_nu"] * 1e6 for _, m in lignes]),
+         ("Encoder(o)", BLEU, [m["encodeur"] * 1e6 for _, m in lignes]),
+         ("serializejson.dumpb(o)", ORANGE,
+          [m["module"] * 1e6 for _, m in lignes])],
+        titre, "coût d'un appel, un objet par appel")
+
+
+def figure_incremental(donnees, sens, titre):
+    lignes = donnees["incremental"]
+    ecrivains = [nom for nom, *_ in lignes[0][2]]
+    couleurs = [BLEU, "#90cdf4", "#718096"]
+    return barres_groupees(
+        [titre_charge for titre_charge, _, _ in lignes],
+        [(nom, couleur,
+          [essais[rang][1] / combien * 1e6 for _, combien, essais in lignes])
+         for rang, (nom, couleur) in enumerate(zip(ecrivains, couleurs))],
+        titre, "temps BLOQUÉ par objet rangé")
+
+
+# ordre des pages du rapport, fixé par Baptiste (07/08) : le catalogue de types
+# python ouvre, puis les trois barreaux du barème dans l'ordre CROISSANT, puis
+# les comparaisons hors pickle, et les deux scénarios de support ferment
 FIGURES = [
+    ("benchmark_types_objets", figure_types, "",
+     "catalogue d'objets du dépôt, par catégorie de types python"),
     # les trois variantes du barème, titrées par VARIANTES (une seule source)
     *[(f"benchmark_memoire_{'smart' if suffixe == 'sj' else suffixe}",
        figure_barres, suffixe, f"conversion en mémoire, {libelle}")
       for suffixe, libelle in VARIANTES.items()],
+    ("benchmark_codecs_images", figure_codecs_images, "",
+     "corpus d'images : serializejson face aux codecs d'images spécialisés"),
+    ("benchmark_pyperformance", figure_pyperformance, "",
+     "benchmarks pickle officiels (pyperformance) : petits objets python"),
+    # les deux pages du COÛT FIXE : le reste du rapport mesure des lots, ces
+    # deux-là mesurent l'APPEL, en microsecondes absolues
+    ("benchmark_appel_unitaire", figure_appel, "",
+     "coût fixe d'un appel : un objet minuscule par appel"),
+    ("benchmark_incremental", figure_incremental, "",
+     "sérialisation incrémentale sur disque réel : temps rendu à l'appelant"),
+    # les machines réalistes et les deux scénarios de support ne mesurent rien
+    # de neuf : ils projettent les mesures précédentes sur des couples
+    # CPU + stockage du commerce, puis sur toute la gamme des débits
+    ("benchmark_machines", figure_machines, "",
+     "machines réalistes (CPU + stockage de même gamme)"),
     ("benchmark_ecriture_support", figure_support, "dumps",
      "écriture sur un support (dumps + transfert)"),
     ("benchmark_lecture_support", figure_support, "loads",
      "lecture depuis un support (transfert + loads)"),
-    ("benchmark_codecs_images", figure_codecs_images, "",
-     "corpus d'images : serializejson face aux codecs d'images spécialisés"),
-    ("benchmark_codecs_png", figure_codecs_dispositif, "png",
-     "corpus d'images : serializejson face à PNG (PIL)"),
-    ("benchmark_codecs_jxl", figure_codecs_dispositif, "jxl",
-     "corpus d'images : serializejson face à JPEG XL sans perte"),
-    ("benchmark_types_objets", figure_types, "",
-     "catalogue d'objets du dépôt, par catégorie de types python"),
-    ("benchmark_pyperformance", figure_pyperformance, "",
-     "benchmarks pickle officiels (pyperformance) : petits objets python"),
-    # les machines réalistes ferment le rapport : elles ne mesurent rien de
-    # neuf, elles projettent les mesures précédentes sur des couples
-    # CPU + stockage du commerce
-    ("benchmark_machines", figure_machines, "",
-     "machines réalistes (CPU + stockage de même gamme)"),
 ]
 
 
@@ -1006,29 +1649,47 @@ def rendu_pdf_et_svg(donnees, entete, chemin_pdf, dossier_svg):
                 ha="center", fontsize=18, weight="bold")
         ax.text(0.05, 0.78, "\n\n".join(ligne.lstrip("- ") for ligne in entete),
                 fontsize=10, va="top", wrap=True)
-        ax.text(0.05, 0.30,
+        pdf.savefig(fig)
+        plt.close(fig)
+        # le mode d'emploi sur sa PROPRE page : posé sous l'en-tête, il le
+        # chevauchait dès que celui-ci gagnait une ligne — et il en a gagné
+        # deux le 08/08 avec le régime disque et sa sonde
+        fig, ax = plt.subplots(figsize=(11.69, 8.27))
+        ax.axis("off")
+        ax.text(0.05, 0.92,
                 "Lecture des graphiques : toutes les valeurs sont des"
                 " rapports serializejson / pickle —\nen dessous de la ligne"
                 " ×1 (barre ou courbe PETITE), l'avantage est à"
                 " serializejson.\n\n"
                 "Le dispositif est le MÊME sur toutes les figures de"
                 " comparaison : quatre barres de temps —\nécrire puis relire"
-                " en RAM, écrire puis relire sur le disque de la machine de"
-                f" mesure\n({DISQUE}), temps de transfert compris — surmontées"
-                " du CADRE bleu du poids,\nlarge comme les quatre barres"
-                " réunies. Rien n'est masqué : que le poids passe au-dessus\n"
-                "ou en dessous des temps, les deux restent lisibles. Échelle"
+                " en RAM, écrire puis relire SUR LE DISQUE — surmontées du"
+                " CADRE bleu du poids,\nlarge comme les quatre barres réunies."
+                " Rien n'est masqué : que le poids passe au-dessus\nou en"
+                " dessous des temps, les deux restent lisibles. Échelle"
                 " linéaire sous ×1, logarithmique\nau-dessus.\n\n"
-                "Les temps sont mesurés CACHE VIDÉ : c'est le seul régime"
-                " qu'obtient une application sur\ndes données qu'elle vient de"
-                " produire ou qu'elle s'apprête à écrire. Sur les petits"
-                " objets\npython (catalogue, pyperformance), cache et RAM ne"
-                " se distinguent pas — c'est dit sur place.\n\n"
-                "Trois figures font exception au dispositif : les deux"
-                " scénarios de support, qui portent le temps\ntotal en"
-                " fonction du débit sur toute la gamme des stockages, et les"
-                " machines réalistes en\ndernière page, qui projettent les"
-                " mêmes mesures sur des couples CPU + stockage du commerce.",
+                "Les deux barres de disque sont MESURÉES, pas projetées : de"
+                " vraies écritures et de vraies\nrelectures sur le volume qui"
+                " porte le dépôt, écriture DURABLE (jusqu'au fsync) et"
+                " relecture\ncache du noyau ÉVINCÉ, meilleur de cinq essais,"
+                " les camps interlacés. La barre d'écriture\nest coupée en"
+                " deux : le segment FONCÉ du bas est ce que `dump` bloque, ce"
+                " que l'appelant\nattend vraiment ; le segment CLAIR au-dessus"
+                " est ce que le fil d'écriture termine derrière lui.\n\n"
+                "Les deux barres de RAM, elles, sont mesurées CACHE VIDÉ :"
+                " c'est le seul régime qu'obtient\nune application sur des"
+                " données qu'elle vient de produire ou qu'elle s'apprête à"
+                " écrire.\nSur les petits objets python (catalogue,"
+                " pyperformance), cache et RAM ne se distinguent\npas — c'est"
+                " dit sur place.\n\n"
+                "Quatre figures font exception au dispositif : pyperformance,"
+                " dont les charges ne font aucun\naller-retour disque et dont"
+                " les deux barres de disque restent donc PROJETÉES (ses barres"
+                "\nle disent) ; les deux scénarios de support, qui portent le"
+                " temps total en fonction du débit\nsur toute la gamme des"
+                " stockages ; et les machines réalistes en dernière page, qui"
+                "\nprojettent les mêmes mesures sur des couples CPU + stockage"
+                " du commerce.",
                 fontsize=10, va="top")
         pdf.savefig(fig)
         plt.close(fig)
@@ -1064,7 +1725,14 @@ if __name__ == "__main__":
         " avant chaque essai (96 Mo parcourus en lecture) — sur les petits"
         " objets python, cache et RAM ne se distinguent pas et le vidage"
         " ne mesurerait que le rechargement de l'interpréteur",
+        "- régime DISQUE : de vraies écritures et relectures sur le volume du"
+        " dépôt, écriture durable (fsync compris) et relecture cache du noyau"
+        " évincé, meilleur de 5 essais — plus aucune projection, sauf sur la"
+        " page pyperformance qui le signale dans ses barres",
     ]
+    etalon_depart = sonde_disque_libre()
+    print("sonde disque au départ : %.1f ms pour 4 Mo durables"
+          % (1e3 * etalon_depart))
     lignes = []
     for nom, tableau, groupe in profils():
         print("profil :", nom)
@@ -1076,8 +1744,25 @@ if __name__ == "__main__":
     codecs_images, codecs_ecartes = mesure_codecs_images()
     print("benchmarks officiels pyperformance (petits objets)...")
     pyperf = bench_pyperformance_pickle.mesures()
+    print("coût fixe d'un appel (objets minuscules)...")
+    appel = mesure_appel_unitaire()
+    print("sérialisation incrémentale sur disque réel...")
+    incremental = mesure_incremental()
+    # la sonde ENCADRE tout ce qui touche le disque : ses deux bornes disent si
+    # le volume était bien à nous pendant la campagne, et l'en-tête les publie
+    etalon_arrivee = sonde_disque_libre()
+    print("sonde disque à l'arrivée : %.1f ms" % (1e3 * etalon_arrivee))
+    entete.append(
+        "- sonde disque (4 Mo écrits durablement, fsync compris) :"
+        f" {1e3 * etalon_depart:.1f} ms au départ,"
+        f" {1e3 * etalon_arrivee:.1f} ms à l'arrivée — au-delà d'une dizaine"
+        " de millisecondes le volume était PARTAGÉ avec une autre charge"
+        " d'écriture, et tous les temps disque du rapport ne sont plus que des"
+        " MAJORANTS, à refaire sur une machine calme")
+    shutil.rmtree(_DOSSIER_DISQUE, ignore_errors=True)
     donnees = {"profils": resultats, "pyperf": pyperf, "types": types_objets,
-               "codecs": codecs_images}
+               "codecs": codecs_images, "appel": appel,
+               "incremental": incremental}
     markdown = rendu_markdown(donnees, types_ecartes, codecs_ecartes,
                               entete)
     horodatage = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")

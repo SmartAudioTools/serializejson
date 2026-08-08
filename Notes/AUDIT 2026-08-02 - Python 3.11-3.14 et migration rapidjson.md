@@ -3156,3 +3156,166 @@ passent donc par `chrono_unitaire`, qui chronomètre une rafale de 2000
 appels et retranche la rafale à vide, mesurée dans la foulée et dans le
 même processus. Contrôle : les chiffres obtenus recoupent au centième
 de µs près ceux d'un `timeit` indépendant.
+
+### 18.10 Le disque du rapport n'était pas mesuré : il l'est
+
+Demande de Baptiste, 08/08 : « je veux les temps réels avec de vraies
+écritures sur disque », sur les quatre pages nommées — le catalogue
+d'objets du dépôt, et les trois barreaux du barème (niveau 0 sans
+compression, défaut « smart », dernier barreau).
+
+Ce qu'elles portaient jusque-là n'était pas une mesure mais un MODÈLE :
+`temps de calcul + octets / DEBIT_DISQUE`, avec un débit constructeur
+de 3,5 Go/s. Le modèle était honnête et documenté, mais il additionnait
+un calcul mesuré et un transfert supposé, et rien dans la figure ne
+disait laquelle des deux barres avait vu un disque.
+
+**La prémisse vérifiée avant de bâtir dessus.** Une sonde a d'abord
+établi que le bac à sable permet de mesurer un vrai disque : le dépôt
+est sur un volume VeraCrypt (ext4, 3,6 To), `posix_fadvise(DONTNEED)`
+évince réellement les pages sans privilèges (2 556 Mo/s à chaud contre
+390 Mo/s après éviction, donc l'éviction marche), et une écriture
+durable de 210 Mo s'y paie 45 à 93 Mo/s. Soit un disque **quarante fois
+plus lent** que ce que projetait le rapport — la projection
+SOUS-ESTIMAIT donc largement l'avantage du poids, elle ne le flattait
+pas.
+
+Sans fsync, la même écriture rend 103 ms, puis 801, puis 2 540 : ce
+qu'un essai ne paie pas, le suivant le paie. D'où deux choix : `fsync`
+systématique en fin d'écriture (sans quoi on mesure le cache
+d'écriture du noyau, et l'éviction suivante ne pourrait rien chasser,
+une page sale ne s'évinçant pas), et **minimum** des essais plutôt que
+médiane.
+
+**Deux temps, pas un — la barre coupée en deux.** Deuxième demande de
+Baptiste, dans la foulée : « il faudrait peut-être séparer verticalement
+la barre en deux, avec le temps bloquant dump, et le temps pris par le
+thread writer pour compléter l'écriture sur disque. » Le réglage par
+défaut est `disk_write_mode="fast_release"` : `dump` rend la main dès
+l'objet sérialisé, et le fil d'écriture finit derrière — base64,
+compression, `write()`. Un temps unique effaçait justement ce qui
+distingue les deux bibliothèques sur un petit document. La barre
+d'écriture disque est donc empilée : segment foncé du bas = ce que
+l'appelant attend, segment clair du dessus = ce qui se termine derrière
+lui, fsync compris. Les deux réunis se comparent au temps durable de
+pickle, qui reste le dénominateur.
+
+Mesuré sur un tableau de 16 Mo : pickle bloque 186 ms, serializejson
+en bloque 67 pour un fichier trois fois plus petit ; sur un son de
+10,4 Mo, le bloqué de serializejson tombe à 2,7 ms contre 4,4 pour
+pickle, le reste partant au fil d'écriture.
+
+**Le défaut de méthode qui a failli passer, et ce qui l'a attrapé.**
+Premier jet : chaque camp mesuré à la suite du précédent, cinq essais
+d'affilée. Le rapport produit était incohérent — 7 ms pour écrire
+3,9 Mo, 516 ms pour 10,4 Mo, sur le même volume et dans la même
+minute. Les deux réflexes du dépôt ont donné la réponse dans cet ordre :
+
+  1. **suspecter la mesure avant le disque.** Les sept essais imprimés
+     un par un, hors de la campagne, sont d'une régularité parfaite :
+     8 7 8 7 7 7 8 ms sur 3,5 Mo, 19 19 19 18 19 20 19 sur 10,4 Mo. Le
+     disque n'est pas dispersé, donc ce n'est pas lui.
+  2. **rejouer la campagne ENTIÈRE, pas le geste isolé.** Là, le motif
+     saute aux yeux : pickle 23 ms en tête de série, base64 140 ms en
+     queue — quand il en vaut 30 mesuré seul. Une rafale d'écritures
+     durables congestionne le volume (chiffrement, journal, writeback)
+     et **le dernier camp d'une série consécutive paie pour tous ceux
+     qui l'ont précédé**. L'ordre des camps décidait du résultat.
+
+Correction : les camps sont **interlacés**, un tour complet à la fois
+— exactement la règle d'A/B interlacé que le reste du rapport applique
+déjà au CPU, jamais transposée au disque. Vérification : les temps
+suivent désormais l'ordre des OCTETS écrits (base64 13,9 Mo → 165 ms,
+pickle 10,4 → 124, défaut 7,3 → 91, dernier barreau 5,6 → 72), ce qui
+est la seule dépendance physiquement attendue.
+
+**Le troisième verdict.** Une campagne polluée ne se distingue pas d'un
+disque lent : elle rend des chiffres, simplement faux. Un `fsync`
+attend le journal du système de fichiers ENTIER, celui des AUTRES
+processus compris, et aucun nombre d'essais n'y peut rien — plusieurs
+instances travaillent sur cette machine. Une **sonde étalon** (4 Mo
+écrits durablement) encadre donc toute la campagne, et ses deux bornes
+sont publiées dans l'en-tête du rapport : sous une dizaine de
+millisecondes le volume était à nous, au-delà les temps disque ne sont
+plus que des majorants. C'est ce qui a permis de constater que la sonde
+passait de 7 à 42 ms au sortir d'une campagne non interlacée — le
+symptôme, avant même d'en avoir la cause.
+
+Contrôle de fausse alerte, comme pour tout garde-fou : machine chargée
+à 5,8 de charge CPU, la sonde reste à 7,5 ms. Elle ne crie donc pas sur
+la charge, seulement sur la contention du VOLUME, qui est bien ce
+qu'elle prétend mesurer.
+
+**Ce qui n'a PAS changé.** La page pyperformance garde la projection —
+ses charges viennent des benchmarks officiels et n'ont pas
+d'aller-retour disque — mais ses deux barres portent désormais le mot
+PROJETÉ, et une palette distincte, pour que les deux sémantiques ne se
+confondent pas. Les pages « machines réalistes » et « écriture/lecture
+sur un support » sont des projections ASSUMÉES sur d'autres matériels :
+elles n'étaient pas dans la liste de Baptiste et gardent leur modèle.
+
+#### 18.10 bis. Ce que la première campagne mesurée a révélé
+
+Lancée le 08/08 à 9 h 36 sur volume calme (sonde 7,5 ms), rendue à
+9 h 48. Trois défauts, dont un de méthode.
+
+**La sonde a crié, et elle avait raison.** Sonde d'arrivée à 43,6 ms :
+l'en-tête a donc publié « majorants, à refaire sur une machine calme ».
+Restait à savoir si elle criait sur une charge étrangère ou sur la
+traînée d'écriture de la campagne elle-même — un garde-fou qui
+s'accuserait lui-même serait inutilisable. Vérifié huit minutes après
+la fin, hors de tout travail : **47 ms, stable sur trois essais, avec
+`Dirty` à 2 Mo** dans `/proc/meminfo`, donc rien de nous en attente. La
+contention est étrangère ; la sonde ne se mord pas la queue. La preuve
+tient à `Dirty` : sans lui, « le volume est lent » et « c'est encore
+notre writeback » ne se distinguent pas.
+
+Ce que la campagne a tout de même montré : les rapports PAR PROFIL
+restent lus (camps interlacés), mais les millisecondes ne sont plus
+comparables ENTRE profils — 6,6 ms pour un son de 3,5 Mo contre 46 ms
+pour un son de 3,7 Mo, la dérive de congestion en cours de campagne. Le
+tableau absolu du rapport est donc à refaire, les figures non.
+
+**L'index sidecar, faveur faite à serializejson.** `dump` dépose, à
+côté du json, un index caché du même nom précédé d'un point
+(`index="sidecar"`, le défaut). Son `write()` était compté — le fil
+d'écriture le pose avant que `wait_writes` ne rende la main — mais ni
+son `fsync`, ni ses octets, ni son éviction. Un rapport qui annonce
+« fsync compris » doit synchroniser TOUT ce que la bibliothèque a
+écrit.
+
+Et la prémisse, vérifiée AVANT d'être crue grave, A/B interlacé dans le
+même processus : je craignais un doublement sur le catalogue de types,
+où le durable vaut deux millisecondes. **Faux, et dans le sens qui
+compte** — sous `index_threshold`, aucun sidecar n'est écrit, donc
+aucune faveur là où je la croyais la plus grosse. Sur un tableau de
+4 Mo il pèse 74 octets et son `fsync` coûte **+0,34 ms, soit ×1,08**.
+Petit, réel, gratuit à rendre : corrigé quand même, mais le commentaire
+du code qui annonçait un doublement, lui, était un défaut à part
+entière.
+
+**Deux défauts de rendu sur la page de garde.** L'en-tête, allongé de
+deux puces (régime disque, sonde), CHEVAUCHAIT le mode d'emploi posé
+sous lui à une ordonnée fixe. Le mode d'emploi part sur sa propre page :
+c'est la seule forme qui ne redevienne pas fausse à la puce suivante.
+Et son texte annonçait toujours « écrire puis relire sur le disque de
+la machine de mesure (NVMe PCIe 3, ~3,5 Go/s), temps de transfert
+compris » — la phrase même du modèle qui venait d'être remplacé, et que
+la relecture de la figure n'aurait jamais attrapée. Corollaire à
+retenir : **quand une mesure change de nature, le texte qui la décrit
+est à chercher AILLEURS que là où le code a changé.**
+
+**Passe de simplification, sur les deux fichiers du lot.**
+`tests/lance_benchmarks.py` : le paramètre `essais` n'était jamais
+surchargé (constante `ESSAIS_DISQUE`), le `return m` de `mesures_disque`
+n'était lu par aucun de ses deux appelants, et le camp était
+discriminé DEUX fois — par le suffixe `"pickle"` et par `args is None`
+— le second seul subsiste. Le nettoyage des fichiers du banc, écrit
+trois fois, tient dans `_efface`. Essayé puis écarté : fondre
+`_gestes_disque` dans `mesures_disque` pour supprimer une fonction —
+la boucle de préparation passait à deux `def` imbriqués, moins lisible
+pour zéro ligne gagnée ; et un `fsync` du RÉPERTOIRE, pour la
+durabilité des entrées elles-mêmes — il coûterait un forfait de plus
+aux deux camps sans changer leur écart, serializejson créant deux
+entrées et pickle une. `Notes/AUDIT …md` : regardé, rien à enlever,
+c'est du récit.
