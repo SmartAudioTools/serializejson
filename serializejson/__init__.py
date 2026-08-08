@@ -391,9 +391,12 @@ def append(obj, file=None, *, indent="\t", **argsDict):
         indent: indent passed to Encoder.
         **argsDict: other parameters passed to the Encoder (see documentation).
     """
-    file = _open_for_append(file, indent)
-    Encoder(**argsDict)(obj, _wrap_append_indent(file, indent))
-    _close_for_append(file, indent)
+    # un append isolé n'indexe QUE si on le lui demande : l'encodeur ne
+    # survit pas à l'appel, il ne peut donc rien accumuler d'un maillon à
+    # l'autre, et l'index posé d'office coûterait un balayage du document
+    # entier à chaque élément ajouté
+    argsDict.setdefault("index", None)
+    Encoder(indent=indent, **argsDict).append(obj, file, close=True)
 
 
 def loads(json, *, obj=None, iterator=False, **argsDict):
@@ -1083,6 +1086,7 @@ class Encoder(rapidjson.Encoder):
             )
         self.plugins_parameters = encoder_parameters.copy()
         self.plugins_parameters.update(plugins_parameters)
+        self._append_reset()
         return self
 
     def dump(self, obj, file=None, close=True):
@@ -1100,6 +1104,7 @@ class Encoder(rapidjson.Encoder):
         """
         if file is None:
             file = self.file
+        self._append_reset()
         if isinstance(file, str):
             self.fp = open(file, "wb")
         else:
@@ -1186,11 +1191,70 @@ class Encoder(rapidjson.Encoder):
         return self.__call__(obj, return_bytes=True)
 
     def close(self):
+        # le crochet fermant de la liste dort dans le tampon C depuis le
+        # dernier maillon : le fichier ne devient un json complet qu'ici, et
+        # c'est donc ici, et seulement ici, que son index a un sens
+        self._append_ferme()
+        self._append_fd = None
+        if self._append_a_ranger:
+            self._index_apres_append()
         if hasattr(self, "fp"):
             self.fp.close()
             del self.fp
         # else :
         #    raise Exception("json file already closed")
+
+    def _append_reset(self):
+        # la liste en cours d'append est abandonnée : ni tampon, ni rang, ni
+        # entrées d'index en attente. Appelé à la construction, et partout où
+        # l'encodeur repart de zéro (dump, clear)
+        self._append_ferme()
+        self._index_append_oublie()
+        self._append_a_ranger = False
+        self._append_pour = None
+        self._append_rang = None
+        self._append_index_tenu = False
+        self._append_chemin = None
+        self._append_fd = None
+
+    def _index_apres_append(self):
+        self._append_a_ranger = False
+        if self.index is None:
+            self._index_append_oublie()
+            return
+        chemin = self._append_chemin
+        if chemin is None:
+            self._index_append_oublie()
+            # posé d'office, l'index se tait là où il n'a pas de place ;
+            # demandé, il crie plutôt que de se perdre — append le passait
+            # jusqu'ici sous silence
+            if self._index_demande:
+                raise Exception("index needs a file path, not %r"
+                                % (self._append_pour,))
+            return
+        rapidjson.wait_writes()
+        if self._append_index_tenu:
+            self._index_append_range(
+                (chemin, indexation.chemin_sidecar(chemin),
+                 self.index == "sidecar"),
+                self.index_threshold,
+                self.disk_write_mode == "blocking")
+        else:
+            # rien n'a été relevé en écrivant : la liste avait déjà des
+            # maillons dont on ignore le nombre, ou le seuil est nul. L'index
+            # se refait alors par BALAYAGE du document, et seulement s'il a
+            # été demandé — un balayage à chaque append coûterait le document
+            # entier par maillon ajouté
+            self._index_append_oublie()
+            if self._index_demande:
+                indexation.construit(chemin, self.index, self.index_threshold)
+
+    def _index_incremental(self):
+        # un index tenu maillon par maillon suppose une forme connue, un seuil
+        # et un fichier nommé dont les octets du json sont ceux du fichier
+        return (self.index in indexation.FORMES
+                and self.index_threshold > 0
+                and self._append_chemin is not None)
 
     def clear(self, close=False):
         """
@@ -1205,6 +1269,7 @@ class Encoder(rapidjson.Encoder):
         """
         self._reset()
         self._update_serialize_parameters()
+        self._append_reset()
 
         # self.file = open(self.file, "rb+")
         if isinstance(self.file, str):
@@ -1244,17 +1309,102 @@ class Encoder(rapidjson.Encoder):
         """
         if file is None:
             file = self.file
-        if hasattr(self, "fp"):
-            fp = _open_for_append(self.fp, self.indent)
+        # la liste se poursuit tant qu'on ajoute au MÊME fichier : c'est ce
+        # qui permet de tenir le rang des maillons, donc leur index, sans
+        # relire le document — changer de cible repart de zéro
+        suite = self._append_pour is file
+        reprise = self._append_fd is not None and suite
+        if reprise:
+            # le tampon C tient la liste ouverte : le crochet fermant y dort
+            # encore, et le maillon qui vient l'écrase. Rien à rouvrir, rien à
+            # relire, rien à tronquer — c'est tout ce qui sépare cette voie du
+            # détour python qu'elle remplace
+            fp, fd = self.fp, self._append_fd
         else:
-            self.fp = fp = _open_for_append(file, self.indent)
+            ouvert = suite and hasattr(self, "fp")
+            # l'append précédent peut encore être en vol : le fichier ne se
+            # rouvre, ne se mesure et ne se tronque qu'une fois posé
+            rapidjson.wait_writes()
+            fp, vide = _open_for_append(self.fp if ouvert else file,
+                                        self.indent, queue=not ouvert)
+            self.fp = fp
+            if not suite:
+                self._append_pour = file
+                self._append_chemin = self._chemin_index(file) or \
+                    self._chemin_index(fp)
+                # le rang d'un maillon ne se devine pas dans une liste qu'on
+                # n'a pas remplie soi-même : son index passera par le balayage,
+                # et ses $ref n'ont pas de chemin absolu composable
+                self._append_rang = 0 if vide else None
+                self._append_index_tenu = vide
+                self._index_append_oublie()
+            fd = _descripteur(fp)
+        # La comptabilité d'append s'écrit DANS le __dict__, jamais par
+        # `self.x = ...` : le `__setattr__` de la classe invalide la poussée
+        # amortie des paramètres globaux, qui se rejouait donc à chaque
+        # maillon — os.cpu_count() compris. 7,6 µs par append au lieu de
+        # 2,9 (20 000 maillons de 57 octets). Aucun de ces attributs n'est
+        # lu par les greffons ni par le C : rien à pousser.
+        d = self.__dict__
+        d["_append_a_ranger"] = True
         # chaque append est un dump indépendant : le protocole du tp_call C
         # (poussée amortie, mémo des doublons) se rejoue à chaque appel
-        self.__call__(obj, fp=_wrap_append_indent(fp, self.indent))
-        _close_for_append(fp, self.indent)
+        # le rang sert D'ABORD aux $ref : c'est lui qui donne « root[3] », la
+        # racine des chemins du maillon. Il vaut donc dès qu'on connaît la
+        # place, index tenu ou non — l'index, lui, a son propre témoin
+        rang = -1 if self._append_rang is None else self._append_rang
+        if fd is None:
+            # flux dont les octets ne sont pas ceux du fichier (utf-16, gzip) :
+            # l'ancienne voie, décalage d'indentation compris. Les positions
+            # relevées ne seraient pas celles du fichier : pas d'index tenu
+            d["_append_index_tenu"] = False
+            self.__call__(obj, fp=_wrap_append_indent(fp, self.indent),
+                          append=(rang, b"", b"", 0))
+            _close_for_append(fp, self.indent)
+        else:
+            # le maillon est indenté d'un cran de plus que le document, et
+            # suivi du crochet qui referme la liste — le fichier reste un json
+            # valide entre deux appends
+            # une fois faux, il le reste : un index à trous vaudrait moins que
+            # pas d'index du tout
+            d["_append_index_tenu"] = (self._append_index_tenu
+                                       and self._index_incremental())
+            plat = self.indent is None
+            # la virgule qui sépare deux maillons : quand le fichier vient
+            # d'être rouvert, `_open_for_append` l'a déjà écrite
+            debut = b"" if not reprise else b"," if plat else \
+                b",\n" + _append_indent_unit(self.indent).encode()
+            fin = (b"]", 0) if plat else (b"\n]", 1)
+            self.__call__(obj, fp=fp, chunk_size=self.chunk_size, fd=fd,
+                          blocking_write=self.disk_write_mode == "blocking",
+                          index_threshold=(self.index_threshold
+                                           if self._append_index_tenu else 0),
+                          append=(rang, debut) + fin)
+            d["_append_fd"] = fd
+            if rang < 0 and self._ref_impossible():
+                # ce maillon porte un doublon ou un cycle, et ses « $ref » ont
+                # été composés sans savoir où il tombe dans la liste : ils
+                # désignent le maillon, quand la relecture les cherche depuis
+                # la racine du document. On le retire, on compte enfin les
+                # maillons déjà là — un balayage du fichier, qui ne se paie que
+                # dans ce cas et une seule fois — et on le réécrit à son rang.
+                self._append_ferme()
+                self._append_fd = None
+                # le maillon fautif est compté lui aussi : son rang est le
+                # nombre de maillons moins un
+                combien, depart = _bornes_maillons(fp)
+                d["_append_rang"] = combien - 1
+                fp.truncate(depart)
+                fp.seek(depart)
+                self.__call__(obj, fp=fp, chunk_size=self.chunk_size, fd=fd,
+                              blocking_write=self.disk_write_mode == "blocking",
+                              index_threshold=0,
+                              append=(self._append_rang, b"") + fin)
+                d["_append_fd"] = fd
+        if self._append_rang is not None:
+            d["_append_rang"] = self._append_rang + 1
         if close:
-            fp.close()
-            del self.fp
+            self.close()
 
     def get_dumped_classes(self):
         """
@@ -2635,6 +2785,9 @@ class Decoder(rapidjson.Decoder):
             self.file_iter = _json_object_file_iterator(file, mode="rb")
         else:
             raise Exception("not yet able to load_iter on %s" % str(type(file)))
+        # rang du maillon rendu : il donne la racine de ses « $ref », écrits
+        # depuis celle du FICHIER quand on ne rend ici que le maillon
+        self._ref_rang = 0
         return self
 
     def _inst_from_dict(self, inst):
@@ -2871,7 +3024,18 @@ class Decoder(rapidjson.Decoder):
             else:
                 raise
         if self.duplicates_to_replace:
-            return self._resolve_duplicates(loaded)
+            # le maillon a été écrit à sa PLACE dans le document : ses chemins
+            # « $ref » partent de la racine du fichier (« root[3]['x'] »), et
+            # c'est bien ce qu'il faut pour le relire en entier. Rendu seul, il
+            # est sa propre racine : les ramener sur lui, comme le fait
+            # `rebase_refs` pour une tranche chargée par l'index
+            prefixe = "root[%d]" % self._ref_rang
+            for marqueur in self.duplicates_to_replace:
+                interne = indexation._sous_chemin(marqueur["$ref"], prefixe)
+                if interne is not None:
+                    marqueur["$ref"] = "root" + interne
+            loaded = self._resolve_duplicates(loaded)
+        self._ref_rang += 1
         return loaded
 
 
@@ -3189,7 +3353,18 @@ def _wrap_append_indent(fp, indent):
     return _AppendIndenter(fp, _append_indent_unit(indent))
 
 
-def _open_for_append(fp, indent):
+def _open_for_append(fp, indent, queue=True):
+    """Ouvre le fichier et le place là où le prochain maillon s'écrit.
+
+    Rend `(fp, vide)` : `vide` dit que la liste n'avait aucun maillon, seul
+    cas où l'appelant connaisse le RANG de ce qu'il ajoute — donc où il puisse
+    en tenir l'index sans relire le document.
+
+    `queue` fait chercher une queue d'index de la forme "comment" : elle est
+    retirée avant d'ajouter, sans quoi le document ne finirait plus par « ] »
+    et l'append échouerait. Inutile aux appends suivants, la queue ne pouvant
+    revenir tant que la liste n'est pas refermée.
+    """
     length = 0
     remove_last_square_close = True
     if isinstance(fp, str):
@@ -3219,6 +3394,8 @@ def _open_for_append(fp, indent):
     elif fp is None:
         raise Exception("Incorrect file (file, str ou unicode)")
     if remove_last_square_close:
+        if queue:
+            _tronque_queue_index(fp)
         fp.seek(0, 2)
         length = fp.tell()
         if length == 1:
@@ -3239,6 +3416,9 @@ def _open_for_append(fp, indent):
                 fp.close()
                 raise Exception("serializejson can append only to serialized lists")
 
+    # ce qui reste du document une fois le crochet fermant retiré : « [ » seul
+    # veut dire une liste sans aucun maillon, donc un prochain maillon de rang 0
+    vide = length == 0 or fp.tell() <= 1
     if length == 0:
         if indent is None:
             fp.write(b"[")
@@ -3256,7 +3436,62 @@ def _open_for_append(fp, indent):
                 fp.write(b",\n" + unit.encode())
             except TypeError:
                 fp.write(",\n" + unit)
-    return fp
+    return fp, vide
+
+
+def _bornes_maillons(fp):
+    """(nombre de maillons, position du dernier) d'une liste json déjà écrite.
+
+    Sans rien désérialiser : la machine à états du découpage incrémental —
+    `_scan_appended`, celle qui sert déjà au Decoder à rendre les éléments un
+    par un — donne les bornes de chaque élément de premier niveau. Elle rend
+    `ret_start == -1` au crochet qui referme la liste, et lève `shedule_break`
+    à chaque fin d'élément ; un élément à cheval sur deux tampons est rendu en
+    plusieurs morceaux, d'où le `courant` qui n'en retient que le premier.
+
+    Ne sert qu'à rattraper un maillon écrit sans connaître son rang (voir
+    `Encoder.append`) : c'est un balayage complet du fichier.
+    """
+    fp.flush()
+    fp.seek(0)
+    etat = (False, 0, 0, False, False, False)
+    combien = 0
+    dernier = -1
+    courant = -1
+    base = 0
+    while True:
+        tampon = fp.read(1 << 16)
+        if not tampon:
+            return combien, dernier
+        depuis = 0
+        while True:
+            (debut, _fin, *etat, depuis, coupe) = rapidjson._scan_appended(
+                tampon, depuis, *etat)
+            if debut < 0:
+                return combien, dernier
+            if courant < 0:
+                courant = base + debut
+            if coupe:
+                combien += 1
+                dernier = courant
+                courant = -1
+            if depuis == 0:
+                break
+        base += len(tampon)
+
+
+def _tronque_queue_index(fp):
+    # un index rangé en "comment" ajoute une ligne DERRIÈRE le document : le
+    # fichier ne finit plus par « ] » et l'append le refusait. La queue est
+    # retirée, l'index qu'elle porte devenant faux dès le maillon suivant
+    chemin = getattr(fp, "name", None)
+    if not isinstance(chemin, str):
+        return
+    fp.flush()
+    queue = rapidjson._index_queue(chemin)
+    if queue is not None:
+        fp.seek(queue[0])
+        fp.truncate()
 
 
 def _open_with_good_encoding(path):

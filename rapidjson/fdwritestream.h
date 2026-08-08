@@ -199,6 +199,18 @@ public:
         return ecrivain->depose() + (size_t) (bufferCursor - bufferBegin);
     }
 
+    // Reprend les derniers octets déposés. Un seul usage : le crochet qui
+    // referme la liste d'un fichier rempli par `append`. Il est écrit derrière
+    // chaque maillon pour que le document soit un json valide, et REPRIS au
+    // maillon suivant, qui l'écrase — ce qui, le flux vivant d'un append à
+    // l'autre, ne coûte rien du tout. Rien ne l'ayant suivi, il est encore là,
+    // SAUF si le maillon précédent a échoué en cours de route : le document
+    // est alors perdu de toute façon, et on ne recule pas sous le tampon.
+    void Recule(size_t size) {
+        if ((size_t) (bufferCursor - bufferBegin) >= size)
+            bufferCursor -= size;
+    }
+
     // errno de la première écriture qui a échoué, 0 sinon
     int Erreur() const {
         return erreur != 0 ? erreur : ecrivain->erreur();

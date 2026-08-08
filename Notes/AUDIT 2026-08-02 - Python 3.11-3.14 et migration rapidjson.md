@@ -2808,3 +2808,244 @@ d'un appel de fonction à une comparaison de pointeur, et les deux cas
 de `EnvelopeConstruct` perdent leur test de nullité. Rejoué ensuite :
 allers-retours des deux types, batterie ×5 verte, puis PGO complète
 pour que les cinq binaires correspondent à la source simplifiée.
+
+---
+
+## 18. Nuit du 7 au 8/08 — `append` : l'index, les `$ref`, et le flux vidéo
+
+Point de départ : `index="sidecar"` passé à un encodeur nourri par
+`append` ne posait AUCUN index, et sans un mot. En creusant, deux
+autres défauts du même chemin sont tombés, et une demande explicite
+est venue s'y greffer — « je veux pouvoir sérialiser de façon
+itérative un flux vidéo ».
+
+### 18.1 La cause commune : un détour python
+
+`append` n'écrivait pas dans le descripteur. Il enveloppait le flux
+dans un `_AppendIndenter` qui remplaçait les sauts de ligne, morceau
+par morceau, pour décaler l'indentation du maillon d'un cran — un
+maillon étant indenté d'un niveau de plus que le document.
+
+Ce détour interdisait TOUT ce qui suit, et c'est pour cela que les
+trois défauts n'en font qu'un :
+
+  - l'index relevé au vol, dont les bornes viennent du flux lui-même ;
+  - le thread d'écriture, qui suppose des octets n'appartenant à aucun
+    objet python ;
+  - et, plus subtil, les chemins `$ref` absolus (voir 18.3).
+
+Le décalage d'indentation est désormais fait à la source, par
+`PrettyWriter::SetIndentBase(niveaux)`, ajouté aux niveaux de la pile
+dans `WriteIndent`. Une ligne dans le writer, contre une réécriture de
+chaque morceau côté python.
+
+### 18.2 L'index, tenu maillon par maillon
+
+`SjIndexEcriture` gagne une `racine` (« root » pour un dump,
+« root[rang] » pour un maillon) et un `indexeRacine` : la racine d'un
+dump est écartée de l'index — le python la pose lui-même en
+`[0, taille]` — mais celle d'un maillon est une entrée comme les
+autres, et c'est même celle qu'on cherchera à charger seule.
+
+Les entrées s'accumulent dans un `std::string` porté par l'encodeur
+(`indexAppend`), d'un maillon à l'autre, et ne partent sur le disque
+qu'à la fermeture de la liste. Elles sont COPIÉES et non prises au
+rangement : `close=True` à chaque tour est un usage courant, et la
+liste continue de se remplir derrière — les prendre ne laissait dans
+le dernier index que les maillons écrits depuis la fermeture
+précédente, c'est-à-dire un seul. C'est le test
+`test_append_ferme_a_chaque_tour_garde_tout_l_index`.
+
+Le tampon d'écriture VIT d'un maillon à l'autre. C'était nécessaire :
+un maillon fait quelques dizaines d'octets, et un flux jeté à chaque
+append rendait un `write(2)` par maillon. Mesuré sur 20 000 maillons
+de ~57 octets : 140 ms par le détour python, 270 par un flux jeté à
+chaque maillon, 1000 avec en plus un thread relancé à chaque fois.
+
+Le crochet fermant est écrit derrière chaque maillon — le fichier
+reste un json valide entre deux appends, ce que le format promet — et
+REPRIS par le maillon suivant, qui l'écrase (`FdWriteStream::Recule`).
+Le tampon vivant, cela ne coûte rien.
+
+### 18.3 Les `$ref` : un maillon n'est pas un document
+
+Défaut trouvé en écrivant les tests de l'index, et bien plus grave que
+lui. Un maillon est écrit à SA PLACE dans une liste : un doublon
+interne doit se désigner « root[3]['a'] », le chemin absolu dans le
+FICHIER, seul que la relecture du document sache suivre. Il était
+composé depuis le maillon — « root['a'] ». Conséquence : **tout
+fichier portant un objet partagé ou un cycle dans un maillon de rang
+non nul était illisible**, en silence à l'écriture, par `TypeError:
+list indices must be integers or slices, not str` à la relecture.
+
+Le `PathTracker` gagne donc une `racine`, posée à « root[rang] » pour
+un maillon. Deux relectures à satisfaire, et elles ne demandent pas la
+même chose :
+
+  - le document ENTIER (`load`) : les chemins absolus tombent juste ;
+  - maillon par maillon (`for x in Decoder(f)`) : le maillon est sa
+    propre racine, et ses chemins sont ramenés sur lui — exactement ce
+    que `indexation.rebase_refs` fait déjà pour une tranche chargée
+    par l'index, et par le même `_sous_chemin`.
+
+**Le rang n'est pas toujours connu.** Un encodeur qui n'a pas rempli
+la liste depuis le début ignore où tombe son maillon — c'est le cas de
+la fonction de module `serializejson.append(obj, fichier)`, qui
+construit un encodeur NEUF à chaque appel. Trois voies ont été
+essayées :
+
+  1. **Refuser** (lever une exception). Écarté par la mesure : la
+     batterie a immédiatement crié — `test_iteration_formes_variees`
+     fait exactement ça, et la docstring d'`append` promet que le
+     fichier se relit en un appel. Refuser, c'est casser l'usage
+     documenté.
+  2. **Compter les maillons à chaque ouverture d'un fichier non
+     vide.** Écarté sur le coût : la fonction de module ouvre à chaque
+     appel, donc le comptage serait en O(n²) sur le nombre d'appels —
+     100 000 petits maillons feraient scanner des dizaines de Go.
+  3. **Retenue : compter SEULEMENT quand c'est nécessaire.** Le C
+     lève un témoin (`EncoderObject::refImpossible`) quand il a dû
+     composer un `$ref` sans racine. Python le relève après l'appel,
+     ferme l'écrivain, compte les maillons déjà là, tronque le maillon
+     fautif et le réécrit à son vrai rang. Coût nul dans le cas
+     courant — le témoin ne se lève que sur un doublon —, un balayage
+     unique sinon, le rang étant ensuite connu pour toute la suite.
+
+Le comptage lui-même ne désérialise rien : il rejoue `_scan_appended`,
+la machine à états qui découpe déjà le fichier pour le Decoder, et
+compte ses fins d'élément (`_bornes_maillons`). Elle rend aussi la
+position du dernier, qui est le point de troncature.
+
+Sept tests neufs (`tests/test_append_ref.py`), tous vérifiés en échec
+sur le binaire d'avant : partage, cycle, maillon qui se désigne
+lui-même, rattrapage à plat et indenté, rattrapage suivi d'autres
+appends, index tenu malgré un partage.
+
+### 18.4 Le thread d'écriture : la vraie mesure
+
+Première conclusion, FAUSSE : « l'écrivain d'un append doit être
+synchrone, un thread relancé par maillon coûte 50 µs pour recouvrir
+7 µs d'écriture ». Elle reposait sur des bancs sans le moindre
+`bytes`. Correction de Baptiste : *« le thread à côté servait à
+déléguer l'encode en base64 et à ne pas attendre l'écriture sur le
+disque »*.
+
+C'est exact, et c'est mesurable : `FdWriteStream::RawDataToBase64Owned`
+délègue au thread l'encodage base64 des trames compressées (blocs dont
+nous sommes propriétaires, au-dessus du `chunk_size`). Sans `bytes`
+dans la charge, ce chemin ne s'emprunte jamais.
+
+Le bon banc est celui de l'usage demandé — un flux vidéo, maillon par
+maillon. 1080p, 150 images, disque réel (pas le tmpfs de `$TMPDIR`),
+A/B entrelacé sur deux arbres identiques à une ligne près, temps
+BLOQUÉ dans `append` par image :
+
+| charge | synchrone | thread persistant |
+|---|---|---|
+| bruit incompressible (7,9 Mo/img) | 75,7 ms | **3,4 ms** |
+| image, dégradés + bruit (5,8 Mo/img) | 79,4 ms | **3,3 ms** |
+
+×22 à ×24 sur le temps rendu à l'appelant — celui qu'il peut consacrer
+à capturer l'image suivante. Le temps TOTAL, lui, reste dicté par le
+disque dans les deux cas : le thread ne fabrique pas de bande
+passante.
+
+Le thread est donc lancé UNE FOIS pour toute la liste, et non par
+maillon : les 50 µs de lancement, réels, se payaient à chaque maillon,
+elles se payent maintenant une fois. Sans `bytes`, il n'y a rien à
+recouvrir et les deux se valent (86 ms sur 20 000 maillons de 57
+octets) — ce chemin ne se juge que sur des charges binaires.
+
+Il n'a pas besoin de `dup()` : rien ne le lâche dans la nature, et
+`sj_append_ferme` le joint avant que python ne referme le fichier.
+
+### 18.5 Passe de simplification
+
+Le mode SYNCHRONE de `WriterThread`, écrit sur la conclusion fausse du
+18.4, est devenu du code mort dès que l'écrivain est passé persistant :
+plus aucun site ne le demandait. Supprimé en entier — le paramètre
+`synchrone_`, les deux branches de `pousse` et de `termine`, le membre
+`seulFait` et la fonction `finitSeul` extraite pour lui. `writerthread.h`
+retombe à trois modifications, toutes nécessaires : le commentaire du
+`fd = -1`, le `lseek` qui l'évite, et le `close` qui le saute.
+
+### 18.6 Deux pièges de mesure payés cette nuit
+
+  - **`$TMPDIR` est un tmpfs.** Tout banc d'écriture qui y écrit mesure
+    la RAM. Les mesures ci-dessus sont faites dans `.banc_disque`, sur
+    l'ext4 du volume chiffré.
+  - **Un banc sans `bytes` ne peut rien dire du thread d'écriture** :
+    c'est ce qui a produit la conclusion fausse du 18.4. Avant de
+    conclure qu'un mécanisme ne sert à rien, énumérer ce qu'il fait —
+    ici il en faisait deux choses, et le banc n'en voyait qu'une.
+
+### 18.7 Contre le `Pickler.dump()` de pickle — et ce que la comparaison a trouvé
+
+Question de Baptiste à 4 h 20 : pickle a-t-il un équivalent incrémental ?
+Oui — un `pickle.Pickler(f)` accepte plusieurs `dump()` de suite, relus
+par des `load()` successifs jusqu'à `EOFError`. Mesuré, il a deux limites
+de fond que l'`append` json n'a pas :
+
+  - **le memo VIT d'un `dump` à l'autre.** Le partage entre maillons est
+    donc conservé (21 octets au lieu de 28 pour un second maillon qui
+    référence le premier), mais le flux ne se relit QUE depuis le début :
+    un `Unpickler` neuf posé au milieu échoue sur *Memo value not found
+    at index 2*. `clear_memo()` rend les tranches autonomes et perd le
+    partage — c'est l'un ou l'autre ;
+  - **ni structure englobante ni index** : la concaténation n'est pas un
+    objet pickle valide, et atteindre le millième maillon demande d'en
+    décoder mille.
+
+Le banc (`banc_vs_pickle.py`, disque réel, A/B entrelacé dans le même
+processus, aucun `fsync` d'aucun côté, deux passes concordantes) :
+
+    20 000 maillons de ~57 octets          bloqué      octets
+      append ...........................   56 ms      1 317 410
+      pickle, dump() en boucle .........    8,7 ms    1 128 175
+      dump de la liste entière .........    9,6 ms    1 317 410
+      pickle.dump de la liste ..........    5,1 ms      888 346
+
+    20 trames 1080p, bruit incompressible  bloqué      total
+      append ...........................   17,6 ms   220 à 1040 ms
+      pickle, dump() en boucle .........  424 à 1782 ms
+      dump de la liste entière .........  3 200 à 4 100 ms
+
+Deux lectures opposées, et les deux comptent.
+
+**Sur charge binaire, l'append gagne, et largement.** Son temps BLOQUÉ est
+stable à 0,88 ms par trame de 6,2 Mo, quel que soit l'état du cache ;
+celui de pickle va de 21 à 89 ms par trame, au gré du writeback. Le
+`dump` de la liste entière, qui n'a pas de thread, est le pire des trois.
+C'est le cas d'usage visé — sérialiser un flux vidéo image par image — et
+il est acquis.
+
+**Sur micro-objets, l'append était ×19 derrière pickle, et le banc a dit
+pourquoi.** Le profil montrait `os.cpu_count()` appelé 20 000 fois, et
+`_update_serialize_parameters` rejouée à chaque maillon : la poussée
+amortie des paramètres globaux est gardée par un témoin `_owner` que le
+`__setattr__` de la classe remet à zéro dès qu'un attribut change — or
+`append` écrivait quatre attributs de comptabilité par maillon (`_append_
+a_ranger`, `_append_index_tenu`, `_append_fd`, `_append_rang`). La garde
+défaillait donc à tous les coups. Ces quatre écritures passent désormais
+par le `__dict__`, comme le faisaient déjà `_bytes_natif_seuil` et
+`_cle_json` : **7,6 µs par append → 2,9 µs**, sans une ligne de C.
+
+Ce qui reste, décomposé dans le même processus :
+
+    encodage seul (liste entière, par élément) ......  0,45 µs
+    pickle.dumps par objet .........................  0,44 µs
+    dumpb(o) par objet, aucun fichier ..............  1,72 µs
+    append complet .................................  2,89 µs
+      dont enveloppe python .........................  0,33 µs
+
+L'encodage lui-même est donc **à égalité avec pickle**. Tout l'écart est
+un coût FIXE par appel : ~1,3 µs dans le `tp_call` C hors append (analyse
+des sept mots-clés, mémo des doublons, traqueur de chemins), ~1,2 µs de
+plus pour la machinerie d'append. C'est la prochaine cible si une reprise
+est demandée — elle est en C, elle demande les cinq reconstructions PGO,
+et elle ne vaut que pour des maillons minuscules : dès que le maillon
+porte des octets, le thread d'écriture couvre tout.
+
+Piège de mesure ajouté à la liste : **un `fsync` d'un seul côté fausse
+tout.** Le premier banc en mettait un sur pickle et pas sur
+serializejson, et donnait à pickle 49 ms là où il en fait 8.

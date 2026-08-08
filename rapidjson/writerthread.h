@@ -126,6 +126,10 @@ public:
 
     // Le descripteur devient celui de l'écrivain dès qu'il est lâché : c'est
     // lui qui le refermera, l'appelant ayant depuis longtemps refermé le sien.
+    // `fd_` vaut -1 pour un écrivain qui n'écrit RIEN : il ne porte alors
+    // qu'une tâche de fin (rangeApres), et c'est ce qui permet de ranger
+    // l'index d'un fichier rempli par appends hors du thread appelant, sans
+    // avoir à rouvrir le document pour la forme.
     WriterThread(int fd_) {
         fd = fd_;
         err = 0;
@@ -136,8 +140,8 @@ public:
         debut = 0;
 #else
         // là où le document commence dans le fichier : ce n'est pas toujours
-        // zéro (append rouvre et se replace avant le crochet fermant)
-        off_t ou = lseek(fd, 0, SEEK_CUR);
+        // zéro (append se replace derrière le dernier maillon de la liste)
+        off_t ou = fd < 0 ? -1 : lseek(fd, 0, SEEK_CUR);
         debut = ou < 0 ? 0 : ou;
 #endif
         fini = false;
@@ -409,11 +413,13 @@ private:
                 enVol().err = mien;
             enVol().nombre -= 1;
             pose = true;
+            if (fd >= 0) {
 #ifdef _WIN32
-            _close(fd);
+                _close(fd);
 #else
-            close(fd);
+                close(fd);
 #endif
+            }
         }
         enVol().vide.notify_all();
     }

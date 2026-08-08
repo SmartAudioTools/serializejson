@@ -790,6 +790,19 @@ struct PathTracker {
     // de conteneur temporaire réutilisé ne passe pas pour un doublon
     PtrMemo memo;
     bool memoContainers = false;
+    // Racine des chemins $ref, VIDE pour « root ». Un maillon d'`append` n'est
+    // pas un document : il est écrit à sa place dans une liste, et un doublon
+    // interne doit donc se désigner « root[3]['x'] » et non « root['x'] » —
+    // c'est le chemin ABSOLU dans le fichier que la relecture sait suivre, et
+    // que `rebase_refs` ramène sur la tranche quand on charge le maillon seul.
+    std::string racine;
+    std::string racineRefJson;    // composé au premier $ref vers la racine
+    // Place du maillon INCONNUE : la liste n'a pas été remplie depuis le début,
+    // donc aucun chemin absolu n'est composable. Écrire quand même écrirait un
+    // fichier illisible, sans un mot — le doublon est relevé ici et l'encodage
+    // échoue (voir encoder_call).
+    bool racineInconnue = false;
+    bool refImpossible = false;
     // chemin rapide par classe : class_plan(classe) est appelé UNE fois par
     // classe et par dump ; il retourne None (chemin Python complet) ou un
     // tuple (nom_de_classe, filtrer_underscores) autorisant l'écriture de
@@ -905,8 +918,15 @@ static const std::string&
 sj_ref_json(PathTracker* tracker, long node_index)
 {
     static const std::string root_ref = "{\"$ref\": \"root\"}";
-    if (node_index < 0)
-        return root_ref;
+    if (tracker->racineInconnue)
+        tracker->refImpossible = true;
+    if (node_index < 0) {
+        if (tracker->racine.empty())
+            return root_ref;
+        if (tracker->racineRefJson.empty())
+            tracker->racineRefJson = "{\"$ref\": \"" + tracker->racine + "\"}";
+        return tracker->racineRefJson;
+    }
     PathNode& node = tracker->nodes[(size_t) node_index];
     if (node.refJson.empty()) {
         std::string ref_ = "{\"$ref\": \"";
@@ -994,7 +1014,7 @@ path_tracker_string(PathTracker* tracker, long node_index)
         chain.push_back((int) node_index);
         node_index = tracker->nodes[(size_t) node_index].parent;
     }
-    std::string out("root");
+    std::string out(tracker->racine.empty() ? "root" : tracker->racine);
     char index_buffer[32];
     for (size_t i = chain.size(); i-- > 0;) {
         const PathNode& node = tracker->nodes[(size_t) chain[i]];
@@ -8426,6 +8446,21 @@ typedef struct {
     SjMtScratch* mtScratch;
     // taille de sortie atteinte au dump précédent (capacité initiale du suivant)
     size_t outputHighWater;
+    // entrées d'index des maillons déjà appendés, en attente que la liste se
+    // referme : rien ne part sur le disque avant, et rien ne repasse par un
+    // objet python entre deux appends
+    std::string* indexAppend;
+    // écrivain et tampon d'une liste en cours de remplissage par appends : ils
+    // VIVENT d'un maillon à l'autre, sans quoi chaque maillon coûterait un
+    // write(2) de quelques dizaines d'octets (voir SjAppend)
+    WriterThread* ecrivainAppend;
+    FdWriteStream* fluxAppend;
+    // le dernier appel a dû composer un "$ref" alors que la place du maillon
+    // dans la liste était inconnue : le chemin écrit est relatif au maillon,
+    // donc illisible dans le document. Python le relève après coup
+    // (_ref_impossible) pour retirer le maillon, compter ceux déjà là, et
+    // recommencer — un balayage qui ne se paie que dans ce cas
+    bool refImpossible;
 } EncoderObject;
 
 
@@ -8440,7 +8475,7 @@ encoder_json_path(PyObject* self, PyObject* Py_UNUSED(unused))
     PathTracker* tracker = e->activePathTracker;
     if (tracker == nullptr)
         Py_RETURN_NONE;
-    std::string out("root");
+    std::string out(tracker->racine.empty() ? "root" : tracker->racine);
     char index_buffer[32];
     for (const PathSegment& segment : tracker->segments) {
         switch (segment.kind) {
@@ -8542,7 +8577,31 @@ encoder_json_path_from_id(PyObject* self, PyObject* arg)
 }
 
 
+// définies plus bas, avec le rangement d'index dont elles se servent
+static PyObject* encoder_index_append_range(PyObject* self, PyObject* args);
+static PyObject* encoder_index_append_oublie(PyObject* self, PyObject* unused);
+static PyObject* encoder_append_ferme(PyObject* self, PyObject* unused);
+static int sj_append_ferme(EncoderObject* e);
+
+// Le dernier encodage a-t-il dû composer un "$ref" sans connaître la place du
+// maillon dans la liste ? Voir EncoderObject::refImpossible.
+static PyObject*
+encoder_ref_impossible(PyObject* self, PyObject* Py_UNUSED(unused))
+{
+    return PyBool_FromLong(((EncoderObject*) self)->refImpossible ? 1 : 0);
+}
+
 static PyMethodDef encoder_methods[] = {
+    {"_append_ferme", (PyCFunction) encoder_append_ferme, METH_NOARGS,
+     "Vide le tampon de la liste en cours d'appends et ferme son écrivain."},
+    {"_ref_impossible", (PyCFunction) encoder_ref_impossible, METH_NOARGS,
+     "Le dernier encodage a écrit un $ref sans connaître la place du maillon."},
+    {"_index_append_range", (PyCFunction) encoder_index_append_range,
+     METH_VARARGS,
+     "Range l'index accumulé par les appends, la liste refermée."},
+    {"_index_append_oublie", (PyCFunction) encoder_index_append_oublie,
+     METH_NOARGS,
+     "Jette l'index accumulé par les appends (fichier vidé, index abandonné)."},
     {"json_path", (PyCFunction) encoder_json_path, METH_NOARGS,
      "Chemin JSON de la valeur en cours d'encodage (None hors encodage)."},
     {"json_path_id", (PyCFunction) encoder_json_path_id, METH_NOARGS,
@@ -9010,6 +9069,10 @@ static void encoder_dealloc(PyObject* self)
 {
     // libère les brouillons réutilisables du multithread numérique
     delete (SjMtScratch*) ((EncoderObject*) self)->mtScratch;
+    // une liste laissée ouverte se referme ici : son crochet fermant dort
+    // encore dans le tampon, et le perdre laisserait un json tronqué
+    sj_append_ferme((EncoderObject*) self);
+    delete ((EncoderObject*) self)->indexAppend;
     Py_TYPE(self)->tp_free(self);
 }
 
@@ -9160,20 +9223,28 @@ do_encode(PyObject* value, PyObject* defaultFn,
 }
 
 
+#define DUMP_INTERNAL_RUN                       \
+    dumps_internal(&writer,                     \
+                   value,                       \
+                   defaultFn,                   \
+                   defaultDictFn,               \
+                   defaultListFn,               \
+                   pathTracker,                 \
+                   numberMode,                  \
+                   datetimeMode,                \
+                   uuidMode,                    \
+                   bytesMode,                   \
+                   iterableMode,                \
+                   mappingMode)
+
 #define DUMP_INTERNAL_CALL                      \
-    (dumps_internal(&writer,                    \
-                    value,                      \
-                    defaultFn,                  \
-                    defaultDictFn,              \
-                    defaultListFn,              \
-                    pathTracker,                \
-                    numberMode,                 \
-                    datetimeMode,               \
-                    uuidMode,                   \
-                    bytesMode,                  \
-                    iterableMode,               \
-                    mappingMode)                \
-     ? (writer.Flush(), Py_INCREF(Py_None), Py_None) : nullptr)
+    (DUMP_INTERNAL_RUN ? (writer.Flush(), Py_INCREF(Py_None), Py_None) : nullptr)
+
+// `append` garde son tampon d'un maillon à l'autre : le vider à chaque maillon
+// rendrait un write(2) pour quelques dizaines d'octets, et c'est justement ce
+// que le tampon persistant évite. Il se vide à la fermeture de la liste.
+#define DUMP_INTERNAL_CALL_SANS_VIDAGE          \
+    (DUMP_INTERNAL_RUN ? (Py_INCREF(Py_None), Py_None) : nullptr)
 
 
 static PyObject*
@@ -9258,6 +9329,144 @@ sj_index_range_fichier(const SjIndexRangement& ou, const char* chemins,
 }
 
 
+// L'index accumulé au fil des appends, une fois la liste refermée : composé
+// avec `root`, dégonflé et posé, exactement comme celui d'un dump. En
+// libération rapide il l'est par un écrivain SANS descripteur, qui ne porte
+// que cette tâche — close() rend alors la main sans attendre le dégonflage, et
+// tout ce qui relit le fichier (load, paths, index) attend déjà les écrivains.
+static PyObject*
+encoder_index_append_range(PyObject* self, PyObject* args)
+{
+    EncoderObject* e = (EncoderObject*) self;
+    PyObject* ouObj;
+    Py_ssize_t seuil;
+    int bloquant;
+    if (!PyArg_ParseTuple(args, "Onp:_index_append_range", &ouObj, &seuil,
+                          &bloquant))
+        return nullptr;
+    SjIndexRangement ou;
+    if (!sj_index_ou_ranger(ouObj, ou))
+        return nullptr;
+    ou.seuil = seuil > 0 ? (size_t) seuil : 0;
+
+    // les entrées sont COPIÉES, pas prises : `close=True` à chaque tour est un
+    // usage courant, et la liste continue de se remplir derrière lui. Le
+    // rangement qui suit compose et dégonfle ces mêmes octets — le memcpy ne
+    // pèse rien à côté, et c'est lui qui permet à chaque index posé d'être
+    // celui de la liste ENTIÈRE. L'encodeur les oublie quand il change de
+    // fichier (_index_append_oublie).
+    std::shared_ptr<std::string> chemins(
+        e->indexAppend != nullptr ? new std::string(*e->indexAppend)
+                                  : new std::string());
+    if (bloquant) {
+        int rate;
+        Py_BEGIN_ALLOW_THREADS
+        rate = sj_index_range_fichier(ou, chemins->data(), chemins->size());
+        Py_END_ALLOW_THREADS
+        if (rate) {
+            errno = rate;
+            return PyErr_SetFromErrno(PyExc_OSError);
+        }
+    } else {
+        WriterThread* poseur = new WriterThread(-1);
+        poseur->rangeApres([ou, chemins]() {
+            return sj_index_range_fichier(ou, chemins->data(),
+                                          chemins->size());
+        });
+        poseur->laisseFiler();
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject*
+encoder_index_append_oublie(PyObject* self, PyObject* Py_UNUSED(unused))
+{
+    delete ((EncoderObject*) self)->indexAppend;
+    ((EncoderObject*) self)->indexAppend = nullptr;
+    Py_RETURN_NONE;
+}
+
+
+// Vide le tampon de la liste remplie par appends, puis détruit son écrivain.
+// Le crochet fermant y dort depuis le dernier maillon : c'est ici, et
+// seulement ici, que le fichier devient un json complet. Le descripteur est
+// celui de l'appelant (l'écrivain d'un append n'est jamais lâché, donc pas de
+// dup), et l'écrivain ne le referme pas. Rend un errno, 0 si tout va bien.
+static int
+sj_append_ferme(EncoderObject* e)
+{
+    if (e->ecrivainAppend == nullptr)
+        return 0;
+    e->fluxAppend->Flush();
+    const int erreur = e->fluxAppend->Erreur();
+    delete e->fluxAppend;
+    e->fluxAppend = nullptr;
+    const int fin = e->ecrivainAppend->termine();
+    delete e->ecrivainAppend;
+    e->ecrivainAppend = nullptr;
+    return erreur != 0 ? erreur : fin;
+}
+
+static PyObject*
+encoder_append_ferme(PyObject* self, PyObject* Py_UNUSED(unused))
+{
+    const int erreur = sj_append_ferme((EncoderObject*) self);
+    if (erreur != 0) {
+        errno = erreur;
+        return PyErr_SetFromErrno(PyExc_OSError);
+    }
+    Py_RETURN_NONE;
+}
+
+
+// Ce qu'un `append` ajoute à un dump ordinaire. L'élément n'est pas un
+// document à lui seul : c'est un maillon d'une liste déjà ouverte, indenté
+// d'un cran de plus, suivi du crochet qui la referme — et son index vient
+// s'ajouter à celui des maillons précédents plutôt que de partir sur le
+// disque, puisque la liste n'est pas finie.
+//
+// Le décalage d'indentation se faisait jusqu'ici côté python, en remplaçant
+// les sauts de ligne de chaque morceau écrit ; c'est ce qui interdisait
+// d'écrire droit dans le descripteur, donc l'index relevé au vol. Il est
+// désormais ouvert à `append`.
+//
+// Le tampon d'écriture, lui, VIT D'UN MAILLON À L'AUTRE, et c'est là tout le
+// prix du chemin : un maillon fait quelques dizaines d'octets, si bien qu'un
+// flux par append rendait un write(2) par maillon, là où le détour python
+// remplissait tranquillement son tampon de 64 Ko. Mesuré sur 20 000 maillons
+// de ~57 octets : 140 ms par le détour python, 270 par un flux jeté à chaque
+// maillon, 1000 avec en plus un thread d'écriture par maillon.
+struct SjAppend {
+    long long rang = -1;          // place du maillon, -1 = maillon non indexé
+    std::string* index = nullptr; // entrées des maillons déjà écrits
+    size_t seuil = 0;
+    // ce qui sépare ce maillon du précédent, écrit devant lui. Vide quand
+    // c'est python qui vient d'ouvrir le fichier : il l'a alors écrit
+    // lui-même, avec le crochet ouvrant
+    const char* debut = nullptr;
+    Py_ssize_t debutLen = 0;
+    const char* fin = nullptr;    // ce qui referme la liste, écrit derrière
+    Py_ssize_t finLen = 0;
+    unsigned indente = 0;         // niveaux d'indentation ajoutés
+    // emplacements de l'encodeur, où l'écrivain et son tampon survivent à
+    // l'appel : nuls au premier maillon, renseignés ensuite
+    WriterThread** ecrivain = nullptr;
+    FdWriteStream** flux = nullptr;
+};
+
+// (rang, séparateur, octets de fermeture, niveaux d'indentation), tel que
+// Encoder.append le compose. Le rang vaut -1 quand l'index n'est pas relevé —
+// le reste sert de toute façon, `append` passant par le descripteur avec ou
+// sans index.
+static bool
+sj_append_lit(PyObject* tuple, SjAppend& out)
+{
+    return PyArg_ParseTuple(tuple, "Ly#y#I:append", &out.rang, &out.debut,
+                            &out.debutLen, &out.fin, &out.finLen,
+                            &out.indente) != 0;
+}
+
+
 // Même chose, mais droit dans un descripteur, et par un thread d'écriture :
 // les octets déposés n'appartenant à aucun objet python, la sérialisation et
 // l'écriture se RECOUVRENT au lieu de se suivre (voir writerthread.h pour la
@@ -9270,7 +9479,7 @@ do_fd_encode(PyObject* value, int fd, size_t chunkSize, bool bloquant,
              PyObject* defaultFn,
              PyObject* defaultDictFn, PyObject* defaultListFn,
              PathTracker* pathTracker,
-             const SjIndexRangement* indexOu,
+             const SjIndexRangement* indexOu, const SjAppend* app,
              bool ensureAscii, unsigned writeMode, char indentChar,
              unsigned indentCount, unsigned numberMode, unsigned datetimeMode,
              unsigned uuidMode, unsigned bytesMode, unsigned iterableMode,
@@ -9281,41 +9490,105 @@ do_fd_encode(PyObject* value, int fd, size_t chunkSize, bool bloquant,
     // pieds. dup() en donne un second sur le même fichier, que l'écrivain
     // refermera lui-même. En écriture bloquante on attend avant de rendre la
     // main, donc celui de l'appelant fait l'affaire.
-    int fdEcrivain = fd;
-    if (!bloquant) {
+    // L'écrivain d'un `append` SURVIT à l'appel, son tampon avec lui (voir
+    // SjAppend), et son thread aussi : lancé une fois pour toute la liste, il
+    // ne coûte plus les 50 µs par maillon d'un thread relancé à chaque fois, et
+    // il prend à sa charge ce qu'un maillon a de lourd — l'écriture, mais
+    // surtout le BASE64 des trames compressées, qui se payait jusqu'ici dans
+    // l'append. Mesuré, 200 maillons d'un mégaoctet de bruit, A/B entrelacé sur
+    // deux arbres identiques : les appends rendent la main en 126 ms au lieu de
+    // 987. Sans le moindre `bytes`, en revanche, il n'y a rien à recouvrir et
+    // les deux se valent (86 ms sur 20 000 maillons de 57 octets, 954 contre
+    // 997 sur 200 Mo) : ce chemin ne se juge que sur des charges binaires.
+    // Il n'a pas besoin de dup() : rien ne le lâche dans la nature, et
+    // sj_append_ferme le joint avant que python ne referme le fichier.
+    const bool persistant = app != nullptr;
+    WriterThread* ecrivain = persistant ? *app->ecrivain : nullptr;
+    FdWriteStream* flux = persistant ? *app->flux : nullptr;
+    if (ecrivain == nullptr) {
+        int fdEcrivain = fd;
+        if (!bloquant && !persistant) {
 #ifdef _WIN32
-        fdEcrivain = _dup(fd);
+            fdEcrivain = _dup(fd);
 #else
-        fdEcrivain = dup(fd);
+            fdEcrivain = dup(fd);
 #endif
-        if (fdEcrivain < 0)
-            return PyErr_SetFromErrno(PyExc_OSError);
+            if (fdEcrivain < 0)
+                return PyErr_SetFromErrno(PyExc_OSError);
+        }
+        ecrivain = new WriterThread(fdEcrivain);
+        flux = new FdWriteStream(chunkSize, ecrivain);
+        if (persistant) {
+            *app->ecrivain = ecrivain;
+            *app->flux = flux;
+        }
+    } else {
+        // le crochet fermant du maillon précédent dort encore dans le tampon :
+        // le maillon qui vient l'écrase
+        flux->Recule((size_t) app->finLen);
     }
-
-    WriterThread* ecrivain = new WriterThread(fdEcrivain);
     PyObject* result;
     int erreur;
     {
-        FdWriteStream os(chunkSize, ecrivain);
+        FdWriteStream& os = *flux;
         // index de position relevé À L'ÉCRITURE : les bornes viennent du flux
         // lui-même, et les chemins des mêmes segments que les $ref. Réservé à
         // ce chemin-ci, le seul dont les positions soient celles du FICHIER.
         SjIndexEcriture index;
         index.segments = &pathTracker->segments;
         index.seuil = indexOu ? indexOu->seuil : 0;
+        // un maillon d'append s'indexe sous « root[rang] », et il s'indexe
+        // LUI-MÊME : c'est même lui qu'on cherchera à charger seul. Ses
+        // entrées reprennent celles des maillons déjà écrits, que l'encodeur
+        // garde d'un append à l'autre — rien ne repart sur le disque tant que
+        // la liste n'est pas refermée.
+        // c'est le SEUIL qui dit si l'index est tenu, pas le rang : celui-ci
+        // sert aussi, et d'abord, à composer les chemins $ref du maillon
+        const bool releve = indexOu != nullptr
+                            || (app != nullptr && app->seuil > 0);
+        if (app != nullptr && app->seuil > 0) {
+            index.seuil = app->seuil;
+            index.racine = "root[";
+            index.racine += std::to_string(app->rang);
+            index.racine += ']';
+            index.indexeRacine = true;
+            index.texte.swap(*app->index);
+        }
+        // la virgule qui suit le maillon précédent, et l'indentation du nôtre :
+        // python les écrivait en rouvrant le fichier, ce que le tampon
+        // persistant lui épargne
+        if (app != nullptr && app->debutLen)
+            os.RawValue(app->debut, (size_t) app->debutLen);
 
         if (writeMode == WM_COMPACT) {
             Writer<FdWriteStream> writer(os);
-            if (indexOu) writer.SetIndex(&index);
-            result = DUMP_INTERNAL_CALL;
+            if (releve) writer.SetIndex(&index);
+            result = app != nullptr ? DUMP_INTERNAL_CALL_SANS_VIDAGE
+                                    : DUMP_INTERNAL_CALL;
         } else {
             PrettyWriter<FdWriteStream> writer(os);
             writer.SetIndent(indentChar, indentCount);
+            if (app != nullptr) writer.SetIndentBase(app->indente);
             if (writeMode & WM_SINGLE_LINE_ARRAY) {
                 writer.SetFormatOptions(kFormatSingleLineArray);
             }
-            if (indexOu) writer.SetIndex(&index);
-            result = DUMP_INTERNAL_CALL;
+            if (releve) writer.SetIndex(&index);
+            result = app != nullptr ? DUMP_INTERNAL_CALL_SANS_VIDAGE
+                                    : DUMP_INTERNAL_CALL;
+        }
+        if (app != nullptr) {
+            // les entrées repartent chez l'encodeur, même après un échec : ce
+            // qui a été relevé du maillon raté ne vaut rien, mais le fichier
+            // non plus — python abandonne alors l'index incrémental
+            if (app->seuil > 0)
+                app->index->swap(index.texte);
+            // le crochet fermant vient DERRIÈRE l'élément, donc après que sa
+            // borne de fin a été relevée : le document est un json complet dès
+            // qu'il est posé, sans que l'index s'en trouve décalé. Il DORT
+            // dans le tampon jusqu'à la fermeture, ou jusqu'au maillon suivant
+            // qui l'écrase — l'écrire coûterait un write(2) par maillon
+            if (result != nullptr && app->finLen)
+                os.RawValue(app->fin, (size_t) app->finLen);
         }
         if (indexOu != nullptr && result != nullptr) {
             // l'écrivain range l'index lui-même, son dernier octet posé : dump
@@ -9331,9 +9604,29 @@ do_fd_encode(PyObject* value, int fd, size_t chunkSize, bool bloquant,
             });
         }
         // tout est déposé (writer.Flush) : la taille du document est connue,
-        // et c'est le dernier moment où le disque peut encore dire non
-        ecrivain->reservePlace();
+        // et c'est le dernier moment où le disque peut encore dire non. Une
+        // liste remplie par appends n'a pas de taille finale : elle grandit à
+        // chaque maillon, et réserver celle d'un seul ne veut rien dire
+        if (!persistant)
+            ecrivain->reservePlace();
         erreur = os.Erreur();   // à lire AVANT de lâcher l'écrivain
+    }
+    if (persistant) {
+        // l'écrivain et son tampon restent en place pour le maillon suivant ;
+        // c'est la fermeture de la liste qui les vide et les détruit
+        if (bloquant) {
+            // écriture bloquante demandée : on attend le disque avant de
+            // rendre la main, mais le thread, lui, reste en place
+            ecrivain->attends();
+            if (erreur == 0)
+                erreur = ecrivain->erreur();
+        }
+        if (erreur != 0) {
+            Py_XDECREF(result);
+            errno = erreur;
+            return PyErr_SetFromErrno(PyExc_OSError);
+        }
+        return result;
     }
     if (bloquant) {
         ecrivain->attends();
@@ -9389,6 +9682,7 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         "blocking_write",
         "index_threshold",
         "index_range",
+        "append",
         nullptr
     };
     PyObject* value;
@@ -9402,13 +9696,15 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     Py_ssize_t indexSeuil = 0;
     // où le ranger, quand l'écrivain peut s'en charger lui-même (voir dump)
     PyObject* indexRangeObj = nullptr;
+    // maillon d'une liste ouverte, plutôt que document entier (voir SjAppend)
+    PyObject* appendObj = nullptr;
     size_t chunkSize = 65536;
     PyObject* defaultFn = nullptr;
     PyObject* defaultDictFn = nullptr;
     PyObject* defaultListFn = nullptr;
     PyObject* result;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OO$OOOpnO",
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OO$OOOpnOO",
                                      (char**) kwlist,
                                      &value,
                                      &fp,
@@ -9418,7 +9714,8 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
                                      &fdObj,
                                      &bloquant,
                                      &indexSeuil,
-                                     &indexRangeObj))
+                                     &indexRangeObj,
+                                     &appendObj))
         return nullptr;
 
     SjIndexRangement indexRange;
@@ -9429,6 +9726,24 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
             return nullptr;
         indexRange.seuil = (size_t) indexSeuil;
         indexOu = &indexRange;
+    }
+
+    SjAppend append;
+    const SjAppend* appendOu = nullptr;
+    if (appendObj != nullptr && appendObj != Py_None) {
+        if (!sj_append_lit(appendObj, append))
+            return nullptr;
+        append.ecrivain = &((EncoderObject*) self)->ecrivainAppend;
+        append.flux = &((EncoderObject*) self)->fluxAppend;
+        // un seuil, ici, veut dire que python tient l'index maillon par
+        // maillon : il ne le passe qu'à cette condition
+        if (indexSeuil > 0) {
+            if (((EncoderObject*) self)->indexAppend == nullptr)
+                ((EncoderObject*) self)->indexAppend = new std::string();
+            append.index = ((EncoderObject*) self)->indexAppend;
+            append.seuil = (size_t) indexSeuil;
+        }
+        appendOu = &append;
     }
 
     EncoderObject* e = (EncoderObject*) self;
@@ -9498,6 +9813,20 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     if (e->memoHighWater)
         pathTracker.memo.reserve(e->memoHighWater);
     pathTracker.memoContainers = e->memoRefs;
+    // un maillon d'`append` n'est pas la racine du document : ses $ref doivent
+    // se dire « root[3]… », le chemin ABSOLU, seul que la relecture sache
+    // suivre. Sans rang connu (liste déjà remplie par un autre), aucun chemin
+    // n'est composable et un doublon fera échouer l'encodage plutôt que
+    // d'écrire un fichier illisible.
+    if (appendOu != nullptr) {
+        if (appendOu->rang >= 0) {
+            pathTracker.racine = "root[";
+            pathTracker.racine += std::to_string(appendOu->rang);
+            pathTracker.racine += ']';
+        } else {
+            pathTracker.racineInconnue = true;
+        }
+    }
     pathTracker.singleLineNumbers = e->singleLineNumbers;
     pathTracker.singleLineInit = e->singleLineInit;
     pathTracker.singleLineNew = e->singleLineNew;
@@ -9600,7 +9929,7 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
         if (fd >= 0)
             result = do_fd_encode(value, fd, chunkSize, bloquant, defaultFn,
                                   defaultDictFn, defaultListFn, &pathTracker,
-                                  indexOu,
+                                  indexOu, appendOu,
                                   e->ensureAscii,
                                   e->writeMode, e->indentChar, e->indentCount,
                                   e->numberMode, e->datetimeMode, e->uuidMode,
@@ -9623,6 +9952,11 @@ encoder_call(PyObject* self, PyObject* args, PyObject* kwargs)
     }
 
     e->activePathTracker = nullptr;
+    // un doublon a demandé son chemin alors que la place du maillon dans la
+    // liste est inconnue : les chemins écrits sont relatifs au maillon, et la
+    // relecture du document irait les chercher dans la liste elle-même.
+    // Python le relève et recommence (voir Encoder.append)
+    e->refImpossible = pathTracker.refImpossible;
     Py_XDECREF(pathTracker.dumpedClasses);
     pathTracker.dumpedClasses = nullptr;
     if (pathTracker.nodes.size() > e->pathNodesHighWater)
@@ -9772,6 +10106,10 @@ encoder_new(PyTypeObject* type, PyObject* args, PyObject* kwargs)
     e->memoHighWater = 0;
     e->mtScratch = nullptr;
     e->outputHighWater = 0;
+    e->indexAppend = nullptr;
+    e->ecrivainAppend = nullptr;
+    e->fluxAppend = nullptr;
+    e->refImpossible = false;
     e->singleLineNumbers = singleLineNumbers? true : false;
     e->singleLineInit = singleLineInit? true : false;
     e->singleLineNew = singleLineNew? true : false;

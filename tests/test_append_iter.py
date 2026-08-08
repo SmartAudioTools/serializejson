@@ -113,3 +113,38 @@ def test_append_compact_inchange(chemin):
         contenu = f.read()
     assert "\n" not in contenu and "\t" not in contenu
     assert list(serializejson.Decoder(chemin)) == [1, "a", [2, 3]]
+
+
+def test_poussee_amortie_pas_rejouee_a_chaque_maillon(chemin):
+    """La comptabilité d'append ne doit pas invalider la poussée amortie.
+
+    `_update_serialize_parameters` pousse les paramètres globaux et résout
+    le nombre de threads blosc — un `os.cpu_count()`, appel système à ~2 µs.
+    Elle est gardée par un témoin `_owner` que le `__setattr__` de la classe
+    remet à zéro dès qu'un attribut change. Or `append` tient un rang, un
+    descripteur et deux témoins : écrits par `self.x = ...`, ils
+    invalidaient la garde à CHAQUE maillon, et la poussée se rejouait en
+    entier. Mesuré le 08/08/2026 : 7,6 µs par append au lieu de 2,9 sur
+    20 000 maillons. Ils s'écrivent depuis dans le `__dict__`.
+    """
+    encoder = serializejson.Encoder(chemin, indent=None)
+    encoder.append({"n": 0})  # ouverture du fichier : une poussée légitime
+    appels = []
+    vraie = type(encoder)._update_serialize_parameters
+
+    def espion(self):
+        appels.append(1)
+        return vraie(self)
+
+    type(encoder)._update_serialize_parameters = espion
+    try:
+        for i in range(1, 20):
+            encoder.append({"n": i})
+    finally:
+        type(encoder)._update_serialize_parameters = vraie
+    encoder.close()
+
+    # le C ne rappelle python que sur DÉFAUT de garde : zéro appel est la
+    # preuve que la garde tient d'un maillon à l'autre. Avant le correctif,
+    # elle défaillait à chaque fois — un appel par maillon.
+    assert appels == []

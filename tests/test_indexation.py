@@ -8,6 +8,7 @@ références partagées comprises.
 
 import datetime
 import decimal
+import io
 import json
 import os
 import time
@@ -463,6 +464,116 @@ def test_index_impossible_a_ranger_crie(tmp_path, mode):
     assert not os.path.exists(indexation.chemin_sidecar(chemin))
     # l'erreur est CONSOMMÉE : elle ne doit pas revenir hanter le dump suivant
     serializejson.wait_writes()
+
+
+# ---------------------------------------------------------------- appends
+#
+# Une liste remplie maillon par maillon s'indexe SANS relire le document : le
+# rang du maillon est connu quand c'est l'encodeur qui a rempli la liste depuis
+# le début, et ses bornes sont relevées à l'écriture comme celles d'un dump.
+# Ce que ces tests gardent : les octets du fichier, qui ne doivent pas bouger
+# d'un iota, et l'index, qui doit valoir celui du balayage.
+
+
+MAILLONS = [{"nom": "c%d" % i, "notes": list(range(30))} for i in range(6)]
+
+
+def appende(chemin, forme, indent, seuil=64, close=False):
+    encodeur = serializejson.Encoder(chemin, indent=indent, index=forme,
+                                     index_threshold=seuil)
+    for maillon in MAILLONS:
+        encodeur.append(maillon, close=close)
+    encodeur.close()
+    serializejson.wait_writes()
+
+
+@pytest.mark.parametrize("indent", (None, "\t", "  "))
+def test_append_ecrit_les_memes_octets_qu_un_dump_direct(tmp_path, indent):
+    # le maillon est écrit par le même écrivain que le document, décalé d'un
+    # cran d'indentation et précédé de sa virgule : à l'octet près, on ne doit
+    # pas pouvoir dire si la liste a été dumpée d'un coup ou remplie maillon
+    # par maillon
+    par_appends = str(tmp_path / "appends.json")
+    appende(par_appends, None, indent)
+    d_un_coup = str(tmp_path / "coup.json")
+    serializejson.dump(MAILLONS, d_un_coup, indent=indent)
+    serializejson.wait_writes()
+    with open(par_appends, "rb") as f:
+        with open(d_un_coup, "rb") as g:
+            assert f.read() == g.read()
+
+
+@pytest.mark.parametrize("forme", FORMES)
+@pytest.mark.parametrize("indent", (None, "\t"))
+def test_append_indexe_au_fil_de_l_eau(tmp_path, forme, indent):
+    chemin = str(tmp_path / "appends.json")
+    appende(chemin, forme, indent)
+    with open(chemin, "rb") as f:
+        donnees = f.read()
+    index = indexation.lit(chemin)["paths"]
+    # l'index tenu pendant les appends vaut CELUI DU BALAYAGE, entrée par
+    # entrée : ni maillon manquant, ni borne décalée par la virgule ou par
+    # l'indentation ajoutée devant lui
+    assert index == indexation.balaye(donnees, 64,
+                                      fin=index["root"][1])
+    assert "root[3]" in index
+    assert serializejson.load(chemin, path="root[3]") == MAILLONS[3]
+
+
+@pytest.mark.parametrize("forme", FORMES)
+def test_append_ferme_a_chaque_tour_garde_tout_l_index(tmp_path, forme):
+    # PIÈGE : `close=True` range l'index et rouvre le fichier au tour suivant.
+    # Les entrées déjà relevées doivent RESTER chez l'encodeur — les lui
+    # prendre ne laissait dans le dernier index que les maillons écrits depuis
+    # la fermeture précédente, c'est-à-dire un seul
+    chemin = str(tmp_path / "appends.json")
+    appende(chemin, forme, None, close=True)
+    index = indexation.lit(chemin)["paths"]
+    for rang in range(len(MAILLONS)):
+        assert "root[%d]" % rang in index
+    assert serializejson.load(chemin, path="root[4]") == MAILLONS[4]
+
+
+@pytest.mark.parametrize("forme", FORMES)
+def test_append_sur_liste_deja_remplie(tmp_path, forme):
+    # le rang du prochain maillon est inconnu : l'index repasse par le
+    # balayage du document, à la fermeture, et doit être complet quand même
+    chemin = str(tmp_path / "appends.json")
+    serializejson.dump(MAILLONS[:2], chemin)
+    serializejson.wait_writes()
+    encodeur = serializejson.Encoder(chemin, index=forme, index_threshold=64)
+    for maillon in MAILLONS[2:]:
+        encodeur.append(maillon)
+    encodeur.close()
+    serializejson.wait_writes()
+    assert serializejson.load(chemin) == MAILLONS
+    index = indexation.lit(chemin)["paths"]
+    assert "root[5]" in index
+    assert serializejson.load(chemin, path="root[5]") == MAILLONS[5]
+
+
+def test_append_sur_un_fichier_indexe_en_comment(tmp_path):
+    # la queue de commentaire suit le crochet fermant : sans la retirer, le
+    # document ne finirait plus par « ] » et l'append écrirait à sa suite
+    chemin = str(tmp_path / "appends.json")
+    serializejson.dump(MAILLONS[:2], chemin, index="comment",
+                       index_threshold=64)
+    serializejson.wait_writes()
+    encodeur = serializejson.Encoder(chemin, index="comment",
+                                     index_threshold=64)
+    encodeur.append(MAILLONS[2])
+    encodeur.close()
+    serializejson.wait_writes()
+    assert serializejson.load(chemin) == MAILLONS[:3]
+    assert "root[2]" in indexation.lit(chemin)["paths"]
+
+
+def test_append_index_sans_destination_crie():
+    # un flux mémoire n'a pas de chemin où ranger un index : le taire ferait
+    # relire tout le document plus tard, sans un mot
+    encodeur = serializejson.Encoder(index="sidecar", index_threshold=64)
+    with pytest.raises(Exception):
+        encodeur.append(MAILLONS[0], io.BytesIO(), close=True)
 
 
 def test_balaye_donne_des_tranches_json_valides(tmp_path):

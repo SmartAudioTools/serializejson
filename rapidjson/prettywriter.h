@@ -60,12 +60,12 @@ public:
     */
     explicit PrettyWriter(OutputStream& os, StackAllocator* allocator = 0, size_t levelDepth = Base::kDefaultLevelDepth) :
         Base(os, allocator, levelDepth), indentChar_(' '), indentCharCount_(4), formatOptions_(kFormatDefault),
-        compactDepth_(0), compactPending_(false) {}
+        indentBase_(0), compactDepth_(0), compactPending_(false) {}
 
 
     explicit PrettyWriter(StackAllocator* allocator = 0, size_t levelDepth = Base::kDefaultLevelDepth) :
         Base(allocator, levelDepth), indentChar_(' '), indentCharCount_(4), formatOptions_(kFormatDefault),
-        compactDepth_(0), compactPending_(false) {}
+        indentBase_(0), compactDepth_(0), compactPending_(false) {}
 
     //! Sous-arbre compact (pour rapidjson.SingleLine) : tout ce qui est écrit
     //! entre PushCompact() et PopCompact() l'est au format compact du Writer
@@ -96,7 +96,7 @@ public:
 #if RAPIDJSON_HAS_CXX11_RVALUE_REFS
     PrettyWriter(PrettyWriter&& rhs) :
         Base(std::forward<PrettyWriter>(rhs)), indentChar_(rhs.indentChar_), indentCharCount_(rhs.indentCharCount_), formatOptions_(rhs.formatOptions_),
-        compactDepth_(rhs.compactDepth_), compactPending_(rhs.compactPending_) {}
+        indentBase_(rhs.indentBase_), compactDepth_(rhs.compactDepth_), compactPending_(rhs.compactPending_) {}
 #endif
 
     //! Set custom indentation.
@@ -108,6 +108,18 @@ public:
         RAPIDJSON_ASSERT(indentChar == ' ' || indentChar == '\t' || indentChar == '\n' || indentChar == '\r');
         indentChar_ = indentChar;
         indentCharCount_ = indentCharCount;
+        return *this;
+    }
+
+    //! Niveaux d'indentation AJOUTÉS à tous ceux du document, `append` n'en
+    //! ayant qu'un usage : l'élément ajouté est un maillon d'une liste déjà
+    //! ouverte, et le fichier doit rester identique, octet pour octet, à la
+    //! sérialisation directe de la liste complète. Le décalage se faisait
+    //! jusqu'ici côté python, par un remplacement des sauts de ligne dans
+    //! chaque morceau écrit — ce qui interdisait l'écriture droit dans le
+    //! descripteur, donc le thread d'écriture ET l'index relevé au vol.
+    PrettyWriter& SetIndentBase(unsigned levels) {
+        indentBase_ = levels;
         return *this;
     }
 
@@ -447,7 +459,7 @@ protected:
     }
 
     void WriteIndent()  {
-        size_t count = (Base::level_stack_.GetSize() / sizeof(typename Base::Level)) * indentCharCount_;
+        size_t count = (Base::level_stack_.GetSize() / sizeof(typename Base::Level) + indentBase_) * indentCharCount_;
         // appel du PutN MEMBRE du flux (memset) : le PutN generique de
         // stream.h boucle un Put par caractere, mesure ~20%% du temps
         // d'encodage des conteneurs indentes
@@ -457,6 +469,7 @@ protected:
     Ch indentChar_;
     unsigned indentCharCount_;
     PrettyFormatOptions formatOptions_;
+    unsigned indentBase_;
     unsigned compactDepth_;
     bool compactPending_;
 

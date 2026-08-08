@@ -355,6 +355,14 @@ struct SjIndexEcriture {
     size_t seuil = 0;
     std::string texte;      // « "chemin":[début,fin],… », sans les accolades
 
+    // Ce que le document écrit est DANS le fichier. Pour un dump c'est le
+    // document entier, sous « root », et le python pose lui-même son entrée
+    // [0, taille]. Pour un `append` c'est un maillon d'une liste déjà
+    // ouverte : son chemin est « root[rang] », et il s'indexe comme les
+    // autres — c'est même lui qu'on cherchera à charger seul.
+    std::string racine = "root";
+    bool indexeRacine = false;
+
     // un conteneur ouvert, en attente de sa fermeture
     struct Niveau {
         size_t debut;
@@ -393,9 +401,10 @@ struct SjIndexEcriture {
     void ferme(size_t position) {
         attente = nullptr;   // charge scalaire : la clé n'a pas servi
         Niveau& niv = pile.back();
-        // la racine est écartée : le python la pose en [0, taille], exactement
-        // comme le balayage, dont l'entrée « root » écrase la sienne
-        if (pile.size() > 1 && position - niv.debut >= seuil)
+        // la racine d'un dump est écartée : le python la pose en [0, taille],
+        // exactement comme le balayage, dont l'entrée « root » écrase la
+        // sienne. Celle d'un `append`, elle, est un maillon comme un autre.
+        if ((pile.size() > 1 || indexeRacine) && position - niv.debut >= seuil)
             retient(chemin(pile.size() - 1), niv.debut, position);
         pile.pop_back();
     }
@@ -416,7 +425,7 @@ private:
             return niv.chemin;
         size_t depuis = 0;
         if (k == 0) {
-            niv.chemin = "root";
+            niv.chemin = racine;
         } else {
             niv.chemin = chemin(k - 1);
             depuis = pile[k - 1].prof;
