@@ -108,11 +108,15 @@ def chrono(f, essais=50, plafond=2.0, froid=False):
 
 # --- LE DISQUE, MESURÉ ------------------------------------------------------
 # Les deux barres « disque » des figures étaient une PROJECTION : temps de
-# calcul + octets / débit constructeur. Elles sont désormais MESURÉES, sur le
-# vrai volume du dépôt (demande de Baptiste, 08/08 : « je veux les temps réels
-# avec de vraies écritures sur disque »). Un tmpfs ne mesurerait que de la
-# mémoire, d'où le dossier pris DANS le dépôt.
-_DOSSIER_DISQUE = RACINE / ".banc_disque"
+# calcul + octets / débit constructeur. Elles sont désormais MESURÉES, sur un
+# vrai volume (demande de Baptiste, 08/08 : « je veux les temps réels avec de
+# vraies écritures sur disque »). Un tmpfs ne mesurerait que de la mémoire,
+# d'où un dossier pris sur un vrai support — par défaut celui du dépôt, mais
+# `SERIALIZEJSON_BANC_DISQUE` permet de viser un AUTRE volume (08/08 : le
+# dépôt vit sur un disque à plateaux, cf. `support_du_depot`) sans toucher au
+# script à chaque changement de machine
+_DOSSIER_DISQUE = Path(os.environ.get("SERIALIZEJSON_BANC_DISQUE")
+                       or (RACINE / ".banc_disque"))
 
 
 def _chemin_banc(nom):
@@ -192,14 +196,20 @@ def _ecrit_sj(chemin, objet, args):
 
 
 def sonde_disque_libre():
-    # UNE écriture durable étalon (4 Mo + fsync), à lancer avant et après la
-    # campagne. Sur ce volume, machine calme, elle se paie quelques
-    # millisecondes ; sous une autre charge d'ÉCRITURE elle en atteint des
-    # centaines — un fsync attend le journal du système de fichiers ENTIER,
-    # celui des autres processus compris, et aucun nombre d'essais n'y peut
-    # rien. Sans cette sonde, une campagne polluée ne se distingue pas d'un
-    # disque lent : elle rend des chiffres, simplement faux. C'est le troisième
-    # verdict, « conditions non réunies », distinct du succès et de l'échec
+    # UNE écriture durable étalon (4 Mo + fsync), l'état du volume au moment
+    # où le profil qui suit va être payé.
+    #
+    # Ce qu'elle mesure, VÉRIFIÉ et pas supposé (08/08) : le dépôt est sur un
+    # disque À PLATEAUX de 3,6 To derrière VeraCrypt — 105 Mo écrits dans le
+    # dépôt se retrouvent sur `sdb`/`dm-0`, ROTA=1, et rien sur le NVMe. Cache
+    # du disque vide, 4 Mo durables se paient 7 ms (le disque ment, ils sont
+    # dans sa DRAM) ; le cache saturé, 51 ms — 78 Mo/s, le plateau. Une
+    # campagne qui écrit des gigaoctets sature donc son propre support, et
+    # `/proc/diskstats` l'a montré : ZÉRO entrée-sortie étrangère pendant que
+    # la sonde annonçait 51 ms. Attendre un volume « libre » avant de lancer ne
+    # sert à rien — il ne l'est plus au premier profil. D'où la sonde par
+    # PROFIL : elle ne dit pas « quelqu'un d'autre écrit », elle dit à quel
+    # régime du support cette ligne-là a été payée
     chemin = _chemin_banc("etalon")
     donnees = os.urandom(4_000_000)
     temps = []
@@ -214,6 +224,40 @@ def sonde_disque_libre():
         temps.append(perf() - t0)
     os.unlink(chemin)
     return min(temps)
+
+
+def support_du_depot():
+    # NOMMER le support au lieu de le supposer : c'est l'erreur que ce chantier
+    # a payée le plus cher — les figures projetaient le disque à 3,5 Go/s de
+    # NVMe alors que le dépôt vit sur un disque à plateaux USB derrière
+    # VeraCrypt, quarante fois plus lent. Un rapport qui publie des temps de
+    # disque doit dire SUR QUOI, et le lire au lieu de le croire. On stat le
+    # dossier du BANC, pas RACINE : depuis SERIALIZEJSON_BANC_DISQUE, ce n'est
+    # plus forcément le même volume
+    try:
+        _DOSSIER_DISQUE.mkdir(exist_ok=True)
+        st = os.stat(_DOSSIER_DISQUE)
+        noeud = Path("/sys/dev/block/%d:%d"
+                     % (os.major(st.st_dev), os.minor(st.st_dev))).resolve()
+        couches = [noeud.name]
+        esclaves = sorted((noeud / "slaves").glob("*"))
+        while esclaves:
+            noeud = esclaves[0].resolve()
+            couches.append(noeud.name)
+            esclaves = sorted((noeud / "slaves").glob("*"))
+        # une PARTITION n'a ni rotational ni taille : ces attributs sont sur le
+        # disque parent, un cran au-dessus dans /sys
+        disque = noeud if (noeud / "queue").is_dir() else noeud.parent
+        rotatif = (disque / "queue/rotational").read_text().strip() == "1"
+        octets = int((disque / "size").read_text()) * 512
+        bus = "USB" if "/usb" in str(disque.resolve()) else "interne"
+        chiffre = any(couche.startswith("dm-") for couche in couches)
+        return ("%s, %.1f To, %s, %s%s"
+                % (disque.name, octets / 1e12,
+                   "à plateaux" if rotatif else "SSD/NVMe", bus,
+                   ", derrière un conteneur chiffré" if chiffre else ""))
+    except OSError:
+        return "support non identifié"
 
 
 def _gestes_disque(chemin, objet, args, args_lecture):
@@ -255,6 +299,11 @@ def mesures_disque(m, objet, camps, prefixe, args_lecture=None):
     # de la campagne. Interlacés, tous les camps voient la même congestion
     # moyenne, et le minimum par camp retient le tour le plus calme de chacun.
     # C'est l'A/B interlacé du reste du rapport, appliqué au disque.
+    # la sonde d'abord, et une par PROFIL : les deux bornes qui encadrent la
+    # campagne entière condamnent douze minutes de mesures pour une fenêtre de
+    # contention de deux. Placée avant les essais, elle rend l'état dans lequel
+    # ce profil-ci va être payé — la queue du profil précédent comprise
+    m["sonde_disque"] = sonde_disque_libre()
     gestes = {}
     for suffixe, args in camps:
         chemin = _chemin_banc(f"{prefixe}_{suffixe}")
@@ -757,7 +806,13 @@ def agrege_par_groupe(lignes):
         cumul = groupes[groupe]
         cumul["n"] += 1
         for cle, valeur in m.items():
-            if cle != "seuil":
+            if cle == "seuil":
+                continue                       # recalculé sur les sommes
+            elif cle == "sonde_disque":
+                # une congestion ne s'ADDITIONNE pas : le corpus a été payé au
+                # pire de ce que ses fichiers ont vu
+                cumul[cle] = max(cumul.get(cle, 0), valeur)
+            else:
                 cumul[cle] = cumul.get(cle, 0) + valeur
     for groupe, cumul in groupes.items():
         n = cumul.pop("n")
@@ -883,12 +938,15 @@ def rendu_markdown(donnees, types_ecartes, codecs_ecartes, entete):
            " noyau diffère ; les deux segments empilés se comparent donc bien"
            " au temps durable total de pickle, qui est le dénominateur.",
            "",
-           "| profil | pickle bloqué | pickle durable |"
+           "| profil | sonde | pickle bloqué | pickle durable |"
            " serializejson bloqué | serializejson durable |"
            " relecture pickle | relecture serializejson |",
-           "|---|---|---|---|---|---|---|"]
+           "|---|---|---|---|---|---|---|---|"]
     for nom, m in resultats:
-        md.append(f"| {nom} | {fmt_ms(m['ecrit_bloque_pickle'])}"
+        sonde = fmt_ms(m["sonde_disque"])
+        md.append(f"| {nom} |"
+                  f" {sonde if m['sonde_disque'] < 0.012 else '**' + sonde + '**'}"
+                  f" | {fmt_ms(m['ecrit_bloque_pickle'])}"
                   f" | {fmt_ms(m['ecrit_total_pickle'])}"
                   f" | {fmt_ms(m['ecrit_bloque_sj'])}"
                   f" | {fmt_ms(m['ecrit_total_sj'])}"
@@ -897,6 +955,16 @@ def rendu_markdown(donnees, types_ecartes, codecs_ecartes, entete):
     md += ["",
            "Temps réels du tableau ci-dessus : réglages par défaut des deux"
            " côtés, fichiers écrits dans le dépôt puis relus cache évincé.",
+           "",
+           "La colonne « sonde » est l'état du support mesuré JUSTE AVANT ce"
+           " profil-là : 4 Mo écrits durablement, fsync compris. Cache du"
+           " disque encore vide, elle rend quelques millisecondes ; en GRAS,"
+           " il était saturé et le support rendait son débit de plateau. Ce"
+           " n'est donc PAS un indicateur de charge étrangère mais un régime :"
+           " les millisecondes d'une ligne en gras ne se comparent pas à"
+           " celles d'une ligne qui ne l'est pas. Les deux camps, eux, restent"
+           " comparables ENTRE EUX sur chaque ligne : ils sont mesurés"
+           " interlacés, donc sous le même régime.",
            "",
            "## catalogue d'objets du dépôt, par catégorie de types python",
            "",
@@ -1144,15 +1212,17 @@ MACHINES = [("Raspberry Pi 5\n+ microSD (~90 Mo/s)", 0.25, 90e6),
             ("Raspberry Pi 5 + NVMe\nsur HAT PCIe 2.0 (~450 Mo/s)", 0.25,
              450e6),
             ("portable 2018 i5-8250U\n+ SSD SATA (~560 Mo/s)", 0.55, 560e6),
-            ("i7 mobile (mesure)\n+ NVMe PCIe 3 (~3,5 Go/s)", 1.0, 3.5e9),
+            ("i7 mobile (CPU mesuré)\n+ NVMe PCIe 3 (~3,5 Go/s)", 1.0, 3.5e9),
             ("MacBook Pro M4\n+ SSD interne (~6 Go/s)", 1.7, 6e9),
             ("tour Ryzen 9 9950X\n+ NVMe PCIe 5 (~14 Go/s)", 1.8, 14e9)]
 
 
-# le disque de la MACHINE DE MESURE, celui sur lequel sont calculées les deux
-# barres « disque » de toutes les figures — pris DANS la liste ci-dessus, pour
-# qu'un changement de machine n'ait qu'un seul endroit où se faire
-_MACHINE_MESURE = next(m for m in MACHINES if "mesure" in m[0])
+# le disque HYPOTHÉTIQUE des seules figures encore projetées (pyperformance) —
+# pris DANS la liste ci-dessus, pour qu'un changement n'ait qu'un seul endroit
+# où se faire. ⚠ Ce n'est PAS le support réellement mesuré : le CPU de la
+# machine de mesure est bien celui de cette ligne, son volume de travail non,
+# et c'est `support_du_depot()` qui le nomme dans l'en-tête du rapport
+_MACHINE_MESURE = next(m for m in MACHINES if "mesuré" in m[0])
 DISQUE = _MACHINE_MESURE[0].split("+ ")[1]
 DEBIT_DISQUE = _MACHINE_MESURE[2]
 
@@ -1729,6 +1799,9 @@ if __name__ == "__main__":
         " dépôt, écriture durable (fsync compris) et relecture cache du noyau"
         " évincé, meilleur de 5 essais — plus aucune projection, sauf sur la"
         " page pyperformance qui le signale dans ses barres",
+        f"- support mesuré : {support_du_depot()} — les temps de disque de ce"
+        " rapport valent POUR CE SUPPORT ; sur un NVMe ils seraient d'un tout"
+        " autre ordre, mais le classement par POIDS écrit, lui, ne change pas",
     ]
     etalon_depart = sonde_disque_libre()
     print("sonde disque au départ : %.1f ms pour 4 Mo durables"
@@ -1748,17 +1821,20 @@ if __name__ == "__main__":
     appel = mesure_appel_unitaire()
     print("sérialisation incrémentale sur disque réel...")
     incremental = mesure_incremental()
-    # la sonde ENCADRE tout ce qui touche le disque : ses deux bornes disent si
-    # le volume était bien à nous pendant la campagne, et l'en-tête les publie
+    # les deux bornes disent de combien le support s'est DÉGRADÉ pendant la
+    # campagne — au départ son cache est vide, à l'arrivée il a encaissé
+    # plusieurs gigaoctets ; c'est cet écart que la sonde par profil ventile
     etalon_arrivee = sonde_disque_libre()
     print("sonde disque à l'arrivée : %.1f ms" % (1e3 * etalon_arrivee))
     entete.append(
         "- sonde disque (4 Mo écrits durablement, fsync compris) :"
         f" {1e3 * etalon_depart:.1f} ms au départ,"
-        f" {1e3 * etalon_arrivee:.1f} ms à l'arrivée — au-delà d'une dizaine"
-        " de millisecondes le volume était PARTAGÉ avec une autre charge"
-        " d'écriture, et tous les temps disque du rapport ne sont plus que des"
-        " MAJORANTS, à refaire sur une machine calme")
+        f" {1e3 * etalon_arrivee:.1f} ms à l'arrivée. Cet écart n'est pas une"
+        " charge étrangère (vérifié : zéro entrée-sortie extérieure dans"
+        " /proc/diskstats pendant que la sonde triplait) mais le support qui"
+        " sature sous nos propres écritures — cache du disque plein, il rend"
+        " son débit de plateau. La colonne « sonde » du tableau de disque dit,"
+        " ligne par ligne, à quel régime chaque profil a été payé")
     shutil.rmtree(_DOSSIER_DISQUE, ignore_errors=True)
     donnees = {"profils": resultats, "pyperf": pyperf, "types": types_objets,
                "codecs": codecs_images, "appel": appel,

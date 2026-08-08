@@ -3319,3 +3319,55 @@ durabilité des entrées elles-mêmes — il coûterait un forfait de plus
 aux deux camps sans changer leur écart, serializejson créant deux
 entrées et pickle une. `Notes/AUDIT …md` : regardé, rien à enlever,
 c'est du récit.
+
+#### 18.10 ter. La contention « étrangère » était fausse — c'était le support
+
+Le verdict du 18.10 bis — « la contention est étrangère, la sonde ne se mord
+pas la queue » — ne tient pas. Repris le 08/08 en fin de matinée pour relancer
+la campagne, la sonde restait pinnée entre 50,7 et 51,8 ms pendant dix
+minutes, alors même que la charge CPU retombait à 1,2. Une contention
+étrangère réelle n'a aucune raison d'être stable au dixième de milliseconde
+près sur une telle durée — c'est le premier signe qu'il fallait revenir sur
+le diagnostic plutôt que le publier tel quel.
+
+`/proc/diskstats` avant/après, huit secondes d'écart : **aucun périphérique
+n'avait bougé de plus de 0,5 Mo.** Rien n'écrivait, nulle part. `Dirty` à
+2 Mo dans `/proc/meminfo` disait donc vrai — mais prouvait la mauvaise
+chose : l'absence de pages sales ne dit rien sur l'état du CACHE DU DISQUE
+LUI-MÊME, qui n'apparaît dans aucun compteur noyau. `lsblk` a donné la
+réponse : `sdb`, 3,6 To, `ROTA=1` — un disque À PLATEAUX, en USB. Un `dd`
+de 100 Mo avec `conv=fsync`, diskstats diffé à nouveau, l'a confirmé sans
+ambiguïté : `sdb` et `dm-0` (le VeraCrypt) encaissent chacun 104,9 Mo,
+`nvme0n1` seulement 1,1 Mo. **Le dépôt vit sur un disque à plateaux
+derrière VeraCrypt, pas sur le NVMe que `DEBIT_DISQUE` supposait** — d'où
+les 45-93 Mo/s mesurés, environ quarante fois moins que les 3,5 Go/s
+projetés, et d'où la sonde qui reste haute longtemps après la fin d'une
+campagne : ce n'est pas un autre processus qui traîne, c'est le plateau
+qui rend son propre débit une fois son cache DRAM saturé par nos propres
+gigaoctets.
+
+Le garde-fou n'était donc pas seulement trop prudent, il accusait le mauvais
+suspect — un « conditions non réunies » qui se serait redéclenché à chaque
+campagne future sur cette machine, sans jamais s'éteindre, puisque la cause
+qu'il croyait ponctuelle est en réalité permanente. Corrigé dans
+`tests/lance_benchmarks.py` : la sonde ne prétend plus mesurer une charge
+étrangère mais un RÉGIME du support, publié ligne à ligne dans le tableau
+(colonne « sonde », gras au-delà de 12 ms) plutôt qu'en verdict global
+avant/après ; et le rapport nomme désormais le support réellement mesuré
+(`support_du_depot()`, lu dans `/sys/dev/block/`) au lieu de le supposer.
+`SERIALIZEJSON_BANC_DISQUE` permet de viser un autre volume sans toucher au
+script.
+
+Leçon du deux fois : la première fois (18.10 bis), une preuve qui semblait
+solide — `Dirty` bas — a été crue parce qu'elle allait dans le sens du
+diagnostic déjà en tête (« plusieurs instances travaillent sur cette
+machine », vrai en général, faux ce jour-là). La bonne preuve était sous la
+main depuis le début, `/proc/diskstats`, et dit directement QUI écrit — pas
+un indice qui suppose l'absence d'écriture EN COURS chez nous, faible pour
+distinguer un support saturé d'une charge extérieure.
+
+Suite décidée par Baptiste (08/08, 11 h 01) : la campagne ne se rejoue pas
+sur cette machine — un disque à plateaux n'est de toute façon représentatif
+de personne — mais sur une autre, plus rapide. Ce chantier se referme donc
+ici sans table finale mesurée sur le support définitif ; le code, lui, est
+prêt à tourner tel quel sur la machine qui la remplacera.
