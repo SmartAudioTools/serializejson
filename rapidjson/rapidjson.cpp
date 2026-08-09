@@ -380,6 +380,13 @@ struct HandlerContext {
     PyObject* envArgs;        // référence possédée (ou nullptr)
     PyObject* envItems;       // référence possédée (ou nullptr)
     PyObject* envDictKey;     // référence possédée (ou nullptr)
+    // $ref résolu AU VOL, à l'événement String de sa valeur : le dict reste
+    // vide et sera jeté à sa fermeture. Le chemin brut (pointeur dans le
+    // tampon insitu, stable jusqu'à la fin du parse) permet de réinsérer la
+    // paire si une clé supplémentaire dément la forme {"$ref": chemin} seule
+    PyObject* refResolu;      // référence possédée (ou nullptr)
+    const char* refCheminBrut;
+    SizeType refCheminBrutLg;
     // Remplissage DIFFÉRÉ des listes json : les éléments s'empilent dans
     // `attente` et la liste n'est remplie qu'à sa fermeture, d'un bloc, à la
     // taille EXACTE. La faire grandir par appends demande une allocation à 4,
@@ -812,6 +819,12 @@ struct PathTracker {
     // après le reset, libérée en fin d'appel) : les recettes
     // __serializejson__ y ajoutent le nom de classe émis
     PyObject* dumpedClasses = nullptr;
+    // anneau des derniers noms AJOUTÉS à dumpedClasses (pointeurs empruntés,
+    // valides le temps du dump) : les documents homogènes re-payaient un
+    // PySet_Add par objet pour les mêmes noms. Une éviction ne coûte qu'un
+    // PySet_Add redondant (idempotent), jamais un nom manquant
+    PyObject* classesAjoutees[8] = {};
+    unsigned classesAjouteesPos = 0;
     std::unordered_map<PyTypeObject*, PyObject*> classPlans;  // réfs possédées
     // écrit sur une seule ligne les listes homogènes de nombres, où qu'elles
     // soient (valeurs de dicts purs et sous-listes comprises)
@@ -1002,6 +1015,23 @@ sj_write_scalar_inline(WriterT* writer, PyObject* item)
         }
     }
     return false;
+}
+
+
+// PySet_Add dans dumped_classes, dédoublonné par POINTEUR via l'anneau du
+// tracker : les documents homogènes ajoutent les mêmes noms à chaque objet
+static inline void
+sj_ajoute_classe_dumpee(PathTracker* pt, PyObject* nom)
+{
+    for (PyObject* deja : pt->classesAjoutees)
+        if (deja == nom)
+            return;
+    if (PySet_Add(pt->dumpedClasses, nom) < 0) {
+        PyErr_Clear();
+        return;
+    }
+    pt->classesAjoutees[pt->classesAjouteesPos & 7] = nom;
+    pt->classesAjouteesPos++;
 }
 
 
@@ -1872,6 +1902,16 @@ struct PyHandler {
     // cache des chemins $ref RÉSOLUS le temps d'un parse (résolutions
     // acceptées seulement — jamais une cible encore à l'état d'enveloppe)
     PyObject* refPathCache = nullptr;
+    // même cache, clé par OCTETS du chemin, pour le raccourci SAX qui résout
+    // le $ref à l'événement String sans jamais matérialiser ni la chaîne
+    // python du chemin ni le dict {"$ref": ...} (valeurs : réfs possédées)
+    std::unordered_map<std::string, PyObject*> refOctetsCache;
+    // dicts d'enveloppe RECYCLÉS : une enveloppe reconnue laisse son dict
+    // vide — plutôt que le détruire puis en réallouer un au prochain
+    // StartObject, les derniers sont gardés ici (réfs possédées ; 3 : la
+    // profondeur des enveloppes imbriquées courantes, defaultdict et array)
+    PyObject* dictsLibres[3] = {};
+    int nDictsLibres = 0;
     // cache des clés EXOTIQUES décodées ('[5,6]' -> (5,6)...), le temps d'un
     // parse : les répliques d'un document répètent leurs clés, et chaque
     // décodage python coûte ~4 µs (résultats immuables : tuple, frozenset,
@@ -2019,8 +2059,11 @@ struct PyHandler {
             Py_CLEAR(ctx.envArgs);
             Py_CLEAR(ctx.envItems);
             Py_CLEAR(ctx.envDictKey);
+            Py_CLEAR(ctx.refResolu);
             stack.pop_back();
         }
+        for (auto& entry : refOctetsCache)
+            Py_DECREF(entry.second);
         Py_CLEAR(decoderStartObject);
         Py_CLEAR(decoderEndObject);
         Py_CLEAR(decoderEndArray);
@@ -2036,6 +2079,8 @@ struct PyHandler {
             Py_DECREF(entry.second);
         Py_XDECREF(typeValuesCache);
         Py_XDECREF(rootObject);
+        while (nDictsLibres > 0)
+            Py_DECREF(dictsLibres[--nDictsLibres]);
         ReleasePendingB64();
     }
 
@@ -2552,8 +2597,62 @@ struct PyHandler {
         return true;
     }
 
+    // résolution directe d'un chemin $ref depuis le tampon de parse, sans
+    // chaîne python ni dict intermédiaires. Rend une réf FORTE, ou nullptr
+    // sans erreur posée (réf en avant, cible encore à l'état d'enveloppe,
+    // racine inconnue) : l'appelant retombe sur la voie classique
+    PyObject* ResoudreRefDirect(const char* str, SizeType length,
+                                PyObject* dictCourant) {
+        std::string clef(str, (size_t) length);
+        auto it = refOctetsCache.find(clef);
+        if (it != refOctetsCache.end()) {
+            Py_INCREF(it->second);
+            return it->second;
+        }
+        if (rootObject == nullptr && root != nullptr) {
+            rootObject = root;
+            Py_INCREF(rootObject);
+        }
+        if (rootObject == nullptr)
+            return nullptr;
+        // même exigence que la résolution à la fermeture : les listes
+        // ouvertes doivent être pleines pour que le parcours depuis la
+        // racine retrouve leurs éléments déjà lus
+        VerseTout();
+        PyObject* resolu = sj_resolve_ref_path(str, (Py_ssize_t) length,
+                                               rootObject);
+        if (resolu == nullptr)
+            return nullptr;
+        if (resolu == dictCourant
+            || (PyDict_CheckExact(resolu)
+                && PyDict_GetItem(resolu, class_key_name) != nullptr)) {
+            Py_DECREF(resolu);   // pas encore recréé : voie python, sans cache
+            return nullptr;
+        }
+        Py_INCREF(resolu);
+        refOctetsCache.emplace(std::move(clef), resolu);
+        return resolu;
+    }
+
+    // clé supplémentaire après un $ref déjà résolu au vol ({"$ref": c, x: y},
+    // jamais émis par l'encodeur) : la paire est réinsérée dans le dict et la
+    // voie classique reprend, octets et sémantique inchangés
+    bool RefMaterialise(HandlerContext& ctx) {
+        PyObject* chemin = PyUnicode_FromStringAndSize(
+            ctx.refCheminBrut, (Py_ssize_t) ctx.refCheminBrutLg);
+        Py_CLEAR(ctx.refResolu);
+        if (chemin == nullptr)
+            return false;
+        int rc = PyDict_SetItem(ctx.object, ref_key_name, chemin);
+        Py_DECREF(chemin);
+        return rc == 0;
+    }
+
     bool Key(const char* str, SizeType length, bool copy) {
         HandlerContext& current = stack.back();
+
+        if (current.refResolu != nullptr && !RefMaterialise(current))
+            return false;
 
         if (current.envState == 7) {
             // enveloppe de dict à clés non-str : TOUTE clé est une donnée
@@ -2656,9 +2755,14 @@ struct PyHandler {
         if (decoderStartObject != nullptr && fastStartObject) {
             // court-circuite le start_object Python : dict natif, et .root
             // posé sur le Decoder si ce dict est la racine du document
-            mapping = PyDict_New();
-            if (mapping == nullptr)
-                return false;
+            if (nDictsLibres > 0) {
+                // dict laissé vide par une enveloppe reconnue
+                mapping = dictsLibres[--nDictsLibres];
+            } else {
+                mapping = PyDict_New();
+                if (mapping == nullptr)
+                    return false;
+            }
             key_value_pairs = false;
             if (!rootAttrSet && stack.empty() && decoderObject != nullptr) {
                 if (PyObject_SetAttr(decoderObject, root_attr_name, mapping) == -1) {
@@ -2705,6 +2809,9 @@ struct PyHandler {
         ctx.envArgs = nullptr;
         ctx.envItems = nullptr;
         ctx.envDictKey = nullptr;
+        ctx.refResolu = nullptr;
+        ctx.refCheminBrut = nullptr;
+        ctx.refCheminBrutLg = 0;
         ctx.attenteBase = attente.size();
         ctx.differe = false;          // un dict remplit sa table au vol
         Py_INCREF(mapping);
@@ -3300,8 +3407,16 @@ struct PyHandler {
                 Py_CLEAR(ctx_ref.envItems);
                 Py_CLEAR(ctx_ref.envDictKey);
                 stack.pop_back();
-                Py_DECREF(vide);
-                return ReplaceInParent(direct);
+                bool ok = ReplaceInParent(direct);
+                // ReplaceInParent a relâché la réf du parent : s'il ne reste
+                // que la nôtre, le dict (resté vide) est recyclé pour la
+                // prochaine enveloppe au lieu d'être détruit
+                if (nDictsLibres < 3 && Py_REFCNT(vide) == 1
+                    && PyDict_GET_SIZE(vide) == 0)
+                    dictsLibres[nDictsLibres++] = vide;
+                else
+                    Py_DECREF(vide);
+                return ok;
             }
             if (PyErr_Occurred())
                 return false;
@@ -3316,7 +3431,15 @@ struct PyHandler {
 
         PyObject* mapping = ctx.object;
         bool plainDict = !ctx.specialKey && !ctx.keyValuePairs;
+        PyObject* refResolu = ctx.refResolu;
         stack.pop_back();
+
+        // ----- $ref résolu au vol (raccourci de String) : le dict est resté
+        // vide, il est jeté et la cible prend sa place chez le parent
+        if (refResolu != nullptr) {
+            Py_DECREF(mapping);
+            return ReplaceInParent(refResolu);
+        }
 
         if (!pendingB64.empty() && fastPlainEndObject)
             TryDeferDecompress(mapping);
@@ -3782,6 +3905,9 @@ struct PyHandler {
         ctx.envArgs = nullptr;
         ctx.envItems = nullptr;
         ctx.envDictKey = nullptr;
+        ctx.refResolu = nullptr;
+        ctx.refCheminBrut = nullptr;
+        ctx.refCheminBrutLg = 0;
         ctx.attenteBase = attente.size();
         ctx.differe = true;
         Py_INCREF(list);
@@ -4280,6 +4406,28 @@ struct PyHandler {
         PyObject* value;
         const int asciiHint = stringAsciiHint;
         stringAsciiHint = 0;
+
+        // ----- {"$ref": chemin} : résolution AU VOL, dès la valeur — ni
+        // chaîne python du chemin, ni insertion, ni dict à détruire (la
+        // version à la fermeture demeure : flux copiés, replis). Réservé au
+        // tampon insitu : le chemin brut doit survivre jusqu'à la fermeture
+        if (!copy && !stack.empty()) {
+            HandlerContext& cur = stack.back();
+            if (cur.specialKey && cur.isObject && cur.envState == 0
+                && cur.refResolu == nullptr && cur.key != nullptr
+                && cur.keyLength == 4 && memcmp(cur.key, "$ref", 4) == 0
+                && decoderEndObject != nullptr && decoderString == nullptr
+                && PyDict_CheckExact(cur.object)
+                && PyDict_GET_SIZE(cur.object) == 0) {
+                PyObject* resolu = ResoudreRefDirect(str, length, cur.object);
+                if (resolu != nullptr) {
+                    cur.refResolu = resolu;
+                    cur.refCheminBrut = str;
+                    cur.refCheminBrutLg = length;
+                    return true;
+                }
+            }
+        }
 
         // ----- charges binaires : décode le base64 directement depuis le
         // tampon de parse (sans matérialiser la chaîne Python intermédiaire)
@@ -7080,11 +7228,11 @@ dumps_internal(
                                  : pathTracker->singleLineNew)) {
                 CONTAINER_MEMO_OR_REF()
 
-                if (pathTracker->dumpedClasses != nullptr
-                    && PySet_Add(pathTracker->dumpedClasses,
-                                 is_bytearray ? bytearray_class_name_str
-                                              : bytes_class_name_str) < 0)
-                    PyErr_Clear();
+                if (pathTracker->dumpedClasses != nullptr)
+                    sj_ajoute_classe_dumpee(pathTracker,
+                                            is_bytearray
+                                                ? bytearray_class_name_str
+                                                : bytes_class_name_str);
 
                 writer->BytesEnvelope(data, (size_t) length, printable,
                                       is_bytearray);
@@ -7360,10 +7508,10 @@ dumps_internal(
                     && PyUnicode_CompareWithASCIIString(
                            PyTuple_GET_ITEM(type_plan, 3), "type") == 0) {
                     CONTAINER_MEMO_OR_REF()
-                    if (pathTracker->dumpedClasses != nullptr
-                        && PySet_Add(pathTracker->dumpedClasses,
-                                     PyTuple_GET_ITEM(type_plan, 3)) < 0)
-                        PyErr_Clear();
+                    if (pathTracker->dumpedClasses != nullptr)
+                        sj_ajoute_classe_dumpee(pathTracker,
+                                                PyTuple_GET_ITEM(type_plan,
+                                                                 3));
                     writer->EnvelopeHead("type", 4, "__init__", 8);
                     Py_ssize_t nom_length;
                     const char* nom_str =
@@ -7417,10 +7565,9 @@ dumps_internal(
                 CONTAINER_MEMO_OR_REF()
 
                 // dumped_classes : "set"/"frozenset", comme la recette
-                if (pathTracker->dumpedClasses != nullptr
-                    && PySet_Add(pathTracker->dumpedClasses,
-                                 PyTuple_GET_ITEM(set_plan, 3)) < 0)
-                    PyErr_Clear();
+                if (pathTracker->dumpedClasses != nullptr)
+                    sj_ajoute_classe_dumpee(pathTracker,
+                                            PyTuple_GET_ITEM(set_plan, 3));
 
                 if (PyFrozenSet_CheckExact(object))
                     writer->EnvelopeHead("frozenset", 9, "__init__", 8);
@@ -7588,10 +7735,9 @@ dumps_internal(
                             Py_DECREF(state_obj);
                             return false;
                         }
-                        if (pathTracker->dumpedClasses != nullptr
-                            && PySet_Add(pathTracker->dumpedClasses,
-                                         plan_class_str) < 0)
-                            PyErr_Clear();
+                        if (pathTracker->dumpedClasses != nullptr)
+                            sj_ajoute_classe_dumpee(pathTracker,
+                                                    plan_class_str);
                         bool wrote_ok = true;
                         bool saved_attrs_style = attrsDict;
                         attrsDict = true;
@@ -7743,10 +7889,8 @@ dumps_internal(
                         shape_ok = false;
 
                 if (shape_ok) {
-                    if (pathTracker->dumpedClasses != nullptr
-                        && PySet_Add(pathTracker->dumpedClasses,
-                                     class_str_obj) < 0)
-                        PyErr_Clear();
+                    if (pathTracker->dumpedClasses != nullptr)
+                        sj_ajoute_classe_dumpee(pathTracker, class_str_obj);
 
                     bool wrote_ok = true;
                     bool saved_attrs_style = attrsDict;
@@ -8016,10 +8160,8 @@ dumps_internal(
                 if (eligible) {
                     CONTAINER_MEMO_OR_REF()
 
-                    if (pathTracker->dumpedClasses != nullptr
-                        && PySet_Add(pathTracker->dumpedClasses,
-                                     class_name) < 0)
-                        PyErr_Clear();
+                    if (pathTracker->dumpedClasses != nullptr)
+                        sj_ajoute_classe_dumpee(pathTracker, class_name);
 
                     Py_ssize_t name_length;
                     const char* name_str =
