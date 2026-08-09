@@ -27,6 +27,44 @@ Pistes identifiées, NON tentées, à reprendre le cas échéant :
 Piège nouveau : le greffon pytest typeguard est trop vieux pour
 3.14 (ImportError ast.Str) — lancer avec `-p no:typeguard`.
 
+## Addendum 09/08/2026 fin de journée — campagne 3, tête d'enveloppe
+## fusionnée + dict différé (lecture)
+
+La piste 1 de l'addendum précédent est FAITE, combinée à une
+reconnaissance LEXICALE de la tête d'enveloppe par le reader :
+
+- **SjTryEnvelopeHead (reader.h)** : devant `{`, pure lecture en
+  avant du motif `{"__class__": "nom", "__new__"|"__init__":` —
+  rien n'est consommé tant que le handler n'a pas accepté ; remis au
+  PyHandler en UN événement SjEnvelopeHead (StartObject + 2 parses
+  de clé + 1 parse de chaîne économisés). Décliné à la racine, si
+  string/start_object hooks actifs, ou pour numpyB64.
+- **Dict d'enveloppe DIFFÉRÉ** : le contexte est empilé avec
+  object=nullptr ; le cas nominal (EnvelopeConstruct à la fermeture)
+  ne crée ni ne détruit plus aucun dict. Au moindre écart de forme,
+  EnvFlush → EnvDeferMaterialize recrée le dict et l'insère chez le
+  parent à l'identique de la voie classique (cas $ref vidage :
+  insertion dans la tranche d'attente du parent + décalage des
+  attenteBase plus profonds). Invariant : object==nullptr ⟺
+  envState∈{3..6} et envClass≠nullptr.
+- **EndArray dédoublonné** : son bloc de remplacement (end_array)
+  dupliquait la fin de ReplaceInParent SANS les états d'enveloppe →
+  remplacé par ReplaceInParent (−44 lignes). Au passage, la
+  liste-valeur d'un slot d'enveloppe n'est PLUS soumise à end_array
+  (la voie python la reconvertissait en liste par tolist() de toute
+  façon ; l'ancien code C++ ne « marchait » que par une incohérence :
+  il insérait le tableau dans le dict jeté et construisait sur la
+  capture restée liste). Les listes imbriquées dans les args restent
+  converties — vérifié identique au binaire de référence.
+
+Gains lecture PGO contre PGO commité (min de 5 tours interlacés,
+3.13) : datetime −17,8 % (3,36 → 2,77× pickle), tuples −16 %
+(4,16 → 3,50), sets −15,6 % (2,42 → 2,04), bytes −8,9 %
+(8,76 → 7,97) ; dicts/listes/écriture neutres (±1 %). 204 tests
+verts sur les 4 versions, empreinte d'écriture identique, sonde des
+écarts de forme (9 cas : clé en plus, $ref dans args, classe
+inconnue, __class__ non-chaîne, end_array numpy) verte.
+
 ## Addendum 09/08/2026 soir — campagne « paquets de caractères »
 
 Écriture uniquement, sortie inchangée à l'octet près (sha256 sur 11

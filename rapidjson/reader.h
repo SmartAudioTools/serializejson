@@ -235,6 +235,24 @@ RAPIDJSON_FORCEINLINE auto SjExpectB64(Handler& h, int)
 template <typename Handler>
 RAPIDJSON_FORCEINLINE bool SjExpectB64(Handler&, long) { return false; }
 
+// fork serializejson : tete d'enveloppe {"__class__": "nom", "__new__"/
+// "__init__": ...} reconnue lexicalement par le reader et remise au handler
+// en UN evenement (voir SjTryEnvelopeHead) - surcharge SFINAE, decline (0)
+// pour tout handler qui n'a pas SjEnvelopeHead
+template <typename Handler>
+RAPIDJSON_FORCEINLINE auto SjEnvelopeHeadCall(Handler& h, const char* cls,
+                                              SizeType clsLength, int slot,
+                                              const char* slotKey,
+                                              SizeType slotKeyLength, int)
+    -> decltype(h.SjEnvelopeHead(cls, clsLength, slot, slotKey,
+                                 slotKeyLength)) {
+    return h.SjEnvelopeHead(cls, clsLength, slot, slotKey, slotKeyLength);
+}
+template <typename Handler>
+RAPIDJSON_FORCEINLINE int SjEnvelopeHeadCall(Handler&, const char*, SizeType,
+                                             int, const char*, SizeType,
+                                             long) { return 0; }
+
 // fork serializejson : saut du scan d'une charge base64 prefixee « <n>: »
 // (n = nombre de caracteres entre ':' et le guillemet fermant, ecrit par le
 // serialiseur). Rend la longueur de la chaine (prefixe inclus) et avance le
@@ -874,10 +892,86 @@ private:
         }
     }
 
+    // fork serializejson : tete d'enveloppe reconnue LEXICALEMENT —
+    // { ws "__class__" ws : ws "nom" ws , ws "__new__"|"__init__" ws : ws
+    // remise au handler en UN evenement SjEnvelopeHead (StartObject, deux
+    // parses de cle et un parse de chaine generiques economises). Pure
+    // lecture en avant : rien n'est consomme tant que le motif complet
+    // n'est pas reconnu ET accepte par le handler — tout ecart (nom non
+    // ascii-imprimable, echappement...) rend 0 et la voie normale reprend
+    // sur un flux intact. Rend -1 si le handler a pose une erreur ; le
+    // flux consomme s'arrete sur la VALEUR du slot.
+    template<unsigned parseFlags, typename InputStream, typename Handler>
+    RAPIDJSON_FORCEINLINE int SjTryEnvelopeHead(InputStream& is,
+                                                Handler& handler) {
+        const char* end = reinterpret_cast<const char*>(SjRawEnd(is));
+        if (end == nullptr)
+            return 0;
+        const char* start = reinterpret_cast<const char*>(SjRawCursor(is));
+        const char* p = SkipWhitespace(start + 1, end);   // apres '{'
+        if (p + 11 > end || memcmp(p, "\"__class__\"", 11) != 0)
+            return 0;
+        p = SkipWhitespace(p + 11, end);
+        if (p >= end || *p != ':')
+            return 0;
+        p = SkipWhitespace(p + 1, end);
+        if (p >= end || *p != '\"')
+            return 0;
+        const char* cls = ++p;
+        while (p < end && static_cast<unsigned char>(*p) >= 0x20
+               && static_cast<unsigned char>(*p) < 0x80
+               && *p != '\"' && *p != '\\')
+            p++;
+        if (p >= end || *p != '\"' || p == cls)
+            return 0;
+        const SizeType clsLength = static_cast<SizeType>(p - cls);
+        p = SkipWhitespace(p + 1, end);
+        if (p >= end || *p != ',')
+            return 0;
+        p = SkipWhitespace(p + 1, end);
+        int slot;
+        const char* slotKey;
+        SizeType slotKeyLength;
+        if (p + 9 <= end && memcmp(p, "\"__new__\"", 9) == 0) {
+            slot = 1; slotKey = p + 1; slotKeyLength = 7; p += 9;
+        } else if (p + 10 <= end && memcmp(p, "\"__init__\"", 10) == 0) {
+            slot = 2; slotKey = p + 1; slotKeyLength = 8; p += 10;
+        } else
+            return 0;
+        p = SkipWhitespace(p, end);
+        if (p >= end || *p != ':')
+            return 0;
+        p = SkipWhitespace(p + 1, end);
+        int r = SjEnvelopeHeadCall(handler, cls, clsLength, slot,
+                                   slotKey, slotKeyLength, 0);
+        if (r <= 0)
+            return r;
+        size_t consume = static_cast<size_t>(p - start);
+        while (consume--)
+            is.Take();
+        return 1;
+    }
+
     // Parse object: { string : value, ... }
     template<unsigned parseFlags, typename InputStream, typename Handler>
     void ParseObject(InputStream& is, Handler& handler) {
         RAPIDJSON_ASSERT(is.Peek() == '{');
+
+        // fork serializejson : tete d'enveloppe fusionnee — quand elle est
+        // acceptee, le flux est positionne sur la valeur du slot et le
+        // premier tour de boucle saute la lecture de cle
+        bool sjEnvelope = false;
+        if ((parseFlags & kParseInsituFlag) != 0
+            && (parseFlags & kParseBigIntsAsStringsFlag) != 0
+            && (parseFlags & kParseNumbersAsStringsFlag) == 0
+            && (parseFlags & kParseCommentsFlag) == 0) {
+            int r = SjTryEnvelopeHead<parseFlags>(is, handler);
+            if (RAPIDJSON_UNLIKELY(r < 0))
+                RAPIDJSON_PARSE_ERROR(kParseErrorTermination, is.Tell());
+            sjEnvelope = r > 0;
+        }
+
+        if (!sjEnvelope) {
         is.Take();  // Skip '{'
 
         if (RAPIDJSON_UNLIKELY(!handler.StartObject()))
@@ -891,8 +985,13 @@ private:
                 RAPIDJSON_PARSE_ERROR(kParseErrorTermination, is.Tell());
             return;
         }
+        }
 
-        for (SizeType memberCount = 0;;) {
+        for (SizeType memberCount = sjEnvelope ? 1 : 0;;) {
+            if (sjEnvelope)
+                // la cle du slot est deja consommee par la tete
+                sjEnvelope = false;
+            else {
             if (RAPIDJSON_UNLIKELY(is.Peek() != '"'))
                 RAPIDJSON_PARSE_ERROR(kParseErrorObjectMissName, is.Tell());
 
@@ -907,6 +1006,7 @@ private:
 
             SkipWhitespaceAndComments<parseFlags>(is);
             RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
+            }
 
             // fork serializejson : valeur simple d'objet (nombre, littéral,
             // chaîne courte propre), émise sans repasser par ParseValue

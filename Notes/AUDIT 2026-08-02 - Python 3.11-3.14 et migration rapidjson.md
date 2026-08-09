@@ -3371,3 +3371,141 @@ sur cette machine — un disque à plateaux n'est de toute façon représentatif
 de personne — mais sur une autre, plus rapide. Ce chantier se referme donc
 ici sans table finale mesurée sur le support définitif ; le code, lui, est
 prêt à tourner tel quel sur la machine qui la remplacera.
+
+## 19. Journée du 09/08 — trois campagnes : $ref, paquets de caractères, tête d'enveloppe fusionnée
+
+Mission reconduite : « continue à chercher des pistes d'optimisation en
+faisant preuve d'imagination et en t'autorisant à penser out-of-the-box ».
+Trois campagnes dans la journée, chacune close par une consolidation PGO
+des versions et la batterie de 204 tests verte partout. Méthode
+constante : A/B interlacés dans le même processus, min de 5 tours,
+chantier contre le PGO COMMITTÉ (jamais contre un build de chantier),
+binaire de référence reconstruit par `git show` pour éliminer le bruit
+de disposition binaire (leçon du §11).
+
+⚠ Fait d'environnement, sans rapport avec le code : **le python 3.10 a
+disparu de la machine** au redémarrage de l'après-midi
+(`versions/3.10.20` et son env absents). Le `.so` 310 du dépôt reste
+celui du commit 7669ef7 : fonctionnel, mais plus aligné sur les sources
+— à reconsolider si l'environnement revient. Les consolidations du jour
+portent donc sur QUATRE versions (3.11 → 3.14). Autre piège relevé : le
+greffon pytest `typeguard` est trop vieux pour 3.14 (ImportError sur
+`ast.Str`) — la batterie se lance avec `-p no:typeguard`.
+
+### 19.1 Matinée — le raccourci `$ref` au niveau SAX (commit 7669ef7)
+
+Trois retouches C++ :
+
+  - **`$ref` reconnu au niveau SAX** : l'objet `{"$ref": "chemin"}`
+    court-circuite la construction du dict porteur — résolution
+    directe dans le mémo, −32 % sur la catégorie `ref` ;
+  - **recyclage des dicts d'enveloppe** : les dicts jetés à
+    `EndObject` alimentent une pile de dicts libres au lieu de
+    repasser par l'allocateur (~10-15 ns par enveloppe) ;
+  - **anneau `dumped_classes`** à l'écriture.
+
+Essayé et REJETÉ, mesures à l'appui : itération directe des sets à
+l'écriture (`_PySet_NextEntry` est interne depuis CPython 3.13, le prix
+de l'alternative publique annule le gain) ; cache dédié aux noms de
+classes en lecture (`valCache` couvre déjà ces chaînes).
+
+### 19.2 Soirée — « paquets de caractères » à l'écriture, et le corpus PGO qui compilait froid
+
+Écriture uniquement, **sortie identique à l'octet près** (sha256 sur 11
+cas × 3 configurations), lecture neutre (±3 %). Deux leviers réels, un
+rejet :
+
+  - **Écritures fusionnées** : les séparateurs `,\n` + indentation et
+    le `": "` partent en UNE réservation (`SepEtIndent`) au lieu de
+    caractère par caractère ; les têtes d'enveloppe s'écrivent au
+    memcpy ; la charge `bytes` imprimable se réserve en une fois au
+    pire cas.
+  - **Corpus PGO enrichi** (`pgo_workload.py`) : le corpus ne
+    contenait aucun flottant à graphie LONGUE — le chemin complet de
+    dtoa compilait froid, mesuré ×1,7 sur flottants quelconques — ni
+    les six familles à enveloppe. Les y mettre a rapporté à lui seul
+    list_float −46 % (5,4 → 2,76× pickle).
+  - **Essayé et REJETÉ : l'élagage des options rapidjson** (modes
+    figés en dur dans `dumps_internal`) : −9 à +4 % selon le placement
+    du code, aucun signal — les 257 branches de mode sont parfaitement
+    prédites, donc gratuites. Ne pas y revenir.
+
+| catégorie (écriture) | gain | ratio vs pickle après |
+|---|---|---|
+| datetime | **−57 %** | ×0,36 |
+| list_float | **−46 %** | ×2,76 |
+| tuples | −34 % | ×2,24 |
+| decimal | −32 % | ×0,39 |
+| bytes | −22 % | — |
+| sets | −21 % | ×2,49 |
+
+### 19.3 Fin de journée — la tête d'enveloppe reconnue par le READER, et le dict qui n'existe plus
+
+La piste « création différée du dict d'enveloppe » consignée le matin
+est faite, combinée à une reconnaissance LEXICALE de la tête
+d'enveloppe :
+
+  - **`SjTryEnvelopeHead` (reader.h)** : devant `{`, pure lecture en
+    avant du motif `{"__class__": "nom", "__new__"|"__init__":` — rien
+    n'est consommé tant que le handler n'a pas accepté. Le PyHandler
+    reçoit UN événement `SjEnvelopeHead` là où la voie classique
+    coûtait StartObject + deux parses de clé + un parse de chaîne.
+    Décliné à la racine, si hooks string/start_object actifs, ou pour
+    numpyB64.
+  - **Dict d'enveloppe DIFFÉRÉ** : le contexte est empilé avec
+    `object=nullptr` ; le cas nominal (construction à la fermeture) ne
+    crée ni ne détruit plus AUCUN dict. Au moindre écart de forme
+    (clé en plus, classe inconnue…), `EnvDeferMaterialize` recrée le
+    dict et l'insère chez le parent à l'identique de la voie classique
+    — y compris dans la tranche d'attente d'un parent en vidage $ref.
+    Invariant tenu : `object == nullptr` ⟺ état d'enveloppe 3-6 avec
+    classe capturée.
+  - **`EndArray` dédoublonné** : son bloc de remplacement dupliquait
+    la fin de `ReplaceInParent` SANS les états d'enveloppe (−44
+    lignes). La dédup a mis au jour une INCOHÉRENCE latente de
+    l'ancien code : avec `numpy_array_from_list`, la liste-valeur d'un
+    slot d'enveloppe était convertie en tableau… inséré dans le dict
+    jeté, pendant que la construction utilisait la capture restée
+    liste — ça ne « marchait » que par accident. Règle assainie : la
+    liste-valeur TOP-NIVEAU d'un slot n'est plus soumise à
+    `end_array` (la voie python la reconvertissait par `tolist()` de
+    toute façon) ; les listes imbriquées dans les args restent
+    converties — vérifié identique au binaire de référence.
+
+Gains lecture, PGO contre PGO committé (min de 5 interlacés, 3.13) :
+
+| catégorie (lecture) | gain | ratio vs pickle |
+|---|---|---|
+| datetime | **−17,8 %** | 3,36 → 2,77 |
+| tuples | **−16,0 %** | 4,16 → 3,50 |
+| sets | **−15,6 %** | 2,42 → 2,04 |
+| bytes | −8,9 % | 8,76 → 7,97 |
+| dicts, listes, ref | ±1 % | — |
+
+Validation : 204 tests × 4 versions, **empreinte d'écriture identique**
+à la référence, et une sonde dédiée aux écarts de forme (9 cas : clé
+supplémentaire → flush → TypeError, $ref partagé dans les args, têtes
+imbriquées, `__class__` non-chaîne → voie classique, classe inconnue,
+enveloppe racine, update d'objet, `end_array` numpy mêlé aux
+enveloppes) — 9/9 vertes.
+
+### 19.4 Le benchmark de contrôle du soir, et une fausse alerte
+
+Sur demande (20 h 08), benchmark relancé une troisième fois. Les
+familles à enveloppe sont STABLES sur les trois mesures de la soirée
+(−15 à −17 %). Mais `dict_str_int` sortait à +14,7 %, contredisant les
+deux runs précédents (−0,2 % puis +3,5 %). Recontrôle ciblé, 7 tours
+interlacés sur ce seul cas, trois binaires (référence, chantier
+intermédiaire, final) : le binaire final ressort à **−0,5 %** — le
++14,7 % était du bruit (charge machine 3,2 à cette heure).
+`list_str` oscille entre −2 et +5 % selon les runs : dans le bruit
+aussi, aucun signal stable. Leçon déjà payée au §17, reconfirmée : un
+écart inédit sous charge se recontrôle en ciblé avant d'être cru.
+
+### Piste restante, à ne pas réattaquer sans arbitrage
+
+Le plancher `$ref` (121-133 ns contre ~18 ns le memo pickle) : après
+le raccourci SAX et le dict différé, ce qui reste est le prix du
+FORMAT — chemin textuel contre index binaire. Comme pour le mur du
+§17, toute reprise est une décision de format, pas une chasse aux
+rappels python (il n'y en a plus).

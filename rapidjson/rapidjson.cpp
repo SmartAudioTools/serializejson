@@ -2501,99 +2501,104 @@ struct PyHandler {
         emplacement = replacement;         // référence volée
     }
 
-    bool Handle(PyObject* value) {
-
-        if (root) {
-            HandlerContext& env = stack.back();
-            if (env.envState == 1) {
-                // valeur de "__class__" : une chaîne, sinon l'enveloppe est
-                // démentie. numpyB64 est exclu de la capture : son différé
-                // (TryDeferDecompress) lit le dict pendant le parse
-                if (PyUnicode_CheckExact(value)
-                    && !(PyUnicode_GET_LENGTH(value) == 8
-                         && PyUnicode_CompareWithASCIIString(
-                                value, "numpyB64") == 0)) {
-                    env.envClass = value;   // référence consommée
-                    env.envState = 2;
-                    return true;
-                }
-                if (!EnvFlush(env)) {
-                    Py_DECREF(value);
-                    return false;
-                }
-            } else if (env.envState == 3) {
-                // les arguments (scalaire, chaîne, liste ou dict en cours de
-                // construction) : capturés hors du dict d'enveloppe
-                env.envArgs = value;        // référence consommée
-                env.envState = 4;
+    // insertion d'une valeur dans un contexte donné (prélude de capture
+    // d'enveloppe compris) : stack.back() en temps normal (Handle), ou le
+    // PARENT d'une enveloppe différée quand son dict est matérialisé après
+    // coup (EnvDeferMaterialize)
+    bool HandleInto(HandlerContext& env, PyObject* value) {
+        if (env.envState == 1) {
+            // valeur de "__class__" : une chaîne, sinon l'enveloppe est
+            // démentie. numpyB64 est exclu de la capture : son différé
+            // (TryDeferDecompress) lit le dict pendant le parse
+            if (PyUnicode_CheckExact(value)
+                && !(PyUnicode_GET_LENGTH(value) == 8
+                     && PyUnicode_CompareWithASCIIString(
+                            value, "numpyB64") == 0)) {
+                env.envClass = value;   // référence consommée
+                env.envState = 2;
                 return true;
-            } else if (env.envState == 5) {
-                env.envItems = value;       // référence consommée
-                env.envState = 6;
-                return true;
-            } else if (env.envState == 7) {
-                // paire décodée -> directement dans le dict final ; clé
-                // nulle = valeur à jeter (__class__ nu dupliqué). La clé
-                // reste vivante : un fils conteneur sera resservi par
-                // ReplaceInParent sous la même clé
-                int rc = 0;
-                if (env.envDictKey != nullptr)
-                    rc = PyDict_SetItem(env.object, env.envDictKey, value);
-                Py_DECREF(value);
-                return rc == 0;
-            } else if (env.envState != 0) {
-                // valeur inattendue pour l'état (JSON exotique) : repli
-                if (!EnvFlush(env)) {
-                    Py_DECREF(value);
-                    return false;
-                }
             }
-            const HandlerContext& current = stack.back();
-
-            if (current.isObject) {
-                PyObject* key = KeyString(current.key,
-                                          (size_t) current.keyLength);
-                if (key == nullptr) {
-                    Py_DECREF(value);
-                    return false;
-                }
-
-                int rc;
-                if (current.keyValuePairs) {
-                    PyObject* pair = PyTuple_Pack(2, key, value);
-
-                    Py_DECREF(key);
-                    Py_DECREF(value);
-                    if (pair == nullptr) {
-                        return false;
-                    }
-                    rc = PyList_Append(current.object, pair);
-                    Py_DECREF(pair);
-                } else {
-                    if (PyDict_CheckExact(current.object))
-                        // If it's a standard dictionary, this is +20% faster
-                        rc = PyDict_SetItem(current.object, key, value);
-                    else
-                        rc = PyObject_SetItem(current.object, key, value);
-                    Py_DECREF(key);
-                    Py_DECREF(value);
-                }
-
-                if (rc == -1) {
-                    return false;
-                }
-            } else if (current.differe) {
-                attente.push_back(value);      // référence volée
-                if (attente.size() - current.attenteBase >= SJ_ATTENTE_MAX
-                    && !VerseAttente(stack.back()))   // `current` est const
-                    return false;
-            } else {
-                PyList_Append(current.object, value);
+            if (!EnvFlush(env)) {
                 Py_DECREF(value);
+                return false;
             }
-        } else {
-            root = value;
+        } else if (env.envState == 3) {
+            // les arguments (scalaire, chaîne, liste ou dict en cours de
+            // construction) : capturés hors du dict d'enveloppe
+            env.envArgs = value;        // référence consommée
+            env.envState = 4;
+            return true;
+        } else if (env.envState == 5) {
+            env.envItems = value;       // référence consommée
+            env.envState = 6;
+            return true;
+        } else if (env.envState == 7) {
+            // paire décodée -> directement dans le dict final ; clé
+            // nulle = valeur à jeter (__class__ nu dupliqué). La clé
+            // reste vivante : un fils conteneur sera resservi par
+            // ReplaceInParent sous la même clé
+            int rc = 0;
+            if (env.envDictKey != nullptr)
+                rc = PyDict_SetItem(env.object, env.envDictKey, value);
+            Py_DECREF(value);
+            return rc == 0;
+        } else if (env.envState != 0) {
+            // valeur inattendue pour l'état (JSON exotique) : repli
+            if (!EnvFlush(env)) {
+                Py_DECREF(value);
+                return false;
+            }
         }
+        const HandlerContext& current = env;
+
+        if (current.isObject) {
+            PyObject* key = KeyString(current.key,
+                                      (size_t) current.keyLength);
+            if (key == nullptr) {
+                Py_DECREF(value);
+                return false;
+            }
+
+            int rc;
+            if (current.keyValuePairs) {
+                PyObject* pair = PyTuple_Pack(2, key, value);
+
+                Py_DECREF(key);
+                Py_DECREF(value);
+                if (pair == nullptr) {
+                    return false;
+                }
+                rc = PyList_Append(current.object, pair);
+                Py_DECREF(pair);
+            } else {
+                if (PyDict_CheckExact(current.object))
+                    // If it's a standard dictionary, this is +20% faster
+                    rc = PyDict_SetItem(current.object, key, value);
+                else
+                    rc = PyObject_SetItem(current.object, key, value);
+                Py_DECREF(key);
+                Py_DECREF(value);
+            }
+
+            if (rc == -1) {
+                return false;
+            }
+        } else if (current.differe) {
+            attente.push_back(value);      // référence volée
+            if (attente.size() - current.attenteBase >= SJ_ATTENTE_MAX
+                && !VerseAttente(env))            // `current` est const
+                return false;
+        } else {
+            PyList_Append(current.object, value);
+            Py_DECREF(value);
+        }
+        return true;
+    }
+
+    bool Handle(PyObject* value) {
+        if (root)
+            return HandleInto(stack.back(), value);
+        root = value;
         return true;
     }
 
@@ -2821,11 +2826,65 @@ struct PyHandler {
         return true;
     }
 
+    // tête d'enveloppe reconnue LEXICALEMENT par le reader (voir
+    // SjTryEnvelopeHead) : un seul événement remplace StartObject +
+    // Key("__class__") + String(nom) + Key(slot). Le dict d'enveloppe
+    // n'est PAS créé : le contexte est empilé « différé » (object nul),
+    // matérialisé par EnvFlush au premier écart de forme — le cas nominal
+    // (EnvelopeConstruct à la fermeture) ne crée ni ne détruit rien.
+    // Rend 1 (accepté, le reader consomme la tête), 0 (décliné : rien
+    // n'est consommé, voie normale), -1 (erreur python posée).
+    int SjEnvelopeHead(const char* cls, SizeType clsLength, int slot,
+                       const char* slotKey, SizeType slotKeyLength) {
+        // mêmes gardes que la capture classique (Key/StartObject) : dict
+        // natif vierge certifié, pas de hook de chaîne (le nom de classe y
+        // passerait), jamais à la racine (le .root du décodeur et le repli
+        // racine de Handle comptent sur le StartObject classique)
+        if (!fastPlainEndObject || stack.empty()
+            || decoderString != nullptr
+            || (decoderStartObject != nullptr && !fastStartObject))
+            return 0;
+        // numpyB64 : exclu de la capture — son différé (TryDeferDecompress)
+        // lit le dict pendant le parse
+        if (clsLength == 8 && memcmp(cls, "numpyB64", 8) == 0)
+            return 0;
+        // nom pur ascii par construction (le motif du reader l'exige)
+        PyObject* classe = ValueString(cls, (size_t) clsLength, 1);
+        if (classe == nullptr)
+            return -1;
+        HandlerContext ctx;
+        ctx.isObject = true;
+        ctx.keyValuePairs = false;
+        ctx.object = nullptr;      // dict DIFFÉRÉ
+        ctx.key = slotKey;         // le chemin b64 de String lit cette clé
+        ctx.keyLength = slotKeyLength;
+        ctx.copiedKey = false;
+        ctx.specialKey = true;
+        ctx.envState = 3;          // classe capturée, args attendus
+        ctx.envSlot = (uint8_t) slot;
+        ctx.envClass = classe;     // référence consommée
+        ctx.envArgs = nullptr;
+        ctx.envItems = nullptr;
+        ctx.envDictKey = nullptr;
+        ctx.refResolu = nullptr;
+        ctx.refCheminBrut = nullptr;
+        ctx.refCheminBrutLg = 0;
+        ctx.attenteBase = attente.size();
+        ctx.differe = false;
+        stack.push_back(ctx);
+        return 1;
+    }
+
     // verse la capture d'enveloppe dans le dict (écart de forme constaté) :
     // la voie classique reprend avec un dict identique à ce qu'elle aurait
     // construit — l'ordre d'insertion (__class__ puis argument) est celui
     // du document, les clés viennent des interned globaux
     bool EnvFlush(HandlerContext& ctx) {
+        // enveloppe différée (tête reconnue par le reader) : le dict n'a
+        // pas encore d'existence — matérialisé et inséré chez le parent
+        // avant d'y verser la capture
+        if (ctx.object == nullptr && !EnvDeferMaterialize(ctx))
+            return false;
         if (ctx.envState == 7) {
             // état 7 : les paires vivent DÉJÀ dans object (clés décodées,
             // sans étiquette) — exactement le dict final ; rien à verser
@@ -2857,7 +2916,34 @@ struct PyHandler {
         return true;
     }
 
-
+    // matérialise le dict d'une enveloppe DIFFÉRÉE (écart de forme) et
+    // l'insère chez le parent, à l'identique de ce que le Handle du
+    // StartObject classique aurait fait à l'ouverture — le parent n'a reçu
+    // aucun événement depuis, sa clé et sa tranche d'attente sont intactes
+    bool EnvDeferMaterialize(HandlerContext& ctx) {
+        PyObject* mapping;
+        if (nDictsLibres > 0) {
+            mapping = dictsLibres[--nDictsLibres];
+        } else {
+            mapping = PyDict_New();
+            if (mapping == nullptr)
+                return false;
+        }
+        ctx.object = mapping;             // la référence du contexte
+        size_t idx = (size_t) (&ctx - stack.data());
+        HandlerContext& parent = stack[idx - 1];
+        Py_INCREF(mapping);               // la référence que consomme l'insertion
+        if (parent.differe && idx + 1 < stack.size()) {
+            // vidage $ref : des tranches plus profondes vivent au-dessus de
+            // celle du parent — insertion à la fin de SA tranche (qui est
+            // restée ctx.attenteBase), les bases plus profondes décalées
+            attente.insert(attente.begin() + ctx.attenteBase, mapping);
+            for (size_t j = idx + 1; j < stack.size(); j++)
+                stack[j].attenteBase++;
+            return true;
+        }
+        return HandleInto(parent, mapping);
+    }
 
     // deque / Counter / OrderedDict / defaultdict : construction directe —
     // types résolus UNE fois (import collections au premier besoin)
@@ -3407,6 +3493,10 @@ struct PyHandler {
                 Py_CLEAR(ctx_ref.envItems);
                 Py_CLEAR(ctx_ref.envDictKey);
                 stack.pop_back();
+                if (vide == nullptr)
+                    // enveloppe différée : le dict n'a jamais existé ni été
+                    // inséré — insertion simple chez le parent
+                    return Handle(direct);
                 bool ok = ReplaceInParent(direct);
                 // ReplaceInParent a relâché la réf du parent : s'il ne reste
                 // que la nôtre, le dict (resté vide) est recyclé pour la
@@ -3935,6 +4025,20 @@ struct PyHandler {
             return true;
         }
 
+        // la liste-valeur d'un slot d'enveloppe (__init__/__new__/__items__)
+        // n'est pas soumise à end_array : la voie python reconvertissait de
+        // toute façon le tableau en liste (tolist dans _inst_from_dict)
+        // avant instance() — autant ne pas convertir du tout. Les listes
+        // IMBRIQUÉES dans les args, elles, restent converties, comme avant
+        if (!stack.empty()) {
+            const HandlerContext& parent = stack.back();
+            if ((parent.envState == 4 && parent.envArgs == sequence)
+                || (parent.envState == 6 && parent.envItems == sequence)) {
+                Py_DECREF(sequence);
+                return true;
+            }
+        }
+
         if (!pendingB64.empty() && !FlushPendingB64()) {
             Py_DECREF(sequence);
             return false;
@@ -3945,51 +4049,7 @@ struct PyHandler {
         if (replacement == nullptr)
             return false;
 
-        if (!stack.empty()) {
-            const HandlerContext& current = stack.back();
-
-            if (current.isObject) {
-                PyObject* key = sj_unicode_from_utf8(current.key,
-                                                            (size_t) current.keyLength);
-                if (key == nullptr) {
-                    Py_DECREF(replacement);
-                    return false;
-                }
-
-                int rc;
-                if (PyDict_Check(current.object))
-                    // If it's a standard dictionary, this is +20% faster
-                    rc = PyDict_SetItem(current.object, key, replacement);
-                else
-                    rc = PyObject_SetItem(current.object, key, replacement);
-
-                Py_DECREF(key);
-                Py_DECREF(replacement);
-
-                if (rc == -1) {
-                    return false;
-                }
-            } else if (current.differe) {
-                RemplaceDernier(replacement);
-            } else {
-                // Change these to PySequence_Size() and PySequence_SetItem(),
-                // should we implement Decoder.start_array()
-                Py_ssize_t listLen = PyList_GET_SIZE(current.object);
-                int rc = PyList_SetItem(current.object, listLen - 1, replacement);
-
-                // NB: PyList_SetItem() steals a reference on the replacement, so it must
-                // not be DECREFed when the operation succeeds
-
-                if (rc == -1) {
-                    Py_DECREF(replacement);
-                    return false;
-                }
-            }
-        } else {
-            Py_SETREF(root, replacement);
-        }
-
-        return true;
+        return ReplaceInParent(replacement);
     }
 
     bool NaN() {
@@ -4384,7 +4444,10 @@ struct PyHandler {
                   && memcmp(parent.key, "__init__", 8) == 0)
                  || (parent.keyLength == 7
                      && memcmp(parent.key, "__new__", 7) == 0))
-            || !PyDict_CheckExact(parent.object))
+            // enveloppe différée : object est nul, la classe vit dans la
+            // capture
+            || !(parent.envClass != nullptr
+                 || PyDict_CheckExact(parent.object)))
             return false;
         // enveloppe capturée au parse : la classe vit dans la capture
         PyObject* cls_value = parent.envClass != nullptr
@@ -4447,7 +4510,10 @@ struct PyHandler {
                          && memcmp(parent.key, "__init__", 8) == 0)
                         || (parent.keyLength == 7
                             && memcmp(parent.key, "__new__", 7) == 0))
-                    && PyDict_CheckExact(parent.object)) {
+                    // enveloppe différée : object est nul, la classe vit
+                    // dans la capture
+                    && (parent.envClass != nullptr
+                        || PyDict_CheckExact(parent.object))) {
                     // enveloppe capturée au parse : la classe vit dans la
                     // capture, le dict du parent est resté vide
                     PyObject* class_value = parent.envClass != nullptr
