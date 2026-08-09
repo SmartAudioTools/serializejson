@@ -316,18 +316,32 @@ def dump(obj, file, **argsDict):
 # la construction d'un Encoder/Decoder à chaque appel coûtait ~11/7 µs — le
 # plancher qui écrasait tout dump ou load d'objet modeste. L'état volatil
 # (mémo, classes rencontrées, racine) est remis à zéro par l'appel lui-même ;
-# le drapeau _occupe couvre la RÉENTRANCE (un reduce/hook utilisateur qui
-# rappelle dumps pendant un dump) : instance fraîche dans ce cas, comme avant
+# le drapeau occupe couvre la RÉENTRANCE (un reduce/hook utilisateur qui
+# rappelle dumps pendant un dump) : instance fraîche dans ce cas, comme avant.
+# Les trois instances et le drapeau vivent dans UN seul objet (_EtatParDefaut),
+# lui-même accroché à UN seul attribut threading.local : un dump/load normal
+# ne paie qu'une résolution de fil (le coût réel de threading.local) au lieu
+# d'une par instance et par bascule du drapeau — le reste n'est plus que de
+# l'accès d'attribut Python ordinaire, sur un objet déjà en main.
+class _EtatParDefaut:
+    __slots__ = ("encoder_str", "encoder_bytes", "decoder", "occupe")
+
+    def __init__(self):
+        self.encoder_str = None
+        self.encoder_bytes = None
+        self.decoder = None
+        self.occupe = False
+
+
 _instances_par_defaut = threading.local()
 
 
-def _instance_par_defaut(champ, fabrique):
-    cache = _instances_par_defaut
-    instance = getattr(cache, champ, None)
-    if instance is None:
-        instance = fabrique()
-        setattr(cache, champ, instance)
-    return instance
+def _etat_par_defaut():
+    etat = getattr(_instances_par_defaut, "etat", None)
+    if etat is None:
+        etat = _EtatParDefaut()
+        _instances_par_defaut.etat = etat
+    return etat
 
 
 def dumps(obj, **argsDict):
@@ -341,15 +355,16 @@ def dumps(obj, **argsDict):
         obj: object to dump.
         **argsDict: parameters passed to the Encoder (see documentation).
     """
-    cache = _instances_par_defaut
-    if not argsDict and not getattr(cache, "_occupe", False):
-        encoder = _instance_par_defaut(
-            "encoder_str", lambda: Encoder(return_bytes=False))
-        cache._occupe = True
+    etat = _etat_par_defaut()
+    if not argsDict and not etat.occupe:
+        encoder = etat.encoder_str
+        if encoder is None:
+            encoder = etat.encoder_str = Encoder(return_bytes=False)
+        etat.occupe = True
         try:
             return encoder(obj)
         finally:
-            cache._occupe = False
+            etat.occupe = False
     # par la méthode, et non par __call__ : c'est elle qui refuse un index,
     # qui n'a de sens que dans un fichier
     return Encoder(**argsDict).dumps(obj)
@@ -363,15 +378,16 @@ def dumpb(obj, **argsDict):
         obj: object to dump.
         **argsDict: parameters passed to the Encoder (see documentation).
     """
-    cache = _instances_par_defaut
-    if not argsDict and not getattr(cache, "_occupe", False):
-        encoder = _instance_par_defaut(
-            "encoder_bytes", lambda: Encoder(return_bytes=True))
-        cache._occupe = True
+    etat = _etat_par_defaut()
+    if not argsDict and not etat.occupe:
+        encoder = etat.encoder_bytes
+        if encoder is None:
+            encoder = etat.encoder_bytes = Encoder(return_bytes=True)
+        etat.occupe = True
         try:
             return encoder(obj)
         finally:
-            cache._occupe = False
+            etat.occupe = False
     return Encoder(**argsDict).dumpb(obj)
 
 
@@ -419,14 +435,16 @@ def loads(json, *, obj=None, iterator=False, **argsDict):
     """
     if iterator:
         return Decoder(**argsDict)
-    cache = _instances_par_defaut
-    if not argsDict and not getattr(cache, "_occupe", False):
-        decoder = _instance_par_defaut("decoder", Decoder)
-        cache._occupe = True
+    etat = _etat_par_defaut()
+    if not argsDict and not etat.occupe:
+        decoder = etat.decoder
+        if decoder is None:
+            decoder = etat.decoder = Decoder()
+        etat.occupe = True
         try:
             return decoder(json=json, obj=obj)
         finally:
-            cache._occupe = False
+            etat.occupe = False
     return Decoder(**argsDict)(json=json, obj=obj)
 
 

@@ -55,9 +55,9 @@ perf = time.perf_counter
 # seul), le barreau par défaut (le plus rapide qui compresse), puis le dernier
 # barreau (le plus petit)
 VARIANTES = {
-    "b64": "niveau 0, SANS compression (base64 seul)",
-    "sj": f"défaut « smart » (barreau {bareme_smart_defaut})",
-    "min": f"barreau {max(bareme_smart)}, le plus petit du barème",
+    "b64": "profil «smart» niveau 0 (sans compression, base64 seul)",
+    "sj": f"profil «smart» niveau {bareme_smart_defaut} (légère compression)",
+    "min": f"profil «smart» niveau {max(bareme_smart)} (bonne compression)",
 }
 
 
@@ -1234,8 +1234,7 @@ DEBIT_DISQUE = _MACHINE_MESURE[2]
 # l'étiquette, elle, reste dans le ton soutenu, sinon elle ne se lirait plus
 REGIMES = [("écrire vers la RAM", "#fbd7b5", ORANGE),
            ("relire depuis la RAM", "#f0c3b4", "#9c4221"),
-           ("écrire sur le disque, MESURÉ (fsync compris)",
-            "#2f855a", "#2f855a"),
+           ("temps bloquant du dump", "#2f855a", "#2f855a"),
            ("relire depuis le disque, MESURÉ (cache du noyau évincé)",
             "#22543d", "#22543d")]
 
@@ -1244,7 +1243,7 @@ REGIMES = [("écrire vers la RAM", "#fbd7b5", ORANGE),
 # Baptiste, 08/08). Même teinte, en clair — c'est la même dépense, pas la même
 # attente
 VERT_CLAIR = "#9ae6b4"
-LEGENDE_FIL = "…dont ce que finit le fil d'écriture, dump déjà rendu"
+LEGENDE_FIL = "finalisation de l'écriture sur disque par 2ème thread, dump déjà rendu"
 
 # les figures qui n'ont PAS de mesure disque (pyperformance : les charges
 # viennent des benchmarks officiels, en mémoire) gardent la PROJECTION —
@@ -1648,11 +1647,13 @@ def barres_groupees(noms, series, titre, etiquette_y, unite="µs"):
 
 def figure_appel(donnees, sens, titre):
     lignes = donnees["appel"]
+    # le plancher `rapidjson.dumps` (json nu, sans protocole serializejson)
+    # reste dans le tableau markdown, où le texte qui l'entoure le situe —
+    # seul, sur le graphique, il portait à confusion (demande de Baptiste,
+    # 09/08 : lu comme si c'était une variante de serializejson.dumps)
     return barres_groupees(
         [nom for nom, _ in lignes],
         [("pickle", "#718096", [m["pickle"] * 1e6 for _, m in lignes]),
-         ("rapidjson.dumps (json nu)", "#90cdf4",
-          [m["json_nu"] * 1e6 for _, m in lignes]),
          ("Encoder(o)", BLEU, [m["encodeur"] * 1e6 for _, m in lignes]),
          ("serializejson.dumpb(o)", ORANGE,
           [m["module"] * 1e6 for _, m in lignes])],
@@ -1679,7 +1680,7 @@ FIGURES = [
      "catalogue d'objets du dépôt, par catégorie de types python"),
     # les trois variantes du barème, titrées par VARIANTES (une seule source)
     *[(f"benchmark_memoire_{'smart' if suffixe == 'sj' else suffixe}",
-       figure_barres, suffixe, f"conversion en mémoire, {libelle}")
+       figure_barres, suffixe, f"Conversion de données binaires, {libelle}")
       for suffixe, libelle in VARIANTES.items()],
     ("benchmark_codecs_images", figure_codecs_images, "",
      "corpus d'images : serializejson face aux codecs d'images spécialisés"),
