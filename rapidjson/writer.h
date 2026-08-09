@@ -367,13 +367,18 @@ public:
         Prefix();
         OuvreIndex();          // l'accolade est écrite ici, pas par
         AttendIndex(key, key_length);        // WriteStartObject, et la clé
-        WriteRawSmall("{\"__class__\":\""); // nommera la charge (voir attente)
-        for (size_t i = 0; i < cls_length; i++)
-            os_->Put(cls[i]);
-        WriteRawSmall("\",\"");
-        for (size_t i = 0; i < key_length; i++)
-            os_->Put(key[i]);
-        os_->Put('"');
+        // « {"__class__":"<cls>","<key>" » en UNE réservation : cls et key
+        // sont des littéraux ascii sans échappement, la longueur totale est
+        // connue d'avance
+        {
+            char* d = os_->Reserve(14 + cls_length + 3 + key_length + 1);
+            memcpy(d, "{\"__class__\":\"", 14); d += 14;
+            memcpy(d, cls, cls_length); d += cls_length;
+            memcpy(d, "\",\"", 3); d += 3;
+            memcpy(d, key, key_length); d += key_length;
+            *d++ = '"';
+            os_->bufferCursor = d;
+        }
         new (level_stack_.template Push<Level>()) Level(false);
         level_stack_.template Top<Level>()->valueCount = 3;
         return true;
@@ -383,9 +388,10 @@ public:
                        bool printable, bool is_bytearray) {
         Prefix();
         const size_t debut = PositionIndex();
-        WriteRawSmall(is_bytearray
-                          ? "{\"__class__\":\"bytearray\",\"__init__\":"
-                          : "{\"__class__\":\"bytes\",\"__new__\":");
+        if (is_bytearray)
+            WriteRawSmall("{\"__class__\":\"bytearray\",\"__init__\":");
+        else
+            WriteRawSmall("{\"__class__\":\"bytes\",\"__new__\":");
         const size_t debutCharge = PositionIndex();
         WriteBytesPayload(data, length, printable);
         const size_t finCharge = PositionIndex();
@@ -395,9 +401,12 @@ public:
     }
 
 protected:
-    void WriteRawSmall(const char* s) {
-        while (*s)
-            os_->Put(*s++);
+    // littéral écrit d'un BLOC (memcpy + une seule réservation) : la longueur
+    // est celle du tableau, connue à la compilation — l'ancienne boucle Put
+    // par caractère payait un test de capacité par octet
+    template<size_t N>
+    void WriteRawSmall(const char (&s)[N]) {
+        os_->RawValue(s, N - 1);
     }
 
     // bornes d'une enveloppe écrite d'un bloc : ni ses accolades ni la liste
@@ -422,19 +431,24 @@ protected:
     void WriteBytesPayload(const unsigned char* data, size_t length,
                            bool printable) {
         if (printable) {
-            os_->Put('"');
+            // réservation UNIQUE au pire cas (2 octets par caractère + les
+            // guillemets) : l'ancienne boucle payait un test de capacité par
+            // octet écrit
+            char* d = os_->Reserve(2 * (size_t) length + 2);
+            *d++ = '"';
             for (size_t i = 0; i < length; i++) {
                 unsigned char c = data[i];
                 switch (c) {
-                    case '"':  os_->Put('\\'); os_->Put('"');  break;
-                    case '\\': os_->Put('\\'); os_->Put('\\'); break;
-                    case '\t': os_->Put('\\'); os_->Put('t');  break;
-                    case '\n': os_->Put('\\'); os_->Put('n');  break;
-                    case '\r': os_->Put('\\'); os_->Put('r');  break;
-                    default:   os_->Put(static_cast<Ch>(c));   break;
+                    case '"':  *d++ = '\\'; *d++ = '"';  break;
+                    case '\\': *d++ = '\\'; *d++ = '\\'; break;
+                    case '\t': *d++ = '\\'; *d++ = 't';  break;
+                    case '\n': *d++ = '\\'; *d++ = 'n';  break;
+                    case '\r': *d++ = '\\'; *d++ = 'r';  break;
+                    default:   *d++ = static_cast<char>(c); break;
                 }
             }
-            os_->Put('"');
+            *d++ = '"';
+            os_->bufferCursor = d;
         } else {
             os_->Put('[');
             os_->RawDataToBase64(data, length);

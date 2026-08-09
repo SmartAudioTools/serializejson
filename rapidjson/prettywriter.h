@@ -222,10 +222,8 @@ public:
     
     bool EndObject() {
         bool empty = Base::level_stack_.template Pop<typename Base::Level>(1)->valueCount == 0;
-        if (!empty && compactDepth_ == 0) {
-            Base::os_->Put('\n');
-            WriteIndent();
-        }
+        if (!empty && compactDepth_ == 0)
+            SepEtIndent(false);
         return Base::WriteEndObject();
     }
 
@@ -237,10 +235,8 @@ public:
 
     bool EndArray() {
         bool empty = Base::level_stack_.template Pop<typename Base::Level>(1)->valueCount == 0;
-        if (!empty && compactDepth_ == 0 && !(formatOptions_ & kFormatSingleLineArray)) {
-            Base::os_->Put('\n');
-            WriteIndent();
-        }
+        if (!empty && compactDepth_ == 0 && !(formatOptions_ & kFormatSingleLineArray))
+            SepEtIndent(false);
         return Base::WriteEndArray();
     }
 
@@ -323,26 +319,23 @@ public:
         Base::OuvreIndex();   // l'accolade est écrite ici, pas par WriteStartObject
         Base::AttendIndex(key, key_length);   // et la clé nommera la charge
         Base::os_->Put('{');
-        if (!compact) {
-            Base::os_->Put('\n');
-            WriteIndent();
+        if (compact) {
+            Base::WriteRawSmall("\"__class__\":\"");
+            Base::os_->RawValue(cls, cls_length);
+            Base::WriteRawSmall("\",\"");
+            Base::os_->RawValue(key, key_length);
+            Base::os_->Put('"');
         }
-        Base::WriteRawSmall("\"__class__\":");
-        if (!compact)
-            Base::os_->Put(' ');
-        Base::os_->Put('"');
-        for (size_t i = 0; i < cls_length; i++)
-            Base::os_->Put(cls[i]);
-        Base::os_->Put('"');
-        Base::os_->Put(',');
-        if (!compact) {
-            Base::os_->Put('\n');
-            WriteIndent();
+        else {
+            SepEtIndent(false);
+            Base::WriteRawSmall("\"__class__\": \"");
+            Base::os_->RawValue(cls, cls_length);
+            Base::WriteRawSmall("\",");
+            SepEtIndent(false);
+            Base::os_->Put('"');
+            Base::os_->RawValue(key, key_length);
+            Base::os_->Put('"');
         }
-        Base::os_->Put('"');
-        for (size_t i = 0; i < key_length; i++)
-            Base::os_->Put(key[i]);
-        Base::os_->Put('"');
         return true;
     }
 
@@ -352,9 +345,10 @@ public:
         const size_t debut = Base::PositionIndex();
         if (compactDepth_ > 0) {
             // sous-arbre compact : mêmes octets que le Writer
-            Base::WriteRawSmall(is_bytearray
-                                    ? "{\"__class__\":\"bytearray\",\"__init__\":"
-                                    : "{\"__class__\":\"bytes\",\"__new__\":");
+            if (is_bytearray)
+                Base::WriteRawSmall("{\"__class__\":\"bytearray\",\"__init__\":");
+            else
+                Base::WriteRawSmall("{\"__class__\":\"bytes\",\"__new__\":");
             const size_t debutCharge = Base::PositionIndex();
             Base::WriteBytesPayload(data, length, printable);
             const size_t finCharge = Base::PositionIndex();
@@ -364,24 +358,35 @@ public:
         }
         size_t profondeur =
             Base::level_stack_.GetSize() / sizeof(typename Base::Level);
-        Base::os_->Put('{');
-        Base::os_->Put('\n');
+        const size_t indentFils = (profondeur + 1) * indentCharCount_;
+        {   // « {\n<indent> » en une réservation
+            char* d = Base::os_->Reserve(indentFils + 2);
+            *d++ = '{'; *d++ = '\n';
+            memset(d, indentChar_, indentFils);
+            Base::os_->bufferCursor = d + indentFils;
+        }
+        if (is_bytearray)
+            Base::WriteRawSmall("\"__class__\": \"bytearray\",\n");
+        else
+            Base::WriteRawSmall("\"__class__\": \"bytes\",\n");
         Base::os_->PutN(static_cast<typename OutputStream::Ch>(indentChar_),
-                        (profondeur + 1) * indentCharCount_);
-        Base::WriteRawSmall(is_bytearray
-                                ? "\"__class__\": \"bytearray\",\n"
-                                : "\"__class__\": \"bytes\",\n");
-        Base::os_->PutN(static_cast<typename OutputStream::Ch>(indentChar_),
-                        (profondeur + 1) * indentCharCount_);
-        Base::WriteRawSmall(is_bytearray ? "\"__init__\": "
-                                         : "\"__new__\": ");
+                        indentFils);
+        if (is_bytearray)
+            Base::WriteRawSmall("\"__init__\": ");
+        else
+            Base::WriteRawSmall("\"__new__\": ");
         const size_t debutCharge = Base::PositionIndex();
         Base::WriteBytesPayload(data, length, printable);
         const size_t finCharge = Base::PositionIndex();
-        Base::os_->Put('\n');
-        Base::os_->PutN(static_cast<typename OutputStream::Ch>(indentChar_),
-                        profondeur * indentCharCount_);
-        Base::os_->Put('}');
+        {   // « \n<indent>} » en une réservation
+            const size_t indentPere = profondeur * indentCharCount_;
+            char* d = Base::os_->Reserve(indentPere + 2);
+            *d++ = '\n';
+            memset(d, indentChar_, indentPere);
+            d += indentPere;
+            *d++ = '}';
+            Base::os_->bufferCursor = d;
+        }
         Base::IndexEnveloppe(debut, debutCharge, finCharge, printable, is_bytearray);
         return true;
     }
@@ -414,33 +419,28 @@ protected:
             typename Base::Level* level = Base::level_stack_.template Top<typename Base::Level>();
 
             if (level->inArray) {
-                if (level->valueCount > 0) {
-                    Base::os_->Put(','); // add comma if it is not the first element in array
-                    if (formatOptions_ & kFormatSingleLineArray)
-                        Base::os_->Put(' ');
-                }
-
                 if (!(formatOptions_ & kFormatSingleLineArray)) {
-                    Base::os_->Put('\n');
-                    WriteIndent();
+                    SepEtIndent(level->valueCount > 0);
+                }
+                else if (level->valueCount > 0) {
+                    char* d = Base::os_->Reserve(2);
+                    d[0] = ','; d[1] = ' ';
+                    Base::os_->bufferCursor = d + 2;
                 }
             }
             else {  // in object
                 if (level->valueCount > 0) {
                     if (level->valueCount % 2 == 0) {
-                        Base::os_->Put(',');
-                        Base::os_->Put('\n');
+                        SepEtIndent(true);
                     }
                     else {
-                        Base::os_->Put(':');
-                        Base::os_->Put(' ');
+                        char* d = Base::os_->Reserve(2);
+                        d[0] = ':'; d[1] = ' ';
+                        Base::os_->bufferCursor = d + 2;
                     }
                 }
                 else
-                    Base::os_->Put('\n');
-
-                if (level->valueCount % 2 == 0)
-                    WriteIndent();
+                    SepEtIndent(false);
             }
             //if (!level->inArray && level->valueCount % 2 == 0)
             //   RAPIDJSON_ASSERT(type == kStringType);  // if it's in object, then even number should be a name
@@ -458,12 +458,16 @@ protected:
         }
     }
 
-    void WriteIndent()  {
+    // virgule facultative + saut de ligne + indentation en UNE réservation :
+    // trois tests de capacité ramenés à un seul par élément de conteneur
+    void SepEtIndent(bool virgule) {
         size_t count = (Base::level_stack_.GetSize() / sizeof(typename Base::Level) + indentBase_) * indentCharCount_;
-        // appel du PutN MEMBRE du flux (memset) : le PutN generique de
-        // stream.h boucle un Put par caractere, mesure ~20%% du temps
-        // d'encodage des conteneurs indentes
-        Base::os_->PutN(static_cast<typename OutputStream::Ch>(indentChar_), count);
+        char* d = Base::os_->Reserve(count + 2);
+        if (virgule)
+            *d++ = ',';
+        *d++ = '\n';
+        memset(d, indentChar_, count);
+        Base::os_->bufferCursor = d + count;
     }
 
     Ch indentChar_;

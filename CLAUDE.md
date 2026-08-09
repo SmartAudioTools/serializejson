@@ -1,5 +1,58 @@
 # Passation — nuit du 05 au 06/08/2026, close le 06 à 10 h
 
+## Addendum 09/08/2026 — campagne $ref/enveloppes (commit 7669ef7)
+
+Trois retouches C++ commitées (raccourci $ref SAX −32 %, recyclage
+des dicts d'enveloppe ~10-15 ns, anneau dumped_classes), PGO des 5
+versions, 204 tests verts partout. Essayé et rejeté : itération
+directe des sets (_PySet_NextEntry interne depuis 3.13), cache dédié
+aux noms de classes (valCache couvre déjà).
+
+Pistes identifiées, NON tentées, à reprendre le cas échéant :
+
+1. **Création différée du dict d'enveloppe en lecture.** Aujourd'hui
+   chaque StartObject alloue (ou recycle) un dict inséré aussitôt
+   chez le parent via Handle(mapping) ; pour une enveloppe il est
+   jeté à EndObject. Différer la création jusqu'à la première clé
+   non-enveloppe supprimerait alloc + insertion + remplacement,
+   plusieurs dizaines de ns par enveloppe. INVASIF : revoir
+   l'insertion hâtive chez le parent et tous les points touchant
+   current.object. À ne faire que sur binaire de chantier avec A/B
+   min-de-N.
+2. **Plancher $ref restant** (121-133 ns contre ~18 ns le memo
+   pickle) : ce qui reste = poussée de contexte + dict vide (créé
+   puis jeté, résorbable par la piste 1) + sonde du cache. Au-delà,
+   c'est une décision de FORMAT (cf. « Le mur restant »).
+
+Piège nouveau : le greffon pytest typeguard est trop vieux pour
+3.14 (ImportError ast.Str) — lancer avec `-p no:typeguard`.
+
+## Addendum 09/08/2026 soir — campagne « paquets de caractères »
+
+Écriture uniquement, sortie inchangée à l'octet près (sha256 sur 11
+cas × 3 configs), lecture neutre (±3 %). Trois leviers :
+
+- **Écritures fusionnées** : séparateurs `,\n`+indentation et `": "`
+  en UNE réservation (SepEtIndent), têtes d'enveloppe au memcpy,
+  charge bytes imprimable en une réservation au pire cas. Gains PGO
+  contre PGO commité (min de 5 tours interlacés) : datetime −57 %
+  (0,36× pickle), tuples −34 % (2,24), decimal −32 % (0,39),
+  bytes −22 %, sets −21 % (2,49).
+- **Corpus PGO enrichi** (pgo_workload.py) : flottants à graphie
+  LONGUE (sans eux le chemin complet de dtoa compile froid : ×1,7
+  mesuré sur flottants quelconques) + les six familles à enveloppe.
+  list_float −46 % (5,4 → 2,76× pickle).
+- **Essayé et REJETÉ : élagage des options rapidjson** (modes figés
+  en dur dans dumps_internal) : −9 à +4 % selon le placement du code,
+  aucun signal — les 257 branches de mode sont parfaitement prédites,
+  gratuites. Ne pas y revenir.
+
+⚠ **L'environnement 3.10 a DISPARU de la machine** au redémarrage du
+09/08 après-midi (versions/3.10.20 et SmartPython-3.10.20_2026-07-26
+absents). Le .so 310 du dépôt reste celui du commit 7669ef7 : il
+fonctionne mais ne correspond plus aux sources — à reconsolider si
+l'environnement revient.
+
 Trois missions successives, dictées par Baptiste : « chaque type sous
 ×2 de pickle » (20 h 26), puis « jusqu'aux performances de pickle »
 (00 h 59, « mieux que pickle c'est bien aussi »), puis « lance une
