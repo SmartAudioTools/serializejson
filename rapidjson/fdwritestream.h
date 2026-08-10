@@ -166,6 +166,60 @@ public:
         Put('\"');
     }
 
+    // Grand str remis au thread d'écriture en ZÉRO-COPIE : le bloc est le
+    // tampon utf-8 INTERNE de l'objet, immuable et maintenu vivant par une
+    // référence forte que le thread rend une fois le bloc écrit (Bloc::ref).
+    // Le str part EN ENTIER sans même être lu ici — scan et échappement se
+    // font dans le fil d'écriture (Bloc::Echappe). La taille écrite n'est
+    // plus connue d'avance ; l'index de positions, seul consommateur, se
+    // corrige des expansions relevées par ce même fil (au rangement pour un
+    // dump, à la fermeture de l'écrivain pour les maillons d'un append —
+    // voir sj_append_ferme).
+    // Rend true, guillemet OUVRANT écrit, l'appelant ferme ; false (str
+    // sous la tranche : le détour coûterait plus qu'il n'épargne) : voie
+    // normale, rien d'écrit.
+    bool RawPyStrPropre(PyObject* obj, const char* str, size_t taille) {
+        if (taille < chunkSize)
+            return false;
+        Put('\"');
+        Flush();
+        Py_INCREF(obj);
+        ecrivain->pousse(const_cast<char*>(str), taille, Bloc::Echappe, obj);
+        blocsVariables += 1;
+        ecrivain->freineSiBesoin();
+        return true;
+    }
+
+    // Un bytes/bytearray remis au thread d'écriture pour qu'il COMPRESSE
+    // lui-même puis choisisse l'étiquette (voir Bloc::Compresse et
+    // Writer::BloscDiffereEcrit, qui pose les crochets de la liste autour) :
+    // ni la trame ni sa taille n'existent encore ici. Réservé aux grands
+    // tampons — sous la tranche, le Flush coûterait plus que la compression
+    // différée n'épargne. bytes : tampon immuable, zéro-copie sous référence
+    // forte ; bytearray (que rien n'empêche de muter après le retour de
+    // dump) : copie brute. Rend false quand rien n'a été pris : l'appelant
+    // compresse alors lui-même, en synchrone.
+    bool CompresseDiffere(PyObject* obj, char* buf, size_t taille,
+                          int clevel, int compcode) {
+        if (taille < chunkSize)
+            return false;
+        Flush();
+        if (PyBytes_CheckExact(obj)) {
+            Py_INCREF(obj);
+            ecrivain->pousseCompresse(buf, taille, obj, clevel, compcode);
+        } else {
+            char* copie = (char*) malloc(taille);
+            if (copie == nullptr)
+                return false;            // voie synchrone : elle se replie
+            memcpy(copie, buf, taille);
+            ecrivain->pousseCompresse(copie, taille, nullptr, clevel,
+                                      compcode);
+        }
+        blocsVariables += 1;
+        ecrivain->freineSiBesoin();
+        return true;
+    }
+
     // Même chose, mais on PREND le bloc, et son encodage avec : le thread
     // d'écriture fera le base64 pendant que la sérialisation continue. Réservé
     // aux trames compressées, seuls blocs dont nous soyons propriétaires — et
@@ -180,7 +234,7 @@ public:
         if (taille < chunkSize)
             return false;
         Flush();
-        ecrivain->pousse(data, taille, true);
+        ecrivain->pousse(data, taille, Bloc::Base64);
         ecrivain->freineSiBesoin();
         return true;
     }
@@ -189,7 +243,33 @@ public:
         Py_buffer view;
         if (PyObject_GetBuffer(obj, &view, PyBUF_CONTIG_RO) != 0)
             return;  // l'erreur python sera vue en fin d'encodage
-        RawDataToBase64((const unsigned char*) view.buf, (size_t) view.len);
+        if ((size_t) view.len >= chunkSize) {
+            // l'encodage base64 part chez l'écrivain (sa taille est connue
+            // d'avance : Tell et l'index restent exacts). bytes : tampon
+            // immuable, remis en ZÉRO-COPIE sous référence forte ; sinon
+            // (bytearray, tableau writeable — que rien n'empêche de muter
+            // après le retour de dump) : copie brute, plusieurs fois moins
+            // chère que l'encodage qu'elle épargne
+            Flush();
+            if (PyBytes_CheckExact(obj)) {
+                Py_INCREF(obj);
+                ecrivain->pousse((char*) view.buf, (size_t) view.len,
+                                 Bloc::Base64, obj);
+            } else {
+                char* copie = (char*) malloc((size_t) view.len);
+                if (copie == nullptr) {
+                    erreur = ENOMEM;
+                    PyBuffer_Release(&view);
+                    return;
+                }
+                memcpy(copie, view.buf, (size_t) view.len);
+                ecrivain->pousse(copie, (size_t) view.len, Bloc::Base64);
+            }
+            ecrivain->freineSiBesoin();
+        } else {
+            RawDataToBase64((const unsigned char*) view.buf,
+                            (size_t) view.len);
+        }
         PyBuffer_Release(&view);
     }
 
@@ -218,6 +298,10 @@ public:
 
     Ch* bufferCursor;
     bool maybe_non_ascii = false;  // sans objet pour un flux (pas de conversion)
+    // combien de blocs à taille écrite VARIABLE (Echappe, Compresse) sont
+    // partis : l'index de positions s'en sert pour retenir par prudence les
+    // conteneurs qu'un tel bloc a traversés (voir SjIndexEcriture)
+    size_t blocsVariables = 0;
 
 private:
 

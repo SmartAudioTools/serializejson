@@ -3509,3 +3509,575 @@ le raccourci SAX et le dict différé, ce qui reste est le prix du
 FORMAT — chemin textuel contre index binaire. Comme pour le mur du
 §17, toute reprise est une décision de format, pas une chasse aux
 rappels python (il n'y en a plus).
+
+## 20. Nuit du 09 au 10/08 — écriture : zéro-copie des grands str,
+## et quatre pistes fermées proprement
+
+Mission de la soirée (validée avant 21 h) : chasser les copies encore
+évitables. Cinq pistes instruites, deux retenues, trois fermées avec
+la mesure ou le raisonnement qui les ferme.
+
+### 20.1 Piste ① — copie terminale de `dumps` str (RETENUE)
+
+Le tampon d'encodage est désormais adossé à un str ascii compact
+(`strBacking` dans PyBytesBuffer) : quand le document reste ascii —
+le cas courant —, la sortie de `dumps` se PREND (`stealPyStrAscii`)
+au lieu de se recopier. La conversion finale était une copie du
+document entier. Si un caractère non-ascii a été écrit
+(`maybe_non_ascii`), le chemin copie demeure (PyUnicode_DecodeUTF8).
+Au passage, l'`errors` non initialisé (UB latent) est fixé à nullptr.
+
+PGO contre PGO commité, min de 7 tours interlacés (3.13) :
+
+| cas (dumps → str) | delta |
+|---|---|
+| gros ascii 10 Mo | **−29,1 %** |
+| liste de 10 000 str | **−12,6 %** |
+| petit ascii | −10,4 % |
+| moyen ascii | −2,1 % |
+| petit/gros accent | +3,8 / +3,0 % (chemin copie, inchangé en substance) |
+
+### 20.2 Piste ④ — remise zéro-copie des grands str propres vers le
+### fil d'écriture (RETENUE)
+
+Pour un flux fichier (FdWriteStream + WriterThread), un grand str
+(≥ chunkSize = 64 Ko) dont le PRÉFIXE est propre (sans `"`, `\`, ni
+caractère de commande) est remis au fil d'écriture SANS copie : le
+tampon utf-8 interne de l'objet est poussé tel quel, une référence
+forte (`Bloc::ref`) garantit sa survie jusqu'à l'écriture, rendue
+avec le GIL par `libereRefs()` (appelée à l'entrée de laisseFiler et
+en sortie des deux attentes — comptabilité vérifiée exactement
+équilibrée : +1 en vol, −1 après wait_writes).
+
+Le premier jet remettait le str seulement s'il était propre EN
+ENTIER : la population perdante (échappement tout à la fin d'un str
+de 10 Mo : scan complet PUIS échappement complet) sortait à +38,6 %
+de latence. Le dessin final remet le PRÉFIXE propre (`RawPyStrPropre`
+rend le nombre d'octets pris, scan SSE2 par `premierEchappement`) et
+l'appelant n'échappe que la QUEUE : la population perdante devient
+gagnante (−5,4 %). L'index (`Tell`) reste juste car la taille remise
+est connue d'avance.
+
+PGO contre PGO commité, min de 7 tours interlacés (3.13, dump vers
+fichier, latence par appel drainée par wait_writes) :
+
+| cas (dump → fichier) | delta |
+|---|---|
+| liste 100 × 100 Ko | **−17,8 %** |
+| gros propre 10 Mo | **−10,3 %** |
+| accent propre 10 Mo | −6,7 % |
+| perdant (échappement final) | −5,4 % |
+| témoin petit document | +1,6 % (bruit) |
+
+Validation : 204 tests verts × 4 versions, identité à l'octet près
+fichier contre dumps sur 9 cas × {indent tab, compact} × {fast_release,
+blocking}, roundtrips, refcounts équilibrés, append (Recule) et index
+sidecar justes avec des blocs différés en vol.
+
+### 20.3 Pistes fermées
+
+- **② Seuil du parse en place en lecture** : abaisser le seuil de
+  1 Mo ne rend rien (−1,2 % au mieux, bruit, 7 tours) — sous 1 Mo le
+  parse domine la copie d'entrée. Commentaire daté posé au seuil
+  (rapidjson.cpp:5159) ; ne pas y revenir sans nouveau cas.
+- **③ Compression dans l'écrivain** : côté lecture le pool existe
+  déjà (FlushPendingB64) ; côté écriture, déplacer zstd dans le fil
+  ne gagnerait que ~0,4 µs par entrée (mesure du §17) et poserait une
+  question de FORMAT — au rapport, arbitrage au matin.
+- **⑤ Segments pour `dumps` mémoire** : depuis la piste ①, la
+  capacité initiale 2 × outputHighWater élimine déjà les recopies de
+  croissance en régime établi ; des segments ne gagneraient que le
+  tout premier appel. Fermée par la règle « le logiciel le fait
+  déjà ».
+
+### 20.4 La fausse régression lecture ×2,7 — un artefact de banc
+### instructif
+
+L'A/B PGO de nuit sortait `loads` d'un document de 10 Mo à **+155 %**
+sur le binaire de chantier — alors qu'aucune piste ne touche la
+lecture. Diagnostic (défauts de page mesurés par getrusage) :
+**2 557 minor faults par itération = exactement 10 Mo/4 Ko** sur le
+chantier, zéro sur la référence. Ce ne sont pas les tampons du parse
+(ce cas, ≥ 1 Mo sans antislash, se parse EN PLACE) : ce sont les
+~10,5 Mo d'objets RÉSULTAT, libérés à chaque itération puis rendus à
+l'OS par glibc, dont les seuils dynamiques (mmap/trim) étaient restés
+à 128 Ko.
+
+La référence, elle, était protégée PAR ACCIDENT : le banc fabriquait
+ses documents avec le binaire testé, et la copie terminale de
+l'ancien `dumps` LIBÉRAIT son tampon ≥ 10 Mo — libération d'un bloc
+mmappé qui relève les seuils dynamiques de glibc pour tout le reste
+du processus. La piste ① (zéro-copie = plus de libération) faisait
+disparaître cette protection fortuite. Preuve par tas neutre :
+documents construits par `json.dumps`, les DEUX binaires fautent et
+rament exactement pareil (~4,5 ms, ~2 441 pages). Banc corrigé
+(documents indépendants du binaire), A/B relancé : lecture NEUTRE
+partout (−2,0 à +0,8 %).
+
+Deux leçons : un banc dont la SETUP passe par le binaire testé peut
+mesurer l'état du tas, pas le binaire ; et il existe une optimisation
+préexistante possible — relever les seuils malloc pour les boucles de
+gros loads (×2,7 disponible) — mais c'est un réglage GLOBAL au
+processus hôte : au rapport, pas au code.
+
+### 20.5 Constat annexe : rétention préexistante de `dumps`
+
+L'instance par défaut (par thread) retient le dernier document dumpé,
+et les Encoder python jetables attendent le gc cyclique. Mesuré
+IDENTIQUE sur le binaire HEAD : préexistant, pas un défaut de la
+nuit. Purge : dumper autre chose puis gc.collect().
+
+### 20.6 Piège repayé : build_pgo.sh depuis la racine
+
+`bash rapidjson/build_pgo.sh` lancé de la RACINE crée un
+`rapidjson.cpp` VIDE à la racine et invoque le mauvais setup.py
+(échec `InvalidVersion`). Le script se lance DEPUIS rapidjson/ —
+piège déjà documenté, repayé cette nuit.
+
+### 20.7 Piste ④bis — le str part SANS ÊTRE LU : scan et échappement
+### dans le fil d'écriture (RETENUE, idée de Baptiste)
+
+« Si les str sont immuables, on n'a même pas besoin de les lire dans
+le thread du dump » (22 h 14). Exact : l'immuabilité plus la
+référence forte (`Bloc::ref`) figent le tampon utf-8 — le fil
+d'écriture peut donc faire lui-même le scan ET l'échappement.
+
+Mécanique : `Bloc` gagne un mode (`Brut`/`Base64`/`Echappe`) ;
+`ecritEchappe` (writerthread.h) échappe en écrivant, sur le modèle
+d'`ecritBase64` — plages propres qui rempliraient le tampon de 64 Ko
+écrites DROIT du tampon source (zéro-copie), le reste regroupé dans
+un tampon de pile ; graphie d'échappement identique à
+`Writer::EchappeUn` (`sjEchappeUn`, verrouillée par test à l'octet
+près, commandes C0 et frontières de tampon comprises). Le scan
+(`sjPremierEchappement`) a déménagé de FdWriteStream vers
+writerthread.h, écrit une seule fois.
+
+LA contrainte est l'INDEX : la taille échappée n'étant plus connue au
+dépôt, `depose()`/`Tell()` deviendraient faux. Or `dump` vers un
+chemin pose un index sidecar PAR DÉFAUT — la voie entière est donc
+gardée par `index_ == nullptr` (writer.h/prettywriter.h), et la voie
+préfixe de ④ reste celle des documents indexés. Populations réellement
+servies : `index=None` explicite, et les `append` (sans index par
+défaut). Premier A/B (dump par défaut, donc indexé) : que du bruit —
+la voie n'était jamais prise ; leçon, vérifier PAR SONDE (refcount
+pendant le vol) quelle voie s'exécute avant de mesurer.
+
+PGO contre PGO ④, min de 7 tours interlacés, dump `index=None`,
+latence de retour / débit tout-posé :
+
+| cas | latence | débit |
+|---|---|---|
+| échappements denses 1 Mo (« ab\n »×350k) | **−88,4 %** | **−72,1 %** |
+| échappements dispersés 10 Mo (1/5 Ko) | −36,9 % | −25,1 % |
+| gros propre 10 Mo (le scan disparaît) | −33,1 % | −14,0 % |
+| accent propre 10 Mo | −29,6 % | −9,6 % |
+| perdant (échappement final) | −25,3 % | −12,8 % |
+| liste 100 × 100 Ko | −12,6 % | −1,0 % |
+| témoin petit document | +0,5 % (bruit) | −0,6 % |
+
+L'inquiétude « l'échappement déménage dans le fil, sérialisé avec
+l'E/S » est RÉFUTÉE par la colonne débit : l'échappe-en-écrivant du
+fil est plus efficace que l'Escape du writer (réserve 6×longueur,
+recopie) même en cumul. Population par défaut (indexée) revérifiée
+neutre (±5 %, signes mêlés, témoin ±0,5 %).
+
+Corollaires assumés, commentés dans pousse() : `pousses` compte les
+blocs Echappe en taille BRUTE — `depose()` devient un plancher (seul
+l'index le consommerait, il est gardé) et `reservePlace` peut
+sous-réserver de l'expansion d'échappement (le contrôle d'espace
+libre garde sa marge, une vraie fin de disque reste relevée par
+write). Corpus PGO enrichi de dumps fichier (voies préfixe ET
+entière), sans quoi `ecritEchappe` compilait froid.
+
+Piste OUVERTE pour servir aussi les documents indexés : l'index est
+composé en TEXTE au fil de la sérialisation, ses positions déjà
+formatées ne se décalent pas à bas coût. Il faudrait des positions
+numériques + formatage tardif, avec rattrapage par deltas (le fil
+connaît l'expansion réelle de chaque bloc, et `rangeApres` écrit
+l'index après le dernier octet : tout est disponible au bon moment).
+Refonte d'indexscan.h — décision à part, pas cette nuit.
+
+## 21. Nuit du 09 au 10/08, suite — « que le dump bloque le moins
+## longtemps possible » : les bytes différés, et le dessin des workers
+
+Directive de Baptiste (22 h 45) : minimiser le temps où `dump`
+bloque, en ne copiant rien d'immuable (str, bytes, tableaux numpy
+immuables), en déléguant à des workers parallèles la compression,
+les échappements et la conversion utf-8, avec « sans doute un worker
+chef d'orchestre » pour remettre tout dans l'ordre — sans faire
+exploser le coût cumulé dump + workers.
+
+État des lieux après ④/④bis : les grands str partent déjà sans
+copie ni lecture. Ce qui BLOQUE encore le dump : la compression
+(faite à la construction de BloscToBase64), l'encodage base64 des
+gros bytes NON compressés, et la conversion utf-8 des grands str
+non-ascii. La nuit traite le deuxième (étape 1, faite) et instruit
+le reste (dessin, pas de code).
+
+### 21.1 Étape 1 — le base64 des gros bytes part chez l'écrivain
+### (FAITE)
+
+`FdWriteStream::RawBytesToBase64` : au-delà de chunkSize (64 Ko),
+le tampon part en `Bloc::Base64` chez le fil d'écriture, qui encode
+en écrivant (`ecritBase64`, déjà là pour les trames compressées).
+Deux voies :
+
+  - `bytes` exact (PyBytes_CheckExact) : ZÉRO-COPIE, référence forte
+    (`Bloc::ref`) rendue après écriture — l'immuabilité fige le
+    tampon, comme pour les str de ④ ;
+  - tampon MUABLE (bytearray, numpy writeable — que rien n'empêche
+    de muter après le retour de dump) : copie brute (`memcpy`),
+    plusieurs fois moins chère que l'encodage base64 qu'elle épargne
+    au dump.
+
+Différence de fond avec ④bis : la taille écrite d'un bloc Base64 est
+CONNUE d'avance (`tailleBase64`, guillemets compris — `pousses`
+reste exact, writerthread.h:273). `Tell()` et l'index restent donc
+justes : AUCUNE garde `index_ == nullptr` — la voie sert aussi les
+dumps PAR DÉFAUT (indexés). Populations réelles : les repli b64 de
+la compression smart (données incompressibles : médias déjà
+compressés), `bytes_compression=None`, bytearray et numpy bruts.
+
+Validation (binaire de référence = build de chantier ④bis, mêmes
+drapeaux) : identité à l'octet près FICHIER contre FICHIER sur
+13 cas × 2 indentations — la voie mémoire n'est pas comparable, ses
+charges b64 portent un préfixe `<n>:` que le fichier n'a pas —,
+frontières 65535/65536/65537, aller-retours, refcount équilibré,
+append, index sidecar relu ; 204 tests pytest verts.
+
+Mesure A/B (chantier contre PGO ④bis, 5 tours entrelacés à ordre
+alterné, min, machine chargée) — d'abord fausse sur tmpfs, puis
+refaite sur disque réel :
+
+  - **tmpfs ($SC) : PUR BRUIT sur tous les cas.** Un coût AU PAR
+    OCTET (~0,32 ns/o, l'allocation de pages du fallocate sur tmpfs)
+    domine les DEUX binaires et noie le gain. Piège à retenir : une
+    latence de dump-vers-fichier ne se mesure JAMAIS sur tmpfs.
+  - **Disque réel (/DATA), 10 Mo incompressibles en b64 brut :
+    latence de retour 2,30-2,34 ms contre 2,65-2,84 ms, soit −13 à
+    −18 %.** Gain modeste car ~2,3 ms d'un coût côté dump au par
+    octet subsistent sur les deux binaires (pente 0,26-0,32 ns/o).
+    Cause IDENTIFIÉE depuis (§21.4) : l'open("wb") du dump suivant
+    tronque un fichier aux pages sales de l'itération précédente et
+    attend leur writeback — proportionnel à la taille du fichier,
+    d'où la fausse allure de coût au par-octet. Avec l'instrument
+    décongestionné, la même population rend 0,8-0,9 ms (§21.5).
+  - Voie PROUVÉE prise avant interprétation : `sys.getrefcount`
+    +1 juste après le retour de dump, sur les 4 configurations.
+
+### 21.2 Le dessin « chef d'orchestre » : inutile — la file FIFO
+### ordonne déjà, il manque seulement des blocs-promesses
+
+Réponse d'architecture à la directive, instruite cette nuit, à coder
+une autre fois :
+
+  - **Pas de worker d'orchestration.** La file de l'écrivain est
+    FIFO : l'ordre du document est l'ordre des dépôts, il est déjà
+    garanti. Il suffit de blocs-PROMESSES : un bloc poussé À SA
+    PLACE avec un drapeau « pas prêt », rempli par un worker, le fil
+    d'écriture s'endormant sur le bloc de TÊTE tant qu'il n'est pas
+    prêt. Le remettre-dans-l'ordre demandé tombe gratuitement.
+  - **Compression : UN worker suffit.** blosc2 est déjà multi-thread
+    en interne (nthreads global) : un seul worker de compression
+    sature la machine, un pool ne ferait que se disputer les cœurs.
+    L'obstacle n'est pas le parallélisme, c'est le FORMAT : le choix
+    compressé-ou-brut (`compressed_size < len(inst)`, greffon
+    python) décide de l'étiquette (`"b64_blosc2"` / `"b64"`) écrite
+    APRÈS la charge dans la liste json — différer la compression
+    impose soit de différer la cellule entière (la promesse couvre
+    charge + étiquette), soit d'écrire l'étiquette AVANT la charge :
+    décision de format, arbitrage de Baptiste requis.
+  - **utf-8 : différable sans copie.** Un grand str non-ascii peut
+    partir en promesse avec sa représentation INTERNE (immuable,
+    kind par PyUnicode_KIND) sous référence forte : le worker
+    encode utf-8 sans le GIL. Même contrainte d'index que ④bis
+    (taille utf-8 inconnue au dépôt).
+  - **L'index n'est PLUS un verrou — objection de Baptiste, vérifiée
+    puis codée cette nuit (§21.3).** La première rédaction de ce
+    paragraphe en faisait le verrou de toute promesse à taille de
+    sortie inconnue ; Baptiste (23 h 10) : « je ne comprends pas en
+    quoi l'index est un verrou, il suffit de cumuler des deltas au
+    moment où les tailles finales sont enfin connues ». Relecture du
+    code : il avait raison, et sa question de 22 h 14 (« ou ajusté
+    en fonction du nombre d'échappements ? ») le disait déjà. Le
+    rangement tourne DÉJÀ dans le fil d'écriture (`rangeApres`,
+    après le dernier octet) et la fin réelle du fichier est DÉJÀ
+    relue du disque ; seul le formatage TEXTE des positions au vol
+    figeait des valeurs brutes. Le §21.3 les corrige au rangement.
+    Une promesse future (compression, utf-8) n'aura qu'à verser son
+    delta au même journal.
+  - **Le coût cumulé est déjà borné** : `freineSiBesoin` (contre-
+    pression sur la mémoire en vol) borne la file ; les workers
+    n'ajoutent que des tampons déjà comptés par elle.
+
+### 21.3 L'index corrigé par deltas au rangement — ④bis dégardé
+### (FAIT, sur l'objection de Baptiste)
+
+Mécanique, volontairement minimale (les entrées restent du texte,
+pas de refonte d'indexscan) :
+
+  - `Bloc` porte `posBrut` (où il commence dans le fichier, en
+    compte brut) ; le fil d'écriture relève pour chaque bloc
+    `Echappe` son EXPANSION réelle (1 ou 5 octets par échappement,
+    comptés dans `ecritEchappe`) dans un journal `(posBrut,
+    expansion)` — au fil seul, aucun verrou.
+  - Au rangement (`sj_index_range_fichier`, qui tourne dans ce même
+    fil, journal donc complet), `sj_index_corrige` réécrit les
+    positions des entrées : p += Σ expansions des blocs dont
+    posBrut < p (cumul + recherche binaire). Une borne d'entrée ne
+    tombe jamais DANS un str — guillemet ouvrant devant, fermant
+    derrière le bloc — donc le strict < suffit. « root » vient de la
+    fin réelle du fichier, rien à corriger.
+  - La garde `index_ == nullptr` de ④bis devient `…|| !indexeRacine`
+    : les grands str partent ENTIERS (échappement au fil) sur les
+    dumps indexés AUSSI — c'est-à-dire les dumps PAR DÉFAUT vers un
+    chemin. Seul un maillon d'`append` indexé garde le préfixe
+    propre : son rangement tourne dans un écrivain DISTINCT
+    (`WriterThread(-1)`) qui n'a pas le journal, et peut partir
+    pendant que l'écrivain persistant écrit encore. Piste si besoin :
+    copier le journal sous verrou à la fermeture du maillon.
+
+Validation : 204 pytest verts + nouveau test paramétré (2 formes ×
+2 indentations × 2 seuils, str denses/propre/dispersé/non-ascii de
+80-100 Ko) exigeant l'ÉGALITÉ STRICTE de l'index écrit avec le
+balayage du fichier, chargements sélectifs derrière les str
+compris ; batteries étape 1 et ④bis rejouées (0 échec) ; voie
+prouvée prise par sonde refcount sur dump indexé par défaut.
+
+### 21.4 Le piège du banc « même cible » : l'open tronquant paie le
+### writeback — fausse régression ×90, puis gains partout
+
+Le premier A/B de la population indexée montrait esc_disperse à
++5 700 % de latence (182 ms contre 2). Diagnostic, dans l'ordre :
+
+  - une sonde à thread échantillonneur a montré que dump ne TIENT
+    pas le GIL pendant ces 182 ms (aucun trou > 2 ms) ;
+  - la même mesure ISOLÉE rend 1,2 ms — c'est l'HISTORIQUE du banc
+    qui gonfle (13 ms en tête de processus, 104 après le préambule) ;
+  - chronométré séparément : `open("wb")` sur la cible rend 1 ms à
+    froid, 260-400 ms après congestion — **le troncage d'un fichier
+    aux pages sales attend leur writeback sur le volume VeraCrypt**,
+    et le chrono du dump suivant mesure le noyau, pas le binaire.
+    Ironie : le binaire le plus RAPIDE creuse plus de retard device
+    sur les cas précédents, donc paraît plus lent sur les suivants.
+
+Correctif d'instrument (micro_fd_idx) : `os.sync()` en frontière de
+cas, et `fsync` de la cible (ouverte lecture seule) après chaque
+`wait_writes` de la boucle de latence. Chiffres PROPRES, binaire de
+chantier delta contre chantier ④bis d'avant (3 tours entrelacés,
+disque réel, latence de retour de dump) :
+
+| cas | avant | delta | Δ lat | Δ débit |
+|---|---|---|---|---|
+| gros_propre_10Mo | 1,57 ms | 0,86 ms | −45 % | −49 % |
+| liste_100x100k | 1,30 | 1,00 | −23 % | −38 % |
+| perdant_esc_fin | 1,57 | 0,92 | −41 % | −51 % |
+| accent_propre_10Mo | 1,59 | 0,87 | −45 % | −80 % |
+| esc_disperse_10Mo | 2,05 | 0,95 | −54 % | −86 % |
+| esc_dense_1Mo | 1,82 | 0,22 | −88 % | +1049 % |
+| temoin_petit | 0,051 | 0,047 | −8 % | +11 % |
+
+Contre le PGO ④bis commité, même dessin (lat −30 à −89 %, témoin
++0,4 %). Le seul vrai retrait est le DÉBIT esc_dense en boucle
+serrée non drainée : l'échappement scalaire du fil de chantier
+(~90 Mo/s) devient le goulot quand un octet sur trois s'échappe —
+verdict au PGO/PGO final, le corpus PGO exerce désormais ce chemin.
+
+### 21.5 Table finale PGO/PGO — population indexée (dumps par défaut)
+
+PGO des 4 versions reconstruit (corpus étendu : Echappe au fil,
+bytes différés, sj_index_corrige multi-entrées), 208 tests verts
+par version, sondes probe_delta / piste4 / bytes_differe à zéro
+échec sur les binaires définitifs. A/B contre le PGO ④bis d'avant
+la nuit, 5 tours entrelacés, instrument décongestionné, disque réel,
+latence de retour de dump (min) :
+
+| cas | ④bis PGO | delta PGO | Δ lat | Δ débit |
+|---|---|---|---|---|
+| gros_propre_10Mo | 1,48 ms | 0,83 ms | −44 % | −39 % |
+| liste_100x100k | 1,20 | 0,85 | −29 % | −22 % |
+| perdant_esc_fin | 1,47 | 0,81 | −45 % | −61 % |
+| accent_propre_10Mo | 1,48 | 0,85 | −43 % | −28 % |
+| esc_disperse_10Mo | 2,06 | 0,83 | −60 % | −73 % |
+| esc_dense_1Mo | 1,85 | 0,20 | −89 % | +381 % |
+| temoin_petit | 0,045 | 0,049 | +8 % | +221 % |
+
+Lecture : l'objectif de la mission (« que le dump bloque le moins
+longtemps possible ») est atteint sur TOUTE la population — y
+compris les dumps indexés par défaut, qui étaient exclus de ④bis
+avant l'objection de Baptiste. Les deux « + » de la colonne débit
+sont la métrique boucle-serrée-même-cible, device-bound par
+construction (writeback + troncages en chaîne, cf. §21.4) : pour
+esc_dense c'est le prix réel de l'enchaînement non drainé de
+documents à échappements denses (le fil devient le goulot, ~190
+Mo/s effectifs troncages compris) ; pour temoin_petit (chemins de
+code identiques des deux côtés, +4 µs de lat) c'est du bruit de
+writeback résiduel — la même métrique rendait −77 %, +11 % et
++28 % sur les tours précédents. Qui enchaîne des dumps denses sans
+drainer paie le débit du fil ; qui veut l'ancien comportement le
+garde avec index=None + str découpés, mais le cas nominal — un
+dump, retour immédiat — gagne partout.
+
+### 21.6 L'append rejoint la voie Echappe — correction écrivain par
+### écrivain à la fermeture (FAIT, sur la question de Baptiste)
+
+Question de Baptiste (10/08, 00 h 09) : « et append a profité des
+modifications ? ». Réponse honnête : partiellement — les maillons
+indexés étaient la dernière population gardée sur la voie préfixe
+(④), leur rangement tournant dans un WriterThread(-1) qui n'a pas
+les expansions. La piste « copier le journal à la fermeture » était
+notée au §21.3 ; la voici faite, plus simplement encore.
+
+**Le mécanisme : corriger les entrées à la mort de CHAQUE écrivain,
+pas au rangement.** `sj_append_ferme` joint l'écrivain (termine()),
+puis — ses expansions désormais closes et sûres à lire — passe
+`e->indexAppend` dans sj_index_corrige : les entrées relevées en
+compte brut pendant la vie de cet écrivain redeviennent des
+positions réelles du fichier. L'invariant qui rend la chose exacte
+par ÉPOQUES : un écrivain ultérieur (liste rouverte pour d'autres
+maillons) lit son `debut` du descripteur, donc en coordonnées
+réelles — ses expansions ne concernent que ses propres entrées,
+jamais celles déjà corrigées. Le rangement final (poseur -1) reçoit
+des entrées déjà réelles : zéro changement chez lui.
+
+**La porte ④bis disparaît entièrement.** RawPyStrPropre perd son
+paramètre `entier` et sa voie préfixe (scan SSE2 + Bloc::Brut,
+−13 lignes) : une seule voie, le str part sans être lu, pour TOUS
+les flux fichier — dump plain, dump indexé, maillon d'append indexé
+ou non. PyString_ (writer et prettywriter) se réduit à un booléen.
+sjPremierEchappement ne sert plus qu'à ecritEchappe.
+
+**Preuve par le rouge** : test neuf
+(test_append_de_grands_str_garde_l_index_juste, 2 formes × close
+False/True — close=True exerce le multi-époques) passé au rouge sur
+un binaire à correction neutralisée (4/4 cas), au vert avec (212
+tests au total, 4 versions PGO). Sonde de voie : refcount du str +2
+juste après le retour d'append (référence forte en vol).
+
+**Mesures PGO/PGO** (corpus étendu aux appends ; contre le ④bis
+PGO d'avant la nuit, 5 tours entrelacés, décongestionné, latence de
+retour d'append, maillon d'un mégaoctet, index sidecar tenu) :
+
+| cas | ④bis PGO | append-Echappe PGO | Δ |
+|---|---|---|---|
+| app_propre_1Mo | 36,5 µs | 2,4 µs | −94 % |
+| app_dense_1Mo | 1 532 µs | 1,9 µs | −99,9 % |
+| app_disperse_1Mo | 98,7 µs | 1,9 µs | −98 % |
+| app_temoin_petit | 1,8 µs | 1,8 µs | −2 % |
+
+L'ancienne voie payait le scan du mégaoctet (36 µs) et, au premier
+caractère à échapper tôt dans le str, l'échappement ENTIER dans le
+thread du dump (1,5 ms sur le cas dense). Le nouveau maillon rend
+la main en ~2 µs quel que soit le contenu. Contre-contrôle
+population dump sur ce même PGO (le corpus a changé) : −17 à −88 %
+contre ④bis, cohérent avec §21.5 — pas de dilution.
+
+## 22. Nuit du 09 au 10/08, fin — la compression rejoint le fil
+## d'écriture : l'objection de Baptiste dissout la « décision de
+## format », et un bug de déterminisme préexistant tombe au passage
+
+### 22.1 L'objection, et pourquoi elle est devenue vraie cette nuit
+
+La piste ③ (§20) était classée « décision de format » sur un
+argument périmé : le writer devait connaître la taille compressée
+AVANT d'écrire, puisque tout ce qui suivait était calé sur des
+positions déjà arrêtées. Baptiste (10/08, 00 h 47) : « je ne
+comprends pas ce qui empêche le writer de choisir l'étiquette. la
+taille des données compressées varie déjà, donc la taille prise par
+l'étiquette peut aussi varier ! ». Exact — depuis la refonte
+index-par-deltas (§21.3), une émission à taille variable dans le
+fil est un cas NORMAL : le fil journalise (posBrut, émis) et le
+rangement corrige. La compression est exactement ce cas : un bloc
+déposé à taille inconnue, dont le fil apprend la taille réelle en
+le traitant. Aucun changement de format : mêmes octets, étiquette
+comprise.
+
+### 22.2 Le mécanisme
+
+- **BloscDiffere (serializejson.h)** : capsule (value, clevel,
+  compcode) rendue par les greffons bytes/bytearray à la place du
+  couple (BloscToBase64, "b64_blosc2") calculé hâtivement. Les
+  greffons ne compressent plus RIEN : le choix gagnant/perdant
+  descend dans l'écrivain.
+- **Le fil compresse et choisit l'étiquette (writerthread.h,
+  ecritCompresse)** : contexte blosc2 PAR FIL (pas de verrou),
+  trame gagnante → base64 + `,"b64_blosc2"`, sinon la source telle
+  quelle → `,"b64"`. Le delta (posBrut, émis) part au journal comme
+  pour Echappe.
+- **Garde-fous de forme** : la remise différée exige la liste
+  compacte (single_line_init/new ou _dump_one_line) — sinon le
+  writer ne peut pas replier la liste après coup — et, pour bytes,
+  un contenu non-ascii : la forme de référence d'un ascii
+  incompressé est la CHAÎNE ascii_printables, que le writer ne peut
+  pas choisir une fois la liste ouverte.
+- **Hors flux fichier** (dumps/dumpb/BytesIO/GzipFile) :
+  CompresseDiffere répond false, BloscDiffereEcrit compresse en
+  synchrone dans le thread appelant — mêmes octets, voie hâtive
+  d'avant à l'identique.
+- **L'index aux bornes** : un bloc différé compte ZÉRO au dépôt ;
+  ferme() retient donc conservativement toute entrée qui a traversé
+  un bloc variable (compteur blocsVariables), et un élagage final
+  (sj_index_elague) retranche au vrai seuil sur les positions
+  corrigées. Preuve par le rouge dans les DEUX sens
+  (test_index_et_compression_differee_aux_bornes_du_seuil) : la
+  rétention neutralisée fait manquer des entrées que le balayage
+  attend, l'élagage neutralisé laisse des entrées sous le seuil.
+
+### 22.3 Le bug de déterminisme préexistant, trouvé par la batterie
+
+La batterie d'identité (4 configs × 9 documents × 6 cibles, sha256)
+rendait des écarts SÉQUENCE-dépendants… du binaire de RÉFÉRENCE :
+un contexte blosc2 mis en cache garde le blocksize calculé à sa
+première compression et l'applique aux entrées suivantes de taille
+différente — trame VALIDE mais DIFFÉRENTE d'un contexte neuf
+(mesuré : 4 Ko puis 100 Ko → blocksize resté 4096, trame 7132
+octets au lieu de 1168). Preuve par auto-contradiction : la
+référence isolée rend, sur le document multi-tailles, un dumps puis
+un dumpb DIFFÉRENTS dans le même processus (16e6… puis e8cd…), là
+où le nouveau binaire rend deux fois le premier — celui du contexte
+neuf. Correctif : la clé du cache de contextes intègre la taille
+d'entrée (SjCctxKey.nbytes, 4 points d'appel) — un contexte n'est
+réutilisé qu'à la taille pour laquelle son blocksize a été calculé,
+toute trame vaut celle d'un contexte neuf.
+
+### 22.4 Validation
+
+- Identité à l'octet : 252 lignes de batterie identiques entre run
+  mono-processus et runs par-cas processus-neuf (indépendance à
+  l'historique), et identiques à la référence par-cas partout où la
+  référence est d'accord avec ELLE-MÊME ; les seuls écarts restants
+  sont son bug 22.3. Append à l'octet près, fichier ET sidecar.
+  sync == différé sur les 36 cas (bytesio == fichier == fich_noidx).
+- Sonde de voie : refcount +1 après dump (référence forte en vol).
+- 213 tests verts × 4 versions PGO (3.11 → 3.14) ; batterie
+  d'identité rejouée sur le PGO : bit à bit égale au chantier.
+- pgo_workload : cas compression différée ajouté (étiquettes
+  gagnante ET perdante, élagage d'index à chaud).
+
+### 22.5 Mesures PGO/PGO (5 tours entrelacés, décongestionné,
+### min, latence de retour d'appel / total avec wait_writes)
+
+| cas | lat réf | lat nouveau | Δ lat | Δ total |
+|---|---|---|---|---|
+| dump 4 Mo compressible | 746 µs | 66 µs | −91 % | −0,4 % |
+| dump 4 Mo incompressible | 2 061 µs | 117 µs | −94 % | +1,4 % |
+| dump 8×100 Ko compressibles | 64 µs | 45 µs | −30 % | +10,5 % |
+| dump témoin sans compression | 1 173 µs | 1 158 µs | −1 % | +2,4 % |
+| append 6 maillons 100 Ko | 255 µs | 276 µs | +8 % | +7,3 % |
+
+Lecture : la latence — la mission — gagne massivement partout où il
+y a compression. La contrepartie est structurelle et assumée : la
+compression tournait AVANT dans le thread appelant, en parallèle du
+fil qui écrivait ; elle tourne maintenant DANS le fil, en série.
+Qui attend la fin (wait_writes serré, append clos aussitôt) paie
+jusqu'à +8-10 % sur des charges moyennes multiples ; le cas nominal
+— dump, retour immédiat, fil qui finit en tâche de fond — gagne
+−30 à −94 %. Gros documents : neutre des deux côtés.
+
+### 22.6 Ce que ça referme
+
+La liste des « décisions de format » du §20 perd son entrée
+compression : il n'y a PAS de décision à prendre, le format est
+inchangé. Restent au rapport : le plancher $ref (§19) et les seuils
+malloc (§21.4), qui sont respectivement une décision de format et
+un réglage processus hors périmètre du code.

@@ -320,7 +320,26 @@ public:
         os_->RawString(((RawString*) object)->value);
         return true;
     }
-       
+
+    //! String() qui connaît l'OBJET python porteur du tampon : un flux vers
+    //! fichier peut alors remettre un grand str en zéro-copie à son thread
+    //! d'écriture (voir FdWriteStream::RawPyStrPropre, qui écrit alors le
+    //! guillemet ouvrant) — EN ENTIER, échappement compris. L'index de
+    //! positions ne s'y oppose plus : ses entrées, en compte brut, sont
+    //! corrigées des expansions relevées par le fil d'écriture
+    //! (WriterThread::expansions) — au rangement pour un dump, à la
+    //! fermeture de l'écrivain pour les maillons d'un append
+    //! (sj_append_ferme). Les autres flux rendent false : voie normale.
+    bool PyString_(PyObject* object, const Ch* str, SizeType length) {
+        Prefix();
+        if (!os_->RawPyStrPropre(object, str, (size_t) length)) {
+            os_->Put('"');
+            Escape(str, length);
+        }
+        os_->Put('"');
+        return true;
+    }
+
     bool RawBytes_(PyObject* object) {
         Prefix();
         os_->RawBytes(((RawBytes*) object)->value);
@@ -351,6 +370,11 @@ public:
             os_->RawDataToBase64((const unsigned char*) blosc->data,
                                  (size_t) blosc->size);
         return true;
+    }
+
+    bool BloscDiffere_(PyObject* object) {
+        Prefix();
+        return BloscDiffereEcrit(object);
     }
 
 
@@ -426,6 +450,55 @@ protected:
         index_->ferme(os_->Tell());
     }
 
+    // charge compressée DIFFÉRÉE : le fil d'écriture compresse ET choisit
+    // l'étiquette — l'index par deltas absorbe la taille inconnue au dépôt,
+    // exactement comme pour l'échappement différé. Hors flux fichier (ou
+    // sous le seuil), compression synchrone ici, mêmes octets que la voie
+    // hâtive du greffon. La liste [charge,"étiquette"] est écrite à la main :
+    // pas de niveau empilé, comme BytesEnvelope.
+    bool BloscDiffereEcrit(PyObject* object) {
+        BloscDiffere* d = (BloscDiffere*) object;
+        char* buf;
+        size_t taille;
+        if (PyBytes_CheckExact(d->value)) {   // types exacts garantis par le
+            buf = PyBytes_AS_STRING(d->value);              // constructeur
+            taille = (size_t) PyBytes_GET_SIZE(d->value);
+        } else {
+            buf = PyByteArray_AS_STRING(d->value);
+            taille = (size_t) PyByteArray_GET_SIZE(d->value);
+        }
+        OuvreIndex();     // AVANT le dépôt : le compteur de blocs variables
+        os_->Put('[');    // doit être relevé sans la charge qui va suivre
+        if (!os_->CompresseDiffere(d->value, buf, taille,
+                                   d->clevel, d->compcode)) {
+            char* trame = nullptr;
+            const int csize = sj_bytes_compresse_sync(buf, taille,
+                                                      d->compcode, d->clevel,
+                                                      &trame);
+            if (csize <= 0) {
+                PyErr_Format(PyExc_ValueError,
+                             "blosc compression failed (%d)", csize);
+                return false;
+            }
+            if ((size_t) csize < taille) {
+                if (os_->RawDataToBase64Owned(trame, (size_t) csize))
+                    trame = nullptr;
+                else
+                    os_->RawDataToBase64((const unsigned char*) trame,
+                                         (size_t) csize);
+                WriteRawSmall(",\"b64_blosc2\"");
+            } else {
+                // la compression ne gagne pas : la source part telle quelle
+                os_->RawBytesToBase64(d->value);
+                WriteRawSmall(",\"b64\"");
+            }
+            free(trame);
+        }
+        os_->Put(']');
+        FermeIndex();
+        return true;
+    }
+
     // charge d'un bytes : chaîne ascii imprimable échappée ({tab, LF, CR}
     // ∪ [0x20..0x7E] garanti par l'appelant), ou liste [base64,"b64"]
     void WriteBytesPayload(const unsigned char* data, size_t length,
@@ -491,7 +564,8 @@ protected:
     // sortent en « \u00xx », comme le veut json — écrites brutes, elles
     // rendaient le document illisible par tout lecteur, le nôtre compris.
     // Même graphie que sj_ref_append_escape, qui échappe les mêmes clés
-    // dans les chemins de $ref.
+    // dans les chemins de $ref, et que sjEchappeUn (writerthread.h), qui
+    // échappe les grands str différés dans le fil d'écriture.
     static char* EchappeUn(Ch c, char* d) {
         static const char HEXA[] = "0123456789abcdef";
         const unsigned char u = (unsigned char) c;

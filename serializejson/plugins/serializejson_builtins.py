@@ -25,7 +25,9 @@ import types
 from base64 import b64decode
 
 # base64 écrit directement dans la sortie, et compression blosc2 faite en C
-from rapidjson import RawBytesToBase64, BloscToBase64
+# (BloscDiffere : compression déférée au writer C++ — son fil d'écriture
+# compresse et choisit l'étiquette lui-même, mêmes octets que la voie hâtive)
+from rapidjson import RawBytesToBase64, BloscToBase64, BloscDiffere
 
 
 def sans_prefixe_longueur(string):
@@ -120,6 +122,21 @@ def serializejson_bytearray(inst):
             raise Exception(
                 f"{compression} compression needs a loadable libblosc2"
             )
+        if serialize_parameters.single_line_init or serialize_parameters._dump_one_line:
+            # la liste [charge, étiquette] sera compacte : le writer peut
+            # l'écrire lui-même une fois la taille compressée connue — donc
+            # différer la compression (au fil d'écriture pour un dump fichier)
+            return (
+                "bytearray",
+                (
+                    BloscDiffere(
+                        inst,
+                        serialize_parameters.bytes_compression_level,
+                        blosc2_compression,
+                    ),
+                ),
+                None,
+            )
         compressed = BloscToBase64(
             inst,
             1,
@@ -152,6 +169,28 @@ def serializejson_bytes(inst):
         if not use_blosc2_cpp:
             raise Exception(
                 f"{compression} compression needs a loadable libblosc2"
+            )
+        if not inst.isascii() and (
+            serialize_parameters.single_line_new
+            or serialize_parameters._dump_one_line
+        ):
+            # compression déférée (voir bytearray) — mais PAS pour un bytes
+            # ascii : si la compression ne gagne pas, sa forme de référence
+            # est la CHAÎNE ascii_printables, que le writer ne peut pas
+            # choisir après coup
+            return (
+                "bytes",
+                None,
+                None,
+                None,
+                None,
+                (
+                    BloscDiffere(
+                        inst,
+                        serialize_parameters.bytes_compression_level,
+                        blosc2_compression,
+                    ),
+                ),
             )
         compressed = BloscToBase64(
             inst,

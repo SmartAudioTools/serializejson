@@ -5156,6 +5156,9 @@ do_decode(PyObject* decoder, const char* jsonStr, Py_ssize_t jsonStrLen,
         // copie (la copie de 40 Mo dominait le décodage des gros blobs)
         char* jsonStrCopy = nullptr;
         char* parseBuffer;
+        // seuil MESURÉ le 09/08/2026 (A/B interlacé 1 Mo contre 0, 7 tours) :
+        // l'abaisser ne rend rien (−1,2 % au mieux, bruit) — sous 1 Mo le
+        // parse domine la copie d'entrée ; ne pas y revenir sans nouveau cas
         if (jsonStrLen >= (Py_ssize_t) (1 << 20)
             && memchr(jsonStr, '\\', (size_t) jsonStrLen) == nullptr) {
             parseBuffer = const_cast<char*>(jsonStr);
@@ -6073,7 +6076,10 @@ dumps_internal(
         const char* s = PyUnicode_AsUTF8AndSize(object, &l);
         if (!PyUnicode_IS_ASCII(object))
             writer->MarkMaybeNonAscii();
-        writer->String(s, (SizeType) l);
+        // PyString_ plutôt que String : en connaissant l'objet, un flux vers
+        // fichier remet les grands str propres en zéro-copie à son thread
+        // d'écriture ; partout ailleurs, même chemin qu'avant
+        writer->PyString_(object, s, (SizeType) l);
     }
 
     // None -------------------------------------
@@ -6257,8 +6263,8 @@ dumps_internal(
         const char* s = PyUnicode_AsUTF8AndSize(object, &l);
         if (!PyUnicode_IS_ASCII(object))
             writer->MarkMaybeNonAscii();
-        writer->String(s, (SizeType) l);
-    } 
+        writer->PyString_(object, s, (SizeType) l);
+    }
 	
 	// liste  ---------------------------------------------------------------
 	else if ((!(iterableMode & IM_ONLY_LISTS) && PyList_Check(object))
@@ -6473,7 +6479,7 @@ dumps_internal(
                     }
                     if (!PyUnicode_IS_ASCII(item))
                         writer->MarkMaybeNonAscii();
-                    writer->String(inline_str, (SizeType) inline_length);
+                    writer->PyString_(item, inline_str, (SizeType) inline_length);
                     continue;
                 }
                 if (Py_EnterRecursiveCall(" while JSONifying list object")) {
@@ -6601,7 +6607,7 @@ dumps_internal(
                 }
                 if (!PyUnicode_IS_ASCII(item))
                     writer->MarkMaybeNonAscii();
-                writer->String(inline_str, (SizeType) inline_length);
+                writer->PyString_(item, inline_str, (SizeType) inline_length);
                 continue;
             }
             if (sj_write_scalar_inline(writer, item))
@@ -6986,8 +6992,8 @@ dumps_internal(
                                 return false;
                             if (!PyUnicode_IS_ASCII(shape_item))
                                 writer->MarkMaybeNonAscii();
-                            writer->String(inline_str,
-                                           (SizeType) inline_length);
+                            writer->PyString_(shape_item, inline_str,
+                                              (SizeType) inline_length);
                             continue;
                         }
                         PATH_PUSH_KEY(shape.key_strs[i].first,
@@ -7086,7 +7092,7 @@ dumps_internal(
                         }
                         if (!PyUnicode_IS_ASCII(item))
                             writer->MarkMaybeNonAscii();
-                        writer->String(inline_str, (SizeType) inline_length);
+                        writer->PyString_(item, inline_str, (SizeType) inline_length);
                         Py_CLEAR(coercedKey);
                         continue;
                     }
@@ -7174,7 +7180,8 @@ dumps_internal(
                         return false;
                     if (!PyUnicode_IS_ASCII(items[i].item))
                         writer->MarkMaybeNonAscii();
-                    writer->String(inline_str, (SizeType) inline_length);
+                    writer->PyString_(items[i].item, inline_str,
+                                      (SizeType) inline_length);
                     continue;
                 }
                 if (sj_write_scalar_inline(writer, items[i].item))
@@ -7251,6 +7258,12 @@ dumps_internal(
     }
 	else if (PyObject_TypeCheck(object, &BloscToBase64_Type)) {
         writer->BloscToBase64_(object);
+    }
+	else if (PyObject_TypeCheck(object, &BloscDiffere_Type)) {
+        // compression déférée au fil d'écriture (ou synchrone hors flux
+        // fichier) : peut échouer, contrairement aux formes déjà compressées
+        if (!writer->BloscDiffere_(object))
+            return false;
     }
 	else if (PyObject_TypeCheck(object, &RawBytesToBase64_Type)) {
         writer->RawBytesToBase64_(object);
@@ -7689,8 +7702,8 @@ dumps_internal(
                         }
                         if (!PyUnicode_IS_ASCII(item))
                             writer->MarkMaybeNonAscii();
-                        writer->String(inline_str,
-                                       (SizeType) inline_length);
+                        writer->PyString_(item, inline_str,
+                                          (SizeType) inline_length);
                         continue;
                     }
                     if (sj_write_scalar_inline(writer, item))
@@ -8504,8 +8517,8 @@ dumps_internal(
                                 }
                                 if (!PyUnicode_IS_ASCII(attr.value))
                                     writer->MarkMaybeNonAscii();
-                                writer->String(inline_str,
-                                               (SizeType) inline_length);
+                                writer->PyString_(attr.value, inline_str,
+                                                  (SizeType) inline_length);
                                 continue;
                             }
                             if (Py_EnterRecursiveCall(" while JSONifying object")) {
@@ -9442,7 +9455,7 @@ static inline size_t sj_decayed_high_water(size_t previous, size_t size) {
                     bytesMode,                          \
                     iterableMode,                       \
                     mappingMode)                        \
-     ? (buf.Flush(), (outputHighWater ? (void)(*outputHighWater = sj_decayed_high_water(*outputHighWater, buf.GetSize())) : (void)0), (returnBytes ? buf.stealPyBytes()         : (buf.maybe_non_ascii            ? PyUnicode_FromEncodedObject(buf.getPyBytes(),"utf-8",errors)            : sj_unicode_from_ascii(buf.GetBuffer(), (Py_ssize_t) buf.GetSize())))): nullptr)
+     ? ((outputHighWater ? (void)(*outputHighWater = sj_decayed_high_water(*outputHighWater, buf.GetSize())) : (void)0), buf.Flush(), (returnBytes ? buf.stealPyBytes()         : (buf.maybe_non_ascii            ? PyUnicode_DecodeUTF8(buf.GetBuffer(), (Py_ssize_t) buf.GetSize(), errors)            : buf.stealPyStrAscii()))) : nullptr)
 
 
 static PyObject*
@@ -9455,14 +9468,19 @@ do_encode(PyObject* value, PyObject* defaultFn,
           unsigned iterableMode, unsigned mappingMode, bool returnBytes,
           size_t* outputHighWater)
 {
-    const char *errors;
+    // nullptr = "strict" ; jamais sollicité en pratique (l'utf-8 produit
+    // par l'encodeur est toujours valide), mais l'ancien pointeur non
+    // initialisé était de l'UB latent
+    const char *errors = nullptr;
     // préallocation : DEUX fois la haute-eau décroissante (règle choisie le
     // 3/08 : marge de croissance ×2 permanente en régime établi — un dump
     // qui grossit jusqu'au double ne paie aucun realloc — et sur-allouer
     // coûte ~300 fois moins cher que sous-allouer, mesuré 15 µs contre
     // 5 ms sur 90 Mo) ; 0 -> capacité par défaut
+    // sortie str : tampon adossé à un str ascii compact, pris tel quel en
+    // fin d'encodage si le document est resté ascii (zéro copie terminale)
     PyBytesBuffer buf(outputHighWater && *outputHighWater
-                      ? 2 * *outputHighWater : 0);
+                      ? 2 * *outputHighWater : 0, !returnBytes);
     // mémoire insuffisante : Resize lève bad_alloc (MemoryError déjà posée
     // par l'allocateur CPython) — avant, le code déréférençait le NULL
     // laissé par _PyBytes_Resize et plantait le processus
@@ -9572,15 +9590,35 @@ sj_index_ou_ranger(PyObject* tuple, SjIndexRangement& out)
 // Le rangement lui-même : la queue éventuelle du fichier donne la fin du
 // document, le texte des chemins se complète de `root`, se dégonfle et se
 // pose. Rend un ERRNO plutôt qu'une exception : il tourne dans le thread
-// d'écriture, où plus aucun objet python n'est à portée.
+// d'écriture, où plus aucun objet python n'est à portée. `expansions` (voir
+// WriterThread::expansions) corrige les positions relevées en compte brut —
+// nul quand les entrées sont déjà réelles : dump mémoire (aucun bloc Echappe)
+// ou appends (corrigés écrivain par écrivain à sa fermeture, sj_append_ferme).
 static int
 sj_index_range_fichier(const SjIndexRangement& ou, const char* chemins,
-                       size_t len)
+                       size_t len,
+                       const std::vector<std::pair<size_t, size_t>>*
+                           expansions = nullptr)
 {
     SjIndexQueue q;
     errno = 0;
     if (!sj_index_fichier_queue(ou.chemin.c_str(), &q))
         return errno ? errno : EIO;
+    std::string corrige;
+    if (len && expansions != nullptr && !expansions->empty()) {
+        sj_index_corrige(chemins, len, *expansions, corrige);
+        chemins = corrige.data();
+        len = corrige.size();
+    }
+    // élagage final au vrai seuil : les entrées retenues par prudence à
+    // l'écriture (un bloc à taille variable dans le conteneur) sortent ici si
+    // leurs positions corrigées restent sous le seuil — voir sj_index_elague
+    std::string elague;
+    if (len && ou.seuil > 0) {
+        sj_index_elague(chemins, len, ou.seuil, elague);
+        chemins = elague.data();
+        len = elague.size();
+    }
     std::string texte;
     if (len)
         sj_index_compose(ou.seuil, chemins, len, q.fin, texte);
@@ -9665,6 +9703,22 @@ sj_append_ferme(EncoderObject* e)
     delete e->fluxAppend;
     e->fluxAppend = nullptr;
     const int fin = e->ecrivainAppend->termine();
+    // les entrées relevées pendant la vie de cet écrivain sont en compte
+    // BRUT (blocs Echappe, voir WriterThread::expansions) : corrigées ICI,
+    // l'écrivain jointe et ses expansions closes, elles redeviennent des
+    // positions réelles du fichier. Un écrivain ultérieur (la liste rouverte
+    // pour d'autres maillons) lira son `debut` du descripteur, donc en
+    // coordonnées réelles : ses expansions ne concerneront que ses propres
+    // entrées, jamais celles corrigées ici.
+    const std::vector<std::pair<size_t, size_t>>& exp =
+        e->ecrivainAppend->expansions();
+    if (e->indexAppend != nullptr && !e->indexAppend->empty()
+            && !exp.empty()) {
+        std::string reel;
+        sj_index_corrige(e->indexAppend->data(), e->indexAppend->size(),
+                         exp, reel);
+        e->indexAppend->swap(reel);
+    }
     delete e->ecrivainAppend;
     e->ecrivainAppend = nullptr;
     return erreur != 0 ? erreur : fin;
@@ -9800,6 +9854,7 @@ do_fd_encode(PyObject* value, int fd, size_t chunkSize, bool bloquant,
         SjIndexEcriture index;
         index.segments = &pathTracker->segments;
         index.seuil = indexOu ? indexOu->seuil : 0;
+        index.blocsVariables = &os.blocsVariables;
         // un maillon d'append s'indexe sous « root[rang] », et il s'indexe
         // LUI-MÊME : c'est même lui qu'on cherchera à charger seul. Ses
         // entrées reprennent celles des maillons déjà écrits, que l'encodeur
@@ -9861,9 +9916,12 @@ do_fd_encode(PyObject* value, int fd, size_t chunkSize, bool bloquant,
             std::shared_ptr<std::string> chemins(
                 new std::string(std::move(index.texte)));
             const SjIndexRangement ou = *indexOu;
-            ecrivain->rangeApres([ou, chemins]() {
+            // la tâche tourne dans le thread de `ecrivain`, l'objet encore
+            // vivant et ses blocs tous écrits : ses expansions sont complètes
+            ecrivain->rangeApres([ou, chemins, ecrivain]() {
                 return sj_index_range_fichier(ou, chemins->data(),
-                                              chemins->size());
+                                              chemins->size(),
+                                              &ecrivain->expansions());
             });
         }
         // tout est déposé (writer.Flush) : la taille du document est connue,
@@ -11429,6 +11487,9 @@ module_exec(PyObject* m)
     if (PyType_Ready(&BloscToBase64_Type) < 0)
         return -1;
 
+    if (PyType_Ready(&BloscDiffere_Type) < 0)
+        return -1;
+
     if (PyType_Ready(&ArrayRows_Type) < 0)
         return -1;
 
@@ -11759,6 +11820,12 @@ module_exec(PyObject* m)
     Py_INCREF(&BloscToBase64_Type);
     if (PyModule_AddObject(m, "BloscToBase64", (PyObject*) &BloscToBase64_Type) < 0) {
         Py_DECREF(&BloscToBase64_Type);
+        return -1;
+    }
+
+    Py_INCREF(&BloscDiffere_Type);
+    if (PyModule_AddObject(m, "BloscDiffere", (PyObject*) &BloscDiffere_Type) < 0) {
+        Py_DECREF(&BloscDiffere_Type);
         return -1;
     }
 

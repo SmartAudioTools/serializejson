@@ -271,7 +271,20 @@ public:
         Base::os_->RawString(((RawString*) object)->value);
         return true;
     }
-       
+
+    //! voir Writer::PyString_ : grand str remis en zéro-copie au thread
+    //! d'écriture quand le flux le permet (en entier, l'index se corrigeant
+    //! des expansions relevées par le fil), voie normale à défaut
+    bool PyString_(PyObject* object, const Ch* str, SizeType length) {
+        PrettyPrefix();
+        if (!Base::os_->RawPyStrPropre(object, str, (size_t) length)) {
+            Base::os_->Put('"');
+            Base::Escape(str, length);
+        }
+        Base::os_->Put('"');
+        return true;
+    }
+
     bool RawBytes_(PyObject* object) {
         PrettyPrefix();
         Base::os_->RawBytes(((RawBytes*) object)->value);
@@ -300,6 +313,13 @@ public:
             Base::os_->RawDataToBase64((const unsigned char*) blosc->data,
                                        (size_t) blosc->size);
         return true;
+    }
+
+    bool BloscDiffere_(PyObject* object) {
+        // la liste [charge,"étiquette"] est toujours compacte (single_line) :
+        // seule la place de la valeur est indentée, le corps est celui du Writer
+        PrettyPrefix();
+        return Base::BloscDiffereEcrit(object);
     }
 
 

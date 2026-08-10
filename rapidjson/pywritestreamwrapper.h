@@ -124,6 +124,8 @@ public:
     // Rien à prendre : sans thread d'écriture, il n'y a personne à qui
     // déléguer l'encodage (voir FdWriteStream).
     bool RawDataToBase64Owned(char*, size_t) { return false; }
+    bool RawPyStrPropre(PyObject*, const char*, size_t) { return false; }
+    bool CompresseDiffere(PyObject*, char*, size_t, int, int) { return false; }
 
     void RawDataToBase64(const unsigned char* src, size_t remaining){
         // encode le base64 par morceaux dans les chunks du flux,

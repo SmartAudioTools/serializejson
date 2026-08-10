@@ -43,6 +43,9 @@
 #include <mutex>
 #include <sys/types.h>
 #include <thread>
+#if defined(__SSE2__)
+#include <emmintrin.h>
+#endif
 
 #ifdef _WIN32
 #include <io.h>
@@ -91,10 +94,84 @@ inline size_t meminfo(const char* cle) {
     return trouve;
 }
 
+// Position du premier caractère à échapper en json (taille s'il n'y en a
+// pas) : même prédicat que Writer::EscapeTranche (« " », « \ », <= 0x1F
+// non signé), en lecture seule — c'est ce qui autorise le zéro-copie des
+// blocs Echappe, dont ecritEchappe saute ainsi les plages propres.
+inline size_t sjPremierEchappement(const char* str, size_t taille) {
+    size_t k = 0;
+#if defined(__SSE2__)
+    const __m128i quote = _mm_set1_epi8('"');
+    const __m128i backslash = _mm_set1_epi8('\\');
+    const __m128i commande = _mm_set1_epi8(0x1F);
+    while (k + 16 <= taille) {
+        __m128i chunk = _mm_loadu_si128((const __m128i*) (str + k));
+        __m128i hits = _mm_or_si128(
+            _mm_or_si128(_mm_cmpeq_epi8(chunk, quote),
+                         _mm_cmpeq_epi8(chunk, backslash)),
+            _mm_cmpeq_epi8(_mm_min_epu8(chunk, commande), chunk));
+        int masque = _mm_movemask_epi8(hits);
+        if (masque)
+            return k + (size_t) __builtin_ctz((unsigned) masque);
+        k += 16;
+    }
+#endif
+    for (; k < taille; k++) {
+        const char c = str[k];
+        if (c == '\\' || c == '"' || (unsigned char) c <= 0x1F)
+            return k;
+    }
+    return taille;
+}
+
+// Forme échappée de l'octet — MÊME GRAPHIE que Writer::EchappeUn et
+// sj_ref_append_escape (formes courtes \\ \" \t \n \r, le reste des
+// commandes C0 en « \u00xx » minuscule) : l'identité à l'octet du document
+// entre les deux voies est verrouillée par test. Rend le curseur avancé.
+inline char* sjEchappeUn(char c, char* d) {
+    static const char HEXA[] = "0123456789abcdef";
+    const unsigned char u = (unsigned char) c;
+    *d++ = '\\';
+    switch (c) {
+    case '\\': case '"': *d++ = c;   break;
+    case '\t':           *d++ = 't'; break;
+    case '\n':           *d++ = 'n'; break;
+    case '\r':           *d++ = 'r'; break;
+    default:
+        *d++ = 'u';
+        *d++ = '0';
+        *d++ = '0';
+        *d++ = HEXA[u >> 4];
+        *d++ = HEXA[u & 0xF];
+    }
+    return d;
+}
+
 struct Bloc {
     char* data;
     size_t taille;
-    bool base64;     // à encoder en écrivant, guillemets compris
+    // Brut : écrit tel quel. Base64 : encodé en écrivant, guillemets
+    // compris. Echappe : échappé json en écrivant, guillemets EXCLUS —
+    // l'appelant les pose autour du bloc. Compresse : compressé blosc2 en
+    // écrivant, puis émis « "<base64>","<étiquette>" » — l'étiquette se
+    // CHOISIT là, selon que la trame gagne ou non ; l'appelant pose les
+    // crochets de la liste autour.
+    enum Mode : char { Brut, Base64, Echappe, Compresse };
+    Mode mode;
+    // référence FORTE à l'objet python dont data est le tampon interne
+    // (grand str remis en zéro-copie) : le thread, qui n'a pas le
+    // verrou global, ne la relâche pas lui-même — il la range dans
+    // enVol().aLiberer, vidée par le prochain point qui tient le GIL
+    PyObject* ref;
+    // où le bloc commence dans le fichier, en compte BRUT (Echappe compté
+    // tel quel, Compresse compté ZÉRO) : l'ancre des expansions relevées
+    // à l'écriture
+    size_t posBrut;
+    // Compresse seulement : la recette, figée au dépôt sous GIL — le
+    // réglage global de threads peut changer derrière
+    int clevel;
+    int compcode;
+    int16_t nthreads;
 };
 
 // Ce que taille octets deviennent en base64, guillemets compris.
@@ -114,6 +191,9 @@ struct EnVol {
     std::deque<WriterThread*> liste;
     size_t nombre = 0;                   // pas encore posés sur le disque
     int err = 0;                         // errno du premier qui a raté
+    // références rendues par les threads d'écriture (blocs zéro-copie
+    // écrits), à relâcher sous GIL — voir WriterThread::libereRefs
+    std::vector<PyObject*> aLiberer;
 };
 
 inline EnVol& enVol() {
@@ -180,18 +260,50 @@ public:
     }
 
     // Prend possession du bloc : il sera libéré par le thread, une fois écrit.
-    // `base64` le fait ENCODER par le thread au moment de l'écrire, plutôt que
+    // `Base64` le fait ENCODER par le thread au moment de l'écrire, plutôt que
     // par la sérialisation qui le dépose — et c'est alors la trame compressée,
-    // plus petite d'un quart, qui attend en mémoire.
-    void pousse(char* data, size_t taille, bool base64 = false) {
+    // plus petite d'un quart, qui attend en mémoire. `Echappe` lui fait faire
+    // le scan ET l'échappement json : le déposant n'a même pas lu le bloc.
+    // `ref` non nul : data est le tampon INTERNE de cet objet python (grand
+    // str), pris en zéro-copie — le bloc n'est pas libéré après
+    // écriture, la référence est rangée pour le prochain point sous GIL.
+    void pousse(char* data, size_t taille, Bloc::Mode mode = Bloc::Brut,
+                PyObject* ref = nullptr) {
         {
             std::unique_lock<std::mutex> verrou(m);
-            file.push_back(Bloc{data, taille, base64});
+            file.push_back(Bloc{data, taille, mode, ref,
+                                (size_t) debut + pousses});
             octets += taille;
         }
         aBloc.notify_one();
         depuisControle += taille;
-        pousses += base64 ? tailleBase64(taille) : taille;
+        // Echappe est compté BRUT : la taille écrite (chaque échappement
+        // grossit de 1 ou 5 octets) n'est pas connue d'avance, depose()
+        // devient un PLANCHER. L'index de positions, seul consommateur
+        // exact, se rattrape au rangement : le fil d'écriture relève chaque
+        // expansion (voir boucle), et la tâche rangeApres — qui tourne dans
+        // ce même fil, après le dernier bloc — corrige les entrées.
+        // reservePlace peut sous-réserver d'autant, le contrôle d'espace
+        // garde sa marge.
+        pousses += mode == Bloc::Base64 ? tailleBase64(taille) : taille;
+    }
+
+    // Dépose un bytes/bytearray à COMPRESSER par le thread (Bloc::Compresse).
+    // Compté ZÉRO dans `pousses` : la taille émise (trame en base64 si elle
+    // gagne, source sinon, étiquette comprise) n'est connue qu'à l'écriture —
+    // le fil la relève ENTIÈRE en delta, comme les expansions des blocs
+    // Echappe, et l'index de positions s'en corrige au rangement.
+    void pousseCompresse(char* data, size_t taille, PyObject* ref,
+                         int clevel, int compcode) {
+        {
+            std::unique_lock<std::mutex> verrou(m);
+            file.push_back(Bloc{data, taille, Bloc::Compresse, ref,
+                                (size_t) debut + pousses, clevel, compcode,
+                                (int16_t) serializejson_blosc2_nthreads_global});
+            octets += taille;
+        }
+        aBloc.notify_one();
+        depuisControle += taille;
     }
 
     // Position dans le FICHIER juste après le dernier octet déposé. `debut` est
@@ -199,6 +311,17 @@ public:
     // fois ENCODÉS (base64 compris) : c'est ce qui permet à l'écrivain d'indexer
     // ce qu'il écrit sans jamais supposer où il écrit.
     size_t depose() const { return (size_t) debut + pousses; }
+
+    // Ce que les blocs Echappe ont ajouté au compte brut : (posBrut du bloc,
+    // octets d'expansion), dans l'ordre du flux. Une position d'index p en
+    // compte brut se corrige en ajoutant les expansions des blocs dont
+    // posBrut < p — une borne d'entrée ne tombe jamais DANS un str, le
+    // guillemet ouvrant la précède et le fermant vient derrière le bloc.
+    // À lire depuis la tâche rangeApres ou après termine() SEULEMENT : le
+    // vecteur n'appartient qu'au thread d'écriture.
+    const std::vector<std::pair<size_t, size_t>>& expansions() const {
+        return deltas;
+    }
 
     // Réserve sur le disque la place du document. Appelé une fois, la
     // sérialisation FINIE : sa taille exacte est alors connue, si bien que le
@@ -269,6 +392,7 @@ public:
     // `dejaVue` quand l'appelant a déjà relevé l'erreur en exception : sans
     // quoi la même serait relevée une seconde fois par la prochaine attente.
     void laisseFiler(bool dejaVue = false) {
+        libereRefs();                    // appelé sous GIL : point de vidage
         {
             std::unique_lock<std::mutex> verrou(m);
             tue = dejaVue;
@@ -290,10 +414,13 @@ public:
     // demande qui veut savoir en sortant de dump que tout est sur le disque.
     void attends() {
         Py_BEGIN_ALLOW_THREADS
-        std::unique_lock<std::mutex> verrou(m);
-        while (octets != 0 && err == 0)
-            aVide.wait(verrou);
+        {
+            std::unique_lock<std::mutex> verrou(m);
+            while (octets != 0 && err == 0)
+                aVide.wait(verrou);
+        }
         Py_END_ALLOW_THREADS
+        libereRefs();
     }
 
     // Attend que toutes les écritures en vol soient posées sur le disque, et
@@ -311,6 +438,7 @@ public:
         }
         balaye();
         Py_END_ALLOW_THREADS
+        libereRefs();
         return err;
     }
 
@@ -318,6 +446,20 @@ public:
     int erreur() const {
         std::unique_lock<std::mutex> verrou(m);
         return err;
+    }
+
+    // Relâche les références des blocs zéro-copie déjà écrits. EXIGE le GIL.
+    // Appelé partout où l'on repasse de toute façon sous GIL près des
+    // écrivains : nouveau dump, écrivain lâché, attentes. Le DECREF se fait
+    // hors du verrou partagé — il peut détruire l'objet.
+    static void libereRefs() {
+        std::vector<PyObject*> refs;
+        {
+            std::unique_lock<std::mutex> verrou(enVol().m);
+            refs.swap(enVol().aLiberer);
+        }
+        for (size_t i = 0; i < refs.size(); ++i)
+            Py_DECREF(refs[i]);
     }
 
 private:
@@ -369,9 +511,33 @@ private:
                 bloc = file.front();
                 file.pop_front();
             }
-            int rate = bloc.base64 ? ecritBase64(bloc.data, bloc.taille)
-                                   : ecrit(bloc.data, bloc.taille);
-            free(bloc.data);
+            int rate;
+            if (bloc.mode == Bloc::Base64) {
+                rate = ecritBase64(bloc.data, bloc.taille);
+            } else if (bloc.mode == Bloc::Echappe) {
+                size_t expansion = 0;
+                rate = ecritEchappe(bloc.data, bloc.taille, expansion);
+                // relevé pour le rangement de l'index (voir expansions()) ;
+                // blocs écrits dans l'ordre du flux → posBrut croît, la
+                // recherche binaire du rangement s'en sert
+                if (expansion != 0)
+                    deltas.push_back({bloc.posBrut, expansion});
+            } else if (bloc.mode == Bloc::Compresse) {
+                size_t emis = 0;
+                rate = ecritCompresse(bloc, emis);
+                // compté ZÉRO au dépôt : la taille émise entière est le delta
+                deltas.push_back({bloc.posBrut, emis});
+            } else {
+                rate = ecrit(bloc.data, bloc.taille);
+            }
+            if (bloc.ref != nullptr) {
+                // tampon interne d'un objet python : rien à libérer ici, la
+                // référence part vers le prochain point qui tient le GIL
+                std::unique_lock<std::mutex> verrou(enVol().m);
+                enVol().aLiberer.push_back(bloc.ref);
+            } else {
+                free(bloc.data);
+            }
             {
                 std::unique_lock<std::mutex> verrou(m);
                 octets -= bloc.taille;
@@ -389,6 +555,10 @@ private:
             const int rate = tache();
             if (rate)
                 manque(rate);
+        }
+        if (cctx != nullptr) {
+            sj_blosc2_free_ctx(cctx);
+            cctx = nullptr;
         }
         signalePose();
     }
@@ -449,6 +619,111 @@ private:
         }
     }
 
+    // Compresse et écrit d'un même mouvement — et c'est ICI que l'étiquette
+    // se choisit : la trame ne part que si elle est PLUS PETITE que la
+    // source (le critère strict du greffon), sinon la source part en base64
+    // sous « b64 » ; un échec de compression se replie de même, en silence —
+    // le document reste valide, seulement moins compact. Le contexte blosc2
+    // est propre au thread, recréé quand la recette change (memcmp de clé,
+    // comme le cache global de la voie synchrone) et libéré en fin de
+    // boucle. `emis` rend la taille réellement écrite, étiquette comprise.
+    int ecritCompresse(const Bloc& bloc, size_t& emis) {
+        char* trame = nullptr;
+        int csize = -1;
+        const size_t destsize = bloc.taille + BLOSC2_MAX_OVERHEAD;
+        if ((trame = (char*) malloc(destsize)) != nullptr) {
+            blosc2_cparams cparams = sj_bytes_cparams(bloc.compcode,
+                                                      bloc.clevel,
+                                                      bloc.nthreads);
+            SjCctxKey cle = sj_cctx_key(cparams, (int32_t) bloc.taille);
+            if (cctx != nullptr && memcmp(&cle, &cctxCle, sizeof cle) != 0) {
+                sj_blosc2_free_ctx(cctx);
+                cctx = nullptr;
+            }
+            if (cctx == nullptr) {
+                cctx = sj_blosc2_create_cctx(cparams);
+                cctxCle = cle;
+            }
+            if (cctx != nullptr)
+                csize = sj_blosc2_compress_ctx(cctx, bloc.data,
+                                               (int32_t) bloc.taille, trame,
+                                               (int32_t) destsize);
+        }
+        int rate;
+        if (csize > 0 && (size_t) csize < bloc.taille) {
+            emis = tailleBase64((size_t) csize) + 13;
+            rate = ecritBase64(trame, (size_t) csize);
+            if (rate == 0)
+                rate = ecrit(",\"b64_blosc2\"", 13);
+        } else {
+            emis = tailleBase64(bloc.taille) + 6;
+            rate = ecritBase64(bloc.data, bloc.taille);
+            if (rate == 0)
+                rate = ecrit(",\"b64\"", 6);
+        }
+        free(trame);
+        return rate;
+    }
+
+    // Échappe et écrit d'un même mouvement : le str n'a même pas été LU par
+    // la sérialisation (voir FdWriteStream::RawPyStrPropre, voie entière) —
+    // son immuabilité et la référence forte du bloc figent le tampon, le fil
+    // d'écriture peut donc faire le scan à sa place. Les plages propres qui
+    // rempliraient le tampon partent DROIT du tampon source (zéro-copie) ;
+    // le reste — plages courtes, échappements — s'y regroupe pour ne pas
+    // dégénérer en write() de quelques octets. `expansion` s'accroît de ce
+    // que les échappements ajoutent au compte brut (1 ou 5 octets chacun) :
+    // c'est la matière du rangement d'index (voir expansions()).
+    int ecritEchappe(const char* data, size_t taille, size_t& expansion) {
+        char tampon[65536];
+        char* curseur = tampon;
+        char* const fin = tampon + sizeof tampon;
+        size_t k = 0;
+        int rate;
+        while (k < taille) {
+            size_t propre = sjPremierEchappement(data + k, taille - k);
+            if (propre >= sizeof tampon) {
+                if (curseur != tampon) {
+                    if ((rate = ecrit(tampon, (size_t) (curseur - tampon))))
+                        return rate;
+                    curseur = tampon;
+                }
+                if ((rate = ecrit(data + k, propre)))
+                    return rate;
+                k += propre;
+            } else {
+                while (propre != 0) {
+                    size_t prend = propre < (size_t) (fin - curseur)
+                                       ? propre
+                                       : (size_t) (fin - curseur);
+                    memcpy(curseur, data + k, prend);
+                    curseur += prend;
+                    k += prend;
+                    propre -= prend;
+                    if (curseur == fin) {
+                        if ((rate = ecrit(tampon, sizeof tampon)))
+                            return rate;
+                        curseur = tampon;
+                    }
+                }
+            }
+            if (k < taille) {            // data[k] est à échapper
+                if (fin - curseur < 6) {
+                    if ((rate = ecrit(tampon, (size_t) (curseur - tampon))))
+                        return rate;
+                    curseur = tampon;
+                }
+                char* avant = curseur;
+                curseur = sjEchappeUn(data[k], curseur);
+                expansion += (size_t) (curseur - avant) - 1;
+                k++;
+            }
+        }
+        if (curseur != tampon)
+            return ecrit(tampon, (size_t) (curseur - tampon));
+        return 0;
+    }
+
     // write() peut n'en prendre qu'une partie, et être interrompu par un signal
     int ecrit(const char* data, size_t taille) {
         if (erreur())
@@ -480,6 +755,12 @@ private:
     bool pose;                           // sous enVol().m
     bool tue;                            // erreur déjà relevée, sous m
     std::deque<Bloc> file;               // sous m
+    // expansions des blocs Echappe et Compresse écrits — au thread seul
+    std::vector<std::pair<size_t, size_t>> deltas;
+    // contexte blosc2 des blocs Compresse — au thread seul, libéré en fin
+    // de boucle ; cctxCle dit la recette qu'il incarne
+    blosc2_context* cctx = nullptr;
+    SjCctxKey cctxCle;
     std::function<int()> apres;          // à faire le dernier octet posé, sous m
     mutable std::mutex m;
     std::condition_variable aBloc;       // un bloc à écrire

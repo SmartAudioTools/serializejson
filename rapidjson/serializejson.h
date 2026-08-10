@@ -892,6 +892,12 @@ struct SjCctxKey {
     int16_t nthreads; int32_t blocksize; uint8_t splitmode;
     uint8_t filters[BLOSC2_MAX_FILTERS];
     uint8_t filters_meta[BLOSC2_MAX_FILTERS];
+    // taille de l'ENTRÉE : un contexte garde le blocksize calculé à sa
+    // première compression (blocksize auto) et l'applique aux suivantes —
+    // réutilisé sur une taille différente, il produit une trame VALIDE mais
+    // DIFFÉRENTE de celle d'un contexte neuf (constaté : 4 Ko puis 100 Ko,
+    // trame ×6). Clé par taille = toute trame est celle d'un contexte neuf.
+    int32_t nbytes;
 };
 static blosc2_context* sj_cctx_cache = nullptr;
 static SjCctxKey sj_cctx_cache_key;
@@ -1464,6 +1470,85 @@ sj_decompress_worker(std::vector<SjDecompressJob>* jobs, std::atomic<size_t>* ne
 }
 
 
+// cparams de la voie bytes/bytearray des greffons — la réplique EXACTE de ce
+// que BloscToBase64(value, 1, clevel, 0, cname) construit : trame unique,
+// typesize 1, aucun filtre. Sert aux deux moments où cette recette peut se
+// jouer : la compression synchrone (sj_bytes_compresse_sync) et le fil
+// d'écriture (WriterThread::ecritCompresse).
+inline blosc2_cparams sj_bytes_cparams(int compcode, int clevel,
+                                       int16_t nthreads) {
+    blosc2_cparams cparams = BLOSC2_CPARAMS_DEFAULTS;
+    cparams.compcode = (uint8_t) compcode;
+    cparams.clevel = (uint8_t) clevel;
+    cparams.typesize = 1;
+    cparams.nthreads = nthreads;
+    for (int f = 0; f < BLOSC2_MAX_FILTERS; f++) {
+        cparams.filters[f] = BLOSC_NOFILTER;
+        cparams.filters_meta[f] = 0;
+    }
+    return cparams;
+}
+
+// la clé du cache de contexte : les cparams qu'un contexte incarne, ET la
+// taille d'entrée pour laquelle son blocksize a été calculé (voir SjCctxKey)
+inline SjCctxKey sj_cctx_key(const blosc2_cparams& cparams, int32_t nbytes) {
+    SjCctxKey key;
+    memset(&key, 0, sizeof(key));
+    key.compcode = cparams.compcode; key.clevel = cparams.clevel;
+    key.typesize = cparams.typesize; key.nthreads = cparams.nthreads;
+    key.blocksize = cparams.blocksize; key.splitmode = cparams.splitmode;
+    memcpy(key.filters, cparams.filters, sizeof(key.filters));
+    memcpy(key.filters_meta, cparams.filters_meta,
+           sizeof(key.filters_meta));
+    key.nbytes = nbytes;
+    return key;
+}
+
+// Compression synchrone d'un bytes/bytearray (recette greffon ci-dessus) :
+// le contexte vient du cache global — pris et rendu sous GIL, comme dans
+// BloscToBase64_new — et la compression relâche le verrou. Rend la taille
+// compressée (> 0) et la trame (malloc, à libérer par l'appelant), ou <= 0
+// si elle a échoué (trame nulle, rien à libérer). EXIGE le GIL.
+inline int sj_bytes_compresse_sync(const char* buf, size_t taille,
+                                   int compcode, int clevel, char** trame) {
+    *trame = nullptr;
+    const size_t destsize = taille + BLOSC2_MAX_OVERHEAD;
+    char* dest = (char*) malloc(destsize);
+    if (dest == nullptr)
+        return -1;
+    blosc2_cparams cparams = sj_bytes_cparams(
+        compcode, clevel, (int16_t) serializejson_blosc2_nthreads_global);
+    SjCctxKey key = sj_cctx_key(cparams, (int32_t) taille);
+    blosc2_context* ctx = nullptr;
+    if (sj_cctx_cache != nullptr
+        && memcmp(&key, &sj_cctx_cache_key, sizeof(key)) == 0) {
+        ctx = sj_cctx_cache;             // pris sous GIL
+        sj_cctx_cache = nullptr;
+    }
+    int csize = -1;
+    Py_BEGIN_ALLOW_THREADS
+    if (ctx == nullptr)
+        ctx = sj_blosc2_create_cctx(cparams);
+    if (ctx != nullptr)
+        csize = sj_blosc2_compress_ctx(ctx, buf, (int32_t) taille, dest,
+                                       (int32_t) destsize);
+    Py_END_ALLOW_THREADS
+    if (ctx != nullptr) {
+        if (sj_cctx_cache == nullptr) {
+            sj_cctx_cache = ctx;         // rendu sous GIL
+            sj_cctx_cache_key = key;
+        } else {
+            sj_blosc2_free_ctx(ctx);
+        }
+    }
+    if (csize <= 0) {
+        free(dest);
+        return csize;
+    }
+    *trame = dest;
+    return csize;
+}
+
 typedef struct {
     PyObject_HEAD
     char* data;          // trame compressée, possédée par l'objet (free au dealloc)
@@ -1610,14 +1695,7 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
             return nullptr;
         }
         int delta_csize = -1;
-        SjCctxKey key;
-        memset(&key, 0, sizeof(key));
-        key.compcode = cparams.compcode; key.clevel = cparams.clevel;
-        key.typesize = cparams.typesize; key.nthreads = cparams.nthreads;
-        key.blocksize = cparams.blocksize; key.splitmode = cparams.splitmode;
-        memcpy(key.filters, cparams.filters, sizeof(key.filters));
-        memcpy(key.filters_meta, cparams.filters_meta,
-               sizeof(key.filters_meta));
+        SjCctxKey key = sj_cctx_key(cparams, (int32_t) view.len);
         bool cacheable = (diff_cols <= 0);
         blosc2_context* delta_ctx = nullptr;
         if (cacheable && sj_cctx_cache != nullptr
@@ -1713,6 +1791,123 @@ static PyTypeObject BloscToBase64_Type = {
     0,                              /* tp_init */
     0,                              /* tp_alloc */
     BloscToBase64_new,                    /* tp_new */
+};
+
+
+// Un bytes/bytearray remis À COMPRESSER — nulle part encore : la recette est
+// figée ici, la compression se joue à l'écriture. Quand la cible est un
+// fichier, c'est le FIL D'ÉCRITURE qui compresse et choisit l'étiquette
+// (« b64_blosc2 » si la trame gagne, « b64 » sinon) : dump rend la main sans
+// avoir compressé. Ailleurs (mémoire, flux python, petit tampon), la
+// compression reste synchrone, à l'identique de BloscToBase64 — voir
+// Writer::BloscDiffereEcrit, qui émet la liste ["<charge>","<étiquette>"]
+// complète dans les deux cas.
+typedef struct {
+    PyObject_HEAD
+    PyObject* value;     // bytes ou bytearray EXACT, référence forte
+    int clevel;
+    int compcode;
+} BloscDiffere;
+
+
+static void
+BloscDiffere_dealloc(BloscDiffere* self)
+{
+    Py_XDECREF(self->value);
+    Py_TYPE(self)->tp_free((PyObject*) self);
+}
+
+
+static PyObject*
+BloscDiffere_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
+{
+    static char const* kwlist[] = {"value", "clevel", "cname", nullptr};
+    PyObject* value = nullptr;
+    int clevel = 5;
+    const char* cname = "blosclz";
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|is", (char**) kwlist,
+                                     &value, &clevel, &cname))
+        return nullptr;
+    if (!serializejson_blosc2_ctx_ok) {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "blosc library not loaded (call load_blosc_library first)");
+        return nullptr;
+    }
+    // types EXACTS seulement : l'écrivain relira le tampon par les macros
+    // directes, et une sous-classe passe par la voie générique de toute façon
+    if (!PyBytes_CheckExact(value) && !PyByteArray_CheckExact(value)) {
+        PyErr_SetString(PyExc_TypeError,
+                        "BloscDiffere expects a bytes or bytearray");
+        return nullptr;
+    }
+    if ((size_t) Py_SIZE(value) >= (size_t) INT32_MAX - BLOSC2_MAX_OVERHEAD) {
+        PyErr_SetString(PyExc_ValueError,
+                        "buffer too large for a single blosc2 frame (2 GiB)");
+        return nullptr;
+    }
+    const int compcode = sj_blosc2_compname_to_compcode(cname);
+    if (compcode < 0) {
+        PyErr_Format(PyExc_ValueError, "unknown blosc compressor '%s'",
+                     cname);
+        return nullptr;
+    }
+    PyObject* self = type->tp_alloc(type, 0);
+    if (self == nullptr)
+        return nullptr;
+    Py_INCREF(value);
+    ((BloscDiffere*) self)->value = value;
+    ((BloscDiffere*) self)->clevel = clevel;
+    ((BloscDiffere*) self)->compcode = compcode;
+    return self;
+}
+
+
+PyDoc_STRVAR(BloscDiffere_doc,
+             "Bytes or bytearray handed over for blosc compression at write"
+             " time: when the target is a file, the writer thread compresses"
+             " AND picks the label (b64_blosc2 if the frame is smaller, b64"
+             " otherwise) after dump has already returned.");
+
+
+static PyTypeObject BloscDiffere_Type = {
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    "rapidjson.BloscDiffere",             /* tp_name */
+    sizeof(BloscDiffere),                 /* tp_basicsize */
+    0,                              /* tp_itemsize */
+    (destructor) BloscDiffere_dealloc,    /* tp_dealloc */
+    0,                              /* tp_print */
+    0,                              /* tp_getattr */
+    0,                              /* tp_setattr */
+    0,                              /* tp_compare */
+    0,                              /* tp_repr */
+    0,                              /* tp_as_number */
+    0,                              /* tp_as_sequence */
+    0,                              /* tp_as_mapping */
+    0,                              /* tp_hash */
+    0,                              /* tp_call */
+    0,                              /* tp_str */
+    0,                              /* tp_getattro */
+    0,                              /* tp_setattro */
+    0,                              /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT,             /* tp_flags */
+    BloscDiffere_doc,                     /* tp_doc */
+    0,                              /* tp_traverse */
+    0,                              /* tp_clear */
+    0,                              /* tp_richcompare */
+    0,                              /* tp_weaklistoffset */
+    0,                              /* tp_iter */
+    0,                              /* tp_iternext */
+    0,                              /* tp_methods */
+    0,                              /* tp_members */
+    0,                              /* tp_getset */
+    0,                              /* tp_base */
+    0,                              /* tp_dict */
+    0,                              /* tp_descr_get */
+    0,                              /* tp_descr_set */
+    0,                              /* tp_dictoffset */
+    0,                              /* tp_init */
+    0,                              /* tp_alloc */
+    BloscDiffere_new,                     /* tp_new */
 };
 
 

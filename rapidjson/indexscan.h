@@ -353,6 +353,12 @@ inline bool sj_index_balaye(const char* data, size_t fin, size_t seuil,
 struct SjIndexEcriture {
     const std::vector<SjSegment>* segments = nullptr;
     size_t seuil = 0;
+    // compteur, chez le flux, des blocs dont la taille écrite n'est pas le
+    // compte brut (Echappe, Compresse — voir FdWriteStream::blocsVariables) :
+    // un conteneur pendant lequel il a bougé peut être plus grand qu'il n'y
+    // paraît, il est alors retenu par PRUDENCE — l'élagage final
+    // (sj_index_elague), sur les positions corrigées, tranche au vrai seuil
+    const size_t* blocsVariables = nullptr;
     std::string texte;      // « "chemin":[début,fin],… », sans les accolades
 
     // Ce que le document écrit est DANS le fichier. Pour un dump c'est le
@@ -367,6 +373,7 @@ struct SjIndexEcriture {
     struct Niveau {
         size_t debut;
         size_t prof;         // nombre de segments de chemin à l'ouverture
+        size_t varDebut;     // blocsVariables à l'ouverture (0 sans compteur)
         const char* attr;    // clé d'enveloppe reprise (voir attente), ou nul
         size_t attrLen;
         std::string chemin;  // composé à la demande, resservi à la descendance
@@ -393,6 +400,7 @@ struct SjIndexEcriture {
         Niveau& niv = pile.back();
         niv.debut = position;
         niv.prof = prof;
+        niv.varDebut = blocsVariables != nullptr ? *blocsVariables : 0;
         niv.attr = attr;
         niv.attrLen = attenteLen;
         niv.fait = false;
@@ -404,7 +412,13 @@ struct SjIndexEcriture {
         // la racine d'un dump est écartée : le python la pose en [0, taille],
         // exactement comme le balayage, dont l'entrée « root » écrase la
         // sienne. Celle d'un `append`, elle, est un maillon comme un autre.
-        if ((pile.size() > 1 || indexeRacine) && position - niv.debut >= seuil)
+        // Un conteneur qu'un bloc à taille variable a traversé est retenu
+        // même sous le seuil : sa taille brute est un plancher, l'élagage
+        // final tranchera sur la taille corrigée.
+        if ((pile.size() > 1 || indexeRacine)
+            && (position - niv.debut >= seuil
+                || (blocsVariables != nullptr
+                    && *blocsVariables != niv.varDebut)))
             retient(chemin(pile.size() - 1), niv.debut, position);
         pile.pop_back();
     }
@@ -696,6 +710,103 @@ inline bool sj_index_debloc(const char* data, size_t n, bool base64,
         return true;
     }
     return sj_index_degonfle(brut.data(), brut.size(), out);
+}
+
+// Les positions relevées à l'écriture comptent les blocs Echappe BRUTS : ce
+// que les échappements ajoutent n'est connu que du fil d'écriture, une fois
+// chaque bloc réellement écrit (WriterThread::expansions). Chaque expansion
+// vaut pour toute position STRICTEMENT au-delà du début de son bloc — une
+// borne d'entrée ne tombe jamais DANS un str, le guillemet ouvrant la précède
+// et le fermant vient derrière le bloc. Le texte des entrées est réécrit ici,
+// au rangement, dans ce même fil : cumul + recherche binaire, aucun octet du
+// document n'est relu. « root » n'a rien à corriger : sa fin vient du fichier.
+inline void sj_index_corrige(const char* entrees, size_t n,
+                             const std::vector<std::pair<size_t, size_t>>& exp,
+                             std::string& out)
+{
+    std::vector<size_t> cumul(exp.size());
+    size_t somme = 0;
+    for (size_t i = 0; i < exp.size(); i++) {
+        somme += exp[i].second;
+        cumul[i] = somme;
+    }
+    out.reserve(n + exp.size() * 4);
+    size_t i = 0;
+    while (i < n) {
+        // « "chemin échappé":[début,fin] » — un « " » du chemin est toujours
+        // « \" » dans sa forme échappée : le « ":[ » qui ferme est sans
+        // ambiguïté, on recopie la chaîne telle quelle
+        do
+            out += entrees[i];
+        while (entrees[i++] != '"');
+        while (entrees[i] != '"') {
+            out += entrees[i];
+            if (entrees[i++] == '\\') {
+                out += entrees[i];
+                i++;
+            }
+        }
+        out += "\":[";
+        i += 3;
+        for (int borne = 0; borne < 2; borne++) {
+            size_t p = 0;
+            while (i < n && entrees[i] >= '0' && entrees[i] <= '9')
+                p = p * 10 + (size_t) (entrees[i++] - '0');
+            // expansions des blocs commencés STRICTEMENT avant p
+            size_t lo = 0, hi = exp.size();
+            while (lo < hi) {
+                const size_t mi = (lo + hi) / 2;
+                if (exp[mi].first < p)
+                    lo = mi + 1;
+                else
+                    hi = mi;
+            }
+            out += std::to_string(
+                (unsigned long long) (p + (lo ? cumul[lo - 1] : 0)));
+            out += entrees[i++];         // ',' entre bornes, ']' derrière
+        }
+        if (i < n)
+            out += entrees[i++];         // la virgule entre entrées
+    }
+}
+
+// L'élagage FINAL des entrées, au vrai seuil : retenues par prudence à
+// l'écriture (un bloc à taille variable avait bougé pendant leur conteneur,
+// voir SjIndexEcriture::blocsVariables), certaines restent sous le seuil une
+// fois leurs positions corrigées — elles sortent ici. Jamais l'inverse : les
+// corrections ne font que grandir (expansions positives), une entrée écartée
+// à l'écriture (brut < seuil, aucun bloc variable traversé) était exacte.
+// L'égalité stricte avec le balayage tient donc dans les deux sens.
+inline void sj_index_elague(const char* entrees, size_t n, size_t seuil,
+                            std::string& out)
+{
+    out.reserve(n);
+    size_t i = 0;
+    while (i < n) {
+        const size_t depart = i;
+        i++;                             // le « " » ouvrant du chemin
+        while (entrees[i] != '"') {      // chemin échappé : « \" » possible
+            if (entrees[i++] == '\\')
+                i++;
+        }
+        i += 3;                          // « ":[ »
+        size_t bornes[2] = {0, 0};
+        for (int borne = 0; borne < 2; borne++) {
+            size_t p = 0;
+            while (i < n && entrees[i] >= '0' && entrees[i] <= '9')
+                p = p * 10 + (size_t) (entrees[i++] - '0');
+            bornes[borne] = p;
+            i++;                         // ',' entre bornes, ']' derrière
+        }
+        const size_t fin = i;
+        if (i < n)
+            i++;                         // la virgule entre entrées
+        if (bornes[1] - bornes[0] >= seuil) {
+            if (!out.empty())
+                out += ',';
+            out.append(entrees + depart, fin - depart);
+        }
+    }
 }
 
 // L'index complet, tel qu'il se range : le texte des entrées relevées par l'un

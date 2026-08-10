@@ -176,3 +176,134 @@ python (il n'y en a plus), c'est une décision de FORMAT.
   le test des types de clés).
 - matplotlib : parse_math=False sur tout texte porteur de `$`.
 - Les scripts d'outillage ne vivent PAS dans /tmp (nettoyeur).
+
+## Addendum nuit du 09 au 10/08 — zéro-copie str (écriture), NON COMMITÉ
+
+Trois pistes retenues, tout est construit et validé, RIEN n'est commité
+(autorisation attendue au matin) :
+
+- **① dumps → str sans copie terminale** : tampon adossé à un str
+  ascii compact (strBacking, stealPyStrAscii). PGO/PGO : gros ascii
+  −29 %, liste_str −12,6 %, petit ascii −10,4 % ; accents +3 %
+  (chemin copie inchangé).
+- **④ grands str propres remis zéro-copie au fil d'écriture**
+  (fichier) : RawPyStrPropre remet le PRÉFIXE propre (scan SSE2),
+  l'appelant échappe la queue ; référence forte rendue par
+  libereRefs. PGO/PGO : liste 100×100 Ko −17,8 %, gros 10 Mo −10,3 %,
+  perdant −5,4 %, témoin +1,6 % (bruit). Lecture neutre partout.
+- **④bis (idée de Baptiste, 22 h 14) : le str part SANS ÊTRE LU** —
+  scan ET échappement dans le fil d'écriture (Bloc::Echappe,
+  ecritEchappe sur le modèle d'ecritBase64, graphie sjEchappeUn
+  identique à Writer::EchappeUn à l'octet près). GARDÉE par
+  `index_ == nullptr` : dump vers un chemin indexe PAR DÉFAUT, la
+  taille échappée inconnue au dépôt fausserait Tell/depose — les
+  populations servies sont `index=None` et les append. PGO/PGO
+  (`index=None`, latence/débit) : échappements denses −88/−72 %,
+  gros propre −33/−14 %, dispersés −37/−25 %, perdant −25/−13 %,
+  témoin ±0,5 % ; population indexée neutre (±5 %, signes mêlés).
+  Piste ouverte pour servir l'index (audit §20.7) : positions
+  numériques + formatage tardif + deltas d'expansion — refonte
+  indexscan, pas cette nuit.
+- Fermées : ② seuil parse en place (commentaire à rapidjson.cpp:5159),
+  ③ compression écrivain (= décision de FORMAT, arbitrage au matin),
+  ⑤ segments dumps (2×outputHighWater couvre déjà).
+- Fichiers à commiter (les MIENS seulement) : rapidjson/{fdwritestream.h,
+  prettywriter.h, pybytesbuffer.h, pywritestreamwrapper.h,
+  rapidjson.cpp, writer.h, writerthread.h, pgo_workload.py} + les .so
+  PGO + Notes/AUDIT (§20) + ce fichier. NE PAS toucher : README.rst,
+  docs_source/images/*.svg, tests/serialized/*.json (autres instances).
+
+Suite de nuit (23 h → …) — l'INDEX N'ÉTAIT PAS UN VERROU, Baptiste
+avait raison (« il suffit de cumuler des deltas ») :
+- **Refonte index-par-deltas FAITE** (audit §21.3) : Bloc::posBrut,
+  journal (posBrut, expansion) relevé par le fil dans ecritEchappe,
+  sj_index_corrige au rangement (cumul + recherche binaire, strict <
+  car une borne d'entrée ne tombe jamais dans un str). ④bis DÉGARDÉ :
+  garde `index_ == nullptr || !indexeRacine` — les dumps PAR DÉFAUT
+  vers un chemin prennent la voie Echappe ; seul l'append indexé
+  garde le préfixe (son rangement vit dans un WriterThread(-1) sans
+  journal — piste : copier le journal sous verrou à la fermeture).
+- Validation : 204 pytest verts, test paramétré neuf dans
+  tests/test_indexation.py (égalité stricte index écrit = balayage),
+  sonde refcount prouvant la voie. A/B décongestionné (audit §21.4) :
+  lat −23 à −89 % sur toute la population indexée, contre chantier
+  d'avant ET contre PGO ④bis ; seul débit esc_dense en boucle serrée
+  retrait (échappement scalaire chantier ~90 Mo/s) — verdict PGO/PGO.
+- pgo_workload.py étendu : bytes différés (ecritBase64), dump indexé
+  seuil 16 multi-entrées échappées (sj_index_corrige à chaud).
+
+Suite (00 h 09, question de Baptiste « et append a profité ? ») —
+**l'append rejoint la voie Echappe, la porte ④bis DISPARAÎT**
+(audit §21.6) : les entrées d'un append sont corrigées à la mort de
+CHAQUE écrivain (sj_append_ferme, après termine(), expansions
+closes) — un écrivain ultérieur relit son debut du descripteur donc
+repart en coordonnées réelles, la correction est exacte par époques,
+le poseur WriterThread(-1) reçoit des entrées déjà réelles.
+RawPyStrPropre perd `entier` et la voie préfixe (−13 lignes, une
+seule voie pour tous les flux fichier). Preuve par le rouge : test
+neuf append grands str (2 formes × close, le close=True exerce le
+multi-époques) rouge 4/4 sur binaire à correction neutralisée.
+PGO/PGO append 1 Mo indexé : propre −94 % (2,4 µs), dense −99,9 %
+(1,9 µs contre 1 532), dispersé −98 %, témoin neutre ; population
+dump revérifiée sans dilution. 212 tests verts × 4 versions,
+corpus PGO étendu aux appends.
+
+Suite (00 h 47, objection de Baptiste « je ne comprends pas ce qui
+empêche le writer de choisir l'étiquette ») — **la compression blosc2
+rejoint le fil d'écriture, la « décision de format » ③ DISSOUTE**
+(audit §22) : BloscDiffere (greffons bytes/bytearray, forme compacte
+et non-ascii pour bytes seulement), ecritCompresse dans le fil avec
+contexte par fil, étiquette choisie par le fil (b64_blosc2 si
+csize < taille, sinon b64), delta (posBrut, émis) au journal comme
+Echappe ; hors flux fichier : compression synchrone, mêmes octets.
+Index : bloc différé compté zéro → rétention conservative
+(blocsVariables) + élagage final (sj_index_elague), preuve par le
+rouge dans les deux sens (test_index_et_compression_differee_aux_
+bornes_du_seuil). **Bug de déterminisme PRÉEXISTANT corrigé au
+passage** : un contexte blosc2 en cache gardait le blocksize de sa
+première compression → trames différentes selon l'historique (la
+référence se contredisait elle-même dumps vs dumpb sur un document
+multi-tailles) ; clé de cache par taille d'entrée (SjCctxKey.nbytes,
+4 points d'appel). Validation : identité à l'octet 252 lignes
+(mono == par-cas == référence à contexte neuf), append identique,
+213 tests × 4 versions PGO, batterie rejouée sur PGO bit à bit.
+Mesures PGO/PGO : lat dump −91/−94 % (4 Mo), −30 % (8×100 Ko),
+append +8 % et total multi-charges +7-10 % (compression désormais en
+série dans le fil au lieu de recouvrir — assumé, le cas nominal ne
+wait pas), gros documents neutres. pgo_workload : cas compression
+différée ajouté. Fichiers touchés en plus de la liste ci-dessus :
+indexscan.h, serializejson.h, plugins/serializejson_builtins.py,
+tests/test_indexation.py.
+
+Pièges nouveaux payés cette nuit :
+- **Un banc dont la setup fabrique ses documents avec le binaire testé
+  mesure l'état du TAS, pas le binaire** : la copie terminale de
+  l'ancien dumps libérait un bloc ≥10 Mo, relevant les seuils
+  dynamiques glibc — sa disparition (zéro-copie) a fait surgir une
+  fausse régression lecture ×2,7 (2 557 défauts de page/itération =
+  les objets résultat rendus à l'OS). Documents de banc via json.dumps.
+  Optimisation préexistante possible (seuils malloc, réglage global
+  processus) → rapport, pas code.
+- **Un banc de dump qui réécrit la MÊME cible mesure le writeback, pas
+  le binaire** : open("wb") tronquant un fichier aux pages sales rend
+  260-400 ms sur VeraCrypt congestionné (1 ms à froid) — fausse
+  régression ×90 sur les échappements, et le binaire le plus rapide
+  paraît le plus lent (il creuse le retard device). Correctif :
+  os.sync() en frontière de cas + fsync de la cible après chaque
+  wait_writes. Diagnostic par sonde à thread échantillonneur (dump ne
+  tenait pas le GIL) puis chrono de l'open seul. Audit §21.4.
+- zsh : `echo ===` échoue (« == not found », expansion =mot) — mettre
+  les délimiteurs entre guillemets.
+- `for o in $ordres` ne découpe PAS une variable non citée en zsh —
+  dérouler les appels run_ref/run_new explicitement.
+- build_pgo.sh SE LANCE DEPUIS rapidjson/ (depuis la racine : crée un
+  rapidjson.cpp vide à la racine + InvalidVersion) — repayé.
+- **dump vers un CHEMIN pose un index sidecar PAR DÉFAUT**
+  (indexation.FORME_DEFAUT) : toute voie gardée par `index_ == nullptr`
+  est silencieusement inerte sur les dumps par défaut — un premier A/B
+  de ④bis n'a mesuré que du bruit. Avant de mesurer, PROUVER la voie
+  prise par sonde : `sys.getrefcount(s)` juste après le retour de
+  dump() — +1 ssi le str est parti différé (réf forte en vol).
+- Le greffon pytest typeguard casse sur 3.14 (ImportError ast.Str) :
+  `-p no:typeguard` partout, déjà noté plus haut mais repayé dans la
+  boucle de consolidation.

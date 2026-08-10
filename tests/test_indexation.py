@@ -11,6 +11,7 @@ import decimal
 import io
 import json
 import os
+import random
 import time
 
 import pytest
@@ -384,6 +385,39 @@ def test_index_ecrit_identique_au_balayage(tmp_path, indent):
                     == indexation.balaye(donnees, seuil))
 
 
+@pytest.mark.parametrize("forme", FORMES)
+@pytest.mark.parametrize("indent", (None, 2))
+def test_index_et_grands_str_echappes_par_le_thread(tmp_path, forme, indent):
+    # PIÈGE : un grand str part ENTIER au thread d'écriture, échappement
+    # compris (FdWriteStream::RawPyStrPropre) — les positions relevées le
+    # comptent BRUT, et c'est le rangement qui les corrige des expansions
+    # réelles (WriterThread::expansions). L'égalité stricte avec le balayage,
+    # qui lit le fichier, est ce qui interdit à un décalage de passer
+    # inaperçu ; le chargement sélectif derrière les str referme la preuve.
+    dense = 'ligne "avec guillemets"\n\tfin\\' * 3000     # ~90 Ko d'escapes
+    propre = "x" * 80000                                  # aucun échappement
+    disperse = ("y" * 3000 + "\n") * 30                   # rares et espacés
+    accents = "héhé à gogo\n" * 8000                      # non-ascii + escapes
+    objet = {"avant": list(range(50)), "dense": dense,
+             "milieu": {"propre": propre, "n": list(range(50))},
+             "disperse": disperse, "accents": accents,
+             "apres": [list(range(30)) for _ in range(20)]}
+    chemin = str(tmp_path / "echappe.json")
+    for seuil in (16, 256):
+        serializejson.dump(objet, chemin, index=forme, index_threshold=seuil,
+                           indent=indent)
+        serializejson.wait_writes()
+        with open(chemin, "rb") as f:
+            donnees = f.read()
+        fin = rapidjson._index_fin(donnees)
+        assert (indexation.lit(chemin)["paths"]
+                == indexation.balaye(donnees, seuil, fin))
+        assert serializejson.load(chemin, path="root['milieu']") \
+            == objet["milieu"]
+        assert serializejson.load(chemin, path="root['apres']") \
+            == objet["apres"]
+
+
 def test_index_decale_crie(tmp_path):
     # un index faux d'UN octet rend un objet plausible et faux : la tranche
     # doit ouvrir et refermer un conteneur, faute de quoi le chargement crie
@@ -437,6 +471,48 @@ def test_index_et_base64_encode_par_le_thread(tmp_path, bloquant):
     index = indexation.lit(chemin)["paths"]
     assert index == indexation.balaye(donnees, 64)
     assert "root['apres'][199]" in index
+
+
+def test_index_et_compression_differee_aux_bornes_du_seuil(tmp_path):
+    # PIÈGE : un bytes compressé AU FIL D'ÉCRITURE est déposé à taille
+    # inconnue — ses positions brutes sous-comptent toute la charge (zéro
+    # octet poussé au dépôt). L'écrivain retient donc conservativement toute
+    # entrée qui a traversé un bloc à taille variable, et l'élagage final
+    # retranche au VRAI seuil, sur les positions corrigées. Les deux sens se
+    # testent aux bornes : brut < seuil ≤ réel doit RESTER (sans la rétention,
+    # l'entrée manque), réel < seuil doit TOMBER (sans l'élagage, elle reste).
+    # L'oracle est le balayage, qui lit le fichier : indépendant des positions
+    # relevées, il crie dans les deux sens.
+    objet = {"grand": random.Random(7).randbytes(70_000),  # -> étiquette b64
+             "petit_reel": bytes(range(256)) * 300,        # -> trame courte
+             "fin": list(range(30))}
+    chemin = str(tmp_path / "borne.json")
+    config = dict(bytes_compression="blosc2_zstd",
+                  bytes_size_compression_threshold=512)
+
+    def indexe(seuil):
+        serializejson.dump(objet, chemin, index="sidecar",
+                           index_threshold=seuil, **config)
+        serializejson.wait_writes()
+        with open(chemin, "rb") as f:
+            donnees = f.read()
+        lu = indexation.lit(chemin)
+        attendu = indexation.balaye(donnees, seuil,
+                                    rapidjson._index_fin(donnees))
+        if lu is None:                   # réduit à `root` : pas écrit
+            assert set(attendu) <= {"root"}
+            return {}
+        assert lu["paths"] == attendu
+        return lu["paths"]
+
+    reference = indexe(16)
+    tailles = {cle: bornes[1] - bornes[0] for cle, bornes in reference.items()}
+    petit, grand = tailles["root['petit_reel']"], tailles["root['grand']"]
+    assert 16 < petit < grand      # sinon les bornes testées se confondent
+    assert "root['grand']" in indexe(grand)          # brut « seuil ≤ réel
+    assert "root['grand']" not in indexe(grand + 1)  # réel < seuil
+    dernier = indexe(petit)
+    assert "root['petit_reel']" in dernier and "root['grand']" in dernier
 
 
 @pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
@@ -566,6 +642,38 @@ def test_append_sur_un_fichier_indexe_en_comment(tmp_path):
     serializejson.wait_writes()
     assert serializejson.load(chemin) == MAILLONS[:3]
     assert "root[2]" in indexation.lit(chemin)["paths"]
+
+
+GROS_MAILLONS = [
+    {"texte": "x" * 80_000},                # propre : bloc Echappe, expansion 0
+    {"texte": "ab\n" * 30_000},             # dense : chaque \n grossit l'écrit
+    {"texte": ("w" * 5000 + "\n") * 16},    # dispersé
+    {"petit": "rien"},                      # sous la tranche : voie normale
+]
+
+
+@pytest.mark.parametrize("close", (False, True))
+@pytest.mark.parametrize("forme", FORMES)
+def test_append_de_grands_str_garde_l_index_juste(tmp_path, forme, close):
+    # les grands str d'un maillon partent au fil d'écriture SANS être lus
+    # (Bloc::Echappe) : les positions relevées sont en compte brut, et se
+    # corrigent à la fermeture de chaque écrivain (sj_append_ferme).
+    # close=True ferme et rouvre entre chaque maillon : chaque écrivain ne
+    # corrige que les entrées relevées de son vivant, jamais celles, déjà
+    # réelles, des écrivains précédents
+    chemin = str(tmp_path / "appends.json")
+    encodeur = serializejson.Encoder(chemin, index=forme, index_threshold=64)
+    for maillon in GROS_MAILLONS:
+        encodeur.append(maillon, close=close)
+    encodeur.close()
+    serializejson.wait_writes()
+    with open(chemin, "rb") as f:
+        donnees = f.read()
+    index = indexation.lit(chemin)["paths"]
+    assert index == indexation.balaye(donnees, 64, fin=index["root"][1])
+    rang = len(GROS_MAILLONS) - 2
+    assert serializejson.load(chemin, path="root[%d]" % rang) \
+        == GROS_MAILLONS[rang]
 
 
 def test_append_index_sans_destination_crie():
