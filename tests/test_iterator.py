@@ -139,5 +139,62 @@ def test_iterator_reiteration(tmp_path, monkeypatch):
     assert not ancien.fil.is_alive()
 
 
+def test_iterator_index_arme(tmp_path):
+    # un dump vers un chemin pose un index par défaut : l'itération doit s'en
+    # servir — chaque maillon indexé part au parseur en UNE lecture contiguë,
+    # sans scan. Preuve de voie : les plages sont armées et toutes consommées
+    objets = [{"img": os.urandom(9000)}, 5, {"img": os.urandom(9000)},
+              "petit", None, {"queue": list(range(2000))}]
+    for indent in ("\t", None):
+        path = tmp_path / f"indexe_{indent is None}.json"
+        serializejson.dump(objets, str(path), indent=indent)
+        serializejson.wait_writes()
+        decodeur = serializejson.Decoder(str(path))
+        assert list(decodeur) == objets
+        assert decodeur.file_iter.ranges is not None
+        assert len(decodeur.file_iter.ranges) == 0
+
+
+def test_iterator_index_refuse_apres_append_nu(tmp_path):
+    # un append sans index périme l'index du dump initial (sa racine ne
+    # couvre plus le document) : lit() le refuse, l'itération retombe sur le
+    # scan intégral et rend quand même tout
+    objets = [{"img": os.urandom(9000)}, 5, {"img": os.urandom(8000)}, None]
+    path = tmp_path / "mixte.json"
+    serializejson.dump(objets[:2], str(path))
+    serializejson.wait_writes()
+    encoder = serializejson.Encoder(file=str(path))
+    for objet in objets[2:]:
+        encoder.append(objet)
+    encoder.close()
+    decodeur = serializejson.Decoder(str(path))
+    assert list(decodeur) == objets
+    assert decodeur.file_iter.ranges is None
+
+
+def test_iterator_chunk_minuscule(tmp_path):
+    # un chunk plus petit que les séparateurs entre maillons produisait des
+    # tranches vides que le parseur prenait pour la fin du fichier : un dump
+    # indenté relu au chunk 7 rendait 1 maillon sur 6, en silence. La relecture
+    # sur tranche vide corrige — SAUF quand le vide est le terminateur d'une
+    # valeur simple continuée (« null » coupé pile avant sa virgule), qui doit
+    # rester une fin de maillon. Les deux cas sont dans ce corpus
+    objets = [5, "petit", None, True, {"a": 1}, [1, 2], "fin"]
+    for indent in ("\t", None):
+        path = tmp_path / f"minuscule_{indent is None}.json"
+        serializejson.dump(objets, str(path), indent=indent, index=None)
+        serializejson.wait_writes()
+        assert list(serializejson.Decoder(str(path), chunk_size=7)) == objets
+
+
+def test_iterator_chunk_minuscule_echappements(tmp_path):
+    # variante du même défaut avec guillemets échappés denses (perdait des
+    # maillons sur le binaire d'avant le correctif)
+    objets = [('q"' * 30000) + "\\", 5, ('a"' * 100) + "\\", None]
+    path = tmp_path / "echappements.json"
+    _ecrit_liste(path, objets)
+    assert list(serializejson.Decoder(str(path), chunk_size=7)) == objets
+
+
 if __name__ == "__main__":
     test_iterator()

@@ -3790,6 +3790,7 @@ class _json_object_file_iterator(io.FileIO):
         self.shedule_break = False
         self.in_chunk_start = 0
         self.s = None
+        self.ranges = None
         # s = io.FileIO.read(self, 1)
         # if s not in (b"[", "["):
         #    raise Exception('the json data must start with "["')
@@ -3797,10 +3798,40 @@ class _json_object_file_iterator(io.FileIO):
             self.interesting = set(b'\\"{}[]')
             self.separators = set(b", \t\n\r")
             self.chars = list(b'\\"{}[]')
+            if isinstance(fp, str):
+                self._arme_index(fp)
         else:
             self.interesting = set('\\"{}[]')
             self.separators = set(", \t\n\r")
             self.chars = list('\\"{}[]')
+
+    _MOTIF_MAILLON = re.compile(r"root\[\d+\]$")
+
+    def _arme_index(self, chemin):
+        # les frontières « root[i] » de l'index évitent le scan des maillons
+        # indexés : chacun part au parseur en UNE lecture contiguë (le wrapper
+        # C prend le bytes rendu tel quel, quelle que soit sa longueur). On
+        # fait à l'index la même confiance que load(file, chemin_objet) :
+        # lit() rend None si l'index ne couvre plus le document (fichier
+        # réécrit ou appendé sans index) — scan intégral dans ce cas
+        try:
+            index_ = indexation.lit(chemin)
+        except Exception:
+            return
+        if not index_:
+            return
+        bornes = sorted(tuple(v) for k, v in index_["paths"].items()
+                        if self._MOTIF_MAILLON.match(k))
+        if not bornes:
+            return      # rien d'assez gros pour être indexé : scan intégral
+        # lit() garantit root == [0, fin] : le document commence à 0. Ne
+        # reste qu'à vérifier que sa racine est bien une liste (un dict
+        # racine ne s'itère pas — le scan rendra ce qu'il rendait avant)
+        if io.FileIO.read(self, 1) != b"[":
+            io.FileIO.seek(self, 0)
+            return
+        self.in_squares = 1
+        self.ranges = deque(bornes)
 
     def read(self, size=-1):
         if self.shedule_break:
@@ -3810,39 +3841,78 @@ class _json_object_file_iterator(io.FileIO):
         # tampon bytes : machine à états portée en C (~200x plus rapide que
         # la boucle Python ci-dessous, conservée pour le mode texte)
         if self.in_chunk_start == 0:
+            ranges = self.ranges
+            if ranges is not None and not (
+                    self.in_quotes or self.in_curlys or self.in_simple
+                    or self.in_object):
+                # entre deux maillons : caler les lectures sur le prochain
+                # maillon indexé, et le rendre d'un bloc quand on est dessus
+                pos = io.FileIO.tell(self)
+                while ranges and ranges[0][1] <= pos:
+                    ranges.popleft()    # déjà passé (rattrapé par le scan)
+                if ranges:
+                    debut, fin = ranges[0]
+                    if pos == debut:
+                        ranges.popleft()
+                        self.shedule_break = True
+                        return io.FileIO.read(self, fin - debut)
+                    if pos < debut and (size < 0 or size > debut - pos):
+                        size = debut - pos  # ne pas mordre sur le maillon
             s = self.s = io.FileIO.read(self, size)
         else:
             s = self.s
+        if not s:
+            return s
+        etait_simple = self.in_simple
         if isinstance(s, bytes):
-            if not s:
-                return s
-            (
-                ret_start,
-                ret_end,
-                self.in_quotes,
-                self.in_curlys,
-                self.in_squares,
-                self.in_simple,
-                self.in_object,
-                self.backslash_escape,
-                self.in_chunk_start,
-                shedule_break,
-            ) = rapidjson._scan_appended(
-                s,
-                self.in_chunk_start,
-                self.in_quotes,
-                self.in_curlys,
-                self.in_squares,
-                self.in_simple,
-                self.in_object,
-                self.backslash_escape,
-            )
-            if shedule_break:
-                self.shedule_break = True
-            if ret_start == -1:
-                return ""
-            return s[ret_start:ret_end]
-        return self._read_python(s)
+            res = self._scan_c(s)
+        else:
+            res = self._read_python(s)
+        if res is None:
+            return ""       # fin de la liste json
+        if res:
+            return res
+        if etait_simple and not self.in_simple:
+            # vide parce que le tampon COMMENÇAIT par le terminateur d'une
+            # valeur simple continuée (« null » coupé pile avant sa
+            # virgule) : ce vide EST la fin du maillon pour le parseur —
+            # le scan ne pose pas shedule_break dans ce cas, exprès
+            return res
+        # tranche vide alors que le tampon ne l'était pas : il ne restait
+        # que des séparateurs (cas systématique devant un maillon indexé,
+        # dont la lecture est calée juste avant son début ; possible aussi,
+        # rarissime, quand un chunk ordinaire finit pile entre deux
+        # maillons — le parseur prenait alors ce vide pour la fin du
+        # fichier). Relire : chaque tour consomme un tampon non vide
+        return self.read(size)
+
+    def _scan_c(self, s):
+        (
+            ret_start,
+            ret_end,
+            self.in_quotes,
+            self.in_curlys,
+            self.in_squares,
+            self.in_simple,
+            self.in_object,
+            self.backslash_escape,
+            self.in_chunk_start,
+            shedule_break,
+        ) = rapidjson._scan_appended(
+            s,
+            self.in_chunk_start,
+            self.in_quotes,
+            self.in_curlys,
+            self.in_squares,
+            self.in_simple,
+            self.in_object,
+            self.backslash_escape,
+        )
+        if shedule_break:
+            self.shedule_break = True
+        if ret_start == -1:
+            return None     # fin de la liste json
+        return s[ret_start:ret_end]
 
     def _read_python(self, s):
         (
@@ -3915,7 +3985,7 @@ class _json_object_file_iterator(io.FileIO):
                     in_squares -= 1
                     check = True
                     if not in_squares:  # on a ateint la fin de la liste json
-                        return ""
+                        return None
                 if check and not in_quotes and not in_curlys and in_squares < 2:
                     if in_chunk_start < (i + 1):
                         # on prevoit d'arreter au read suivant sinon , va de tout facon arreter et on ne pourra pas remeter self.shedule_break à False

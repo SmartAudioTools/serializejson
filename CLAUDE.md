@@ -419,7 +419,7 @@ rapport rapports_benchmarks/rapport_benchmarks_2026-08-10_1108.pdf
 avec les deux nouvelles pages (RAM barreau 1 / disque barreau 6).
 
 ## Addendum 10/08 midi — lecture d'avance de l'itération (demande de
-## Baptiste, 10 h 54), NON COMMITÉ
+## Baptiste, 10 h 54), COMMITÉ git aa798b0 (10/08 11 h 23)
 
 Pendant, côté lecture, du fil d'écriture d'append : quand on itère un
 json-liste (`Decoder(path)` / `load(path, iterator=True)`), un fil
@@ -464,3 +464,87 @@ locaux par fil, vérifié sûr). 220 tests verts × 4 versions.
 
 Fichiers du chantier : serializejson/__init__.py,
 tests/test_iterator.py, ce fichier.
+
+## Addendum 10/08 début d'après-midi — page « itération » du banc +
+## scanner memchr (demande de Baptiste, 11 h 27), NON COMMITÉ
+
+Demande : une page du rapport PDF comparant la lecture sérielle d'un
+pickle et la nôtre, avec un travail simulé (sleep) par maillon, pour
+montrer que la désérialisation ne bloque plus quand on traite chaque
+donnée chargée.
+
+- **mesure_iteration / figure_iteration / page markdown**
+  (tests/lance_benchmarks.py) : 4 camps — plancher (travail seul),
+  pickle Unpickler.load() en boucle, serializejson voie directe
+  (_SEUIL_LECTURE_AVANCE=inf), lecture d'avance (défaut) — sur 2
+  charges à travail RÉALISTE par maillon (40 dicts 10 000 entrées ×
+  5 ms ; 16 trames 1920×1080 RVB × 50 ms). La colonne porteuse du
+  message est « au-dessus du plancher » = ce que la désérialisation
+  coûte VRAIMENT. Chaque maillon est un objet DISTINCT (piège $ref).
+  Un travail plus court que le décodage ne peut masquer que sa
+  propre durée — les travaux sont calibrés par charge.
+- **Scanner _scan_appended : voie rapide memchr** (rapidjson.cpp,
+  sj_scan_appended) : l'intérieur d'une chaîne est transparent pour
+  la machine à états — saut direct au prochain `\` ou `"` par
+  memchr borné. Le scan octet à octet (~190 Mo/s) DOMINAIT le
+  décodage du maillon (43 ms de scan sur 15 ms de vrai décodage
+  d'une trame 8,3 Mo) : scan ×70, décodage du maillon 67,5 → 15,4
+  ms. C'est ce qui fait passer la charge trames de « masquage
+  partiel » à « bat pickle » (smoke : +24 ms au-dessus du plancher
+  contre +38 pour pickle ; dicts : +27 contre +124).
+- **Équivalence du scanner prouvée à trois niveaux** : corpus
+  force-brute (9 tampons retors × 6 découpes × tous états d'entrée,
+  empreinte sha256 par appel) — les 14 920 lignes divergentes ont
+  TOUTES l'état d'entrée in_quotes=1 ∧ in_object=0, INATTEIGNABLE
+  (in_quotes=1 n'est posé qu'avec in_object=1, ligne 11007-11008,
+  et chaque retour de borne remet les deux à zéro) ; lecture de
+  code ; pipeline complet identique (mêmes succès/échecs par taille
+  de tranche, deux binaires). Le vieux code posait in_simple sur
+  des octets EN CHAÎNE dans cet état synthétique — quirk, pas un
+  comportement.
+
+Piège PRÉEXISTANT constaté, non corrigé : chunk_size minuscule (7)
++ guillemets échappés denses (('q"'*30000)+"\\") perd des maillons —
+identique sur le binaire commité, à reprendre si un jour un chunk
+si petit sert vraiment. Piège sandbox NOUVEAU : le dossier
+jobs/<id>/tmp est écrivable par l'outil Write mais PAS depuis Bash
+(redirections « lecture seulement ») — les logs bash vont dans le
+dépôt ou $TMPDIR. Un chunk_size PLUS GRAND (16 Mo) est PIRE que
+64 Ko : ne pas « optimiser » par là.
+
+Fichiers du chantier : tests/lance_benchmarks.py,
+rapidjson/rapidjson.cpp, .so ×4 PGO, ce fichier.
+
+## Addendum 10/08 midi et demi — l'itération se sert de l'index
+## (demande de Baptiste, 12 h 13), NON COMMITÉ
+
+- **_arme_index (__init__.py)** : si `indexation.lit(chemin)` rend un
+  index (sa fraîcheur root == [0, fin] fait déjà foi — un append nu
+  le périme ENTIER, armé refusé, scan intégral), les bornes
+  « root[i] » partent en deque ; read() cale chaque lecture ordinaire
+  juste avant le prochain début indexé, et pile dessus rend le
+  maillon EN UNE lecture contiguë (PyReadStreamWrapper prend le bytes
+  tel quel) avec shedule_break. Les maillons sous le seuil (4096)
+  coulent par le scan entre deux bornes. Garde d'armement restante :
+  premier octet == `[` (racine liste).
+- **Protocole de la tranche vide RÉPARÉ au passage** (le vrai gain) :
+  une tranche vide non-frontière (queue de séparateurs épuisée)
+  faisait prendre au parseur la fin du CHUNK pour la fin du FICHIER —
+  un dump indenté relu au chunk 7 rendait 1 maillon sur 8, EN
+  SILENCE, et le piège « chunk 7 + échappements denses » de
+  l'addendum précédent était le même défaut. read() relit désormais
+  sur tranche vide, SAUF le vide-frontière d'une valeur simple
+  continuée (« null » coupé pile avant sa virgule : le scan ne pose
+  pas shedule_break, exprès — garde `etait_simple and not
+  self.in_simple`). Enveloppe read() UNIFIÉE : moteur C dans
+  _scan_c, boucle python (mode texte) même protocole, fin de liste
+  = None des deux côtés ; le test scanner C ≡ python compare les
+  moteurs sous la même enveloppe en surchargeant _scan_c seul.
+- Mesuré (A/B interlacé même processus, voie directe, charge ~5) :
+  la voie index ne rend que +2-3 % (b64 100 Ko-10 Ko, dicts
+  d'entiers), −1 % bruit sur 16×4 Mo — le memchr de l'addendum
+  précédent a déjà mangé le gros du scan. Sans régression, gratuite
+  quand l'index existe ; c'est le correctif de protocole qui paie.
+- 224 tests × 4 versions ; 4 tests neufs (test_iterator.py) prouvés
+  rouges sur le code commité (index armé + plages consommées, index
+  refusé après append nu, chunk 7 indenté/compact, chunk 7 dense).

@@ -677,6 +677,99 @@ def mesure_incremental():
     return lignes
 
 
+def mesure_iteration():
+    # Le pendant en LECTURE de la page incrémentale : une liste d'objets
+    # relue maillon par maillon, avec un TRAVAIL simulé sur chacun (sleep,
+    # qui rend le GIL exactement comme le feraient calcul numpy, affichage ou
+    # entrées-sorties). Depuis le 10/08 un fil de lecture d'avance décode le
+    # maillon SUIVANT pendant ce travail : la désérialisation disparaît du
+    # temps total (plancher = travail seul), là où la lecture sérielle d'un
+    # pickle (Unpickler.load() en boucle) la paie maillon après maillon dans
+    # le thread appelant. La voie directe (fil coupé) est mesurée aussi :
+    # c'est elle qui dit ce que le fil fait gagner. Cache disque CHAUD — on
+    # mesure le recouvrement calcul/décodage, pas le support (les pages
+    # disque s'en chargent). Chaque maillon est un objet DISTINCT : le même
+    # objet sous plusieurs maillons ne mesurerait que des $ref.
+    dossier = RACINE / ".banc_iteration"
+    shutil.rmtree(dossier, ignore_errors=True)
+    dossier.mkdir()
+
+    def boucle_sj(chemin, travail, seuil):
+        # seuil None : le réglage par défaut (fil engagé dès que le décodage
+        # moyen le mérite) ; inf : fil jamais engagé, voie directe
+        vieux = serializejson._SEUIL_LECTURE_AVANCE
+        if seuil is not None:
+            serializejson._SEUIL_LECTURE_AVANCE = seuil
+        try:
+            t0 = perf()
+            for _ in serializejson.Decoder(chemin):
+                time.sleep(travail)
+            return perf() - t0
+        finally:
+            serializejson._SEUIL_LECTURE_AVANCE = vieux
+
+    # le travail de chaque charge est à l'échelle d'un traitement RÉALISTE
+    # du maillon : quelques millisecondes sur un dict, quelques dizaines sur
+    # une trame d'image (filtre, encodage, affichage). Un travail plus court
+    # que le décodage ne peut masquer que sa propre durée — mesuré : 5 ms
+    # par trame ne rendaient que 16 × 5 ms, exactement le sommeil disponible
+    charges = [
+        ("40 dicts de 10 000 entrées", 0.005,
+         [{"i": i, "d": {"k%d" % j: [j, j + i] for j in range(10000)}}
+          for i in range(40)]),
+        ("16 trames 1920×1080 RVB (6,2 Mo pièce)", 0.050,
+         [{"n": i, "img": os.urandom(1920 * 1080 * 3)} for i in range(16)]),
+    ]
+    lignes = []
+    for titre, travail, objets in charges:
+        chemin_sj = str(dossier / "liste.json")
+        e = serializejson.Encoder(file=chemin_sj, indent=None, index=None)
+        for o in objets:
+            e.append(o)
+        e.close()
+        serializejson.wait_writes()
+        chemin_pk = dossier / "liste.pickle"
+        with open(chemin_pk, "wb") as f:
+            p = pickle.Pickler(f, protocol=4)
+            for o in objets:
+                p.dump(o)
+
+        def plancher():
+            t0 = perf()
+            for _ in objets:
+                time.sleep(travail)
+            return perf() - t0
+
+        def boucle_pk():
+            t0 = perf()
+            with open(chemin_pk, "rb") as f:
+                u = pickle.Unpickler(f)
+                for _ in objets:
+                    u.load()
+                    time.sleep(travail)
+            return perf() - t0
+
+        essais = [
+            ("travail seul (plancher)", plancher),
+            ("pickle `Unpickler.load()` en boucle", boucle_pk),
+            ("serializejson voie directe (fil coupé)",
+             lambda: boucle_sj(chemin_sj, travail, float("inf"))),
+            ("serializejson lecture d'avance (le défaut)",
+             lambda: boucle_sj(chemin_sj, travail, None)),
+        ]
+        scores = {nom: [] for nom, _ in essais}
+        for _ in range(3):
+            for nom, fonction in essais:
+                burst()
+                scores[nom].append(fonction())
+        lignes.append((titre, len(objets), travail,
+                       [(nom, min(scores[nom])) for nom, _ in essais]))
+        for reste in dossier.iterdir():
+            reste.unlink()
+    shutil.rmtree(dossier, ignore_errors=True)
+    return lignes
+
+
 def mesure_types_objets():
     # le catalogue d'objets du dépôt (tests/objects/basic_objects.py, celui
     # de test_serialize_vs_pickle) : chaque CATÉGORIE de types python est
@@ -1208,6 +1301,38 @@ def rendu_markdown(donnees, types_ecartes, codecs_ecartes, entete):
            " d'ordre de grandeur : le temps rendu à l'appelant ne dépend plus"
            " que de la remise au fil d'écriture, alors que `Pickler.dump()`"
            " porte la recopie ET l'attente du disque dans le thread appelant.",
+           "",
+           "## itération avec traitement par maillon (lecture d'avance)",
+           "",
+           "Le pendant en LECTURE de la page précédente : une liste d'objets"
+           " relue maillon par maillon, avec un travail simulé entre deux, à"
+           " l'échelle d'un traitement réaliste du maillon (un sleep, qui"
+           " rend le GIL comme le feraient calcul numpy, affichage ou"
+           " entrées-sorties). Un fil de lecture d'avance décode le maillon"
+           " SUIVANT pendant ce travail : le temps total retombe au PLANCHER"
+           " du travail seul — la désérialisation ne bloque plus l'appelant."
+           " La lecture sérielle d'un pickle (`Unpickler.load()` en boucle)"
+           " la paie maillon après maillon dans le thread appelant ; la voie"
+           " directe (fil coupé) dit ce que le fil fait gagner. Cache disque"
+           " chaud : on mesure le recouvrement calcul/décodage, pas le"
+           " support.",
+           ""]
+    for titre, combien, travail, essais in donnees["iteration"]:
+        plancher_charge = essais[0][1]
+        md += [f"**{titre}** ({combien} maillons,"
+               f" travail {travail * 1e3:.0f} ms/maillon)", "",
+               "| lecture | total | au-dessus du plancher |",
+               "|---|---|---|"]
+        for nom, total in essais:
+            md.append(f"| {nom} | {fmt_ms(total)}"
+                      f" | {fmt_ms(total - plancher_charge)} |")
+        md.append("")
+    md += ["Lecture : la colonne « au-dessus du plancher » est ce que la"
+           " désérialisation coûte VRAIMENT à l'application — proche de zéro"
+           " avec la lecture d'avance, un décodage entier par maillon pour"
+           " les deux lectures sérielles. Le gain vaut dès que le traitement"
+           " rend le GIL ; deux boucles python pur des deux côtés ne se"
+           " recouvriraient pas.",
            "",
            "## machines réalistes (projection)",
            "",
@@ -1769,6 +1894,19 @@ def figure_incremental(donnees, sens, titre):
         titre, "temps BLOQUÉ par objet rangé")
 
 
+def figure_iteration(donnees, sens, titre):
+    lignes = donnees["iteration"]
+    camps = [nom.replace("`", "") for nom, _ in lignes[0][3]]
+    couleurs = ["#a0aec0", "#718096", "#90cdf4", BLEU]
+    return barres_groupees(
+        [f"{titre_charge}\n{combien} maillons,"
+         f" travail simulé {travail * 1e3:.0f} ms/maillon"
+         for titre_charge, combien, travail, _ in lignes],
+        [(nom, couleur, [essais[rang][1] * 1e3 for *_, essais in lignes])
+         for rang, (nom, couleur) in enumerate(zip(camps, couleurs))],
+        titre, "temps TOTAL de la boucle, travail compris", unite="ms")
+
+
 # ordre des pages du rapport, fixé par Baptiste (07/08) : le catalogue de types
 # python ouvre, puis les trois barreaux du barème dans l'ordre CROISSANT, puis
 # les comparaisons hors pickle, et les deux scénarios de support ferment
@@ -1800,6 +1938,9 @@ FIGURES = [
      "coût fixe d'un appel : un objet minuscule par appel"),
     ("benchmark_incremental", figure_incremental, "",
      "sérialisation incrémentale sur disque réel : temps rendu à l'appelant"),
+    ("benchmark_iteration", figure_iteration, "",
+     "itération d'une liste avec traitement par maillon :"
+     " la lecture d'avance masque le décodage"),
     # les machines réalistes et les deux scénarios de support ne mesurent rien
     # de neuf : ils projettent les mesures précédentes sur des couples
     # CPU + stockage du commerce, puis sur toute la gamme des débits
@@ -1942,6 +2083,8 @@ if __name__ == "__main__":
     appel = mesure_appel_unitaire()
     print("sérialisation incrémentale sur disque réel...")
     incremental = mesure_incremental()
+    print("itération avec traitement par maillon (lecture d'avance)...")
+    iteration = mesure_iteration()
     # les deux bornes disent de combien le support s'est DÉGRADÉ pendant la
     # campagne — au départ son cache est vide, à l'arrivée il a encaissé
     # plusieurs gigaoctets ; c'est cet écart que la sonde par profil ventile
@@ -1959,7 +2102,7 @@ if __name__ == "__main__":
     shutil.rmtree(_DOSSIER_DISQUE, ignore_errors=True)
     donnees = {"profils": resultats, "pyperf": pyperf, "types": types_objets,
                "codecs": codecs_images, "appel": appel,
-               "incremental": incremental}
+               "incremental": incremental, "iteration": iteration}
     markdown = rendu_markdown(donnees, types_ecartes, codecs_ecartes,
                               entete)
     horodatage = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")

@@ -3,7 +3,6 @@
 # migration des __call__ en C (état volatil jamais posé), et son scanner
 # avalait le guillemet fermant après un échappement (\n en fin de chaîne).
 # Les deux sont corrigés le 04/08/2026 — et le scanner est porté en C.
-import io
 import os
 
 import pytest
@@ -59,13 +58,11 @@ def test_scanner_c_identique_boucle_python(chemin):
         serializejson.append(objet, chemin)
 
     class ScannerPython(_json_object_file_iterator):
-        def read(self, size=-1):
-            if self.shedule_break:
-                self.shedule_break = False
-                return ""
-            if self.in_chunk_start == 0:
-                self.s = io.FileIO.read(self, size)
-            return self._read_python(self.s)
+        # même enveloppe read() que la production (frontières, tranches
+        # vides, relecture) : seul le moteur de scan est remplacé par la
+        # boucle Python — c'est LUI que le test compare au scanner C
+        def _scan_c(self, s):
+            return self._read_python(s)
 
     def etat(x):
         return (x.in_chunk_start, bool(x.in_quotes), int(x.in_curlys),

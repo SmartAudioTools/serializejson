@@ -10955,9 +10955,29 @@ sj_scan_appended(PyObject* Py_UNUSED(module), PyObject* args)
         // QUEL QU'IL SOIT (le scanner d'origine ne consommait le drapeau que
         // sur les caractères « intéressants » : une chaîne finissant par \n
         // avalait son guillemet fermant et faussait toutes les bornes)
-        if (in_quotes && backslash_escape) {
-            backslash_escape = 0;
-            continue;
+        if (in_quotes) {
+            if (backslash_escape) {
+                backslash_escape = 0;
+                continue;
+            }
+            if (ch != '\\' && ch != '"') {
+                // saut direct au prochain « \ » ou « " » : l'intérieur d'une
+                // chaîne est transparent pour la machine à états, et une
+                // charge base64 de plusieurs Mo se traverse alors en memchr
+                // (mesuré : ~190 Mo/s octet à octet, le scan dominait le
+                // décodage entier du maillon)
+                const unsigned char* base = s + i + 1;
+                const size_t reste = (size_t) (n - i - 1);
+                const unsigned char* q =
+                    (const unsigned char*) memchr(base, '"', reste);
+                const unsigned char* b = (const unsigned char*) memchr(
+                    base, '\\', q ? (size_t) (q - base) : reste);
+                const unsigned char* coupe = b ? b : q;
+                if (coupe == nullptr)
+                    break;      // tout le reste du tampon est dans la chaîne
+                i = (Py_ssize_t) (coupe - s) - 1;   // le for repasse dessus
+                continue;
+            }
         }
         if (in_simple) {
             if (ch == ',' || ch == ' ' || ch == '\t' || ch == '\n'
