@@ -2117,9 +2117,14 @@ struct PyHandler {
         if (PyUnicode_CheckExact(dtype_arg)
             && PyUnicode_CompareWithASCIIString(dtype_arg, "bool") == 0)
             return false;
-        for (Py_ssize_t i = 2; i < nargs; i++)
-            if (PyUnicode_CheckExact(PyList_GET_ITEM(ctor_args, i)))
+        for (Py_ssize_t i = 2; i < nargs; i++) {
+            PyObject* item = PyList_GET_ITEM(ctor_args, i);
+            if (PyUnicode_CheckExact(item)
+                && PyUnicode_CompareWithASCIIString(item, "b64") != 0)
                 return false;   // étiquette de compression : lecture
+            // « b64 » (repli non-compressé de l'écriture différée) : la
+            // charge est déjà les octets bruts, frombuffer n'y lira rien
+        }
         return true;
     }
 
@@ -7265,6 +7270,13 @@ dumps_internal(
         if (!writer->BloscDiffere_(object))
             return false;
     }
+	else if (PyObject_TypeCheck(object, &EtiquetteDiffere_Type)) {
+        // l'étiquette séparée d'une charge numpy différée : choisie par le
+        // fil, ou lue de la décision synchrone — échoue si la charge n'a
+        // pas encore été écrite
+        if (!writer->EtiquetteDiffere_(object))
+            return false;
+    }
 	else if (PyObject_TypeCheck(object, &RawBytesToBase64_Type)) {
         writer->RawBytesToBase64_(object);
     } 
@@ -11490,6 +11502,9 @@ module_exec(PyObject* m)
     if (PyType_Ready(&BloscDiffere_Type) < 0)
         return -1;
 
+    if (PyType_Ready(&EtiquetteDiffere_Type) < 0)
+        return -1;
+
     if (PyType_Ready(&ArrayRows_Type) < 0)
         return -1;
 
@@ -11826,6 +11841,13 @@ module_exec(PyObject* m)
     Py_INCREF(&BloscDiffere_Type);
     if (PyModule_AddObject(m, "BloscDiffere", (PyObject*) &BloscDiffere_Type) < 0) {
         Py_DECREF(&BloscDiffere_Type);
+        return -1;
+    }
+
+    Py_INCREF(&EtiquetteDiffere_Type);
+    if (PyModule_AddObject(m, "EtiquetteDiffere",
+                           (PyObject*) &EtiquetteDiffere_Type) < 0) {
+        Py_DECREF(&EtiquetteDiffere_Type);
         return -1;
     }
 

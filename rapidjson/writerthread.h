@@ -153,10 +153,14 @@ struct Bloc {
     // Brut : écrit tel quel. Base64 : encodé en écrivant, guillemets
     // compris. Echappe : échappé json en écrivant, guillemets EXCLUS —
     // l'appelant les pose autour du bloc. Compresse : compressé blosc2 en
-    // écrivant, puis émis « "<base64>","<étiquette>" » — l'étiquette se
-    // CHOISIT là, selon que la trame gagne ou non ; l'appelant pose les
-    // crochets de la liste autour.
-    enum Mode : char { Brut, Base64, Echappe, Compresse };
+    // écrivant — tag vide (voie bytes), émis « "<base64>","<étiquette>" »,
+    // l'étiquette se CHOISIT là, selon que la trame gagne ou non, l'appelant
+    // pose les crochets de la liste autour ; tag non vide (recette numpy),
+    // seule la charge « "<base64>" » part, la décision est poussée dans la
+    // FIFO `issues` pour le bloc Etiquette qui suit dans le flux.
+    // Etiquette : écrit « "<tag>" » ou « "b64" » selon cette décision —
+    // rien à compresser, data nul.
+    enum Mode : char { Brut, Base64, Echappe, Compresse, Etiquette };
     Mode mode;
     // référence FORTE à l'objet python dont data est le tampon interne
     // (grand str remis en zéro-copie) : le thread, qui n'a pas le
@@ -172,6 +176,14 @@ struct Bloc {
     int clevel;
     int compcode;
     int16_t nthreads;
+    // le reste de la recette (voie numpy — zéro-initialisé par les dépôts
+    // bytes, qui ne nomment pas ces champs : recette historique typesize 1
+    // sans filtre). `tag` sert aussi seul, au bloc Etiquette.
+    Py_ssize_t typesize;
+    Py_ssize_t diff_cols;
+    int32_t blocksize;
+    int shuffle;
+    char tag[24];
     // Compresse seulement, sous le verrou de l'écrivain : l'avancement du
     // compresseur d'avance (voir boucleWorker). AFaire tant que personne ne
     // l'a pris ; EnCours pendant que le worker compresse (le fil ATTEND ce
@@ -307,12 +319,22 @@ public:
     // le fil la relève ENTIÈRE en delta, comme les expansions des blocs
     // Echappe, et l'index de positions s'en corrige au rangement.
     void pousseCompresse(char* data, size_t taille, PyObject* ref,
-                         int clevel, int compcode) {
+                         int clevel, int compcode, Py_ssize_t typesize = 1,
+                         int shuffle = 0, int32_t blocksize = 0,
+                         Py_ssize_t diff_cols = 0,
+                         const char* tag = nullptr) {
         {
             std::unique_lock<std::mutex> verrou(m);
-            file.push_back(Bloc{data, taille, Bloc::Compresse, ref,
-                                (size_t) debut + pousses, clevel, compcode,
-                                (int16_t) serializejson_blosc2_nthreads_global});
+            Bloc b{data, taille, Bloc::Compresse, ref,
+                   (size_t) debut + pousses, clevel, compcode,
+                   (int16_t) serializejson_blosc2_nthreads_global};
+            b.typesize = typesize;
+            b.shuffle = shuffle;
+            b.blocksize = blocksize;
+            b.diff_cols = diff_cols;
+            if (tag != nullptr)
+                memcpy(b.tag, tag, strlen(tag) + 1);
+            file.push_back(b);
             // le pointeur reste valable dans la deque tant que le bloc n'est
             // pas sorti — et le fil ne sort jamais un bloc que le worker tient
             taches.push_back(&file.back());
@@ -326,6 +348,21 @@ public:
         aBloc.notify_one();
         aTache.notify_one();
         depuisControle += taille;
+    }
+
+    // L'étiquette d'un bloc Compresse à étiquette SÉPARÉE (tag non vide,
+    // recette numpy) : rien à compresser, compté ZÉRO comme la charge — le
+    // fil écrira « "<tag>" » ou « "b64" » selon la décision qu'il a poussée
+    // dans sa FIFO en émettant la charge, et relèvera le delta.
+    void pousseEtiquette(const char* tag) {
+        {
+            std::unique_lock<std::mutex> verrou(m);
+            Bloc b{nullptr, 0, Bloc::Etiquette, nullptr,
+                   (size_t) debut + pousses};
+            memcpy(b.tag, tag, strlen(tag) + 1);
+            file.push_back(b);
+        }
+        aBloc.notify_one();
     }
 
     // Position dans le FICHIER juste après le dernier octet déposé. `debut` est
@@ -569,6 +606,20 @@ private:
                 rate = ecritCompresse(bloc, emis);
                 // compté ZÉRO au dépôt : la taille émise entière est le delta
                 deltas.push_back({bloc.posBrut, emis});
+            } else if (bloc.mode == Bloc::Etiquette) {
+                // la décision poussée par l'émission de la charge — même
+                // fil, même ordre de flux : une simple FIFO suffit
+                const bool gagne = !issues.empty() && issues.front();
+                if (!issues.empty())
+                    issues.pop_front();
+                const char* tag = gagne ? bloc.tag : "b64";
+                const size_t n = strlen(tag);
+                char sortie[26];
+                sortie[0] = '"';
+                memcpy(sortie + 1, tag, n);
+                sortie[n + 1] = '"';
+                rate = ecrit(sortie, n + 2);
+                deltas.push_back({bloc.posBrut, n + 2});
             } else {
                 rate = ecrit(bloc.data, bloc.taille);
             }
@@ -715,8 +766,25 @@ private:
         const size_t destsize = bloc.taille + BLOSC2_MAX_OVERHEAD;
         if ((trame = (char*) malloc(destsize)) == nullptr)
             return;
-        blosc2_cparams cparams = sj_bytes_cparams(bloc.compcode, bloc.clevel,
-                                                  bloc.nthreads);
+        SjPreDiff pre_cfg;
+        blosc2_prefilter_params preparams;
+        blosc2_cparams cparams = sj_differe_cparams(
+            bloc.compcode, bloc.clevel, bloc.typesize, bloc.shuffle,
+            bloc.blocksize, bloc.diff_cols, bloc.nthreads, &preparams,
+            &pre_cfg);
+        if (bloc.diff_cols > 0) {
+            // contexte à préfiltre : il pointe la pile de CET appel — créé
+            // et détruit ici, jamais mis en réserve (même règle que le cache
+            // global de la voie synchrone)
+            blosc2_context* local = sj_blosc2_create_cctx(cparams);
+            if (local != nullptr) {
+                csize = sj_blosc2_compress_ctx(local, bloc.data,
+                                               (int32_t) bloc.taille, trame,
+                                               (int32_t) destsize);
+                sj_blosc2_free_ctx(local);
+            }
+            return;
+        }
         SjCctxKey cle = sj_cctx_key(cparams, (int32_t) bloc.taille);
         if (ctx != nullptr && memcmp(&cle, &ctxCle, sizeof cle) != 0) {
             sj_blosc2_free_ctx(ctx);
@@ -736,21 +804,32 @@ private:
     // trame ne part que si elle est PLUS PETITE que la source (le critère
     // strict du greffon), sinon la source part en base64 sous « b64 » ; un
     // échec de compression se replie de même, en silence — le document
-    // reste valide, seulement moins compact. `emis` rend la taille
-    // réellement écrite, étiquette comprise. Libère la trame.
+    // reste valide, seulement moins compact. Étiquette en ligne pour la voie
+    // bytes (tag vide) ; étiquette SÉPARÉE pour la recette numpy : seule la
+    // charge part, la décision rejoint la FIFO pour le bloc Etiquette qui
+    // suit dans le flux. `emis` rend la taille réellement écrite. Libère la
+    // trame.
     int emetCompresse(const Bloc& bloc, char* trame, int csize,
                       size_t& emis) {
         int rate;
-        if (csize > 0 && (size_t) csize < bloc.taille) {
-            emis = tailleBase64((size_t) csize) + 13;
+        const bool gagne = csize > 0 && (size_t) csize < bloc.taille;
+        if (gagne) {
+            emis = tailleBase64((size_t) csize);
             rate = ecritBase64(trame, (size_t) csize);
-            if (rate == 0)
-                rate = ecrit(",\"b64_blosc2\"", 13);
         } else {
-            emis = tailleBase64(bloc.taille) + 6;
+            emis = tailleBase64(bloc.taille);
             rate = ecritBase64(bloc.data, bloc.taille);
-            if (rate == 0)
+        }
+        if (bloc.tag[0] != '\0') {
+            issues.push_back(gagne);
+        } else if (rate == 0) {
+            if (gagne) {
+                rate = ecrit(",\"b64_blosc2\"", 13);
+                emis += 13;
+            } else {
                 rate = ecrit(",\"b64\"", 6);
+                emis += 6;
+            }
         }
         free(trame);
         return rate;
@@ -864,6 +943,9 @@ private:
     int prets = 0;                       // trames prêtes non écrites, sous m
     // expansions des blocs Echappe et Compresse écrits — au thread seul
     std::vector<std::pair<size_t, size_t>> deltas;
+    // décisions trame/brut des charges à étiquette séparée, dans l'ordre
+    // d'émission, consommées par les blocs Etiquette — au thread seul
+    std::deque<bool> issues;
     // contexte blosc2 des blocs Compresse compressés par le FIL — à lui
     // seul, libéré en fin de boucle ; cctxCle dit la recette qu'il incarne.
     // Le compresseur d'avance a le sien, local à boucleWorker.

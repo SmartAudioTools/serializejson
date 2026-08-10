@@ -1470,23 +1470,79 @@ sj_decompress_worker(std::vector<SjDecompressJob>* jobs, std::atomic<size_t>* ne
 }
 
 
-// cparams de la voie bytes/bytearray des greffons — la réplique EXACTE de ce
-// que BloscToBase64(value, 1, clevel, 0, cname) construit : trame unique,
-// typesize 1, aucun filtre. Sert aux deux moments où cette recette peut se
-// jouer : la compression synchrone (sj_bytes_compresse_sync) et le fil
-// d'écriture (WriterThread::ecritCompresse).
-inline blosc2_cparams sj_bytes_cparams(int compcode, int clevel,
-                                       int16_t nthreads) {
+// cparams de TOUTE la voie compression d'écriture — la source unique de la
+// recette que BloscToBase64 comme le fil d'écriture doivent construire à
+// l'identique (les trames doivent être les mêmes octets quel que soit le
+// moment où la compression se joue). typesize 1 + shuffle 0 = la voie
+// bytes/bytearray historique ; shuffle 3 = zigzag+bitshuffle numpy, avec
+// dérivée d'axe 0 par préfiltre quand diff_cols > 0 (preparams et pre_cfg
+// sont alors câblés sur la pile de l'APPELANT, qui doit les garder vivants
+// pendant la compression — et un tel contexte ne va JAMAIS au cache).
+inline blosc2_cparams sj_differe_cparams(int compcode, int clevel,
+                                         Py_ssize_t typesize, int shuffle,
+                                         int32_t blocksize,
+                                         Py_ssize_t diff_cols,
+                                         int16_t nthreads,
+                                         blosc2_prefilter_params* preparams,
+                                         SjPreDiff* pre_cfg) {
     blosc2_cparams cparams = BLOSC2_CPARAMS_DEFAULTS;
     cparams.compcode = (uint8_t) compcode;
     cparams.clevel = (uint8_t) clevel;
-    cparams.typesize = 1;
+    cparams.typesize = (int32_t) typesize;
     cparams.nthreads = nthreads;
     for (int f = 0; f < BLOSC2_MAX_FILTERS; f++) {
         cparams.filters[f] = BLOSC_NOFILTER;
         cparams.filters_meta[f] = 0;
     }
+    if (shuffle == 3) {
+        // pipeline zigzag -> bitshuffle, blocs larges (le bitshuffle
+        // transpose PAR BLOC, des plans de bits courts perdent 2-4 pts).
+        // Colonnes 1/2/4/8 avec dérivée par préfiltre : le cumsum de
+        // lecture est fusionné dans l'ARRIÈRE du filtre (quartet haut du
+        // meta) — plus de postfiltre ni de saut de tampon à la lecture
+        uint8_t zz_meta = (uint8_t) typesize;
+        if (diff_cols == 1 || diff_cols == 2 || diff_cols == 4
+            || diff_cols == 8) {
+            int code = (diff_cols == 1) ? 1 : (diff_cols == 2) ? 2
+                       : (diff_cols == 4) ? 3 : 4;
+            zz_meta |= (uint8_t) (code << 4);
+        }
+        cparams.filters[BLOSC2_MAX_FILTERS - 2] = SJ_BLOSC2_FILTER_ZIGZAG;
+        cparams.filters_meta[BLOSC2_MAX_FILTERS - 2] = zz_meta;
+        cparams.filters[BLOSC2_MAX_FILTERS - 1] = BLOSC_BITSHUFFLE;
+        cparams.splitmode = BLOSC_NEVER_SPLIT;
+        cparams.blocksize = 1 << 19;  // 512 Ko : L2-résident, mesuré sans
+                                      // perte de poids (sauf +0,9 pt 24/96)
+    } else if (shuffle == 2 && serializejson_blosc2_delta_ok) {
+        // pipeline shuffle -> delta d'octets (ordre MESURÉ gagnant)
+        cparams.filters[BLOSC2_MAX_FILTERS - 2] = BLOSC_SHUFFLE;
+        cparams.filters[BLOSC2_MAX_FILTERS - 1] = SJ_BLOSC2_FILTER_DELTA;
+    } else {
+        // shuffle simple (ou aucun)
+        cparams.filters[BLOSC2_MAX_FILTERS - 1] =
+            shuffle ? BLOSC_SHUFFLE : BLOSC_NOFILTER;
+    }
+    if (blocksize > 0)
+        cparams.blocksize = blocksize;  // blocs = blocs de dérivée
+    if (diff_cols > 0) {
+        // fusion écriture : la dérivée par blocs est calculée par la lib
+        // au moment où elle constitue chaque bloc (octets identiques à la
+        // pré-passe _diff_axis0 bloquée, sans tampon intermédiaire)
+        pre_cfg->itemsize = typesize;
+        pre_cfg->row_elems = diff_cols;
+        memset(preparams, 0, sizeof(*preparams));
+        preparams->user_data = (void*) pre_cfg;
+        cparams.prefilter = sj_diff_prefilter;
+        cparams.preparams = preparams;
+    }
     return cparams;
+}
+
+// la recette bytes/bytearray historique — BloscToBase64(value, 1, clevel, 0)
+inline blosc2_cparams sj_bytes_cparams(int compcode, int clevel,
+                                       int16_t nthreads) {
+    return sj_differe_cparams(compcode, clevel, 1, 0, 0, 0, nthreads,
+                              nullptr, nullptr);
 }
 
 // la clé du cache de contexte : les cparams qu'un contexte incarne, ET la
@@ -1504,23 +1560,32 @@ inline SjCctxKey sj_cctx_key(const blosc2_cparams& cparams, int32_t nbytes) {
     return key;
 }
 
-// Compression synchrone d'un bytes/bytearray (recette greffon ci-dessus) :
-// le contexte vient du cache global — pris et rendu sous GIL, comme dans
-// BloscToBase64_new — et la compression relâche le verrou. Rend la taille
+// Compression synchrone d'un tampon avec la recette différée (bytes :
+// typesize 1 shuffle 0 ; numpy : recette complète) : le contexte vient du
+// cache global — pris et rendu sous GIL, comme dans BloscToBase64_new — et
+// la compression relâche le verrou. Un contexte à préfiltre (diff_cols > 0)
+// pointe la pile : jamais mis en cache, créé et détruit ici. Rend la taille
 // compressée (> 0) et la trame (malloc, à libérer par l'appelant), ou <= 0
 // si elle a échoué (trame nulle, rien à libérer). EXIGE le GIL.
-inline int sj_bytes_compresse_sync(const char* buf, size_t taille,
-                                   int compcode, int clevel, char** trame) {
+inline int sj_differe_compresse_sync(const char* buf, size_t taille,
+                                     int compcode, int clevel,
+                                     Py_ssize_t typesize, int shuffle,
+                                     int32_t blocksize, Py_ssize_t diff_cols,
+                                     char** trame) {
     *trame = nullptr;
     const size_t destsize = taille + BLOSC2_MAX_OVERHEAD;
     char* dest = (char*) malloc(destsize);
     if (dest == nullptr)
         return -1;
-    blosc2_cparams cparams = sj_bytes_cparams(
-        compcode, clevel, (int16_t) serializejson_blosc2_nthreads_global);
+    SjPreDiff pre_cfg;
+    blosc2_prefilter_params preparams;
+    blosc2_cparams cparams = sj_differe_cparams(
+        compcode, clevel, typesize, shuffle, blocksize, diff_cols,
+        (int16_t) serializejson_blosc2_nthreads_global, &preparams, &pre_cfg);
+    const bool cacheable = (diff_cols <= 0);
     SjCctxKey key = sj_cctx_key(cparams, (int32_t) taille);
     blosc2_context* ctx = nullptr;
-    if (sj_cctx_cache != nullptr
+    if (cacheable && sj_cctx_cache != nullptr
         && memcmp(&key, &sj_cctx_cache_key, sizeof(key)) == 0) {
         ctx = sj_cctx_cache;             // pris sous GIL
         sj_cctx_cache = nullptr;
@@ -1534,7 +1599,7 @@ inline int sj_bytes_compresse_sync(const char* buf, size_t taille,
                                        (int32_t) destsize);
     Py_END_ALLOW_THREADS
     if (ctx != nullptr) {
-        if (sj_cctx_cache == nullptr) {
+        if (cacheable && sj_cctx_cache == nullptr) {
             sj_cctx_cache = ctx;         // rendu sous GIL
             sj_cctx_cache_key = key;
         } else {
@@ -1637,56 +1702,12 @@ BloscToBase64_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
                          cname);
             return nullptr;
         }
-        blosc2_cparams cparams = BLOSC2_CPARAMS_DEFAULTS;
-        cparams.compcode = (uint8_t) compcode;
-        cparams.clevel = (uint8_t) clevel;
-        cparams.typesize = (int32_t) typesize;
-        cparams.nthreads = (int16_t) serializejson_blosc2_nthreads_global;
-        for (int f = 0; f < BLOSC2_MAX_FILTERS; f++) {
-            cparams.filters[f] = BLOSC_NOFILTER;
-            cparams.filters_meta[f] = 0;
-        }
-        if (shuffle == 3) {
-            // pipeline zigzag -> bitshuffle, blocs larges (le bitshuffle
-            // transpose PAR BLOC, des plans de bits courts perdent 2-4 pts).
-            // Colonnes 1/2/4/8 avec dérivée par préfiltre : le cumsum de
-            // lecture est fusionné dans l'ARRIÈRE du filtre (quartet haut du
-            // meta) — plus de postfiltre ni de saut de tampon à la lecture
-            uint8_t zz_meta = (uint8_t) typesize;
-            if (diff_cols == 1 || diff_cols == 2 || diff_cols == 4
-                || diff_cols == 8) {
-                int code = (diff_cols == 1) ? 1 : (diff_cols == 2) ? 2
-                           : (diff_cols == 4) ? 3 : 4;
-                zz_meta |= (uint8_t) (code << 4);
-            }
-            cparams.filters[BLOSC2_MAX_FILTERS - 2] = SJ_BLOSC2_FILTER_ZIGZAG;
-            cparams.filters_meta[BLOSC2_MAX_FILTERS - 2] = zz_meta;
-            cparams.filters[BLOSC2_MAX_FILTERS - 1] = BLOSC_BITSHUFFLE;
-            cparams.splitmode = BLOSC_NEVER_SPLIT;
-            cparams.blocksize = 1 << 19;  // 512 Ko : L2-résident, mesuré sans
-                                          // perte de poids (sauf +0,9 pt 24/96)
-        } else if (shuffle == 2 && serializejson_blosc2_delta_ok) {
-            // pipeline shuffle -> delta d'octets (ordre MESURÉ gagnant)
-            cparams.filters[BLOSC2_MAX_FILTERS - 2] = BLOSC_SHUFFLE;
-            cparams.filters[BLOSC2_MAX_FILTERS - 1] = SJ_BLOSC2_FILTER_DELTA;
-        } else {
-            // shuffle simple (ou aucun)
-            cparams.filters[BLOSC2_MAX_FILTERS - 1] =
-                shuffle ? BLOSC_SHUFFLE : BLOSC_NOFILTER;
-        }
-        if (blocksize > 0)
-            cparams.blocksize = blocksize;  // blocs = blocs de dérivée
-        SjPreDiff pre_cfg = {typesize, diff_cols};
+        SjPreDiff pre_cfg;
         blosc2_prefilter_params preparams;
-        if (diff_cols > 0) {
-            // fusion écriture : la dérivée par blocs est calculée par la lib
-            // au moment où elle constitue chaque bloc (octets identiques à la
-            // pré-passe _diff_axis0 bloquée, sans tampon intermédiaire)
-            memset(&preparams, 0, sizeof(preparams));
-            preparams.user_data = (void*) &pre_cfg;
-            cparams.prefilter = sj_diff_prefilter;
-            cparams.preparams = &preparams;
-        }
+        blosc2_cparams cparams = sj_differe_cparams(
+            compcode, clevel, typesize, shuffle, blocksize, diff_cols,
+            (int16_t) serializejson_blosc2_nthreads_global, &preparams,
+            &pre_cfg);
         size_t delta_dest_size = (size_t) view.len + BLOSC2_MAX_OVERHEAD;
         char* delta_dest = (char*) malloc(delta_dest_size);
         if (delta_dest == nullptr) {
@@ -1794,25 +1815,42 @@ static PyTypeObject BloscToBase64_Type = {
 };
 
 
-// Un bytes/bytearray remis À COMPRESSER — nulle part encore : la recette est
-// figée ici, la compression se joue à l'écriture. Quand la cible est un
-// fichier, c'est le FIL D'ÉCRITURE qui compresse et choisit l'étiquette
-// (« b64_blosc2 » si la trame gagne, « b64 » sinon) : dump rend la main sans
-// avoir compressé. Ailleurs (mémoire, flux python, petit tampon), la
-// compression reste synchrone, à l'identique de BloscToBase64 — voir
-// Writer::BloscDiffereEcrit, qui émet la liste ["<charge>","<étiquette>"]
-// complète dans les deux cas.
+// Un tampon remis À COMPRESSER — nulle part encore : la recette est figée
+// ici, la compression se joue à l'écriture. Quand la cible est un fichier,
+// c'est le FIL D'ÉCRITURE qui compresse et choisit l'étiquette : dump rend
+// la main sans avoir compressé. Ailleurs (mémoire, flux python, petit
+// tampon), la compression reste synchrone, à l'identique de BloscToBase64.
+// Deux modes, distingués par tag :
+//   - tag vide : la voie bytes/bytearray du §22 — l'étiquette
+//     (« b64_blosc2 » ou « b64 ») est écrite EN LIGNE derrière la charge,
+//     dans la même liste ["<charge>","<étiquette>"] (Writer::BloscDiffereEcrit) ;
+//   - tag non vide (numpy) : la charge et l'étiquette sont deux arguments
+//     SÉPARÉS de l'enveloppe — la charge part d'abord, l'étiquette (tag si
+//     la trame gagne, « b64 » sinon) est portée par un EtiquetteDiffere qui
+//     arrive plus loin dans les mêmes args. La décision voyage par `issue`
+//     en voie synchrone, par la FIFO du fil en voie différée.
 typedef struct {
     PyObject_HEAD
-    PyObject* value;     // bytes ou bytearray EXACT, référence forte
+    PyObject* value;     // référence forte ; type EXACT bytes/bytearray si
+                         // tag vide, tout buffer C-contigu sinon (view tenue)
     int clevel;
     int compcode;
+    int shuffle;
+    int32_t blocksize;
+    Py_ssize_t typesize;
+    Py_ssize_t diff_cols;
+    char tag[24];        // étiquette si la trame gagne ; "" = voie bytes
+    int issue;           // -1 pas encore écrite, 0 brut (b64), 1 trame
+                         // (tag), 2 partie différée au fil
+    Py_buffer view;      // tampon épinglé à la construction quand tag != ""
 } BloscDiffere;
 
 
 static void
 BloscDiffere_dealloc(BloscDiffere* self)
 {
+    if (self->tag[0] != '\0')
+        PyBuffer_Release(&self->view);
     Py_XDECREF(self->value);
     Py_TYPE(self)->tp_free((PyObject*) self);
 }
@@ -1821,29 +1859,60 @@ BloscDiffere_dealloc(BloscDiffere* self)
 static PyObject*
 BloscDiffere_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
 {
-    static char const* kwlist[] = {"value", "clevel", "cname", nullptr};
+    static char const* kwlist[] = {"value", "clevel", "cname", "typesize",
+                                   "shuffle", "blocksize", "diff_cols",
+                                   "tag", nullptr};
     PyObject* value = nullptr;
     int clevel = 5;
     const char* cname = "blosclz";
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|is", (char**) kwlist,
-                                     &value, &clevel, &cname))
+    Py_ssize_t typesize = 1;
+    int shuffle = 0;
+    int blocksize = 0;
+    Py_ssize_t diff_cols = 0;
+    const char* tag = "";
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|isniins",
+                                     (char**) kwlist, &value, &clevel,
+                                     &cname, &typesize, &shuffle, &blocksize,
+                                     &diff_cols, &tag))
         return nullptr;
     if (!serializejson_blosc2_ctx_ok) {
         PyErr_SetString(PyExc_RuntimeError,
                         "blosc library not loaded (call load_blosc_library first)");
         return nullptr;
     }
-    // types EXACTS seulement : l'écrivain relira le tampon par les macros
-    // directes, et une sous-classe passe par la voie générique de toute façon
-    if (!PyBytes_CheckExact(value) && !PyByteArray_CheckExact(value)) {
-        PyErr_SetString(PyExc_TypeError,
-                        "BloscDiffere expects a bytes or bytearray");
+    const size_t tag_len = strlen(tag);
+    if (tag_len >= 24) {
+        PyErr_SetString(PyExc_ValueError, "tag too long (max 23 chars)");
         return nullptr;
     }
-    if ((size_t) Py_SIZE(value) >= (size_t) INT32_MAX - BLOSC2_MAX_OVERHEAD) {
-        PyErr_SetString(PyExc_ValueError,
-                        "buffer too large for a single blosc2 frame (2 GiB)");
-        return nullptr;
+    if (tag_len == 0) {
+        // voie bytes : types EXACTS seulement — l'écrivain relira le tampon
+        // par les macros directes, et une sous-classe passe par la voie
+        // générique de toute façon
+        if (!PyBytes_CheckExact(value) && !PyByteArray_CheckExact(value)) {
+            PyErr_SetString(PyExc_TypeError,
+                            "BloscDiffere expects a bytes or bytearray");
+            return nullptr;
+        }
+        if ((size_t) Py_SIZE(value)
+            >= (size_t) INT32_MAX - BLOSC2_MAX_OVERHEAD) {
+            PyErr_SetString(PyExc_ValueError,
+                            "buffer too large for a single blosc2 frame (2 GiB)");
+            return nullptr;
+        }
+    } else {
+        // voie numpy : la recette complète doit être jouable telle quelle
+        if (shuffle == 3 && !serializejson_blosc2_zigzag_ok) {
+            PyErr_SetString(PyExc_ValueError,
+                            "zigzag+bitshuffle requires a loadable libblosc2");
+            return nullptr;
+        }
+        if (diff_cols > 0 && blocksize <= 0) {
+            PyErr_SetString(PyExc_ValueError,
+                            "diff_cols requires an explicit blocksize (aligned"
+                            " derivative blocks)");
+            return nullptr;
+        }
     }
     const int compcode = sj_blosc2_compname_to_compcode(cname);
     if (compcode < 0) {
@@ -1851,22 +1920,47 @@ BloscDiffere_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
                      cname);
         return nullptr;
     }
+    Py_buffer view;
+    if (tag_len != 0) {
+        if (PyObject_GetBuffer(value, &view, PyBUF_CONTIG_RO) != 0)
+            return nullptr;
+        if ((size_t) view.len >= (size_t) INT32_MAX - BLOSC2_MAX_OVERHEAD) {
+            PyBuffer_Release(&view);
+            PyErr_SetString(PyExc_ValueError,
+                            "buffer too large for a single blosc2 frame (2 GiB)");
+            return nullptr;
+        }
+    }
     PyObject* self = type->tp_alloc(type, 0);
-    if (self == nullptr)
+    if (self == nullptr) {
+        if (tag_len != 0)
+            PyBuffer_Release(&view);
         return nullptr;
+    }
+    BloscDiffere* d = (BloscDiffere*) self;
     Py_INCREF(value);
-    ((BloscDiffere*) self)->value = value;
-    ((BloscDiffere*) self)->clevel = clevel;
-    ((BloscDiffere*) self)->compcode = compcode;
+    d->value = value;
+    d->clevel = clevel;
+    d->compcode = compcode;
+    d->shuffle = shuffle;
+    d->blocksize = blocksize;
+    d->typesize = typesize;
+    d->diff_cols = diff_cols;
+    memcpy(d->tag, tag, tag_len + 1);
+    d->issue = -1;
+    if (tag_len != 0)
+        d->view = view;
     return self;
 }
 
 
 PyDoc_STRVAR(BloscDiffere_doc,
-             "Bytes or bytearray handed over for blosc compression at write"
-             " time: when the target is a file, the writer thread compresses"
-             " AND picks the label (b64_blosc2 if the frame is smaller, b64"
-             " otherwise) after dump has already returned.");
+             "Buffer handed over for blosc compression at write time: when"
+             " the target is a file, the writer thread compresses AND picks"
+             " the label after dump has already returned. Without a tag:"
+             " bytes/bytearray, label written inline (b64_blosc2 or b64)."
+             " With a tag (numpy recipe): raw payload argument, the label"
+             " (tag or b64) is carried by a separate EtiquetteDiffere.");
 
 
 static PyTypeObject BloscDiffere_Type = {
@@ -1908,6 +2002,95 @@ static PyTypeObject BloscDiffere_Type = {
     0,                              /* tp_init */
     0,                              /* tp_alloc */
     BloscDiffere_new,                     /* tp_new */
+};
+
+
+// L'étiquette d'un BloscDiffere à recette numpy (tag non vide) : un argument
+// d'enveloppe qui s'écrit APRÈS la charge, quand la décision brut/trame est
+// connue. En voie synchrone, la décision est déjà dans source->issue au
+// moment où l'encodeur arrive ici ; en voie différée, l'encodeur pousse un
+// bloc Etiquette et c'est le fil qui la lit dans sa FIFO de décisions.
+typedef struct {
+    PyObject_HEAD
+    BloscDiffere* source;    // référence forte
+} EtiquetteDiffere;
+
+
+static void
+EtiquetteDiffere_dealloc(EtiquetteDiffere* self)
+{
+    Py_XDECREF((PyObject*) self->source);
+    Py_TYPE(self)->tp_free((PyObject*) self);
+}
+
+
+static PyObject*
+EtiquetteDiffere_new(PyTypeObject* type, PyObject* args, PyObject* kwds)
+{
+    static char const* kwlist[] = {"source", nullptr};
+    PyObject* source = nullptr;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!", (char**) kwlist,
+                                     &BloscDiffere_Type, &source))
+        return nullptr;
+    if (((BloscDiffere*) source)->tag[0] == '\0') {
+        PyErr_SetString(PyExc_ValueError,
+                        "EtiquetteDiffere requires a tagged BloscDiffere");
+        return nullptr;
+    }
+    PyObject* self = type->tp_alloc(type, 0);
+    if (self == nullptr)
+        return nullptr;
+    Py_INCREF(source);
+    ((EtiquetteDiffere*) self)->source = (BloscDiffere*) source;
+    return self;
+}
+
+
+PyDoc_STRVAR(EtiquetteDiffere_doc,
+             "Label slot of a tagged BloscDiffere: written after the payload,"
+             " once the raw-vs-frame decision is known (by the writer thread"
+             " when the payload was deferred).");
+
+
+static PyTypeObject EtiquetteDiffere_Type = {
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    "rapidjson.EtiquetteDiffere",         /* tp_name */
+    sizeof(EtiquetteDiffere),             /* tp_basicsize */
+    0,                              /* tp_itemsize */
+    (destructor) EtiquetteDiffere_dealloc, /* tp_dealloc */
+    0,                              /* tp_print */
+    0,                              /* tp_getattr */
+    0,                              /* tp_setattr */
+    0,                              /* tp_compare */
+    0,                              /* tp_repr */
+    0,                              /* tp_as_number */
+    0,                              /* tp_as_sequence */
+    0,                              /* tp_as_mapping */
+    0,                              /* tp_hash */
+    0,                              /* tp_call */
+    0,                              /* tp_str */
+    0,                              /* tp_getattro */
+    0,                              /* tp_setattro */
+    0,                              /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT,             /* tp_flags */
+    EtiquetteDiffere_doc,                 /* tp_doc */
+    0,                              /* tp_traverse */
+    0,                              /* tp_clear */
+    0,                              /* tp_richcompare */
+    0,                              /* tp_weaklistoffset */
+    0,                              /* tp_iter */
+    0,                              /* tp_iternext */
+    0,                              /* tp_methods */
+    0,                              /* tp_members */
+    0,                              /* tp_getset */
+    0,                              /* tp_base */
+    0,                              /* tp_dict */
+    0,                              /* tp_descr_get */
+    0,                              /* tp_descr_set */
+    0,                              /* tp_dictoffset */
+    0,                              /* tp_init */
+    0,                              /* tp_alloc */
+    EtiquetteDiffere_new,                 /* tp_new */
 };
 
 

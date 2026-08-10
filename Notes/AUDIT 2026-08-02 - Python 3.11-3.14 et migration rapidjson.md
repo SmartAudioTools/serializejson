@@ -4190,3 +4190,96 @@ Contreparties mesurées, assumées :
   seulement (économiserait le spawn des dumps mono-bloc) — refusé
   par la mesure : les appends mono-bloc-par-maillon sont justement
   ceux qui gagnent −11 % vs commité grâce au worker.
+
+## 24. Matinée du 10/08, suite — numpy rejoint la compression
+## différée : le dump des images kodak ne dépend plus du niveau
+
+Origine : question de Baptiste (09 h 10) — « pourquoi le dump des
+images kodak bloque plus longtemps quand le niveau de compression est
+plus élevé ? ça devrait être indépendant maintenant que la compression
+se fait en différé du dump ». Il avait raison sur le fond et la mesure
+lui a donné tort sur l'implémentation : le §22 ne différait que les
+bytes/bytearray ; les tableaux numpy passaient toujours par
+BloscToBase64 SYNCHRONE dans le greffon, donc la compression entière
+s'exécutait avant le retour de dump — d'où le blocage proportionnel
+au niveau.
+
+### 24.1 Le dessin (« option B ») : arité figée avant de compresser
+
+Le nœud du problème est que numpyB64 choisit son étiquette APRÈS
+compression (la trame gagne-t-elle ?), alors que l'arité des args de
+l'enveloppe est écrite avant. Résolution : quand la remise différée
+est possible, l'étiquette est TOUJOURS écrite — « b64 » si la
+compression perd. Deux objets :
+
+- **BloscDiffere étendu** : recette complète (typesize, shuffle,
+  blocksize, diff_cols) + tag (≤23 car.) + vue épinglée
+  (PyBUF_CONTIG_RO) sur tout buffer C-contigu. tag vide = voie bytes
+  du §22, inchangée à l'octet.
+- **EtiquetteDiffere neuf** (réf forte sur sa source) : arg séparé de
+  l'enveloppe, placé après la charge. La décision voyage par
+  `d->issue` en voie synchrone (0 brut, 1 trame, 2 différé), par une
+  FIFO `issues` côté fil en voie différée (poussée par emetCompresse
+  pour les blocs à tag, consommée par le bloc Bloc::Etiquette).
+- Le bloc Etiquette est compté ZÉRO au dépôt et pousse son delta
+  (posBrut, n+2) comme Echappe — l'index reste exact (preuve par le
+  rouge : delta neutralisé → test des bornes rouge, positions
+  décalées).
+
+La remise différée n'a lieu QUE si to_compress est le tampon
+D'ORIGINE (`use_blosc2_fork or not diff0`) : le repli brut du fil
+réémet la source telle quelle, ce qui serait FAUX sur une dérivée
+(diff sans fork → voie synchrone conservée). compresseBloc est
+statique et partagé fil/worker §23 : la recette est honorée sur les
+deux threads ; diff_cols>0 → contexte jetable local (le préfiltre
+pointe la pile de l'appelant, jamais en cache).
+
+### 24.2 Conséquences de format, assumées
+
+- Cas compressibles : sortie IDENTIQUE À L'OCTET à l'ancienne
+  (vérifié dumps/dumpb/fichier, indent 0 et 2, niveaux 1 et 9).
+- Cas incompressibles éligibles : étiquette « b64 » écrite là où
+  l'ancien n'écrivait rien — un ANCIEN lecteur refuse ces fichiers
+  (« unknow b64 compression ») ; conforme à la compat descendante
+  seulement. Le lecteur neuf mappe « b64 » → None et lit les anciens
+  fichiers sans changement.
+- Zigzag demandé sans fork chargeable : ValueError à la construction
+  (avant : trames silencieusement fausses) — amélioration.
+
+### 24.3 Validation et mesure
+
+- Batterie d'identité 7 tableaux (kodak 3d, int32 2d, f64, 
+  incompressible, petit, bool, u16 gros) × 2 niveaux × 3 méthodes,
+  contre la référence 999764a : seul l'incompressible diffère
+  (étiquette attendue), aller-retour exact partout.
+- 214 pytest verts × 4 versions (213 + test des bornes d'index
+  numpy neuf) ; append numpy 2 époques (multi-écrivains) exact,
+  index écrit = balayage.
+- **A/B kodak (la question d'origine)** : latence de blocage de dump,
+  référence 7,3-8,5 ms (niveau 1) → 184-199 ms (niveau 9) ; chantier
+  0,9 → 0,6 ms — le blocage est devenu INDÉPENDANT du niveau
+  (×300 de moins au niveau 9). Total avec wait_writes légèrement
+  meilleur (171-179 vs 184-199 ms).
+- pgo_workload étendu : cas numpy différé (chaîne dérivée + repli
+  brut) — garde `numpy is None` pour les environnements sans numpy.
+
+### 24.4 Simplification (passe sur tous les fichiers du commit)
+
+- `has_view` supprimé de BloscDiffere : strictement équivalent à
+  `tag[0] != '\0'`.
+- Le repli brut de NumpyDiffereEcrit repart de la vue DÉJÀ épinglée
+  (RawDataToBase64 sur buf/taille) au lieu de re-résoudre d->value.
+- Regardé et laissé : l'écriture du tag entre guillemets existe en
+  deux exemplaires (writer.h voie synchrone, writerthread.h bloc
+  Etiquette) — classes différentes, un partage coûterait plus de
+  couplage que les 6 lignes dupliquées.
+
+### 24.5 Piège de banc nouveau
+
+**dump() vers un chemin est ASYNCHRONE (fast_release)** : relire le
+fichier sans `serializejson.wait_writes()` fait la course avec le fil
+(mesuré : 68 octets juste après le retour, 346 octets 0,3 s plus
+tard) — des empreintes « non reproductibles » sur les DEUX binaires,
+y compris sur un cas qui ne compresse rien. Ce n'était pas un bug du
+binaire (load() synchronise, d'où des allers-retours verts pendant
+que les sha divergeaient).

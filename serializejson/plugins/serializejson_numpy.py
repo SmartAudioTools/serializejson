@@ -8,7 +8,8 @@ else:
     from base64 import b64decode
 
     # base64 écrit directement dans la sortie, et compression blosc2 faite en C
-    from rapidjson import (RawBytesToBase64, BloscToBase64, _cumsum_axis0,
+    from rapidjson import (RawBytesToBase64, BloscToBase64, BloscDiffere,
+                           EtiquetteDiffere, _cumsum_axis0,
                            _diff_axis0, blosc_decompress_chunks)
     import sys
 
@@ -96,6 +97,10 @@ else:
             shape_len = None
         else:
             shape_len = shape_len_compression
+        if compression == "b64":
+            # étiquette du repli non-compressé de l'écriture différée : la
+            # charge est déjà les octets bruts
+            compression = None
         use_diff = False
         diff_block_rows = 0
         if compression:
@@ -320,6 +325,41 @@ else:
                             cols, block_rows)
                 else:
                     to_compress = contiguous
+                if use_blosc2_fork or not diff0:
+                    # to_compress est la donnée ORIGINALE contiguë : le repli
+                    # brut du fil (qui émet les octets déposés tels quels)
+                    # reste juste. La compression part alors au fil
+                    # d'écriture ; l'étiquette est TOUJOURS écrite (« b64 »
+                    # si la compression perd), l'arité est ainsi fixée avant
+                    # de compresser. Hors flux fichier : compression
+                    # synchrone dans l'écrivain, mêmes octets.
+                    tag = ("blosc2" + diff_suffix) if diff0 else "blosc2"
+                    payload = BloscDiffere(
+                        to_compress,
+                        level,
+                        blosc2_compression,
+                        typesize=data.itemsize,
+                        shuffle=shuffle,
+                        blocksize=blocksize,
+                        diff_cols=diff_cols,
+                        tag=tag,
+                    )
+                    etiquette = EtiquetteDiffere(payload)
+                    if len_or_shape is None:
+                        return (
+                            "numpyB64",
+                            (payload, dtype_str, etiquette),
+                            None,
+                        )
+                    else:
+                        return (
+                            "numpyB64",
+                            (payload, dtype_str, len_or_shape, etiquette),
+                            None,
+                        )
+                # dérivée SANS fork : to_compress est un DÉRIVÉ — le repli
+                # brut du fil émettrait ces octets-là, pas la donnée. Voie
+                # synchrone conservée.
                 payload = BloscToBase64(
                     to_compress,
                     data.itemsize,

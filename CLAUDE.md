@@ -337,3 +337,41 @@ compression (un seul bloc compressé, N−1 références). Chaque clé
 doit recevoir un objet DISTINCT — le cas « 8×100 Ko » du §22.5
 avait déjà ce défaut. Et sous charge 7-8, tout cas < 100 µs est du
 bruit : grossir les cas jusqu'à dominer la charge, témoin obligatoire.
+
+## Addendum 10/08 milieu de matinée — numpy différé au fil (audit §24),
+## NON COMMITÉ
+
+Question de Baptiste 09:10 (kodak bloque ∝ niveau) résolue : les
+tableaux numpy rejoignent la compression différée du §22. Étiquette
+TOUJOURS écrite quand la remise est possible (« b64 » si la trame
+perd) → arité figée avant compression ; EtiquetteDiffere (arg séparé,
+réf forte sur BloscDiffere étendu à la recette complète) ; décision
+par d->issue (sync) ou FIFO issues (fil) ; bloc Etiquette compté
+zéro + delta (posBrut, n+2). Remise différée SEULEMENT si to_compress
+est le tampon d'origine (fork ou pas de diff0) — diff sans fork reste
+synchrone (le repli brut du fil réémettrait une dérivée, faux).
+
+Conséquences de format : compressible identique à l'octet ; repli
+brut éligible porte « b64 » là où l'ancien n'écrivait rien → ancien
+lecteur refuse (compat descendante seulement, assumé) ; zigzag sans
+fork = ValueError (avant : trames fausses silencieuses). Lecteur :
+compression == "b64" → None.
+
+Validé : batterie identité 7 tableaux × 2 niveaux × 3 méthodes vs
+999764a (seul l'incompressible diffère), 214 tests × 4 versions PGO,
+append 2 époques, preuve par le rouge sur le delta d'Etiquette,
+A/B kodak : blocage 184-199 ms → 0,6 ms au niveau 9 (indépendant du
+niveau). pgo_workload : cas numpy différé ajouté.
+
+Piège NOUVEAU : dump() vers un chemin est ASYNCHRONE — toute lecture
+du fichier sans wait_writes() fait la course avec le fil (68 octets
+vs 346 mesurés) ; load() synchronise, un aller-retour vert ne prouve
+donc PAS que le fichier est complet.
+
+Fichiers du chantier (les MIENS) : rapidjson/{serializejson.h,
+writerthread.h, writer.h, prettywriter.h, fdwritestream.h,
+pybytesbuffer.h, pywritestreamwrapper.h, rapidjson.cpp,
+pgo_workload.py} + .so ×4 + serializejson/plugins/
+serializejson_numpy.py + tests/test_indexation.py + audit §24 + ce
+fichier. tests/lance_benchmarks.py = tâche SÉPARÉE (2 barres RAM),
+en attente de sa propre autorisation.

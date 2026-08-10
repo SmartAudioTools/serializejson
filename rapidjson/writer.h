@@ -377,6 +377,11 @@ public:
         return BloscDiffereEcrit(object);
     }
 
+    bool EtiquetteDiffere_(PyObject* object) {
+        Prefix();
+        return EtiquetteDiffereEcrit(object);
+    }
+
 
     // enveloppe complète d'un petit bytes/bytearray en UN passage :
     // {"__class__":"bytes","__new__":...} — mêmes octets que la suite
@@ -458,6 +463,8 @@ protected:
     // pas de niveau empilé, comme BytesEnvelope.
     bool BloscDiffereEcrit(PyObject* object) {
         BloscDiffere* d = (BloscDiffere*) object;
+        if (d->tag[0] != '\0')
+            return NumpyDiffereEcrit(d);
         char* buf;
         size_t taille;
         if (PyBytes_CheckExact(d->value)) {   // types exacts garantis par le
@@ -472,9 +479,9 @@ protected:
         if (!os_->CompresseDiffere(d->value, buf, taille,
                                    d->clevel, d->compcode)) {
             char* trame = nullptr;
-            const int csize = sj_bytes_compresse_sync(buf, taille,
-                                                      d->compcode, d->clevel,
-                                                      &trame);
+            const int csize = sj_differe_compresse_sync(buf, taille,
+                                                        d->compcode, d->clevel,
+                                                        1, 0, 0, 0, &trame);
             if (csize <= 0) {
                 PyErr_Format(PyExc_ValueError,
                              "blosc compression failed (%d)", csize);
@@ -496,6 +503,72 @@ protected:
         }
         os_->Put(']');
         FermeIndex();
+        return true;
+    }
+
+    // charge numpy à étiquette SÉPARÉE (tag non vide) : un argument STRING
+    // ordinaire de l'enveloppe — pas de liste, pas de niveau. Différée quand
+    // le flux la prend (le fil compresse et poussera la décision pour le
+    // bloc Etiquette) ; sinon compression synchrone ici, décision consignée
+    // dans d->issue pour l'EtiquetteDiffere qui suit dans les args. Le repli
+    // brut repart du tampon d'ORIGINE (d->view), jamais d'une dérivée — le
+    // greffon ne diffère que quand c'est vrai.
+    bool NumpyDiffereEcrit(BloscDiffere* d) {
+        char* buf = (char*) d->view.buf;
+        const size_t taille = (size_t) d->view.len;
+        if (os_->CompresseDiffere((PyObject*) d, buf, taille, d->clevel,
+                                  d->compcode, d->typesize, d->shuffle,
+                                  d->blocksize, d->diff_cols, d->tag,
+                                  (PyObject*) d)) {
+            d->issue = 2;
+            return true;
+        }
+        char* trame = nullptr;
+        const int csize = sj_differe_compresse_sync(
+            buf, taille, d->compcode, d->clevel, d->typesize, d->shuffle,
+            d->blocksize, d->diff_cols, &trame);
+        if (csize <= 0) {
+            PyErr_Format(PyExc_ValueError,
+                         "blosc compression failed (%d)", csize);
+            return false;
+        }
+        if ((size_t) csize < taille) {
+            d->issue = 1;
+            if (os_->RawDataToBase64Owned(trame, (size_t) csize))
+                trame = nullptr;
+            else
+                os_->RawDataToBase64((const unsigned char*) trame,
+                                     (size_t) csize);
+        } else {
+            // la compression ne gagne pas : la vue déjà épinglée part telle
+            // quelle
+            d->issue = 0;
+            os_->RawDataToBase64((const unsigned char*) buf, taille);
+        }
+        free(trame);
+        return true;
+    }
+
+    // l'étiquette séparée : différée si la charge est partie au fil (qui la
+    // choisira), sinon décidée par le d->issue posé par la voie synchrone
+    bool EtiquetteDiffereEcrit(PyObject* object) {
+        BloscDiffere* d = ((EtiquetteDiffere*) object)->source;
+        if (d->issue == 2) {
+            os_->EtiquetteDifferee(d->tag);
+            return true;
+        }
+        if (d->issue < 0) {
+            PyErr_SetString(PyExc_ValueError,
+                            "EtiquetteDiffere written before its payload");
+            return false;
+        }
+        const char* tag = d->issue == 1 ? d->tag : "b64";
+        const size_t n = strlen(tag);
+        char sortie[26];
+        sortie[0] = '"';
+        memcpy(sortie + 1, tag, n);
+        sortie[n + 1] = '"';
+        os_->RawValue(sortie, n + 2);
         return true;
     }
 

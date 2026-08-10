@@ -322,6 +322,11 @@ public:
         return Base::BloscDiffereEcrit(object);
     }
 
+    bool EtiquetteDiffere_(PyObject* object) {
+        PrettyPrefix();
+        return Base::EtiquetteDiffereEcrit(object);
+    }
+
 
     // enveloppe complète d'un petit bytes/bytearray en UN passage, forme
     // indentée (la liste [base64,"b64"] reste compacte : single_line_init) —

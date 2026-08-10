@@ -515,6 +515,48 @@ def test_index_et_compression_differee_aux_bornes_du_seuil(tmp_path):
     assert "root['petit_reel']" in dernier and "root['grand']" in dernier
 
 
+@pytest.mark.skipif(not use_numpy, reason="numpy absent")
+def test_index_et_numpy_differe_aux_bornes_du_seuil(tmp_path):
+    # PIÈGE : un tableau numpy compressé AU FIL traverse DEUX blocs à taille
+    # variable — la charge (zéro octet compté au dépôt) puis son ÉTIQUETTE,
+    # écrite d'après la décision du fil ("blosc2*" si la trame gagne, "b64"
+    # sinon). Rétention conservative et élagage final doivent tenir avec les
+    # deux, dans les deux sens des bornes — mêmes bornes que pour bytes,
+    # oracle par balayage. Le cas « brut » (incompressible) exerce le repli
+    # du fil : étiquette "b64", charge = octets d'origine du tableau.
+    objet = {"grand": (numpy.arange(70_000, dtype=numpy.uint8) % 251),
+             "brut": numpy.frombuffer(random.Random(7).randbytes(3000),
+                                      dtype=numpy.uint8),
+             "fin": list(range(30))}
+    chemin = str(tmp_path / "borne_np.json")
+    config = dict(bytes_compression="blosc2_zstd",
+                  bytes_size_compression_threshold=512)
+
+    def indexe(seuil):
+        serializejson.dump(objet, chemin, index="sidecar",
+                           index_threshold=seuil, **config)
+        serializejson.wait_writes()
+        with open(chemin, "rb") as f:
+            donnees = f.read()
+        lu = indexation.lit(chemin)
+        attendu = indexation.balaye(donnees, seuil,
+                                    rapidjson._index_fin(donnees))
+        if lu is None:                   # réduit à `root` : pas écrit
+            assert set(attendu) <= {"root"}
+            return {}
+        assert lu["paths"] == attendu
+        return lu["paths"]
+
+    reference = indexe(16)
+    tailles = {cle: bornes[1] - bornes[0] for cle, bornes in reference.items()}
+    brut, grand = tailles["root['brut']"], tailles["root['grand']"]
+    assert 16 < grand < brut       # sinon les bornes testées se confondent
+    assert "root['brut']" in indexe(brut)          # brut « seuil ≤ réel
+    assert "root['brut']" not in indexe(brut + 1)  # réel < seuil
+    dernier = indexe(grand)
+    assert "root['grand']" in dernier and "root['brut']" in dernier
+
+
 @pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
                     reason="un dossier en lecture seule n'arrête pas root")
 @pytest.mark.parametrize("mode", ("blocking", "fast_release"))

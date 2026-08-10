@@ -26,6 +26,11 @@ import collections
 import datetime
 import decimal
 
+try:
+    import numpy
+except ModuleNotFoundError:
+    numpy = None
+
 cases = [
     [Point(i) for i in range(5000)],
     [{"a": [1, 2.5, "x"], "b": {"c": list(range(10)), "d": "hello"}} for _ in range(5000)],
@@ -94,6 +99,16 @@ with tempfile.TemporaryDirectory() as dossier:
                             "b": random.Random(0).randbytes(80_000)},
                            cible, bytes_compression="blosc2_zstd",
                            bytes_size_compression_threshold=512)
+        # tableaux numpy différés au fil : charge + bloc Etiquette, chaîne
+        # dérivée (préfiltre, contexte jetable) ET repli brut "b64"
+        if numpy is not None:
+            serializejson.dump(
+                {"img": (numpy.arange(120_000, dtype=numpy.uint8)
+                         .reshape(400, 300) % 251),
+                 "brut": numpy.frombuffer(
+                     random.Random(1).randbytes(60_000), dtype=numpy.uint8)},
+                cible, bytes_compression="blosc2_zstd",
+                bytes_size_compression_threshold=512)
         # appends à grands str : la voie Echappe des maillons et la
         # correction de leurs entrées à la fermeture (sj_append_ferme)
         if os.path.exists(cible_app):

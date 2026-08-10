@@ -125,7 +125,13 @@ public:
     // déléguer l'encodage (voir FdWriteStream).
     bool RawDataToBase64Owned(char*, size_t) { return false; }
     bool RawPyStrPropre(PyObject*, const char*, size_t) { return false; }
-    bool CompresseDiffere(PyObject*, char*, size_t, int, int) { return false; }
+    bool CompresseDiffere(PyObject*, char*, size_t, int, int,
+                          Py_ssize_t = 1, int = 0, int32_t = 0,
+                          Py_ssize_t = 0, const char* = nullptr,
+                          PyObject* = nullptr) { return false; }
+    void EtiquetteDifferee(const char*) {}   // jamais atteint : la charge
+                                             // n'ayant pas été prise, la voie
+                                             // synchrone écrit l'étiquette
 
     void RawDataToBase64(const unsigned char* src, size_t remaining){
         // encode le base64 par morceaux dans les chunks du flux,

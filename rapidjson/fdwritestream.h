@@ -199,25 +199,48 @@ public:
     // forte ; bytearray (que rien n'empêche de muter après le retour de
     // dump) : copie brute. Rend false quand rien n'a été pris : l'appelant
     // compresse alors lui-même, en synchrone.
+    // La recette au-delà de clevel/compcode est celle des tableaux numpy
+    // (typesize, shuffle, blocksize, diff_cols, étiquette séparée `tag`) —
+    // les dépôts bytes la laissent à ses défauts, qui reproduisent la
+    // recette historique. `ref` non nul : le tampon est ÉPINGLÉ par cet
+    // objet (Py_buffer tenu par le BloscDiffere), zéro-copie sous référence
+    // forte, quel que soit son type.
     bool CompresseDiffere(PyObject* obj, char* buf, size_t taille,
-                          int clevel, int compcode) {
+                          int clevel, int compcode, Py_ssize_t typesize = 1,
+                          int shuffle = 0, int32_t blocksize = 0,
+                          Py_ssize_t diff_cols = 0,
+                          const char* tag = nullptr,
+                          PyObject* ref = nullptr) {
         if (taille < chunkSize)
             return false;
         Flush();
-        if (PyBytes_CheckExact(obj)) {
-            Py_INCREF(obj);
-            ecrivain->pousseCompresse(buf, taille, obj, clevel, compcode);
+        if (ref != nullptr || PyBytes_CheckExact(obj)) {
+            PyObject* tenu = ref != nullptr ? ref : obj;
+            Py_INCREF(tenu);
+            ecrivain->pousseCompresse(buf, taille, tenu, clevel, compcode,
+                                      typesize, shuffle, blocksize,
+                                      diff_cols, tag);
         } else {
             char* copie = (char*) malloc(taille);
             if (copie == nullptr)
                 return false;            // voie synchrone : elle se replie
             memcpy(copie, buf, taille);
             ecrivain->pousseCompresse(copie, taille, nullptr, clevel,
-                                      compcode);
+                                      compcode, typesize, shuffle, blocksize,
+                                      diff_cols, tag);
         }
         blocsVariables += 1;
         ecrivain->freineSiBesoin();
         return true;
+    }
+
+    // L'étiquette séparée d'une charge partie par CompresseDiffere (tag non
+    // vide) : le fil la choisira. Taille écrite inconnue ici (« "<tag>" »
+    // ou « "b64" ») — bloc à taille variable pour l'index, comme la charge.
+    void EtiquetteDifferee(const char* tag) {
+        Flush();
+        ecrivain->pousseEtiquette(tag);
+        blocsVariables += 1;
     }
 
     // Même chose, mais on PREND le bloc, et son encodage avec : le thread
