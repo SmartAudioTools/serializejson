@@ -4081,3 +4081,112 @@ compression : il n'y a PAS de décision à prendre, le format est
 inchangé. Restent au rapport : le plancher $ref (§19) et les seuils
 malloc (§21.4), qui sont respectivement une décision de format et
 un réglage processus hors périmètre du code.
+
+## 23. Matinée du 10/08 — le compresseur d'avance : la compression
+## recouvre à nouveau l'écriture, sans quitter l'écrivain
+
+Demande de Baptiste (07 h 36 puis 07 h 41) : « peut-on refaire
+tourner la compression en parallèle du fil, dans un thread
+supplémentaire, pour gagner du débit pur ? » — puis « tente de
+l'implémenter ». C'est la réponse à la contrepartie assumée du §22.5 :
+la compression, en série dans le fil, faisait payer +8-10 % à qui
+attend la fin.
+
+### 23.1 Le mécanisme (writerthread.h)
+
+Un thread « compresseur d'avance » par écrivain, lancé PARESSEUSEMENT
+au premier bloc Compresse (un dump sans compression ne paie aucun
+thread). Il compresse les blocs Compresse ENCORE EN FILE, pendant que
+le fil écrit ceux qui les précèdent — le recouvrement du §22 est
+retrouvé, mais entre le worker et le fil, plus entre l'appelant et le
+fil : l'ordre des octets du fichier reste au fil seul, l'étiquette et
+le journal de deltas ne bougent pas.
+
+- Chaque bloc Compresse porte un état sous le verrou de l'écrivain :
+  AFaire → EnCours (le worker le tient) → Pret (trame et csize posés).
+  Les dépôts zéro-initialisent ces champs sans les nommer.
+- Le worker travaille sur les blocs EN PLACE dans la deque — les
+  pointeurs y sont stables tant que le bloc n'est pas sorti, et le
+  fil ne sort JAMAIS un bloc EnCours : il l'attend (condvar aPret),
+  sa trame arrive et coûte moins que la refaire. Un bloc encore
+  AFaire quand le fil y arrive est réclamé par le fil, qui le
+  compresse en ligne comme au §22 (le worker est occupé plus loin,
+  ou n'existe pas) — la tâche lui est ôtée sous le même verrou,
+  aucune course possible.
+- L'avance est bornée à DEUX trames prêtes en attente (compteur
+  `prets`) : c'est ce qui plafonne la mémoire — au pire deux trames
+  posées plus une en cours, quel que soit le document.
+- ecritCompresse du §22 est scindé en deux moitiés : compresseBloc
+  (statique, chacun passe SON contexte blosc2 et sa clé — même
+  discipline de clé par taille d'entrée qu'au §22.3, donc même trame
+  quel que soit le thread qui compresse) et emetCompresse (le choix
+  d'étiquette, inchangé, toujours dans le fil).
+- Fin de vie : termine() réveille et joint le worker après le fil ;
+  laisseFiler le réveille, la destruction différée (balaye) le joint.
+
+### 23.2 Preuve de voie et validation
+
+- Sonde temporaire (fprintf sous variable d'environnement, retirée
+  après) : sur un document de 12 blocs compressibles, 11 compressés
+  d'avance par le worker, le premier réclamé en ligne par le fil —
+  exactement le partage attendu.
+- Identité à l'octet : la batterie du §22.4 (252 lignes : 4 configs
+  × 9 documents × dumps/dumpb/BytesIO/fichier/index/sans-index +
+  append et son sidecar) bit à bit identique au binaire commité
+  999764a, en chantier PUIS en PGO. Sonde refcount inchangée.
+- 213 tests verts (3.13 chantier, puis consolidation PGO toutes
+  versions).
+
+### 23.3 Mesures — l'A/B avait DEUX pièges, tous deux payés
+
+1. **Machine à charge 7-8** (autres instances au travail) : le témoin
+   sans compression dérivait de +9 à +17 % entre tours — tout
+   verdict sur des cas de ~90 µs était du bruit. Réponse : grossir
+   les cas jusqu'à ce que l'effet mesuré domine la charge (16 blocs
+   de 512 Ko), cibles sur tmpfs, trois binaires entrelacés dans la
+   même boucle.
+2. **Piège $ref dans le banc lui-même** : le premier banc mettait le
+   MÊME objet bytes sous 16 clés — serializejson n'en compressait
+   qu'un, les 15 autres partaient en référence ; le banc mesurait
+   l'écriture de $ref, pas le worker. Chaque clé doit recevoir un
+   objet DISTINCT. (Le cas « 8×100 Ko » du §22.5 avait le même
+   défaut : il ne portait qu'UNE compression — ses +10,5 % restaient
+   comparables entre binaires, mais le cas n'exerçait pas ce qu'il
+   nommait.)
+
+Mesures corrigées (8 tours entrelacés, min de 5, total avec
+wait_writes, PGO partout ; « avant-nuit » = binaire d'avant le §20,
+« commité » = 999764a) :
+
+| cas | avant-nuit | commité | worker | vs commité | vs avant-nuit |
+|---|---|---|---|---|---|
+| 16×512 Ko compressibles | 1 719 µs | 1 807 µs | 1 571 µs | −13 % | −8,6 % |
+| 16×512 Ko incompressibles | 4 807 µs | 5 666 µs | 3 960 µs | −30 % | −17,6 % |
+| 16×512 Ko mixtes | 2 900 µs | 3 940 µs | 2 368 µs | −40 % | −18,3 % |
+| append 10 maillons 400 Ko | 763 µs | 1 017 µs | 906 µs | −11 % | +18,7 % |
+
+La régression de débit du §22.5 n'est pas seulement rattrapée : sur
+documents multi-blocs elle s'INVERSE — le worker et le fil se
+recouvrent mieux que l'appelant et le fil d'avant-nuit (le fil
+émet une trame pendant que le worker compresse la suivante).
+
+Contreparties mesurées, assumées :
+- la latence de retour des dumps compressés remonte (98 → 165 µs,
+  162 → 316 µs sur les 16 blocs : contention du worker avec la fin
+  de la sérialisation) mais reste à −90 % de l'avant-nuit ;
+- l'append lourd garde ~+19 % sur l'avant-nuit : UN spawn de thread
+  par maillon (écrivain par époque), à ~20-30 µs pièce. Un worker
+  global partagé les amortirait ; machinerie jugée hors de prix pour
+  ce cas — à rouvrir si un profil réel d'appends compressés serrés
+  apparaît.
+
+### 23.4 Simplification
+
+- Le drapeau `tacheOtee` du fil (fallait-il réveiller le worker ?)
+  remplacé par un réveil inconditionnel sur tout bloc Compresse
+  consommé : un réveil pour rien re-vérifie le prédicat et se rendort,
+  un réveil manqué gèlerait — le côté sûr est le simple.
+- Essayé mentalement et écarté : lancer le worker au DEUXIÈME bloc
+  seulement (économiserait le spawn des dumps mono-bloc) — refusé
+  par la mesure : les appends mono-bloc-par-maillon sont justement
+  ceux qui gagnent −11 % vs commité grâce au worker.

@@ -172,6 +172,16 @@ struct Bloc {
     int clevel;
     int compcode;
     int16_t nthreads;
+    // Compresse seulement, sous le verrou de l'écrivain : l'avancement du
+    // compresseur d'avance (voir boucleWorker). AFaire tant que personne ne
+    // l'a pris ; EnCours pendant que le worker compresse (le fil ATTEND ce
+    // bloc plutôt que de refaire le travail) ; Pret quand trame/csize sont
+    // posés — le fil n'a plus qu'à émettre. Zéro-initialisés par les
+    // dépôts, qui ne nomment pas ces champs.
+    enum Etat : char { AFaire, EnCours, Pret };
+    Etat etat;
+    char* trame;                         // trame compressée, au fil de l'émettre
+    int csize;
 };
 
 // Ce que taille octets deviennent en base64, guillemets compris.
@@ -242,8 +252,11 @@ public:
             fini = true;
         }
         aBloc.notify_one();
+        aTache.notify_one();
         if (th.joinable())
             th.join();
+        if (worker.joinable())
+            worker.join();
         return erreur();
     }
 
@@ -300,9 +313,18 @@ public:
             file.push_back(Bloc{data, taille, Bloc::Compresse, ref,
                                 (size_t) debut + pousses, clevel, compcode,
                                 (int16_t) serializejson_blosc2_nthreads_global});
+            // le pointeur reste valable dans la deque tant que le bloc n'est
+            // pas sorti — et le fil ne sort jamais un bloc que le worker tient
+            taches.push_back(&file.back());
             octets += taille;
         }
+        // compresseur d'avance, lancé au premier bloc Compresse seulement :
+        // un dump sans compression ne paie aucun thread. Un seul déposant
+        // par écrivain — pas de course sur joinable().
+        if (!worker.joinable())
+            worker = std::thread(&WriterThread::boucleWorker, this);
         aBloc.notify_one();
+        aTache.notify_one();
         depuisControle += taille;
     }
 
@@ -408,6 +430,7 @@ public:
             fini = true;
         }
         aBloc.notify_one();
+        aTache.notify_one();
     }
 
     // Attend que CET écrivain ait tout posé — l'écriture bloquante, celle que
@@ -508,9 +531,28 @@ private:
                     aBloc.wait(verrou);
                 if (file.empty())        // plus rien à écrire, et c'est fini
                     break;
+                // le worker tient ce bloc : sa trame arrive, l'attendre coûte
+                // moins que la refaire — et le sortir sous lui est interdit
+                while (file.front().mode == Bloc::Compresse
+                       && file.front().etat == Bloc::EnCours)
+                    aPret.wait(verrou);
+                if (file.front().mode == Bloc::Compresse) {
+                    if (file.front().etat == Bloc::Pret) {
+                        prets -= 1;      // une place d'avance se libère
+                    } else if (!taches.empty()
+                               && taches.front() == &file.front()) {
+                        // AFaire : le fil le prend, le worker ne doit plus
+                        // le voir — il compressera le suivant à la place
+                        taches.pop_front();
+                    }
+                }
                 bloc = file.front();
                 file.pop_front();
             }
+            if (bloc.mode == Bloc::Compresse)
+                // place libérée ou tâche ôtée : le worker re-vérifie tout —
+                // un réveil pour rien est sans effet, un réveil manqué gèle
+                aTache.notify_one();
             int rate;
             if (bloc.mode == Bloc::Base64) {
                 rate = ecritBase64(bloc.data, bloc.taille);
@@ -561,6 +603,48 @@ private:
             cctx = nullptr;
         }
         signalePose();
+    }
+
+    // Le compresseur d'avance : compresse les blocs Compresse encore en
+    // file PENDANT que le fil écrit ceux qui les précèdent — la compression
+    // recouvre l'écriture au lieu de la suspendre. Il travaille sur les
+    // blocs EN PLACE dans la deque (les pointeurs y restent stables, et le
+    // fil ne sort jamais un bloc EnCours) et s'interdit plus de deux trames
+    // prêtes en attente : c'est ce qui borne la mémoire — au pire deux
+    // trames posées plus une en cours. Contexte blosc2 à lui, même
+    // discipline de clé que le fil : trames identiques à l'octet.
+    void boucleWorker() {
+        blosc2_context* ctx = nullptr;
+        SjCctxKey cle;
+        for (;;) {
+            Bloc* b;
+            Bloc tache;
+            {
+                std::unique_lock<std::mutex> verrou(m);
+                while ((taches.empty() || prets >= 2)
+                       && !(fini && taches.empty()))
+                    aTache.wait(verrou);
+                if (taches.empty())      // plus de tâches, et c'est fini
+                    break;
+                b = taches.front();
+                taches.pop_front();
+                b->etat = Bloc::EnCours;
+                tache = *b;              // les champs sources sont figés
+            }
+            char* trame;
+            int csize;
+            compresseBloc(tache, ctx, cle, trame, csize);
+            {
+                std::unique_lock<std::mutex> verrou(m);
+                b->trame = trame;
+                b->csize = csize;
+                b->etat = Bloc::Pret;
+                prets += 1;
+            }
+            aPret.notify_one();
+        }
+        if (ctx != nullptr)
+            sj_blosc2_free_ctx(ctx);
     }
 
     // Tout est sur le disque. Ni destruction ni verrou propre au-delà d'ici :
@@ -619,36 +703,43 @@ private:
         }
     }
 
-    // Compresse et écrit d'un même mouvement — et c'est ICI que l'étiquette
-    // se choisit : la trame ne part que si elle est PLUS PETITE que la
-    // source (le critère strict du greffon), sinon la source part en base64
-    // sous « b64 » ; un échec de compression se replie de même, en silence —
-    // le document reste valide, seulement moins compact. Le contexte blosc2
-    // est propre au thread, recréé quand la recette change (memcmp de clé,
-    // comme le cache global de la voie synchrone) et libéré en fin de
-    // boucle. `emis` rend la taille réellement écrite, étiquette comprise.
-    int ecritCompresse(const Bloc& bloc, size_t& emis) {
-        char* trame = nullptr;
-        int csize = -1;
+    // La moitié COMPRESSION, partagée entre le fil et le compresseur
+    // d'avance : chacun passe SON contexte blosc2 et sa clé, recréés quand
+    // la recette ou la taille change (memcmp de clé, comme le cache global
+    // de la voie synchrone). Même clé ⇒ même trame, quel que soit le thread
+    // qui compresse : c'est le déterminisme du cache par taille d'entrée.
+    // Rend trame=nullptr ou csize<=0 en cas d'échec — l'émission se replie.
+    static void compresseBloc(const Bloc& bloc, blosc2_context*& ctx,
+                              SjCctxKey& ctxCle, char*& trame, int& csize) {
+        csize = -1;
         const size_t destsize = bloc.taille + BLOSC2_MAX_OVERHEAD;
-        if ((trame = (char*) malloc(destsize)) != nullptr) {
-            blosc2_cparams cparams = sj_bytes_cparams(bloc.compcode,
-                                                      bloc.clevel,
-                                                      bloc.nthreads);
-            SjCctxKey cle = sj_cctx_key(cparams, (int32_t) bloc.taille);
-            if (cctx != nullptr && memcmp(&cle, &cctxCle, sizeof cle) != 0) {
-                sj_blosc2_free_ctx(cctx);
-                cctx = nullptr;
-            }
-            if (cctx == nullptr) {
-                cctx = sj_blosc2_create_cctx(cparams);
-                cctxCle = cle;
-            }
-            if (cctx != nullptr)
-                csize = sj_blosc2_compress_ctx(cctx, bloc.data,
-                                               (int32_t) bloc.taille, trame,
-                                               (int32_t) destsize);
+        if ((trame = (char*) malloc(destsize)) == nullptr)
+            return;
+        blosc2_cparams cparams = sj_bytes_cparams(bloc.compcode, bloc.clevel,
+                                                  bloc.nthreads);
+        SjCctxKey cle = sj_cctx_key(cparams, (int32_t) bloc.taille);
+        if (ctx != nullptr && memcmp(&cle, &ctxCle, sizeof cle) != 0) {
+            sj_blosc2_free_ctx(ctx);
+            ctx = nullptr;
         }
+        if (ctx == nullptr) {
+            ctx = sj_blosc2_create_cctx(cparams);
+            ctxCle = cle;
+        }
+        if (ctx != nullptr)
+            csize = sj_blosc2_compress_ctx(ctx, bloc.data,
+                                           (int32_t) bloc.taille, trame,
+                                           (int32_t) destsize);
+    }
+
+    // La moitié ÉMISSION — et c'est ICI que l'étiquette se choisit : la
+    // trame ne part que si elle est PLUS PETITE que la source (le critère
+    // strict du greffon), sinon la source part en base64 sous « b64 » ; un
+    // échec de compression se replie de même, en silence — le document
+    // reste valide, seulement moins compact. `emis` rend la taille
+    // réellement écrite, étiquette comprise. Libère la trame.
+    int emetCompresse(const Bloc& bloc, char* trame, int csize,
+                      size_t& emis) {
         int rate;
         if (csize > 0 && (size_t) csize < bloc.taille) {
             emis = tailleBase64((size_t) csize) + 13;
@@ -663,6 +754,18 @@ private:
         }
         free(trame);
         return rate;
+    }
+
+    // Bloc compressé d'avance : émettre la trame posée. Sinon, compresser
+    // dans le fil (bloc réclamé AFaire — le worker est occupé plus loin,
+    // ou n'existe pas) puis émettre, contexte du fil.
+    int ecritCompresse(const Bloc& bloc, size_t& emis) {
+        if (bloc.etat == Bloc::Pret)
+            return emetCompresse(bloc, bloc.trame, bloc.csize, emis);
+        char* trame;
+        int csize;
+        compresseBloc(bloc, cctx, cctxCle, trame, csize);
+        return emetCompresse(bloc, trame, csize, emis);
     }
 
     // Échappe et écrit d'un même mouvement : le str n'a même pas été LU par
@@ -755,17 +858,26 @@ private:
     bool pose;                           // sous enVol().m
     bool tue;                            // erreur déjà relevée, sous m
     std::deque<Bloc> file;               // sous m
+    // blocs Compresse pas encore pris, dans l'ordre du flux — sous m ; des
+    // pointeurs DANS file, stables tant que le bloc n'en est pas sorti
+    std::deque<Bloc*> taches;
+    int prets = 0;                       // trames prêtes non écrites, sous m
     // expansions des blocs Echappe et Compresse écrits — au thread seul
     std::vector<std::pair<size_t, size_t>> deltas;
-    // contexte blosc2 des blocs Compresse — au thread seul, libéré en fin
-    // de boucle ; cctxCle dit la recette qu'il incarne
+    // contexte blosc2 des blocs Compresse compressés par le FIL — à lui
+    // seul, libéré en fin de boucle ; cctxCle dit la recette qu'il incarne.
+    // Le compresseur d'avance a le sien, local à boucleWorker.
     blosc2_context* cctx = nullptr;
     SjCctxKey cctxCle;
     std::function<int()> apres;          // à faire le dernier octet posé, sous m
     mutable std::mutex m;
     std::condition_variable aBloc;       // un bloc à écrire
     std::condition_variable aVide;       // la file s'est allégée
+    std::condition_variable aTache;      // au worker : une tâche, ou une place
+    std::condition_variable aPret;       // au fil : la trame du front est posée
     std::thread th;
+    std::thread worker;                  // compresseur d'avance, lancé au
+                                         // premier pousseCompresse seulement
 };
 
 RAPIDJSON_NAMESPACE_END

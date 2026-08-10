@@ -307,3 +307,33 @@ Pièges nouveaux payés cette nuit :
 - Le greffon pytest typeguard casse sur 3.14 (ImportError ast.Str) :
   `-p no:typeguard` partout, déjà noté plus haut mais repayé dans la
   boucle de consolidation.
+
+## Addendum 10/08 matin — compresseur d'avance (demande de Baptiste,
+## 07 h 41), NON COMMITÉ
+
+La contrepartie du §22 (compression en série dans le fil : +8-10 %
+pour qui attend la fin) est résorbée par un thread « compresseur
+d'avance » PAR ÉCRIVAIN (writerthread.h seul touché), lancé
+paresseusement au premier bloc Compresse : il compresse les blocs
+encore en file, EN PLACE dans la deque (pointeurs stables, le fil
+n'ôte jamais un bloc EnCours — il l'attend), avance bornée à 2
+trames prêtes. États AFaire/EnCours/Pret sous le verrou existant ;
+un bloc encore AFaire au front est réclamé et compressé en ligne
+par le fil. ecritCompresse scindé compresseBloc/emetCompresse,
+même clé de contexte par taille → même trame quel que soit le
+thread. Audit §23.
+
+Validé : sonde de voie (11/12 blocs pris d'avance), identité à
+l'octet (252 lignes vs 999764a, chantier ET PGO), 213 tests.
+Mesures (8 tours entrelacés, cas GROSSIS — voir piège) : débit
+total −13/−30/−40 % vs commité sur 16×512 Ko, et −9/−18 % vs le
+binaire d'AVANT-nuit (la régression s'inverse) ; append −11 % vs
+commité mais +19 % vs avant-nuit (un spawn par maillon — worker
+global partagé jugé hors de prix, à rouvrir sur profil réel).
+
+⚠ Piège de banc NOUVEAU, payé deux fois ce matin : un banc qui met
+le MÊME objet bytes sous N clés mesure l'écriture de $ref, pas la
+compression (un seul bloc compressé, N−1 références). Chaque clé
+doit recevoir un objet DISTINCT — le cas « 8×100 Ko » du §22.5
+avait déjà ce défaut. Et sous charge 7-8, tout cas < 100 µs est du
+bruit : grossir les cas jusqu'à dominer la charge, témoin obligatoire.
