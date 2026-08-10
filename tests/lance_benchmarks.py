@@ -691,6 +691,9 @@ def mesure_types_objets():
         try:
             encodeur = serializejson.Encoder(return_bytes=True)
             encodeur(objets)   # peuple les classes vues par l'encodeur
+            # le pendant str du même réglage : la barre `dumps` des figures
+            encodeur_str = serializejson.Encoder()
+            encodeur_str(objets)
             decodeur = serializejson.Decoder(
                 authorized_classes=list(encodeur.get_dumped_classes()))
             # côté objets : clones par pickle (objets frais à chaque load,
@@ -728,7 +731,8 @@ def mesure_types_objets():
             "taille_sj": len(j),
             "dumps_pickle": chrono(lambda: pickle.dumps(lot, protocol=4),
                                    plafond=0.4),
-            "dumps_sj": chrono(lambda: encodeur(lot), plafond=0.4),
+            "dumps_sj": chrono(lambda: encodeur_str(lot), plafond=0.4),
+            "dumpb_sj": chrono(lambda: encodeur(lot), plafond=0.4),
             "loads_pickle": chrono(lambda: pickle.loads(p), plafond=0.4),
             "loads_sj": chrono(lambda: decodeur(j), plafond=0.4),
         }
@@ -757,6 +761,13 @@ def mesure(tableau):
         return_bytes=True, bytes_compression=None)
     j_b64 = encodeur_b64(a)
     assert numpy.array_equal(serializejson.loads(j_b64), a)
+    # chaque variante s'écrit DEUX fois en RAM (demande de Baptiste, 10/08) :
+    # vers un str (`dumps`, la sortie texte native) et vers des bytes
+    # (`dumpb`, le camp de pickle.dumps) — depuis le zéro-copie str, les deux
+    # sorties n'ont plus le même prix
+    encodeur_min_str = serializejson.Encoder(
+        bytes_compression=("smart", max(bareme_smart)))
+    encodeur_b64_str = serializejson.Encoder(bytes_compression=None)
     m = {
         "nbytes": a.nbytes,
         "taille_pickle": len(p),
@@ -766,8 +777,11 @@ def mesure(tableau):
         # froid=True : régime RAM, cache vidé avant chaque essai (voir chrono)
         "dumps_pickle": chrono(lambda: pickle.dumps(a, protocol=4), froid=True),
         "dumps_sj": chrono(lambda: serializejson.dumps(a), froid=True),
-        "dumps_min": chrono(lambda: encodeur_min(a), froid=True),
-        "dumps_b64": chrono(lambda: encodeur_b64(a), froid=True),
+        "dumpb_sj": chrono(lambda: serializejson.dumpb(a), froid=True),
+        "dumps_min": chrono(lambda: encodeur_min_str(a), froid=True),
+        "dumpb_min": chrono(lambda: encodeur_min(a), froid=True),
+        "dumps_b64": chrono(lambda: encodeur_b64_str(a), froid=True),
+        "dumpb_b64": chrono(lambda: encodeur_b64(a), froid=True),
         "loads_pickle": chrono(lambda: pickle.loads(p), froid=True),
         "loads_sj": chrono(lambda: serializejson.loads(j), froid=True),
         "loads_min": chrono(lambda: serializejson.loads(j_min), froid=True),
@@ -905,11 +919,16 @@ def rendu_markdown(donnees, types_ecartes, codecs_ecartes, entete):
            " Mo) : le reste vient de l'allocation elle-même, un tampon de 200"
            " Mo se paie en défauts de page, un tampon recyclé de 1,6 Mo non.",
            "",
-           "**Les quatre barres des figures.** Chaque figure porte, sous le"
-           " cadre bleu du poids, quatre rapports de temps : écrire et relire"
-           " en RAM, puis écrire et relire SUR LE DISQUE. Les deux régimes de"
-           " CACHE ont été retirés : aucune application réelle ne les"
-           " rencontre sur des données qu'elle produit ou range.",
+           "**Les cinq barres des figures.** Chaque figure porte, sous le"
+           " cadre bleu du poids, cinq rapports de temps : écrire en RAM deux"
+           " fois — `dumps` (vers un str, la sortie texte native) puis `dumpb`"
+           " (vers des bytes, le camp de `pickle.dumps`) —, relire depuis la"
+           " RAM, puis écrire et relire SUR LE DISQUE. Les deux écritures"
+           " mémoire n'ont plus le même prix depuis le zéro-copie str, d'où"
+           " les deux barres (demande de Baptiste, 10/08) ; pickle n'a qu'une"
+           " écriture, des bytes, qui sert de référence aux deux. Les deux"
+           " régimes de CACHE ont été retirés : aucune application réelle ne"
+           " les rencontre sur des données qu'elle produit ou range.",
            "",
            "**Les deux barres de disque sont MESURÉES, pas projetées.** Elles"
            " l'étaient jusqu'au 08/08 : temps de calcul + octets / débit"
@@ -976,7 +995,7 @@ def rendu_markdown(donnees, types_ecartes, codecs_ecartes, entete):
            "Ces lots pèsent quelques kilo-octets : le cache et la RAM n'y sont"
            " PAS distinguables — un lot de cette taille tient en cache dans la"
            " vraie vie aussi, et l'en évincer ne mesurerait que le"
-           " rechargement de l'interpréteur. Les deux premières barres de la"
+           " rechargement de l'interpréteur. Les trois premières barres de la"
            " figure sont donc des temps de cache.",
            "",
            "Les deux barres de disque, elles, sont mesurées comme partout"
@@ -1232,7 +1251,8 @@ DEBIT_DISQUE = _MACHINE_MESURE[2]
 # barres de RAM sont volontairement PÂLES — ce sont les deux barres de disque
 # qui portent le cas d'usage réel, elles doivent sauter aux yeux les premières ;
 # l'étiquette, elle, reste dans le ton soutenu, sinon elle ne se lirait plus
-REGIMES = [("écrire vers la RAM", "#fbd7b5", ORANGE),
+REGIMES = [("écrire vers la RAM, dumps (→ str)", "#fbd7b5", ORANGE),
+           ("écrire vers la RAM, dumpb (→ bytes)", "#f8e3a8", "#975a16"),
            ("relire depuis la RAM", "#f0c3b4", "#9c4221"),
            ("temps bloquant du dump", "#2f855a", "#2f855a"),
            ("relire depuis le disque, MESURÉ (cache du noyau évincé)",
@@ -1240,25 +1260,27 @@ REGIMES = [("écrire vers la RAM", "#fbd7b5", ORANGE),
 
 # la moitié HAUTE de la barre d'écriture disque, quand elle est coupée en deux :
 # ce que le fil d'écriture finit APRÈS que `dump` a rendu la main (demande de
-# Baptiste, 08/08). Même teinte, en clair — c'est la même dépense, pas la même
-# attente
-VERT_CLAIR = "#9ae6b4"
+# Baptiste, 08/08). Très pâle (demande de Baptiste, 10/08) : c'est le temps
+# BLOQUANT du bas qui doit sauter aux yeux, le haut ne fait que compléter le
+# total durable
+VERT_CLAIR = "#ddf3e6"
 LEGENDE_FIL = "finalisation de l'écriture sur disque par 2ème thread, dump déjà rendu"
 
 # les figures qui n'ont PAS de mesure disque (pyperformance : les charges
 # viennent des benchmarks officiels, en mémoire) gardent la PROJECTION —
-# libellés distincts, pour que les deux sémantiques ne se confondent pas
-REGIMES_PROJETES = [REGIMES[0], REGIMES[1],
+# libellés distincts, pour que les deux sémantiques ne se confondent pas.
+# Quatre barres seulement : la réplique officielle mesure l'écriture avec
+# l'encodeur bytes, c'est donc la barre dumpb qu'elle porte
+REGIMES_PROJETES = [REGIMES[1], REGIMES[2],
                     (f"écrire vers le disque, PROJETÉ, {DISQUE}",
                      "#4c9a77", "#2f855a"),
                     (f"relire depuis le disque, PROJETÉ, {DISQUE}",
                      "#3c7a5d", "#22543d")]
 
 
-def quatre_regimes(reference, candidat):
-    # les quatre rapports candidat/référence tracés par `dispositif`, à partir
-    # de deux quadruplets de TEMPS dans l'ordre des barres : écrire et relire
-    # en mémoire, puis écrire et relire sur le disque
+def rapports_regimes(reference, candidat):
+    # les rapports candidat/référence tracés par `dispositif`, à partir de
+    # deux n-uplets de TEMPS dans l'ordre des barres
     return [c / r for r, c in zip(reference, candidat)]
 
 
@@ -1267,25 +1289,29 @@ def quatre_regimes_projetes(reference, candidat):
     # disque mesuré : au temps de calcul s'ajoute celui du transfert des
     # octets au débit constructeur du disque de la machine de mesure
     (o_r, e_r, l_r), (o_c, e_c, l_c) = reference, candidat
-    return quatre_regimes(
+    return rapports_regimes(
         (e_r, l_r, e_r + o_r / DEBIT_DISQUE, l_r + o_r / DEBIT_DISQUE),
         (e_c, l_c, e_c + o_c / DEBIT_DISQUE, l_c + o_c / DEBIT_DISQUE))
 
 
-def quadruplet_mesure(m, suffixe):
-    # les quatre temps d'un camp, dans l'ordre des barres — mémoire d'abord,
-    # disque réel ensuite (l'écriture disque compte le geste DURABLE entier,
-    # fil d'écriture et fsync compris)
-    return (m[f"dumps_{suffixe}"], m[f"loads_{suffixe}"],
+def quintuplet_mesure(m, suffixe):
+    # les cinq temps d'un camp, dans l'ordre des barres — les deux écritures
+    # mémoire (dumps → str puis dumpb → bytes ; pickle n'a qu'une écriture,
+    # des bytes, prise pour les deux), la relecture, puis le disque réel
+    # (l'écriture disque compte le geste DURABLE entier, fil d'écriture et
+    # fsync compris)
+    return (m[f"dumps_{suffixe}"],
+            m.get(f"dumpb_{suffixe}", m[f"dumps_{suffixe}"]),
+            m[f"loads_{suffixe}"],
             m[f"ecrit_total_{suffixe}"], m[f"relit_{suffixe}"])
 
 
 def dispositif(noms, poids, regimes, titre, etiquette_poids, rotation=18,
                bloquants=None, libelles=REGIMES):
-    # LE dispositif commun à toutes les figures de comparaison : quatre barres
-    # de temps (écrire puis relire, en RAM puis sur le disque de la machine de
-    # mesure) surmontées du CADRE bleu du poids, large comme les quatre barres
-    # réunies et posé par-dessus elles. Son arête haute donne le poids, et rien
+    # LE dispositif commun à toutes les figures de comparaison : les barres
+    # de temps (écrire vers un str puis vers des bytes, relire, en RAM puis
+    # sur le disque de la machine de mesure) surmontées du CADRE bleu du
+    # poids, large comme les barres réunies et posé par-dessus elles. Son arête haute donne le poids, et rien
     # n'est jamais masqué — que le poids passe au-dessus ou en dessous des
     # temps, les deux restent lisibles. Une barre PETITE = avantage du candidat.
     import matplotlib.pyplot as plt
@@ -1293,19 +1319,23 @@ def dispositif(noms, poids, regimes, titre, etiquette_poids, rotation=18,
 
     fig, ax = plt.subplots(figsize=(11.69, 8.27))
     x = numpy.arange(len(noms))
-    LARGEUR = 0.19
+    # autant de barres que de régimes (4 projetés, 5 mesurés), serrées dans la
+    # même emprise totale de 0,76
+    n = len(libelles)
+    LARGEUR = 0.76 / n
     # étiquettes de valeur debout quand les colonnes sont serrées, couchées
     # quand la place existe — couchées, elles se lisent même sur une barre
     # écrasée en bas de l'axe (face aux codecs d'images, ×0,03 contre ×0,07)
     debout = len(noms) > 6
     for rang, (valeurs, (etiquette, couleur, couleur_texte)) in enumerate(
             zip(regimes, libelles)):
-        position = x + (rang - 1.5) * LARGEUR
-        # la barre d'ÉCRITURE DISQUE se coupe en deux quand on sait où passe la
-        # main : en bas ce que `dump` bloque, en haut ce que le fil d'écriture
-        # termine derrière l'appelant. Les deux segments empilés font le temps
-        # durable total, celui qui se compare à pickle
-        if rang == 2 and bloquants is not None:
+        position = x + (rang - (n - 1) / 2) * LARGEUR
+        # la barre d'ÉCRITURE DISQUE — l'avant-dernière — se coupe en deux
+        # quand on sait où passe la main : en bas ce que `dump` bloque, en
+        # haut ce que le fil d'écriture termine derrière l'appelant. Les deux
+        # segments empilés font le temps durable total, celui qui se compare
+        # à pickle
+        if rang == n - 2 and bloquants is not None:
             ax.bar(position, bloquants, LARGEUR, color=couleur,
                    label=etiquette, zorder=2)
             ax.bar(position, valeurs - bloquants, LARGEUR, bottom=bloquants,
@@ -1328,20 +1358,20 @@ def dispositif(noms, poids, regimes, titre, etiquette_poids, rotation=18,
                             va="bottom", fontsize=5.5 if debout else 7,
                             rotation=90 if debout else 0, color=couleur_texte,
                             zorder=6)
-    # le poids en aplat bleu très translucide, PAR-DESSUS les quatre barres :
+    # le poids en aplat bleu très translucide, PAR-DESSUS les barres de temps :
     # elles couvrent exactement la largeur du cadre, un fond passé dessous
     # serait entièrement caché. L'aplat teinte donc les temps qu'il recouvre,
     # d'où l'alpha très faible — assez pour voir jusqu'où monte le poids, pas
     # assez pour gêner la lecture des barres en dessous
-    ax.bar(x, poids, LARGEUR * 4, facecolor=to_rgba(BLEU, 0.13),
+    ax.bar(x, poids, LARGEUR * n, facecolor=to_rgba(BLEU, 0.13),
            edgecolor=BLEU, linewidth=2.2, zorder=4, label=etiquette_poids)
     for centre, v in zip(x, poids):
         # calée sur l'arête GAUCHE du cadre, là où elle ne tombe que sur la
         # première barre (pâle) ou sur le fond : le cartouche blanc qui la
         # rendait lisible au centre n'est alors plus nécessaire
-        ax.annotate(f"×{v:.2f}", (centre - 1.9 * LARGEUR, v), ha="left",
-                    va="bottom", fontsize=7, color=BLEU, weight="bold",
-                    zorder=6)
+        ax.annotate(f"×{v:.2f}", (centre - (n / 2 - 0.1) * LARGEUR, v),
+                    ha="left", va="bottom", fontsize=7, color=BLEU,
+                    weight="bold", zorder=6)
     ax.axhline(1.0, color="gray", ls="--", lw=1, zorder=1)
     # LINÉAIRE sous ×1, LOGARITHMIQUE au-dessus : le poids, qui se joue à
     # quelques pour cent sous ×1, se lit à la même finesse que les temps, qui
@@ -1385,8 +1415,8 @@ def figure_barres(donnees, suffixe, titre):
     # fois par profil
     resultats = donnees["profils"]
     regimes = numpy.array([
-        quatre_regimes(quadruplet_mesure(m, "pickle"),
-                       quadruplet_mesure(m, suffixe))
+        rapports_regimes(quintuplet_mesure(m, "pickle"),
+                         quintuplet_mesure(m, suffixe))
         for _, m in resultats]).T
     return dispositif(
         [nom for nom, _ in resultats],
@@ -1496,8 +1526,8 @@ def figure_types(donnees, sens, titre):
     # les deux premières barres sont donc des temps de cache
     lignes = donnees["types"]
     regimes = numpy.array([
-        quatre_regimes(quadruplet_mesure(m, "pickle"),
-                       quadruplet_mesure(m, "sj"))
+        rapports_regimes(quintuplet_mesure(m, "pickle"),
+                         quintuplet_mesure(m, "sj"))
         for _, m in lignes]).T
     return dispositif(
         [nom for nom, _ in lignes],
@@ -1590,7 +1620,7 @@ def figure_codecs_images(donnees, sens, titre):
 def rapports_pyperf(ligne):
     # une ligne pyperformance (une charge officielle et sa relecture) ramenée
     # aux quatre régimes du dispositif commun. Les temps y sont en µs, d'où la
-    # mise en secondes avant `quatre_regimes`
+    # mise en secondes avant `rapports_regimes`
     _, pk_e, sj_e, pk_l, sj_l, octets_pk, octets_sj = ligne
     return quatre_regimes_projetes((octets_pk, 1e-6 * pk_e, 1e-6 * pk_l),
                                    (octets_sj, 1e-6 * sj_e, 1e-6 * sj_l))
@@ -1733,9 +1763,10 @@ def rendu_pdf_et_svg(donnees, entete, chemin_pdf, dossier_svg):
                 " ×1 (barre ou courbe PETITE), l'avantage est à"
                 " serializejson.\n\n"
                 "Le dispositif est le MÊME sur toutes les figures de"
-                " comparaison : quatre barres de temps —\nécrire puis relire"
-                " en RAM, écrire puis relire SUR LE DISQUE — surmontées du"
-                " CADRE bleu du poids,\nlarge comme les quatre barres réunies."
+                " comparaison : cinq barres de temps —\nécrire en RAM vers un"
+                " texte (`dumps`) puis vers des octets (`dumpb`), relire de la"
+                " RAM,\npuis écrire et relire SUR LE DISQUE — surmontées du"
+                " CADRE bleu du poids,\nlarge comme les cinq barres réunies."
                 " Rien n'est masqué : que le poids passe au-dessus\nou en"
                 " dessous des temps, les deux restent lisibles. Échelle"
                 " linéaire sous ×1, logarithmique\nau-dessus.\n\n"
@@ -1747,16 +1778,17 @@ def rendu_pdf_et_svg(donnees, entete, chemin_pdf, dossier_svg):
                 " deux : le segment FONCÉ du bas est ce que `dump` bloque, ce"
                 " que l'appelant\nattend vraiment ; le segment CLAIR au-dessus"
                 " est ce que le fil d'écriture termine derrière lui.\n\n"
-                "Les deux barres de RAM, elles, sont mesurées CACHE VIDÉ :"
+                "Les trois barres de RAM, elles, sont mesurées CACHE VIDÉ :"
                 " c'est le seul régime qu'obtient\nune application sur des"
                 " données qu'elle vient de produire ou qu'elle s'apprête à"
                 " écrire.\nSur les petits objets python (catalogue,"
                 " pyperformance), cache et RAM ne se distinguent\npas — c'est"
                 " dit sur place.\n\n"
                 "Quatre figures font exception au dispositif : pyperformance,"
-                " dont les charges ne font aucun\naller-retour disque et dont"
-                " les deux barres de disque restent donc PROJETÉES (ses barres"
-                "\nle disent) ; les deux scénarios de support, qui portent le"
+                " dont la réplique officielle\nn'écrit que des octets (une"
+                " seule barre de RAM en écriture, `dumpb`) et dont les charges"
+                "\nne font aucun aller-retour disque — ses deux barres de"
+                " disque restent donc PROJETÉES\n(ses barres le disent) ; les deux scénarios de support, qui portent le"
                 " temps total en fonction du débit\nsur toute la gamme des"
                 " stockages ; et les machines réalistes en dernière page, qui"
                 "\nprojettent les mêmes mesures sur des couples CPU + stockage"
