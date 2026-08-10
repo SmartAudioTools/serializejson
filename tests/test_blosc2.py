@@ -187,14 +187,45 @@ def test_bareme_smart_barreau_6_est_l_ancien_defaut():
                      **SEUIL_BYTES)[0] == ancien
 
 
-def test_bareme_smart_defaut_est_le_barreau_1():
-    # « smart » sans niveau, et le défaut nu, valent le barreau 1
+def test_bareme_smart_defaut_depend_de_la_cible(tmp_path):
+    # « smart » sans niveau, et le défaut nu, dépendent de la CIBLE (choix
+    # de Baptiste, 10/08) : barreau 1 en RAM, barreau 6 vers un fichier —
+    # chacun identique à l'octet à son niveau demandé explicitement
     data = bytes(range(256)) * 5000
     barreau_1, _ = roundtrip(data, bytes_compression=("smart", 1),
                              **SEUIL_BYTES)
     assert roundtrip(data, bytes_compression="smart",
                      **SEUIL_BYTES)[0] == barreau_1
     assert roundtrip(data, **SEUIL_BYTES)[0] == barreau_1  # défaut nu
+    assert serializejson.dumpb(data, indent=None,
+                               **SEUIL_BYTES).decode() == barreau_1
+
+    chemin = str(tmp_path / "defaut.json")
+
+    def fichier(**encoder_args):
+        serializejson.dump(data, chemin, indent=None, index=None,
+                           **encoder_args)
+        serializejson.wait_writes()
+        with open(chemin, "rb") as f:
+            contenu = f.read()
+        assert serializejson.load(chemin) == data
+        return contenu
+
+    barreau_6 = fichier(bytes_compression=("smart", 6), **SEUIL_BYTES)
+    assert fichier(**SEUIL_BYTES) == barreau_6  # défaut nu
+    assert fichier(bytes_compression="smart", **SEUIL_BYTES) == barreau_6
+    # un niveau explicite vaut pour toutes les cibles
+    assert fichier(bytes_compression=("smart", 1), **SEUIL_BYTES) \
+        != barreau_6
+
+    # le MÊME encodeur qui alterne les cibles rebascule à chaque méthode
+    encodeur = serializejson.Encoder(indent=None, index=None, **SEUIL_BYTES)
+    assert encodeur.dumps(data) == barreau_1
+    encodeur.dump(data, chemin)
+    serializejson.wait_writes()
+    with open(chemin, "rb") as f:
+        assert f.read() == barreau_6
+    assert encodeur.dumps(data) == barreau_1
 
 
 @pytest.mark.parametrize("niveau", range(7))

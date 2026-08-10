@@ -40,7 +40,9 @@ if "rapidjson" not in sys.modules:
 
     sys.modules["rapidjson"] = _rapidjson_compile
 import serializejson  # noqa: E402  (charge libblosc2)
-from serializejson.tools import bareme_smart, bareme_smart_defaut  # noqa: E402
+from serializejson.tools import (bareme_smart,  # noqa: E402
+                                 bareme_smart_defaut_fichier,
+                                 bareme_smart_defaut_ram)
 import numpy  # noqa: E402
 
 sys.path.insert(0, str(RACINE / "tests"))
@@ -52,11 +54,14 @@ perf = time.perf_counter
 # et des figures : suffixe des clés de mesure → libellé. Ce sont les deux
 # BOUTS du barème « smart » et le défaut, pris dans l'ordre CROISSANT du
 # barème (choix de Baptiste, 07/08) : le niveau 0 (aucune compression, base64
-# seul), le barreau par défaut (le plus rapide qui compresse), puis le dernier
-# barreau (le plus petit)
+# seul), le profil par défaut — qui, depuis le 10/08, dépend de la CIBLE :
+# barreau RAM pour dumps/dumpb, barreau fichier pour dump/append —, puis le
+# dernier barreau (le plus petit)
 VARIANTES = {
     "b64": "profil «smart» niveau 0 (sans compression, base64 seul)",
-    "sj": f"profil «smart» niveau {bareme_smart_defaut} (légère compression)",
+    "sj": "profil «smart» par défaut (niveau"
+          f" {bareme_smart_defaut_ram} en RAM, niveau"
+          f" {bareme_smart_defaut_fichier} vers fichier)",
     "min": f"profil «smart» niveau {max(bareme_smart)} (bonne compression)",
 }
 
@@ -768,6 +773,9 @@ def mesure(tableau):
     encodeur_min_str = serializejson.Encoder(
         bytes_compression=("smart", max(bareme_smart)))
     encodeur_b64_str = serializejson.Encoder(bytes_compression=None)
+    # les clés `sj` = réglages PAR DÉFAUT, qui dépendent de la CIBLE depuis le
+    # 10/08 : les clés RAM (dumps/dumpb/loads) mesurent le barreau RAM du
+    # barème, les clés disque (mesures_disque) le barreau fichier
     m = {
         "nbytes": a.nbytes,
         "taille_pickle": len(p),
@@ -919,8 +927,8 @@ def rendu_markdown(donnees, types_ecartes, codecs_ecartes, entete):
            " Mo) : le reste vient de l'allocation elle-même, un tampon de 200"
            " Mo se paie en défauts de page, un tampon recyclé de 1,6 Mo non.",
            "",
-           "**Les cinq barres des figures.** Chaque figure porte, sous le"
-           " cadre bleu du poids, cinq rapports de temps : écrire en RAM deux"
+           "**Les barres des figures.** Chaque figure porte, sous le cadre"
+           " bleu du poids, des rapports de temps : écrire en RAM deux"
            " fois — `dumps` (vers un str, la sortie texte native) puis `dumpb`"
            " (vers des bytes, le camp de `pickle.dumps`) —, relire depuis la"
            " RAM, puis écrire et relire SUR LE DISQUE. Les deux écritures"
@@ -929,6 +937,21 @@ def rendu_markdown(donnees, types_ecartes, codecs_ecartes, entete):
            " écriture, des bytes, qui sert de référence aux deux. Les deux"
            " régimes de CACHE ont été retirés : aucune application réelle ne"
            " les rencontre sur des données qu'elle produit ou range.",
+           "",
+           "**Le profil par défaut occupe deux figures** (demande de"
+           " Baptiste, 10/08) : son barreau dépend désormais de la CIBLE —"
+           f" barreau {bareme_smart_defaut_ram} pour `dumps`/`dumpb` (le"
+           " premier qui compresse, le moins cher : l'appelant paie la"
+           f" compression), barreau {bareme_smart_defaut_fichier} pour"
+           " `dump`/`append` (le plus petit : la compression part au fil"
+           " d'écriture, son surcoût ne bloque plus l'appelant). Une page qui"
+           " mêlerait RAM et disque mêlerait donc deux barreaux : la page RAM"
+           " porte les trois barres mémoire au barreau RAM, la page DISQUE"
+           " porte l'aller-retour fichier seul au barreau fichier — son cadre"
+           " bleu est le poids réellement ÉCRIT (index compris), pas le poids"
+           " en mémoire. Les deux bouts du barème (niveau 0 et dernier"
+           " barreau), mesurés à barreau FIXE, gardent leurs cinq barres sur"
+           " une seule page.",
            "",
            "**Les deux barres de disque sont MESURÉES, pas projetées.** Elles"
            " l'étaient jusqu'au 08/08 : temps de calcul + octets / débit"
@@ -1410,9 +1433,9 @@ def dispositif(noms, poids, regimes, titre, etiquette_poids, rotation=18,
 
 
 def figure_barres(donnees, suffixe, titre):
-    # UNE figure par variante de compression, portant les quatre régimes : la
-    # mémoire ne dépend ni du sens ni du support, elle n'est donc tracée qu'une
-    # fois par profil
+    # UNE figure par variante à barreau FIXE (les deux bouts du barème),
+    # portant les cinq barres : la mémoire ne dépend ni du sens ni du support,
+    # elle n'est donc tracée qu'une fois par profil
     resultats = donnees["profils"]
     regimes = numpy.array([
         rapports_regimes(quintuplet_mesure(m, "pickle"),
@@ -1426,6 +1449,50 @@ def figure_barres(donnees, suffixe, titre):
         bloquants=numpy.array([m[f"ecrit_bloque_{suffixe}"]
                                / m["ecrit_total_pickle"]
                                for _, m in resultats]))
+
+
+def figure_ram(donnees, suffixe, titre):
+    # la moitié RAM du profil PAR DÉFAUT (demande de Baptiste, 10/08 : depuis
+    # que le barreau par défaut dépend de la cible, une figure qui mêlerait
+    # RAM et disque mêlerait deux barreaux) : dumps → str, dumpb → bytes et
+    # loads, au barreau RAM — le poids est celui du document en mémoire
+    resultats = donnees["profils"]
+    regimes = numpy.array([
+        rapports_regimes(
+            (m["dumps_pickle"], m["dumps_pickle"], m["loads_pickle"]),
+            (m[f"dumps_{suffixe}"], m[f"dumpb_{suffixe}"],
+             m[f"loads_{suffixe}"]))
+        for _, m in resultats]).T
+    return dispositif(
+        [nom for nom, _ in resultats],
+        numpy.array([m[f"taille_{suffixe}"] / m["taille_pickle"]
+                     for _, m in resultats]),
+        regimes, titre, "mémoire  (poids serializejson / pickle)",
+        libelles=REGIMES[:3])
+
+
+def figure_fichier(donnees, suffixe, titre):
+    # la moitié FICHIER du profil PAR DÉFAUT : uniquement écrire vers le
+    # disque (barre coupée : bloquant en bas, fil d'écriture en haut) et
+    # relire depuis le disque, au barreau fichier — le poids est celui des
+    # octets réellement écrits (index sidecar compris), pas celui du document
+    # en mémoire, qui appartient à la page RAM
+    resultats = donnees["profils"]
+    regimes = numpy.array([
+        rapports_regimes(
+            (m["ecrit_total_pickle"], m["relit_pickle"]),
+            (m[f"ecrit_total_{suffixe}"], m[f"relit_{suffixe}"]))
+        for _, m in resultats]).T
+    return dispositif(
+        [nom for nom, _ in resultats],
+        numpy.array([m[f"octets_disque_{suffixe}"]
+                     / m["octets_disque_pickle"] for _, m in resultats]),
+        regimes, titre,
+        "poids écrit sur le disque  (serializejson / pickle)",
+        bloquants=numpy.array([m[f"ecrit_bloque_{suffixe}"]
+                               / m["ecrit_total_pickle"]
+                               for _, m in resultats]),
+        libelles=REGIMES[3:])
 
 
 def figure_support(donnees, sens, titre):
@@ -1708,10 +1775,21 @@ def figure_incremental(donnees, sens, titre):
 FIGURES = [
     ("benchmark_types_objets", figure_types, "",
      "catalogue d'objets du dépôt, par catégorie de types python"),
-    # les trois variantes du barème, titrées par VARIANTES (une seule source)
-    *[(f"benchmark_memoire_{'smart' if suffixe == 'sj' else suffixe}",
-       figure_barres, suffixe, f"Conversion de données binaires, {libelle}")
-      for suffixe, libelle in VARIANTES.items()],
+    # les variantes du barème dans l'ordre CROISSANT. Le profil par défaut
+    # dépendant de la CIBLE depuis le 10/08, il occupe DEUX pages (demande de
+    # Baptiste, 10/08) : la RAM au barreau RAM, puis le disque seul au barreau
+    # fichier ; les deux bouts du barème, à barreau fixe, gardent leurs cinq
+    # barres sur une page
+    ("benchmark_memoire_b64", figure_barres, "b64",
+     f"Conversion de données binaires, {VARIANTES['b64']}"),
+    ("benchmark_memoire_smart", figure_ram, "sj",
+     "Conversion de données binaires EN RAM, profil «smart» niveau"
+     f" {bareme_smart_defaut_ram} (le défaut de dumps et dumpb)"),
+    ("benchmark_fichier_smart", figure_fichier, "sj",
+     "Conversion de données binaires SUR LE DISQUE, profil «smart» niveau"
+     f" {bareme_smart_defaut_fichier} (le défaut de dump et load fichier)"),
+    ("benchmark_memoire_min", figure_barres, "min",
+     f"Conversion de données binaires, {VARIANTES['min']}"),
     ("benchmark_codecs_images", figure_codecs_images, "",
      "corpus d'images : serializejson face aux codecs d'images spécialisés"),
     ("benchmark_pyperformance", figure_pyperformance, "",
@@ -1763,10 +1841,15 @@ def rendu_pdf_et_svg(donnees, entete, chemin_pdf, dossier_svg):
                 " ×1 (barre ou courbe PETITE), l'avantage est à"
                 " serializejson.\n\n"
                 "Le dispositif est le MÊME sur toutes les figures de"
-                " comparaison : cinq barres de temps —\nécrire en RAM vers un"
+                " comparaison : des barres de temps —\nécrire en RAM vers un"
                 " texte (`dumps`) puis vers des octets (`dumpb`), relire de la"
                 " RAM,\npuis écrire et relire SUR LE DISQUE — surmontées du"
-                " CADRE bleu du poids,\nlarge comme les cinq barres réunies."
+                " CADRE bleu du poids,\nlarge comme les barres réunies."
+                " Le profil PAR DÉFAUT, dont le barreau dépend de la cible\n"
+                "depuis le 10/08 (un barreau pour dumps/dumpb, un autre pour"
+                " dump vers fichier), occupe\nDEUX pages : la RAM seule, puis"
+                " le disque seul — les deux bouts du barème, à barreau\nfixe,"
+                " gardent leurs cinq barres sur une page."
                 " Rien n'est masqué : que le poids passe au-dessus\nou en"
                 " dessous des temps, les deux restent lisibles. Échelle"
                 " linéaire sous ×1, logarithmique\nau-dessus.\n\n"
@@ -1817,11 +1900,16 @@ if __name__ == "__main__":
         # le défaut est LU dans le barème : la ligne d'en-tête ne peut pas
         # décrire un réglage que le code n'applique plus
         "- réglages PAR DÉFAUT des deux côtés : pickle protocole 4 ;"
-        " serializejson défaut, barreau"
-        f" {bareme_smart_defaut} du barème « smart » (chaîne"
-        f" {bareme_smart[bareme_smart_defaut][2]} →"
-        f" {bareme_smart[bareme_smart_defaut][0]} niveau"
-        f" {bareme_smart[bareme_smart_defaut][1]}, base64 et JSON compris)",
+        " serializejson défaut « smart », barreau dépendant de la CIBLE —"
+        f" RAM (dumps/dumpb) : barreau {bareme_smart_defaut_ram} (chaîne"
+        f" {bareme_smart[bareme_smart_defaut_ram][2]} →"
+        f" {bareme_smart[bareme_smart_defaut_ram][0]} niveau"
+        f" {bareme_smart[bareme_smart_defaut_ram][1]}) ; fichier"
+        f" (dump/append) : barreau {bareme_smart_defaut_fichier} (chaîne"
+        f" {bareme_smart[bareme_smart_defaut_fichier][2]} →"
+        f" {bareme_smart[bareme_smart_defaut_fichier][0]} niveau"
+        f" {bareme_smart[bareme_smart_defaut_fichier][1]}) — base64 et JSON"
+        " compris",
         "- médiane de ~50 essais, burst de réveil CPU avant chaque chrono,"
         " mesures alternées dans le même processus",
         "- régime RAM : sur les tableaux et les images, le cache est VIDÉ"

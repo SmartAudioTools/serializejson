@@ -103,10 +103,14 @@ bareme_smart = {
     5: ("blosc2_zstd", 1, "zigzag"),  # x0.769   x1.27    x2.28
     6: ("blosc2_zstd", 1, "smart"),  # x0.722   x1.49    x2.96
 }
-# barreau pris quand « smart » est demandé sans niveau (choix de Baptiste,
-# 06/08) : le premier qui compresse, donc le moins cher à écrire de tous ceux
-# qui compressent — les plus petits se demandent par leur numéro
-bareme_smart_defaut = 1
+# barreaux pris quand « smart » est demandé sans niveau (choix de Baptiste,
+# 10/08) : ils dépendent de la CIBLE. En RAM (dumps/dumpb), le premier qui
+# compresse, le moins cher à écrire — l'appelant paie la compression. Vers un
+# FICHIER (dump/append), le plus petit : la compression part au fil
+# d'écriture après le retour de dump, son surcoût ne bloque plus l'appelant.
+# Un autre barreau se demande par son numéro
+bareme_smart_defaut_ram = 1
+bareme_smart_defaut_fichier = 6
 # niveaux réservés : ce qui RESTE de l'échelle 0-9 une fois le barème posé,
 # donc rien à tenir à jour le jour où un barreau est ajouté. Ils sont refusés
 # avec un message qui le dit, plutôt que rabattus en silence sur le dernier

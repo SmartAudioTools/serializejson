@@ -226,7 +226,8 @@ from .tools import (
     blosc_compressions,
     blosc2_compressions,
     bareme_smart,
-    bareme_smart_defaut,
+    bareme_smart_defaut_ram,
+    bareme_smart_defaut_fichier,
     bareme_smart_reserves,
     use_blosc2_cpp,
     use_blosc2_fork,
@@ -721,9 +722,13 @@ class Encoder(rapidjson.Encoder):
             blosclz or lz4) turns out to cost MORE to dump than the zigzag
             chain, which is also smaller. The price of the high levels is
             paid when DUMPING (x0.43 to x1.49); loading varies much less
-            (x1.89 to x2.96). `"smart"` without a level means level 1, the
+            (x1.89 to x2.96). `"smart"` without a level picks the level from
+            the TARGET: level 1 for in-memory dumps (`dumps`/`dumpb`), the
             first one that compresses and the last whose dumping stays under
-            pickle's; level 6 gives the bytes of the historical default
+            pickle's — and level 6, the smallest, for file dumps
+            (`dump`/`append`), whose compression happens in the writer
+            thread AFTER dump has returned, so its cost no longer blocks the
+            caller. Level 6 gives the bytes of the historical default
             ("blosc2_zstd" 1).
             Levels 7, 8 and 9 are deliberately FREE, reserved for future
             methods going below x0.7: past level 6, zstd 2 then 3 ask for
@@ -999,6 +1004,7 @@ class Encoder(rapidjson.Encoder):
             raise ValueError('disk_write_mode must be "fast_release" or "blocking"')
         self.disk_write_mode = disk_write_mode
         bytes_compression_level = None  # niveau non précisé : voir plus bas
+        profils_cible = None
         if bytes_compression is not None:
             if isinstance(bytes_compression, (list, tuple)):
                 bytes_compression, bytes_compression_level = bytes_compression
@@ -1008,7 +1014,21 @@ class Encoder(rapidjson.Encoder):
                 # Une chaîne demandée explicitement (bytes_compression_diff_-
                 # dtypes autre que le défaut « smart ») reste prioritaire
                 if bytes_compression_level is None:
-                    bytes_compression_level = bareme_smart_defaut
+                    # niveau non précisé : le barreau dépend de la CIBLE
+                    # (choix de Baptiste, 10/08/2026) — la RAM (dumps/dumpb)
+                    # prend le moins cher à écrire, le fichier (dump/append)
+                    # le plus petit, la compression partie au fil d'écriture
+                    # ne bloquant plus l'appelant. L'instance est configurée
+                    # RAM ; _applique_profil bascule à l'entrée des méthodes
+                    # d'écriture
+                    profils_cible = tuple(
+                        (comp, niveau,
+                         chaine if bytes_compression_diff_dtypes == "smart"
+                         else bytes_compression_diff_dtypes)
+                        for comp, niveau, chaine in
+                        (bareme_smart[bareme_smart_defaut_ram],
+                         bareme_smart[bareme_smart_defaut_fichier]))
+                    bytes_compression_level = bareme_smart_defaut_ram
                 if bytes_compression_level not in bareme_smart:
                     reserve = (" (reserved for future methods going below"
                                " x0.7)"
@@ -1049,6 +1069,10 @@ class Encoder(rapidjson.Encoder):
         self.bytes_compression = bytes_compression
         self.bytes_compression_threads = bytes_compression_threads
         self.bytes_compression_diff_dtypes = bytes_compression_diff_dtypes
+        # (compression, niveau, chaîne) par cible — [0] RAM, [1] fichier —
+        # quand le barreau « smart » est resté au choix de la cible, None si
+        # l'utilisateur a fixé le niveau (ou une compression nommée)
+        self._profils_cible = profils_cible
         # sans compression le niveau est inerte : 0, le niveau qui la désigne
         self.bytes_compression_level = (
             0 if bytes_compression is None else bytes_compression_level)
@@ -1107,6 +1131,21 @@ class Encoder(rapidjson.Encoder):
         self._append_reset()
         return self
 
+    def _applique_profil(self, fichier):
+        # le barreau « smart » laissé au choix de la cible (niveau non
+        # précisé) : bascule les trois attributs de compression vers le
+        # profil RAM ou fichier, seulement quand il change — l'écriture d'un
+        # attribut invalide la poussée amortie, la garder stable garde la
+        # poussée
+        profils = self._profils_cible
+        if profils is not None:
+            compression, niveau, chaine = profils[fichier]
+            if (compression != self.bytes_compression
+                    or niveau != self.bytes_compression_level):
+                self.bytes_compression = compression
+                self.bytes_compression_level = niveau
+                self.bytes_compression_diff_dtypes = chaine
+
     def dump(self, obj, file=None, close=True):
         """
         Dump object into json file.
@@ -1120,6 +1159,7 @@ class Encoder(rapidjson.Encoder):
             close (optional bool):
                weither dump must close the file after dumping  (True by default).
         """
+        self._applique_profil(True)
         if file is None:
             file = self.file
         self._append_reset()
@@ -1198,6 +1238,7 @@ class Encoder(rapidjson.Encoder):
         """
         if self.index is not None and self._index_demande:
             raise Exception("index needs a file: use dump, not dumps")
+        self._applique_profil(False)
         return self.__call__(obj, return_bytes=False)
 
     def dumpb(self, obj):
@@ -1206,6 +1247,7 @@ class Encoder(rapidjson.Encoder):
         """
         if self.index is not None and self._index_demande:
             raise Exception("index needs a file: use dump, not dumpb")
+        self._applique_profil(False)
         return self.__call__(obj, return_bytes=True)
 
     def close(self):
@@ -1325,6 +1367,7 @@ class Encoder(rapidjson.Encoder):
 
 
         """
+        self._applique_profil(True)
         if file is None:
             file = self.file
         # la liste se poursuit tant qu'on ajoute au MÊME fichier : c'est ce

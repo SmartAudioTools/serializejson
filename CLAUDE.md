@@ -177,7 +177,8 @@ python (il n'y en a plus), c'est une décision de FORMAT.
 - matplotlib : parse_math=False sur tout texte porteur de `$`.
 - Les scripts d'outillage ne vivent PAS dans /tmp (nettoyeur).
 
-## Addendum nuit du 09 au 10/08 — zéro-copie str (écriture), NON COMMITÉ
+## Addendum nuit du 09 au 10/08 — zéro-copie str (écriture),
+## COMMITÉ git 999764a (10/08 matin)
 
 Trois pistes retenues, tout est construit et validé, RIEN n'est commité
 (autorisation attendue au matin) :
@@ -309,7 +310,7 @@ Pièges nouveaux payés cette nuit :
   boucle de consolidation.
 
 ## Addendum 10/08 matin — compresseur d'avance (demande de Baptiste,
-## 07 h 41), NON COMMITÉ
+## 07 h 41), COMMITÉ git 3cbabfd
 
 La contrepartie du §22 (compression en série dans le fil : +8-10 %
 pour qui attend la fin) est résorbée par un thread « compresseur
@@ -339,7 +340,7 @@ avait déjà ce défaut. Et sous charge 7-8, tout cas < 100 µs est du
 bruit : grossir les cas jusqu'à dominer la charge, témoin obligatoire.
 
 ## Addendum 10/08 milieu de matinée — numpy différé au fil (audit §24),
-## NON COMMITÉ
+## COMMITÉ git 9066da6 (10/08 10 h 24)
 
 Question de Baptiste 09:10 (kodak bloque ∝ niveau) résolue : les
 tableaux numpy rejoignent la compression différée du §22. Étiquette
@@ -375,3 +376,41 @@ pgo_workload.py} + .so ×4 + serializejson/plugins/
 serializejson_numpy.py + tests/test_indexation.py + audit §24 + ce
 fichier. tests/lance_benchmarks.py = tâche SÉPARÉE (2 barres RAM),
 en attente de sa propre autorisation.
+
+## Addendum 10/08 fin de matinée — défaut « smart » par CIBLE
+## (demande de Baptiste, 10 h 31), NON COMMITÉ
+
+« smart » sans niveau explicite prend désormais son barreau selon la
+CIBLE : barreau 1 en RAM (dumps/dumpb — l'appelant paie la
+compression, on prend le premier qui compresse), barreau 6 vers
+fichier (dump/append — la compression part au fil d'écriture depuis
+le §22/§24, son surcoût ne bloque plus l'appelant, on prend le plus
+petit). Mécanique : bareme_smart_defaut_{ram,fichier} (tools.py),
+_configure résout les DEUX profils quand le niveau est absent
+(_profils_cible, None si niveau fixé), _applique_profil(fichier) en
+tête de dump/append/dumps/dumpb ne réécrit les attributs QUE s'ils
+changent (la poussée amortie de serialize_parameters reste amortie ;
+les instances par défaut par thread de dumps/dumpb module ne
+basculent jamais). Niveau explicite ou codec nommé : inchangés.
+
+Piège vérifié au passage : la voie synchrone RAM préfixe la charge
+numpy compressée de sa taille décomprimée (« 433120:BQE1… »), la
+voie différée fichier non — écart de FORME par méthode PRÉEXISTANT,
+les garanties d'identité sont par méthode entre binaires, pas entre
+méthodes.
+
+Figures (2ᵉ moitié de la demande) : le profil par défaut occupe DEUX
+pages — benchmark_memoire_smart devient la page RAM (3 barres
+dumps/dumpb/loads au barreau 1, cadre = poids mémoire) et
+benchmark_fichier_smart la page disque seule (2 barres dump coupé
+bloquant/fil + load, barreau 6, cadre = octets ÉCRITS index compris,
+via octets_disque_*). Les deux bouts du barème (b64, min) gardent
+leurs 5 barres à barreau fixe ; le camp disque « sj » mesurait DÉJÀ
+les défauts, donc le barreau 6 — aucune mesure nouvelle, seulement
+les fabriques. mesure_types_objets/types_seuls intacts.
+
+Validé : 214 pytest verts (3.13, changement pur python, .so
+intouchés), smoke des 4 fabriques de figures sur mesures factices,
+en-tête du rapport rendue avec les vrais barreaux. Fichiers du
+chantier : serializejson/{__init__.py,tools.py},
+tests/{test_blosc2.py,lance_benchmarks.py}, ce fichier.
