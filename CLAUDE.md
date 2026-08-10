@@ -414,3 +414,53 @@ intouchés), smoke des 4 fabriques de figures sur mesures factices,
 en-tête du rapport rendue avec les vrais barreaux. Fichiers du
 chantier : serializejson/{__init__.py,tools.py},
 tests/{test_blosc2.py,lance_benchmarks.py}, ce fichier.
+COMMITÉ git 9bdf0a5 (10/08 10 h 48) ; banc complet rejoué dessus,
+rapport rapports_benchmarks/rapport_benchmarks_2026-08-10_1108.pdf
+avec les deux nouvelles pages (RAM barreau 1 / disque barreau 6).
+
+## Addendum 10/08 midi — lecture d'avance de l'itération (demande de
+## Baptiste, 10 h 54), NON COMMITÉ
+
+Pendant, côté lecture, du fil d'écriture d'append : quand on itère un
+json-liste (`Decoder(path)` / `load(path, iterator=True)`), un fil
+décode le maillon SUIVANT pendant que l'appelant travaille sur le
+courant. Pur python (__init__.py seul), aucun changement d'API :
+
+- **_LectureAvance** (section INTERNES) : fil par itération, UN
+  maillon d'avance (sémaphore-jeton rendu par __next__ à la
+  livraison), résultats par queue.SimpleQueue ("ok"/"exc"/"fin").
+  Le fil ne tient le décodeur que par référence FAIBLE hors
+  décodage ; weakref.finalize le réveille si l'itération est
+  abandonnée (break) → fin du fil + fermeture du fichier, pas de
+  fuite (testé). Re-__iter__ arrête l'ancien fil (join) avant de
+  rouvrir.
+- **ADAPTATIF** : la voie directe chronomètre ses décodages ; le fil
+  ne s'engage que si la moyenne mobile dépasse _SEUIL_LECTURE_AVANCE
+  (500 µs). Le PREMIER maillon chauffe les caches et ne compte pas
+  (sans ça, son pic engageait le fil à tort : −19 % sur des
+  scalaires). Petites listes : aucun fil créé, surcoût = 2
+  perf_counter par maillon (~2 % mesuré, bruit).
+- **Poussée des paramètres par le fil, par VALEURS et sans
+  s'inscrire propriétaire** : la voie brute (_decode sans tp_call)
+  ne poussait JAMAIS strict_pickle/setters/properties — l'itération
+  lisait ceux du dernier encodeur/décodeur appelé (défaut
+  préexistant, corrigé au passage). Ne PAS s'inscrire dans
+  _decoder_owner : référence forte du module → une itération
+  abandonnée ne mourrait jamais.
+- **load(path, iterator=True) perdait le fichier** (Decoder() sans
+  file) : corrigé + testé.
+- Sémantique préservée à l'identique de la voie directe, y compris
+  la limite « maillon en erreur → l'itération s'arrête ensuite »
+  (parse avorté = frontière vide au lecteur borné ; vérifié
+  identique sans le fil).
+
+Mesures (A/B même binaire, fil contre voie directe) : décodage
+entièrement masqué quand l'appelant rend le GIL (12×4 Mo + 10 ms de
+sommeil/maillon : 124 ms contre 132, plancher idéal 120) ; travail
+numpy réel +3,5-7 % ; cas GIL-bound et petits maillons : neutres
+(seuil). Le gain réel dépend du temps SANS GIL de l'appelant
+(entrées-sorties, numpy, pool de décompression ≥ 1 Mio — contextes
+locaux par fil, vérifié sûr). 220 tests verts × 4 versions.
+
+Fichiers du chantier : serializejson/__init__.py,
+tests/test_iterator.py, ce fichier.

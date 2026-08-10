@@ -173,10 +173,13 @@ try:
 except:
     pass
 import os
+import queue
 import re
 import threading
+import time
 import types
 import warnings
+import weakref
 import io
 import rapidjson
 import gc
@@ -472,7 +475,9 @@ def load(file, *, obj=None, iterator=False, path=None, **argsDict):
     """
 
     if iterator:
-        return Decoder(**argsDict)
+        # le fichier passait à la trappe (Decoder() sans file) : l'itérateur
+        # rendu n'avait rien à lire — défaut préexistant, jamais testé
+        return Decoder(file, **argsDict)
     else:
         return Decoder(**argsDict).load(file=file, obj=obj, path=path)
 
@@ -2430,6 +2435,9 @@ class Decoder(rapidjson.Decoder):
         self.dotdict = dotdict
         self.add_jsonpath = add_jsonpath
         self.file_iter = None
+        self._avance = None
+        self._iter_fini = True  # __iter__ (re)met l'itération en route
+        self._iter_ema = None
         self._updating = False
 
         self.numpy_array_from_list = numpy_array_from_list
@@ -2836,6 +2844,9 @@ class Decoder(rapidjson.Decoder):
         return loaded
 
     def __iter__(self):
+        # une itération précédente encore en vol rendrait son fil orphelin
+        # sur l'ancien fichier : l'arrêter avant de rouvrir
+        self._avance_arrete()
         self._updating = False
         file = self.file
         if isinstance(file, str):
@@ -2849,7 +2860,23 @@ class Decoder(rapidjson.Decoder):
         # rang du maillon rendu : il donne la racine de ses « $ref », écrits
         # depuis celle du FICHIER quand on ne rend ici que le maillon
         self._ref_rang = 0
+        # lecture d'avance ADAPTATIVE : la voie directe mesure ses décodages,
+        # et le fil (_LectureAvance) ne s'engage que si leur moyenne dépasse
+        # le seuil — les listes de petits maillons ne paient ni fil ni
+        # va-et-vient (mesuré : ~13 µs par maillon, ×6,7 sur des scalaires)
+        self._iter_fini = False
+        self._iter_ema = None  # None : premier maillon = chauffe des caches
         return self
+
+    def _avance_arrete(self):
+        # arrêt du fil de lecture d'avance, en attendant sa fin réelle :
+        # file_iter ne doit pas être remplacé sous un décodage en vol
+        avance = self._avance
+        if avance is not None:
+            self._avance = None
+            avance.finalize.detach()
+            avance.arrete()
+            avance.fil.join()
 
     def _inst_from_dict(self, inst):
         class_str = inst["__class__"]
@@ -3060,6 +3087,54 @@ class Decoder(rapidjson.Decoder):
         return sequence
 
     def __next__(self):
+        avance = self._avance
+        if avance is None:
+            if self._iter_fini:
+                # fin déjà livrée : le protocole exige de continuer à
+                # lever StopIteration
+                raise StopIteration
+            # voie directe, chronométrée : le fil de lecture d'avance ne
+            # vaut que si le décodage d'un maillon est assez long pour que
+            # son recouvrement paie le va-et-vient de fils
+            debut = time.perf_counter()
+            try:
+                maillon = self._decode_maillon()
+            except StopIteration:
+                self._iter_fini = True
+                raise
+            ema = self._iter_ema
+            if ema is None:
+                # le PREMIER décodage remplit les caches (mesuré : il peut
+                # dépasser le seuil à lui seul sur des maillons minuscules)
+                # — il chauffe, il ne compte pas
+                self._iter_ema = 0.0
+            else:
+                self._iter_ema = ema = (
+                    ema + (time.perf_counter() - debut)) * 0.5
+                if ema >= _SEUIL_LECTURE_AVANCE:
+                    # le fil attaque le maillon SUIVANT dès maintenant,
+                    # pendant que l'appelant travaille sur celui-ci
+                    self._avance = _LectureAvance(self)
+            return maillon
+        categorie, charge = avance.resultats.get()
+        if categorie == "ok":
+            # maillon livré : le jeton rendu lance le décodage du SUIVANT
+            # pendant que l'appelant travaille sur celui-ci
+            avance.jeton.release()
+            return charge
+        if categorie == "fin":
+            self._avance = None
+            self._iter_fini = True
+            avance.finalize.detach()
+            raise charge  # le StopIteration levé par le fil
+        # erreur d'un maillon : relancée chez l'appelant, itération
+        # poursuivable s'il la ravale (comme la voie directe d'avant)
+        avance.jeton.release()
+        raise charge
+
+    def _decode_maillon(self):
+        # décode UN maillon depuis file_iter — appelé par le fil de lecture
+        # d'avance (_LectureAvance), jamais par l'appelant directement.
         # état volatil par décodage : ce chemin appelle _decode BRUT, sans le
         # tp_call C qui pose ces attributs — l'itération n'avait aucun test,
         # elle a cassé silencieusement pendant la migration ($ref/root), et
@@ -3108,6 +3183,91 @@ rapidjson.register_serializejson(Encoder, Decoder, serialize_parameters)
 # ----------------------------------------------------------------------------------------------------------------------------
 # --- INTERNES -----------------------------------------------------------------------------------------------------
 # ----------------------------------------------------------------------------------------------------------------------------
+
+
+# moyenne mobile de décodage par maillon au-delà de laquelle l'itération
+# engage le fil de lecture d'avance : en deçà, le va-et-vient de fils
+# (~13 µs mesurés par maillon) mange le recouvrement possible ; au-delà,
+# il en coûte au pire ~8 % quand rien ne recouvre (appelant sans travail),
+# contre un décodage entièrement masqué quand l'appelant rend le GIL
+# (entrées-sorties, numpy, décompression ≥ 1 Mio du pool)
+_SEUIL_LECTURE_AVANCE = 500e-6
+
+
+class _LectureAvance:
+    """Fil de lecture d'avance d'une itération (pendant, côté lecture, du fil
+    d'écriture d'append) : décode le maillon SUIVANT pendant que l'appelant
+    travaille sur le courant. Un seul maillon d'avance : __next__ rend le
+    jeton au moment où il livre un maillon, ce qui autorise le décodage du
+    suivant. Le fil ne tient le décodeur que par référence FAIBLE hors
+    décodage : une itération abandonnée (break, itérateur jeté) laisse le
+    décodeur mourir, son finaliseur réveille le fil qui se termine et ferme
+    le fichier — pas de fuite de fil ni de descripteur."""
+
+    def __init__(self, decodeur):
+        self.resultats = queue.SimpleQueue()  # ("ok"|"exc"|"fin", charge)
+        self.jeton = threading.Semaphore(1)   # 1 décodage d'avance autorisé
+        self.stop = False
+        self.file_iter = decodeur.file_iter   # pour fermer sans le décodeur
+        self.fil = threading.Thread(
+            target=self._boucle,
+            args=(weakref.ref(decodeur),),
+            daemon=True,
+            name="serializejson-lecture-avance",
+        )
+        self.finalize = weakref.finalize(decodeur, self.arrete)
+        self.fil.start()
+
+    def arrete(self):
+        self.stop = True
+        self.jeton.release()
+
+    def _boucle(self, ref):
+        while True:
+            self.jeton.acquire()
+            if self.stop:
+                break
+            decodeur = ref()
+            if decodeur is None:
+                break
+            try:
+                # la voie brute ne pousse pas les paramètres globaux (le
+                # tp_call C n'est pas traversé) : les poser ici — sans quoi
+                # l'itération lisait ceux du DERNIER encodeur/décodeur
+                # appelé (défaut préexistant). Poussée par VALEURS, sans
+                # s'inscrire comme propriétaire : _decoder_owner est une
+                # référence FORTE, et une itération abandonnée ne mourrait
+                # jamais (fil et fichier fuités) ; valeurs déjà en place =
+                # aucune écriture, les amortissements des autres tiennent
+                if (
+                    serialize_parameters.strict_pickle
+                    is not decodeur.strict_pickle
+                    or getattr(serialize_parameters, "setters", None)
+                    is not decodeur.setters
+                    or getattr(serialize_parameters, "properties", None)
+                    is not decodeur.properties
+                ):
+                    serialize_parameters.strict_pickle = \
+                        decodeur.strict_pickle
+                    serialize_parameters.setters = decodeur.setters
+                    serialize_parameters.properties = decodeur.properties
+                    serialize_parameters._decoder_owner = None
+                    serialize_parameters._owner = None
+                maillon = decodeur._decode_maillon()
+            except StopIteration as fin:
+                self.resultats.put(("fin", fin))
+                break
+            except BaseException as erreur:
+                self.resultats.put(("exc", erreur))
+                del decodeur
+                continue
+            self.resultats.put(("ok", maillon))
+            # aucune référence forte gardée entre deux décodages : c'est ce
+            # qui permet au finaliseur du décodeur de nous réveiller
+            del decodeur, maillon
+        self.file_iter.close()  # idempotent (déjà fermé sur fin normale)
+
+
 # types dans lesquels un marqueur {"$ref": ...} ne peut pas se trouver :
 # inutile de les explorer
 _leaf_types = (str, int, float, bool, type(None), bytes, bytearray, complex)
