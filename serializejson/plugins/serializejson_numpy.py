@@ -13,31 +13,17 @@ else:
                            _diff_axis0, blosc_decompress_chunks)
     import sys
 
-    try:
-        # from SmartFramework import numpyB64
-        from SmartFramework.serialize.tools import (
-            serializejson_,
-            constructors,
-            blosc2_compressions,
-            blosc_decompress,
-            blosc_chunks_decompress,
-            use_blosc2_cpp,
-            use_blosc2_fork,
-            authorized_classes,
-        )
-        from SmartFramework.serialize import serialize_parameters
-    except:
-        from serializejson import serialize_parameters
-        from serializejson.tools import (
-            serializejson_,
-            constructors,
-            blosc2_compressions,
-            blosc_decompress,
-            blosc_chunks_decompress,
-            use_blosc2_cpp,
-            use_blosc2_fork,
-            authorized_classes,
-        )
+    from serializejson import serialize_parameters
+    from serializejson.tools import (
+        serializejson_,
+        constructors,
+        blosc2_compressions,
+        blosc_decompress,
+        blosc_chunks_decompress,
+        use_blosc2_cpp,
+        use_blosc2_fork,
+        authorized_classes,
+    )
 
     nb_bits = sys.maxsize.bit_length() + 1
 

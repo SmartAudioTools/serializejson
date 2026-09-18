@@ -378,7 +378,7 @@ fichier. tests/lance_benchmarks.py = tâche SÉPARÉE (2 barres RAM),
 en attente de sa propre autorisation.
 
 ## Addendum 10/08 fin de matinée — défaut « smart » par CIBLE
-## (demande de Baptiste, 10 h 31), NON COMMITÉ
+## (demande de Baptiste, 10 h 31), COMMITÉ git 9bdf0a5
 
 « smart » sans niveau explicite prend désormais son barreau selon la
 CIBLE : barreau 1 en RAM (dumps/dumpb — l'appelant paie la
@@ -466,7 +466,7 @@ Fichiers du chantier : serializejson/__init__.py,
 tests/test_iterator.py, ce fichier.
 
 ## Addendum 10/08 début d'après-midi — page « itération » du banc +
-## scanner memchr (demande de Baptiste, 11 h 27), NON COMMITÉ
+## scanner memchr (demande de Baptiste, 11 h 27), COMMITÉ git 5372044
 
 Demande : une page du rapport PDF comparant la lecture sérielle d'un
 pickle et la nôtre, avec un travail simulé (sleep) par maillon, pour
@@ -516,7 +516,7 @@ Fichiers du chantier : tests/lance_benchmarks.py,
 rapidjson/rapidjson.cpp, .so ×4 PGO, ce fichier.
 
 ## Addendum 10/08 midi et demi — l'itération se sert de l'index
-## (demande de Baptiste, 12 h 13), NON COMMITÉ
+## (demande de Baptiste, 12 h 13), COMMITÉ git 5372044
 
 - **_arme_index (__init__.py)** : si `indexation.lit(chemin)` rend un
   index (sa fraîcheur root == [0, fin] fait déjà foi — un append nu
@@ -548,3 +548,304 @@ rapidjson/rapidjson.cpp, .so ×4 PGO, ce fichier.
 - 224 tests × 4 versions ; 4 tests neufs (test_iterator.py) prouvés
   rouges sur le code commité (index armé + plages consommées, index
   refusé après append nu, chunk 7 indenté/compact, chunk 7 dense).
+
+## Addendum nuit du 16 au 17/09/2026 — connexions Qt par introspection
+## PySide6 (ordre de Baptiste « vas-y, implémente ça dans le greffon pour
+## PySide6 »), NON COMMITÉ, autorisation attendue au matin
+
+Le greffon serializejson_PyQt5_PySide2.py sérialise les connexions
+signal→slot SANS surcharger connect (ancien hack new_connect/parse
+SUPPRIMÉ, avec l'import `parse`) :
+
+- **connections(root)** : dumpObjectInfo() de chaque QObject de l'arbre
+  créé par python (Shiboken.createdByPython), lignes captées par
+  qInstallMessageHandler. dumpObjectInfo nomme le récepteur par
+  (classe, objectName), ambigu entre enfants anonymes → objectName
+  temporaires `~sj<index>` posés puis restaurés (émet objectNameChanged).
+  Signaux `destroyed` ignorés. Chaque connexion est stockée UNE fois,
+  sous la clé "~connections" (triée en dernier) du plus proche ancêtre
+  Qt commun émetteur/récepteur : les deux bouts sont déjà écrits quand
+  le $ref l'est. Signal surchargé → index par sa signature C++
+  (`valueChanged['int']`, `deux['int,QString']`). Signal→signal marche.
+- **Connection.__setstate__** reconnecte en UniqueConnection : une
+  connexion refaite par le __init__ de l'objet rechargé n'est pas doublée.
+- **Non couvert** : lambdas/fonctions libres (« <functor or function
+  pointer> », non retrouvables) ; PyQt5/6 (PyQtSlotProxy opaque, aucune
+  introspection sans hook) → liste vide, comportement d'avant.
+- **Décodeur (générique, tools.py + __init__.py)** : un $ref vers
+  l'attribut d'un objet EN COURS de construction (`root.on_value` alors
+  que root est encore un dict) échouait en KeyError. from_name reçoit
+  `materialize` : sur KeyError d'un dict porteur de `__class__`, il
+  pré-crée l'instance (Decoder._materialize, rangée dans
+  dict["__class__"] comme le faisait déjà end_object) et prend l'attribut
+  dessus. end_object simplifié en conséquence.
+- Test : tests/test_pyside6_connections.py (sous-processus PySide6
+  offscreen, 6 connexions dont surchargée et inter-branches, preuve par
+  le rouge avec `--sans-lister`). 225 tests × 3.12/3.13/3.14.
+  Coût mesuré : arbre de 390 widgets, dumps 1,4 → 10 ms (dumpObjectInfo
+  par objet, O(n × profondeur)).
+- Préexistant, constaté, NON touché : au rechargement les enfants créés
+  par __init__ ET ceux recréés du json coexistent (4 QLabel pour 2) ;
+  serializejson_QSpinBox n'écrit pas de parent ; les classes QtCore
+  (QTimer) ne sont pas autorisables par le greffon.
+
+Fichiers du chantier (les MIENS) : serializejson/plugins/
+serializejson_PyQt5_PySide2.py, serializejson/tools.py,
+serializejson/__init__.py, tests/test_pyside6_connections.py, ce fichier.
+
+Constaté le 17/09 au soir (questions de Baptiste sur la ré-hydratation),
+PRÉEXISTANT, non touché : `loads(json, obj=existant, updatables_classes=
+[QtWidgets.QSpinBox])` est INERTE sur les widgets Qt — le json porte
+`"QtWidgets.QSpinBox"` (type_str retire le préfixe d'API) alors que
+set_updatables_classes bâtit `PySide6.QtWidgets.QSpinBox` ; la
+comparaison de _exploreToUpdate échoue en silence, identités conservées
+mais état non appliqué (spin 0 au lieu de 7). Identique sur les sources
+commitées (vérifié par stash). Pendant json du mode
+`create_QWidget=False` de SmartFramework/serializePython : à raccorder
+(normaliser le nom dans set_updatables_classes par le même type_str).
+→ CORRIGÉ la nuit suivante (_UpdatableClasses, addendum ci-dessous).
+
+## Addendum nuit du 17 au 18/09/2026 — réhydrater ou recréer une application
+## AU FIL DU PARSE (rehydrate — DÉFAUT depuis 01 h 22 —, qt_tree=True,
+## load_application), NON COMMITÉ, autorisation attendue au matin (avec celui du 16→17/09)
+
+Demande de Baptiste (17/09 soir) : « réhydrater une application ou en
+recréer une de toutes pièces en désérialisant (loader qui crée
+l'application ?) », après revue des alternatives. Décision de Baptiste
+(23 h 39) : PAS de double passe — le mode `obj=` actuel (tout le json en
+dicts puis _exploreToUpdate) était PROVISOIRE, on construit/adopte
+au fur et à mesure. Plan : ~/.claude/plans/eager-humming-wilkes.md.
+Sortie de l'écrivain identique. Côté lecture, `rehydrate` est le DÉFAUT
+(voir « Addendum 18/09, 01 h 22 » plus bas) ; qt_tree et load_application
+restent opt-in.
+
+### Volet A — décodeur : crochet `construct` (rapidjson.cpp + __init__.py)
+
+- `Decoder(rehydrate=True)` (propagé par load/loads/Decoder.loads ; le
+  module `loads` passe par `Decoder.loads` → `_appel`, qui garde `obj`
+  dans `_live_root` SANS le passer au C : la voie update python n'est
+  jamais prise). `rehydrate=False` laisse `construct` à None côté C :
+  un test de pointeur nul, rien d'autre — c'est la voie classique, y
+  compris l'ancien mode update `obj=` en python.
+- C++ : l'enveloppe est en TÊTE du dict, les enfants arrivent après.
+  À la première clé d'état (SjKeyConstruit, dans Key, hors __class__/
+  __items__/$ref/__new__/__init__) ou à la fermeture sans état
+  (EndObject), SjConstruit instancie (natives dict/type/numpyB64 →
+  rien ; plan de classe connu et rehydrateEnC → tp_new/call en C ;
+  sinon appel python `_construct(classe, args, slot, ancêtre, clés,
+  stateless)`) et range l'INSTANCE dans `__class__` de l'enveloppe.
+  Les `$ref` vers cet objet résolvent aussitôt (SjCibleRef, factorisé
+  des deux sites) ; à la fermeture, SjAppliqueEtat (factorisé des deux
+  blocs by_setattr/__dict__ dupliqués) applique l'état sur l'instance
+  trouvée dans `__class__`, en sautant les clés `~…`. Chaîne des clés
+  bornée au plus proche ancêtre construit (SjChaine) ; SjAncre :
+  adoption sans état SEULEMENT si l'ancêtre est un argument du
+  constructeur (enfant Qt anonyme) — sinon une enveloppe-valeur (QColor,
+  Decimal) serait figée. `updatables_classes` non vide → voie python.
+- Python `_construct` : authorized_classes, classe via `constructors`,
+  homologue vivant par `_descend` (attribut / clé / index / lecteur
+  `rehydrate_getters` pour les clés `~…`, accesseur Qt appelé si
+  méthode), adopté si `type(vivant) is cls` (et dans updatables_classes
+  si donné), sinon `tools.instance`. `__init__` jamais rejoué sur un
+  adopté. Racine avec obj= adoptée sans vérification.
+- `_UpdatableClasses(set)` : noms ET classes résolues — corrige
+  l'inertie préexistante (« QtWidgets.QSpinBox » du greffon contre
+  « PySide6.QtWidgets.QSpinBox » de class_str_from_class).
+- Mémoire : pic = résultat + O(profondeur), indépendant de N (test
+  test_rehydrate_memoire_bornee : transitoire(1000) < 2×transitoire(100)).
+
+### Volet B — greffon Qt, écriture (qt_tree=True)
+
+`encoder_parameters["qt_tree"]=False`. Avec True : `~windows`
+(QCoreApplication, topLevelWidgets créés par python, triées (type,
+objectName, windowTitle)), `~children` (QWidget créés par python, ordre
+de création, identité POSITIONNELLE), `~layout` (grille : `[élément,
+row, col, rowSpan, colSpan(, alignment)]`, sous-layouts, addLayout/
+addWidget idempotents), propriétés minimales (windowTitle/geometry des
+fenêtres, text/checked, centralWidget), `~connections` en dernier.
+Lecteurs `rehydrate_getters["~children"|"~layout"|"~windows"]`.
+`connections(root)` accepte l'application comme racine (connexions
+inter-fenêtres), filtre `in_document` et slots privés `_q_`.
+Correctifs préexistants : QSpinBox/QLineEdit/QPlainTextEdit écrivent
+leur parent ; QLayout unifié (l'ancien QGridLayout rendait None) ;
+`Encoder.default` → ValueError nommant une Reference hors document.
+
+### Volet C — loader
+
+`constructors` QApplication/QGuiApplication/QCoreApplication →
+`application()` rend l'instance existante ou la crée (argv du json
+ignoré). `load_application(fichier, obj=None, **kw)` = instance assurée
++ `load(..., rehydrate=True)` ; `app.exec()` reste à l'appelant.
+
+### Tests
+
+tests/test_rehydrate.py (7, sans Qt : adoption, remplacement sur classe
+différente, sans état ancré/remplacé — voie C prouvée par sonde
+decode_class_plan —, updatables_classes, recréation, mémoire bornée) ;
+tests/test_pyside6_application.py (sous-processus offscreen : --ecrit,
+--recree processus vierge, --rehydrate ×2 identités conservées ;
+--sans-rehydrate ROUGE attendu = doublons de la voie classique).
+
+### Passe de simplification (par fichier du commit)
+
+- __init__.py : `_construct` construisait lui-même (liste/dict/
+  scalaire/remove_add_braces) → remplacé par `tools.instance` (−9 l.) ;
+  reste regardé, rien à enlever.
+- rapidjson.cpp : SjPlan (cache decode_class_plan en ligne factorisé),
+  SjCibleRef (deux sites $ref), SjAppliqueEtat (deux blocs d'état) ;
+  raccourci memcmp des natives GARDÉ (évite un appel python par
+  enveloppe dict) ; SjAncre gardé, couvert par test.
+- greffon : hack new_connect/parse/ctypes, connection_infos, get_parents,
+  QGridLayout séparé SUPPRIMÉS ; regardé, rien de plus.
+- tools.py : regardé, rien à enlever.
+
+### Pièges payés cette nuit
+
+- Le module `loads()` court-circuitait `_appel` (obj passé au C → voie
+  update python, rehydrate inerte) : router par Decoder.loads.
+- Le crochet est lié à la CRÉATION du Decoder (`__new__`) : pas de
+  bascule après coup.
+- Un bouton anonyme référencé par une connexion mais hors document →
+  TypeError obscur : filtre `in_document` dans connections().
+- Les layouts exposent des SignalInstance (junk) → `remove_types`.
+- Une classe Qt du greffon s'autorise par son NOM écrit
+  (« QtWidgets.QFrame »), pas par l'objet classe.
+- Mesure mémoire : garder le résultat vivant, sinon `courant` le perd.
+- dump() vers un chemin est asynchrone : `wait_writes()` avant lecture.
+- **PGO : un .gcda périmé (gcc 16.1, du 10/08) fait ÉCHOUER en silence
+  le run instrumenté sous gcc 16.2** (« libgcov profiling error: Version
+  mismatch »), et la passe use compile à vide — supprimer
+  `rapidjson/build/temp.*-3XX/rapidjson.gcda` avant generate (le .so
+  312 du 01:07 a été rebâti pour ça). Un run interrompu laisse un .so
+  INSTRUMENTÉ (5 Mo au lieu de 2,2) en place.
+- L'environnement 3.11.15 n'est pas exécutable depuis ce compte
+  (« Permission non accordée ») : le .so 311 reste celui du 16/08.
+
+### Validation finale (18/09, 01 h 10 → 01 h 25)
+
+- PGO ×3 (3.12/3.13/3.14) rebâtie à gcda neuf, .so ≈ 1,99 Mo chacun ;
+  233 tests verts sur chaque version, goldens tests/serialized restaurés
+  et diff-clean après chaque run. Sortie de l'écrivain inchangée.
+- A/B lecture PGO contre PGO commité (5372044), même 3.13, tours
+  interlacés, min de 60 à 200 loads, charge 3-5 : tout est dans le bruit
+  (±4 %, signes qui s'inversent d'un run à l'autre) SAUF datetime,
+  +8 à +11 % sur 800 objets, retrouvé trois fois. Ciblé ensuite :
+  datetime_200 +14 %, datetime_800 +10 %, datetime_3200 +0,7 %,
+  time_800 −0,1 %, date_800 +5 %, decimal_800 −8,5 %. Un coût réel par
+  enveloppe croîtrait avec N, et time/date prennent EXACTEMENT le même
+  chemin (SjEnvelopeHead → EndObject → EnvelopeConstruct, dont la seule
+  addition est un PyUnicode_CheckExact en tête) : c'est un effet de
+  placement PGO sur la branche datetime, pas un coût du crochet. Le
+  crochet inactif est un test de `rehydrateOn` dans Key() et deux dans
+  EndObject, rien de plus. Non retouché — à revérifier au prochain
+  rebuild PGO si l'écart persiste dans le même sens.
+
+## Addendum 18/09, 01 h 22 → 02 h — `rehydrate` devient le DÉFAUT
+
+Question de Baptiste (01 h 19) : « on peut lancer une application par un
+simple load ? ». Réponse : sans `rehydrate=True`, un load ordinaire prend
+la voie classique et double les enfants créés par les `__init__`.
+Baptiste (01 h 22) : « ce n'est pas vraiment ce qu'on veut ! » → le
+crochet est actif par défaut (`Decoder(rehydrate=True)` dans la
+signature, `rehydrate=False` = voie classique, mode update `obj=`
+inclus). Aucun changement d'API : le mot-clé existait déjà, seule sa
+valeur par défaut change ; l'écrivain n'est pas touché.
+
+### Ce que le défaut a fait surgir, et les correctifs
+
+- **pendingB64 (piège)** : `test_bytes_blosc2` rendait « corrupted
+  blosc chunked payload ». SjConstruit tirait pour la classe `bytes`
+  dont la charge était un DIFFÉRÉ b64 pas encore rempli (placeholder à
+  zéros) → `bytesB64.__new__` décompressait des zéros. bytes/bytearray
+  rejoignent numpyB64 dans la liste des natifs que SjConstruit saute
+  (la voie classique vide la file avant d'instancier). Vérifié sur 8
+  combinaisons seuil/compression + bytearray.
+- **Coût du crochet sur les classes à plan** (A/B on/off MÊME binaire,
+  9 tours interlacés, min de 100 loads, charge ~2,5) : première mesure
+  plain +34 %, slots +25 %, arbre +84 % (avec_init −70 % : construit en
+  C au lieu de python). Trois resserrements EN C :
+  1. `envFresh` (HandlerContext) : instance issue de `object.__new__`
+     sans args → `__dict__` vide, aucun homologue vivant possible
+     dessous, état affecté d'un bloc (`__dict__ = mapping`) comme la
+     voie classique ; SjChaine décline sans allouer sous un ancêtre
+     frais.
+  2. SjChaine en deux passes (repérage sans allocation, liste bâtie
+     seulement si un vivant est possible) ; SjVivant par
+     `PyObject_GetOptionalAttr` (≥ 3.13, sinon `_PyObject_LookupAttr`) :
+     pas d'exception créée puis effacée.
+  3. `envConstruit` (HandlerContext) : la construction d'un niveau
+     n'est tentée qu'UNE fois — faite ou déclinée ; les clés d'état
+     suivantes ne repassent plus par le GetItem `__class__`, et une
+     classe déclinée par python n'est plus rappelée à chaque clé.
+     SjKeyConstruit commence par ce drapeau et par `specialKey`
+     (un dict de données = un test booléen). `plansParType` : find
+     avant emplace (emplace allouait un nœud à chaque objet).
+  Résultat (même protocole) : plain +3,5 %, slots +9,8 %, arbre
+  +12 %, avec_init −71 % ; données (dict_int, list_str, tuples,
+  datetime, bytes, nested) dans le bruit (−0 à +7 %, signes mêlés
+  d'un run à l'autre). Résidu ≈ 40-50 ns par objet construit
+  (SjPlan par nom + tp_new déplacé de EndObject vers Key + 2 find).
+  Chasse arrêtée là : sous le bruit de la machine chargée.
+  Sur le binaire PGO final (3.13, même protocole, charge ~4) : plain
+  +7 %, slots +3,5 %, arbre +0,6 %, nested +3,8 %, avec_init −75 % ;
+  dict_int, list_str, tuples, datetime, bytes −0 à −8 %.
+- Tests : test_rehydrate.py affirme `construct is not None` par défaut
+  et None avec `rehydrate=False` ; test_pyside6_application
+  `--sans-rehydrate` passe `rehydrate=False` (rouge attendu).
+- PGO ×3 rebâtie sur la source finale (les .so 312/314 de 01 h 11
+  étaient antérieurs aux deux correctifs C).
+
+## Addendum 18/09, 02 h → 03 h — SmartFramework passe sur le paquet
+## (demande de Baptiste « peut tu passer SmartFramework sur la nouvelle
+## voie ? »), NON COMMITÉ (git ici, hg dans SmartFramework et SmartOS)
+
+Réponse à « qu'est-ce qui empêche SmartFramework d'utiliser la version
+actuelle ? l'absence de serializePython ? » : NON. Quatre obstacles, tous
+levés : (1) le fork de 2023 dans `SmartFramework/serialize/` avec ses
+propres registres ; (2) le paquet n'était importable d'aucun venv (pas
+installé) ; (3) les greffons du paquet importaient
+`SmartFramework.serialize.tools` EN PRIORITÉ (`try: from SmartFramework…
+except:`) → deux jeux de registres selon l'ordre des imports ; (4) la
+branche Qt de SerializeInterface ne savait réhydrater qu'en python.
+serializePython reste dans SmartFramework et partage désormais les
+registres du paquet.
+
+Côté paquet (mes fichiers, en plus du chantier des deux nuits) : les 5
+greffons (builtins, datetime, array, numpy, Qt) importent directement
+`serializejson.tools` / `serializejson` — plus de préférence à
+SmartFramework. `tools.py` lignes 2-9 importe toujours
+`SmartFramework.tools.dictionaries` / `objects` (servi par le vrai
+SmartFramework, ou par le stub du dépôt). 233 tests × 3.12/3.13/3.14
+verts après ce changement.
+
+Côté SmartFramework (hg, non commité) : serializejson.py/tools.py/
+serialize_parameters.py/plugins/serializejson_numpy.py = relais
+`sys.modules[__name__] = module du paquet` ; dotdict.py et les greffons
+builtins/datetime/array/Qt/pickle_Qt RETIRÉS (`hg rm`) ; plugins/__init__
+ne charge que omegaconf ; serializeRepr : `_recette_ndarray` pur python
+(b64 + blosc v1) pour le format python — le greffon numpy du paquet rend
+des objets C (RawBytesToBase64, BloscDiffere) que seul l'écrivain C sait
+écrire ; `SmartFramework/__init__.py` : import paresseux de
+serialize_parameters (import SmartFramework reste sans Qt) ;
+SerializeInterface : format défaut "json", sniff d'un .dat python
+existant au premier caractère, widget Qt réhydraté par
+`serializejson.loads(string, obj=widget, authorized_classes=[type(widget),
+*authorizedClasses])`, `filtre` str → booléen `attributes_filter` (le
+fork refusait déjà la str : branche json jamais utilisée avant).
+Test manuel neuf `serialize/tests/test_SerializeInterface_rehydrate.py`
+(json + python OK, `--sans-rehydrate` rouge : spin à 0).
+
+Côté machine : lien `/DATA/Python/serializejson -> GITHUB/serializejson/
+serializejson` (posé le 18/09 02 h 13) + ligne `ln -sfn` dans les deux
+`installation_SmartPythons_*.sh` de SmartOS (moitié durable).
+
+Cas limite CONNU de l'adoption, non couvert : `self.a = self.b = Fils()`
+(un même enfant sous deux attributs) — le second est un `$ref`, adopté
+tel quel ; sans problème tant que le json vient du même code.
+
+Pièges payés : le .dat de SmartFace au format python importe `numpyB64`
+depuis `SmartFramework.serialize.plugins.serializejson_numpy` → ce
+chemin doit rester un relais, pas disparaître ; `authorized_classes`
+est obligatoire pour la classe cible (TypeError « not in
+authorized_classes » sinon, même en rehydrate : `_construct` décline
+puis `_inst_from_dict` tranche).

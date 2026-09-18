@@ -1,25 +1,13 @@
-﻿try:
-    from SmartFramework.serialize.tools import (
-        class_str_from_class,
-        serializejson_builtins,
-        constructors,
-        blosc2_compressions,
-        blosc_decompress,
-        blosc_chunks_decompress,
-        use_blosc2_cpp,
-    )
-    from SmartFramework.serialize import serialize_parameters
-except:
-    from serializejson.tools import (
-        class_str_from_class,
-        serializejson_builtins,
-        constructors,
-        blosc2_compressions,
-        blosc_decompress,
-        blosc_chunks_decompress,
-        use_blosc2_cpp,
-    )
-    from serializejson import serialize_parameters
+﻿from serializejson.tools import (
+    class_str_from_class,
+    serializejson_builtins,
+    constructors,
+    blosc2_compressions,
+    blosc_decompress,
+    blosc_chunks_decompress,
+    use_blosc2_cpp,
+)
+from serializejson import serialize_parameters
 
 import types
 from base64 import b64decode

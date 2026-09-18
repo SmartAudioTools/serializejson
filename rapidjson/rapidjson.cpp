@@ -320,6 +320,9 @@ static PyObject* bytes_class_name_str = nullptr;      // "bytes"
 static PyObject* bytearray_class_name_str = nullptr;  // "bytearray"
 static PyObject* collections_prefix_str = nullptr;    // "collections."
 static PyObject* decode_cle_name = nullptr;
+static PyObject* construct_name = nullptr;            // "construct"
+static PyObject* live_root_name = nullptr;            // "_live_root"
+static PyObject* updatables_name = nullptr;           // "updatableClassStrs"
 static PyObject* already_serialized_name = nullptr;
 static PyObject* keep_alive_name = nullptr;
 static PyObject* root_underscore_name = nullptr;
@@ -398,6 +401,14 @@ struct HandlerContext {
     // gagner (mesuré 1,7 %).
     size_t attenteBase;       // premier élément de CE niveau dans `attente`
     bool differe;             // faux dès que les éléments sont dans la liste
+    // réhydratation : l'instance rangée dans __class__ à ce niveau sort de
+    // tp_new (object.__new__) sans arguments — son __dict__ est vide, aucun
+    // homologue vivant ne peut exister sous elle, et son état s'assigne
+    // d'un bloc (dict entier) au lieu d'être fusionné clé par clé
+    bool envFresh;
+    // réhydratation : la construction de ce niveau a été tentée (faite ou
+    // déclinée) — les clés d'état suivantes ne la rejouent pas
+    bool envConstruit;
 };
 
 
@@ -1899,6 +1910,19 @@ struct PyHandler {
     // repli PAR CLÉ du décodage C des dicts à clés non-str (attribut
     // _decode_cle_exotique du décodeur, résolu une fois par chargement)
     PyObject* decodeCleFn = nullptr;
+    // ----- réhydratation AU FIL DU PARSE (Decoder(rehydrate=True)) : l'objet
+    // d'une enveloppe est construit — ou son homologue VIVANT adopté — dès
+    // que sa première clé d'état arrive (ou qu'il se ferme sans état), donc
+    // AVANT ses attributs et ses enfants ; l'instance prend la place du nom
+    // dans "__class__", les $ref des enfants la trouvent, la fermeture lui
+    // applique l'état sans rejouer __init__. Hors du mode : un test par clé
+    bool rehydrateOn = false;
+    PyObject* decoderConstruct = nullptr;   // repli python Decoder._construct
+    PyObject* liveRoot = nullptr;           // obj= : homologue vivant de la racine
+    bool rehydrateEnC = true;               // faux si updatables_classes restreint l'adoption
+    // plans de classe par TYPE construit (empruntés à decodePlans) : l'état
+    // d'une instance déjà rangée dans __class__ s'applique en C
+    std::unordered_map<PyTypeObject*, PyObject*> plansParType;
     // cache des chemins $ref RÉSOLUS le temps d'un parse (résolutions
     // acceptées seulement — jamais une cible encore à l'état d'enveloppe)
     PyObject* refPathCache = nullptr;
@@ -1986,6 +2010,28 @@ struct PyHandler {
                     PyErr_Clear();
                 else if (decodeCleFn == Py_None)
                     Py_CLEAR(decodeCleFn);
+                decoderConstruct = PyObject_GetAttr(decoder, construct_name);
+                if (decoderConstruct == nullptr)
+                    PyErr_Clear();
+                else if (decoderConstruct == Py_None)
+                    Py_CLEAR(decoderConstruct);
+                if (decoderConstruct != nullptr && decodeClassPlanFn != nullptr) {
+                    rehydrateOn = true;
+                    liveRoot = PyObject_GetAttr(decoder, live_root_name);
+                    if (liveRoot == nullptr)
+                        PyErr_Clear();
+                    else if (liveRoot == Py_None)
+                        Py_CLEAR(liveRoot);
+                    PyObject* updatables =
+                        PyObject_GetAttr(decoder, updatables_name);
+                    if (updatables == nullptr)
+                        PyErr_Clear();
+                    else {
+                        rehydrateEnC = PyObject_IsTrue(updatables) <= 0;
+                        PyErr_Clear();
+                        Py_DECREF(updatables);
+                    }
+                }
                 PyObject* payload_classes =
                     PyObject_GetAttr(decoder, b64_payload_classes_name);
                 if (payload_classes == nullptr)
@@ -2069,6 +2115,8 @@ struct PyHandler {
         Py_CLEAR(decoderEndArray);
         Py_CLEAR(decoderString);
         Py_CLEAR(decodeCleFn);
+        Py_CLEAR(decoderConstruct);
+        Py_CLEAR(liveRoot);
         Py_CLEAR(refPathCache);
         Py_CLEAR(cleExotiqueCache);
         Py_CLEAR(sharedKeys);
@@ -2633,15 +2681,29 @@ struct PyHandler {
                                                rootObject);
         if (resolu == nullptr)
             return nullptr;
-        if (resolu == dictCourant
-            || (PyDict_CheckExact(resolu)
-                && PyDict_GetItem(resolu, class_key_name) != nullptr)) {
+        if (resolu == dictCourant || !SjCibleRef(&resolu)) {
             Py_DECREF(resolu);   // pas encore recréé : voie python, sans cache
             return nullptr;
         }
         Py_INCREF(resolu);
         refOctetsCache.emplace(std::move(clef), resolu);
         return resolu;
+    }
+
+    // cible d'un $ref résolu (réf possédée par l'appelant) : faux si elle est
+    // encore à l'état d'enveloppe — sauf, en réhydratation, quand son objet
+    // est déjà construit et rangé dans "__class__" : il prend sa place
+    bool SjCibleRef(PyObject** cible) {
+        if (!PyDict_CheckExact(*cible))
+            return true;
+        PyObject* classe = PyDict_GetItem(*cible, class_key_name);
+        if (classe == nullptr)
+            return true;
+        if (!rehydrateOn || PyUnicode_CheckExact(classe))
+            return false;
+        Py_INCREF(classe);
+        Py_SETREF(*cible, classe);
+        return true;
     }
 
     // clé supplémentaire après un $ref déjà résolu au vol ({"$ref": c, x: y},
@@ -2658,10 +2720,375 @@ struct PyHandler {
         return rc == 0;
     }
 
+    // plan de décodage d'une classe (decode_class_plan du décodeur), résolu
+    // une fois par nom et par chargement : réf EMPRUNTÉE (None = pas de plan),
+    // nullptr = erreur posée. Pas de vidage ici : decode_class_plan ne
+    // consulte que les registres de classes, jamais les charges
+    PyObject* SjPlan(PyObject* class_value) {
+        Py_ssize_t class_length;
+        const char* class_str =
+            PyUnicode_AsUTF8AndSize(class_value, &class_length);
+        if (class_str == nullptr)
+            return nullptr;
+        std::string plan_key(class_str, (size_t) class_length);
+        auto plan_it = decodePlans.find(plan_key);
+        if (plan_it != decodePlans.end())
+            return plan_it->second;
+        PyObject* plan = PyObject_CallFunctionObjArgs(decodeClassPlanFn,
+                                                      class_value, nullptr);
+        if (plan == nullptr)
+            return nullptr;
+        if (plan != Py_None && !PyType_Check(plan)
+            && !(PyTuple_Check(plan) && PyTuple_GET_SIZE(plan) == 2
+                 && PyType_Check(PyTuple_GET_ITEM(plan, 0)))) {
+            Py_DECREF(plan);
+            plan = Py_None;
+            Py_INCREF(Py_None);
+        }
+        decodePlans.emplace(std::move(plan_key), plan);
+        return plan;
+    }
+
+    // ----- réhydratation au fil du parse -----
+
+    // chaîne des clés du plus proche ancêtre CONSTRUIT jusqu'au niveau
+    // `niveau` exclu (`insere` : son objet est déjà inséré chez son parent).
+    // `*ancetre` reçoit cet ancêtre (emprunté ; nullptr = la racine vivante),
+    // `*tilde` vaut vrai si une clé commence par '~' (lecteur virtuel, voie
+    // python). Rend une liste NEUVE, ou nullptr sans erreur : aucun
+    // homologue vivant possible — nous sommes dans les arguments d'une
+    // enveloppe pas encore construite ou sous une clé indécodable, ou le
+    // point de départ ne peut rien porter (pas de racine vivante, ancêtre
+    // sorti nu de tp_new). Première passe sans allocation : sur une
+    // recréation (le cas courant), aucune liste n'est jamais bâtie
+    PyObject* SjChaine(size_t niveau, bool insere, PyObject** ancetre,
+                       bool* tilde) {
+        *ancetre = nullptr;
+        *tilde = false;
+        size_t depart = 0;   // niveau de l'ancêtre construit (exclu)
+        bool possible = liveRoot != nullptr;
+        for (size_t i = niveau; i-- > 0;) {
+            const HandlerContext& ctx = stack[i];
+            if (ctx.isObject) {
+                if (ctx.envState == 7) {
+                    if (ctx.envDictKey == nullptr)
+                        return nullptr;
+                    if (PyUnicode_Check(ctx.envDictKey)
+                        && PyUnicode_GET_LENGTH(ctx.envDictKey) > 0
+                        && PyUnicode_READ_CHAR(ctx.envDictKey, 0) == '~')
+                        *tilde = true;
+                } else if (ctx.envState == 0 && ctx.key != nullptr) {
+                    if (ctx.keyLength > 0 && ctx.key[0] == '~')
+                        *tilde = true;
+                    PyObject* classe = PyDict_Check(ctx.object)
+                        ? PyDict_GetItem(ctx.object, class_key_name)
+                        : nullptr;
+                    if (classe != nullptr) {
+                        // enveloppe pas encore construite : ses arguments
+                        if (PyUnicode_CheckExact(classe))
+                            return nullptr;
+                        *ancetre = classe;   // instance déjà construite :
+                        depart = i;          // sa clé courante ouvre la chaîne
+                        possible = !ctx.envFresh;
+                        break;
+                    }
+                } else {
+                    return nullptr;   // enveloppe ouverte
+                }
+            }
+        }
+        if (!possible)
+            return nullptr;
+        PyObject* cles = PyList_New((Py_ssize_t) (niveau - depart));
+        if (cles == nullptr) {
+            PyErr_Clear();
+            return nullptr;
+        }
+        for (size_t i = depart; i < niveau; i++) {
+            const HandlerContext& ctx = stack[i];
+            PyObject* cle;
+            if (!ctx.isObject) {
+                // l'objet du niveau suivant : inséré chez son parent sauf
+                // pour une enveloppe différée (object nul)
+                bool insereSuivant = i + 1 < niveau
+                    ? stack[i + 1].object != nullptr : insere;
+                cle = PyLong_FromSsize_t(NbRecus(ctx) - (insereSuivant ? 1 : 0));
+            } else if (ctx.envState == 7) {
+                cle = ctx.envDictKey;
+                Py_INCREF(cle);
+            } else {
+                cle = KeyString(ctx.key, ctx.keyLength);
+            }
+            if (cle == nullptr) {
+                Py_DECREF(cles);
+                PyErr_Clear();
+                return nullptr;
+            }
+            PyList_SET_ITEM(cles, (Py_ssize_t) (i - depart), cle);
+        }
+        return cles;
+    }
+
+    // homologue vivant au bout de la chaîne : NOUVELLE réf, ou nullptr sans
+    // erreur (attribut, clé ou indice absent)
+    PyObject* SjVivant(PyObject* depart, PyObject* cles) {
+        PyObject* courant = depart;
+        Py_INCREF(courant);
+        Py_ssize_t n = PyList_GET_SIZE(cles);
+        for (Py_ssize_t i = 0; i < n && courant != nullptr; i++) {
+            PyObject* cle = PyList_GET_ITEM(cles, i);
+            PyObject* suivant;
+            if (PyDict_Check(courant)) {
+                suivant = PyDict_GetItemWithError(courant, cle);
+                Py_XINCREF(suivant);
+            } else if (PyLong_CheckExact(cle)) {
+                suivant = (PyList_Check(courant) || PyTuple_Check(courant))
+                    ? PySequence_GetItem(courant, PyLong_AsSsize_t(cle))
+                    : nullptr;
+            } else {
+#if PY_VERSION_HEX >= 0x030D0000
+                PyObject_GetOptionalAttr(courant, cle, &suivant);
+#else
+                _PyObject_LookupAttr(courant, cle, &suivant);
+#endif
+            }
+            PyErr_Clear();
+            Py_DECREF(courant);
+            courant = suivant;
+        }
+        return courant;
+    }
+
+    // vrai si `ancetre` est l'un des arguments du constructeur (un enfant
+    // Qt anonyme est parenté par son __init__) : seule ancre qui autorise
+    // l'adoption d'un objet sans état — sans elle une enveloppe-valeur
+    // (Decimal, QColor) serait figée à sa valeur vivante
+    static bool SjAncre(PyObject* args, PyObject* ancetre) {
+        if (args == nullptr || ancetre == nullptr)
+            return false;
+        if (PyDict_CheckExact(args)) {
+            Py_ssize_t pos = 0;
+            PyObject* k;
+            PyObject* v;
+            while (PyDict_Next(args, &pos, &k, &v))
+                if (v == ancetre)
+                    return true;
+        } else if (PyList_CheckExact(args) || PyTuple_CheckExact(args)) {
+            Py_ssize_t n = PySequence_Fast_GET_SIZE(args);
+            PyObject** items = PySequence_Fast_ITEMS(args);
+            for (Py_ssize_t i = 0; i < n; i++)
+                if (items[i] == ancetre)
+                    return true;
+        }
+        return false;
+    }
+
+    // construction par le plan de classe, mêmes formes que instance() :
+    // __new__ (slot 1) ou pas d'__init__ -> tp_new sans __init__, sinon
+    // cls(*liste) / cls(**dict) / cls(scalaire). NOUVELLE réf, nullptr = erreur
+    static PyObject* SjInstancie(PyTypeObject* cls, PyObject* args, int slot) {
+        PyObject* pos;
+        PyObject* kw = nullptr;
+        if (args == nullptr) {
+            pos = empty_args_tuple;
+            Py_INCREF(pos);
+        } else if (PyList_CheckExact(args)) {
+            pos = PyList_AsTuple(args);
+        } else if (PyTuple_CheckExact(args)) {
+            pos = args;
+            Py_INCREF(pos);
+        } else if (PyDict_CheckExact(args)) {
+            pos = empty_args_tuple;
+            Py_INCREF(pos);
+            kw = args;
+        } else {
+            pos = PyTuple_Pack(1, args);
+        }
+        if (pos == nullptr)
+            return nullptr;
+        PyObject* inst = (slot == 1 || args == nullptr)
+            ? cls->tp_new(cls, pos, kw)
+            : PyObject_Call((PyObject*) cls, pos, kw);
+        Py_DECREF(pos);
+        return inst;
+    }
+
+    // l'objet de l'enveloppe au niveau `niveau` : son homologue vivant adopté
+    // (même type exact, trouvé par la chaîne des clés depuis l'ancêtre
+    // construit ou la racine vivante), sinon construit. NOUVELLE réf ;
+    // nullptr = déclin sans erreur (classe native ou sans plan et refusée par
+    // python) ou erreur posée. `stateless` : fermeture sans clé d'état,
+    // l'adoption exige alors l'ancre (SjAncre)
+    PyObject* SjConstruit(size_t niveau, bool insere, PyObject* classe,
+                          PyObject* args, int slot, bool stateless,
+                          bool* fresh = nullptr) {
+        Py_ssize_t n;
+        const char* s = PyUnicode_AsUTF8AndSize(classe, &n);
+        if (s == nullptr)
+            return nullptr;
+        // natifs : leurs chemins rapides restent les leurs. bytes/bytearray/
+        // numpyB64 (b64PayloadClasses) : leur charge peut être un différé
+        // (pendingB64) pas encore rempli — construire ici lirait des zéros ;
+        // la voie classique vide la file avant d'instancier
+        if ((n == 4 && (memcmp(s, "dict", 4) == 0 || memcmp(s, "type", 4) == 0))
+            || (n == 17 && memcmp(s, "dict_non_str_keys", 17) == 0)
+            || (n == 8 && memcmp(s, "numpyB64", 8) == 0)
+            || (n == 5 && memcmp(s, "bytes", 5) == 0)
+            || (n == 9 && memcmp(s, "bytearray", 9) == 0))
+            return nullptr;
+        PyObject* plan = SjPlan(classe);
+        if (plan == nullptr)
+            return nullptr;
+        PyObject* ancetre;
+        bool tilde;
+        PyObject* cles = SjChaine(niveau, insere, &ancetre, &tilde);
+        if (plan == Py_None || tilde || !rehydrateEnC) {
+            // voie python : classe sans plan (constructors, non autorisée,
+            // setters...), lecteur virtuel '~', ou updatables_classes
+            PyObject* res = PyObject_CallFunction(
+                decoderConstruct, "OOiOOO", classe,
+                args != nullptr ? args : Py_None, slot,
+                ancetre != nullptr ? ancetre : Py_None,
+                cles != nullptr ? cles : Py_None,
+                stateless ? Py_True : Py_False);
+            Py_XDECREF(cles);
+            if (res == Py_None)
+                Py_CLEAR(res);
+            return res;
+        }
+        PyTypeObject* cls = PyType_Check(plan)
+            ? (PyTypeObject*) plan
+            : (PyTypeObject*) PyTuple_GET_ITEM(plan, 0);
+        PyObject* inst = nullptr;
+        if (cles != nullptr) {
+            if (ancetre == nullptr && PyList_GET_SIZE(cles) == 0) {
+                // la racine : l'objet obj= est adopté tel quel
+                inst = liveRoot;
+                Py_XINCREF(inst);
+            } else if (!stateless || SjAncre(args, ancetre)) {
+                PyObject* depart = ancetre != nullptr ? ancetre : liveRoot;
+                if (depart != nullptr) {
+                    inst = SjVivant(depart, cles);
+                    if (inst != nullptr && Py_TYPE(inst) != cls)
+                        Py_CLEAR(inst);
+                }
+            }
+            Py_DECREF(cles);
+        }
+        if (inst == nullptr) {
+            inst = SjInstancie(cls, args, slot);
+            if (inst == nullptr)
+                return nullptr;
+            // sorti nu de object.__new__ : __dict__ vide, rien dessous
+            if (fresh != nullptr && args == nullptr
+                && cls->tp_new == PyBaseObject_Type.tp_new)
+                *fresh = true;
+        }
+        if (Py_TYPE(inst) == cls && plansParType.find(cls) == plansParType.end())
+            plansParType.emplace(cls, plan);
+        return inst;
+    }
+
+    // première clé d'ÉTAT au niveau d'une enveloppe — capturée (état 2/4)
+    // ou classique {__class__ (, __init__|__new__)} — : l'objet est construit
+    // ou adopté ICI, avant ses attributs et ses enfants. Faux = erreur posée
+    bool SjKeyConstruit(HandlerContext& current, const char* str,
+                        SizeType length) {
+        // dict ordinaire (aucune clé spéciale vue) ou niveau déjà traité :
+        // un test, rien d'autre — c'est le cas de toutes les clés d'un
+        // document de données
+        if (current.envConstruit || (current.envState == 0 && !current.specialKey))
+            return true;
+        if (current.envState != 0 && current.envState != 2
+            && current.envState != 4)
+            return true;
+        if ((length == 9 && (memcmp(str, "__class__", 9) == 0
+                             || memcmp(str, "__items__", 9) == 0))
+            || (length == 4 && memcmp(str, "$ref", 4) == 0)
+            || (length == 7 && memcmp(str, "__new__", 7) == 0)
+            || (length == 8 && memcmp(str, "__init__", 8) == 0))
+            return true;
+        PyObject* classe = current.envClass;
+        PyObject* args = current.envArgs;
+        int slot = current.envState == 4 ? current.envSlot : 0;
+        current.envConstruit = true;
+        if (current.envState == 0) {
+            if (current.object == nullptr
+                || !PyDict_CheckExact(current.object)
+                || PyDict_GET_SIZE(current.object) > 2)
+                return true;
+            classe = PyDict_GetItem(current.object, class_key_name);
+            if (classe == nullptr || !PyUnicode_CheckExact(classe))
+                return true;
+            if (PyDict_GET_SIZE(current.object) == 2) {
+                args = PyDict_GetItem(current.object, init_key_name);
+                slot = 2;
+                if (args == nullptr) {
+                    args = PyDict_GetItem(current.object, new_key_name);
+                    slot = 1;
+                }
+                if (args == nullptr)
+                    return true;   // autre clé : forme inconnue
+            }
+        }
+        PyObject* inst = SjConstruit(stack.size() - 1, current.object != nullptr,
+                                     classe, args, slot, false,
+                                     &current.envFresh);
+        if (inst == nullptr)
+            return !PyErr_Occurred();
+        if (current.envState == 0) {
+            int rc = PyDict_SetItem(current.object, class_key_name, inst);
+            Py_DECREF(inst);
+            return rc == 0;
+        }
+        // capture : l'instance prend la place du nom, EnvFlush (déclenché
+        // par cette même clé) la versera dans le dict sous "__class__"
+        Py_SETREF(current.envClass, inst);
+        return true;
+    }
+
+    // état de `mapping` appliqué à `inst` : un setattr par attribut (classe à
+    // __slots__), sinon FUSION dans son __dict__ (le __init__ a pu le
+    // remplir), jamais de remplacement. Les clés '~…' (lecteurs virtuels du
+    // greffon Qt, déjà consommées au passage) sont sautées. Faux = erreur posée
+    bool SjAppliqueEtat(PyObject* inst, PyObject* mapping, bool by_setattr) {
+        PyObject* inst_dict = nullptr;
+        if (!by_setattr) {
+            inst_dict = PyObject_GetAttr(inst, dict_dunder_name);
+            if (inst_dict == nullptr || !PyDict_CheckExact(inst_dict)) {
+                // pas de __dict__ ordinaire : setattr, même effet pour un
+                // objet sans descripteurs
+                PyErr_Clear();
+                Py_CLEAR(inst_dict);
+            }
+        }
+        Py_ssize_t attr_pos = 0;
+        PyObject* attr_key;
+        PyObject* attr_value;
+        while (PyDict_Next(mapping, &attr_pos, &attr_key, &attr_value)) {
+            if (PyUnicode_Check(attr_key) && PyUnicode_GET_LENGTH(attr_key) > 0
+                && PyUnicode_READ_CHAR(attr_key, 0) == '~')
+                continue;
+            int rc = inst_dict != nullptr
+                ? PyDict_SetItem(inst_dict, attr_key, attr_value)
+                : PyObject_SetAttr(inst, attr_key, attr_value);
+            if (rc == -1) {
+                if (inst_dict == nullptr)
+                    sj_enrich_setattr_error(inst, attr_key);
+                Py_XDECREF(inst_dict);
+                return false;
+            }
+        }
+        Py_XDECREF(inst_dict);
+        return true;
+    }
+
     bool Key(const char* str, SizeType length, bool copy) {
         HandlerContext& current = stack.back();
 
         if (current.refResolu != nullptr && !RefMaterialise(current))
+            return false;
+        if (rehydrateOn && !SjKeyConstruit(current, str, length))
             return false;
 
         if (current.envState == 7) {
@@ -2713,6 +3140,7 @@ struct PyHandler {
             current.envState = 5;
         } else if (current.envState == 2 && current.envClass != nullptr
                    && fastPlainEndObject
+                   && PyUnicode_CheckExact(current.envClass)
                    && PyUnicode_CompareWithASCIIString(current.envClass,
                                                        "dict") == 0) {
             // {"__class__": "dict", ...} : bascule en décodage direct — le
@@ -2824,6 +3252,8 @@ struct PyHandler {
         ctx.refCheminBrutLg = 0;
         ctx.attenteBase = attente.size();
         ctx.differe = false;          // un dict remplit sa table au vol
+        ctx.envFresh = false;
+        ctx.envConstruit = false;
         Py_INCREF(mapping);
 
         stack.push_back(ctx);
@@ -2876,6 +3306,8 @@ struct PyHandler {
         ctx.refCheminBrutLg = 0;
         ctx.attenteBase = attente.size();
         ctx.differe = false;
+        ctx.envFresh = false;
+        ctx.envConstruit = false;
         stack.push_back(ctx);
         return 1;
     }
@@ -3266,6 +3698,8 @@ struct PyHandler {
     PyObject* EnvelopeConstruct(PyObject* cls_value, PyObject* ctor_args,
                                 bool from_new, PyObject* items = nullptr) {
         (void) from_new;
+        if (!PyUnicode_CheckExact(cls_value))
+            return nullptr;   // objet déjà construit (réhydratation)
         PyObject* replacement = nullptr;
         // aiguillage par LONGUEUR du nom : une seule lecture utf8 puis un
         // memcmp par candidat de même taille — la chaîne de comparaisons
@@ -3489,6 +3923,13 @@ struct PyHandler {
                                                  ctx_ref.envArgs,
                                                  ctx_ref.envSlot == 1,
                                                  ctx_ref.envItems);
+            // réhydratation : enveloppe sans état d'une classe non native
+            if (direct == nullptr && rehydrateOn && ctx_ref.envState == 4
+                && !PyErr_Occurred())
+                direct = SjConstruit(stack.size() - 1,
+                                     ctx_ref.object != nullptr,
+                                     ctx_ref.envClass, ctx_ref.envArgs,
+                                     ctx_ref.envSlot, true);
             if (direct != nullptr) {
                 if (ctx_ref.copiedKey)
                     PyMem_Free((void*) ctx_ref.key);
@@ -3526,6 +3967,7 @@ struct PyHandler {
 
         PyObject* mapping = ctx.object;
         bool plainDict = !ctx.specialKey && !ctx.keyValuePairs;
+        bool envFresh = ctx.envFresh;
         PyObject* refResolu = ctx.refResolu;
         stack.pop_back();
 
@@ -3549,9 +3991,40 @@ struct PyHandler {
 
         PyObject* replacement = nullptr;
 
+        // ----- réhydratation : enveloppe classique sans état {__class__
+        // (, __init__|__new__)} d'une classe non native, fermée avant toute
+        // clé d'état — construite ou adoptée ici (ancre exigée)
+        if (rehydrateOn && PyDict_CheckExact(mapping)
+            && PyDict_GET_SIZE(mapping) <= 2) {
+            PyObject* classe = PyDict_GetItem(mapping, class_key_name);
+            if (classe != nullptr && PyUnicode_CheckExact(classe)) {
+                PyObject* args = nullptr;
+                int slot = 0;
+                if (PyDict_GET_SIZE(mapping) == 2) {
+                    args = PyDict_GetItem(mapping, init_key_name);
+                    slot = 2;
+                    if (args == nullptr) {
+                        args = PyDict_GetItem(mapping, new_key_name);
+                        slot = 1;
+                    }
+                }
+                if (PyDict_GET_SIZE(mapping) == 1 || args != nullptr) {
+                    replacement = SjConstruit(stack.size(), true, classe,
+                                              args, slot, true);
+                    if (replacement == nullptr && PyErr_Occurred()) {
+                        Py_DECREF(mapping);
+                        return false;
+                    }
+                    if (replacement != nullptr)
+                        Py_DECREF(mapping);
+                }
+            }
+        }
+
         // ----- chemin rapide de décodage par classe : {"__class__": nom,
         // attributs...} sans clé spéciale -> instanciation directe en C++
-        if (decodeClassPlanFn != nullptr && PyDict_CheckExact(mapping)) {
+        if (replacement == nullptr && decodeClassPlanFn != nullptr
+            && PyDict_CheckExact(mapping)) {
             PyObject* class_value = PyDict_GetItem(mapping, class_key_name);
             // __init__ LISTE exacte : cls(*args) pour tous les plans ;
             // __init__ SCALAIRE (accolades retirées) : réservé au mode
@@ -3564,41 +4037,59 @@ struct PyHandler {
                 init_is_list = init_list != nullptr
                     && PyList_CheckExact(init_list);
             }
-            if (class_value != nullptr && PyUnicode_CheckExact(class_value)
+            if (class_value != nullptr && !PyUnicode_CheckExact(class_value)
+                && rehydrateOn
+                && PyDict_GetItem(mapping, state_key_name) == nullptr
+                && PyDict_GetItem(mapping, items_key_name) == nullptr
+                && PyDict_GetItem(mapping, dict_dunder_name) == nullptr) {
+                // réhydratation : l'objet est déjà construit (rangé dans
+                // __class__ à sa première clé d'état) ; son état s'applique
+                // en C si son type a un plan __dict__ ou __slots__ — avec
+                // setters/properties/__setstate__ (classe, 2), voie python
+                auto par_type = plansParType.find(Py_TYPE(class_value));
+                if (par_type != plansParType.end()
+                    && !(PyTuple_Check(par_type->second)
+                         && PyLong_CheckExact(
+                                PyTuple_GET_ITEM(par_type->second, 1)))) {
+                    PyObject* inst = class_value;
+                    Py_INCREF(inst);
+                    for (PyObject* cle : {class_key_name, init_key_name,
+                                          new_key_name})
+                        if (PyDict_GetItem(mapping, cle) != nullptr
+                            && PyDict_DelItem(mapping, cle) == -1) {
+                            Py_DECREF(inst);
+                            Py_DECREF(mapping);
+                            return false;
+                        }
+                    bool by_setattr = !PyType_Check(par_type->second);
+                    // instance nue (object.__new__, __dict__ vide) à plan
+                    // __dict__ : le dict d'état devient son __dict__ tel
+                    // quel, comme sur la voie classique — sinon fusion
+                    if (envFresh && !by_setattr) {
+                        if (PyObject_SetAttr(inst, dict_dunder_name,
+                                             mapping) == -1) {
+                            Py_DECREF(inst);
+                            Py_DECREF(mapping);
+                            return false;
+                        }
+                    } else if (!SjAppliqueEtat(inst, mapping, by_setattr)) {
+                        Py_DECREF(inst);
+                        Py_DECREF(mapping);
+                        return false;
+                    }
+                    Py_DECREF(mapping);
+                    replacement = inst;
+                }
+            } else if (class_value != nullptr
+                && PyUnicode_CheckExact(class_value)
                 && PyDict_GetItem(mapping, new_key_name) == nullptr
                 && PyDict_GetItem(mapping, state_key_name) == nullptr
                 && PyDict_GetItem(mapping, items_key_name) == nullptr
                 && PyDict_GetItem(mapping, dict_dunder_name) == nullptr) {
-                Py_ssize_t class_length;
-                const char* class_str =
-                    PyUnicode_AsUTF8AndSize(class_value, &class_length);
-                if (class_str == nullptr) {
+                PyObject* plan = SjPlan(class_value);
+                if (plan == nullptr) {
                     Py_DECREF(mapping);
                     return false;
-                }
-                std::string plan_key(class_str, (size_t) class_length);
-                PyObject* plan;
-                auto plan_it = decodePlans.find(plan_key);
-                if (plan_it != decodePlans.end()) {
-                    plan = plan_it->second;
-                } else {
-                    // pas de vidage ici : decode_class_plan ne consulte que
-                    // les registres de classes, jamais les charges
-                    plan = PyObject_CallFunctionObjArgs(decodeClassPlanFn,
-                                                        class_value, nullptr);
-                    if (plan == nullptr) {
-                        Py_DECREF(mapping);
-                        return false;
-                    }
-                    if (plan != Py_None && !PyType_Check(plan)
-                        && !(PyTuple_Check(plan)
-                             && PyTuple_GET_SIZE(plan) == 2
-                             && PyType_Check(PyTuple_GET_ITEM(plan, 0)))) {
-                        Py_DECREF(plan);
-                        plan = Py_None;
-                        Py_INCREF(Py_None);
-                    }
-                    decodePlans.emplace(std::move(plan_key), plan);
                 }
                 // mode « constructeur seul » (classe, 2) : classes C
                 // (Decimal, datetime, deque...) appelées directement —
@@ -3658,58 +4149,16 @@ struct PyHandler {
                         Py_DECREF(mapping);
                         return false;
                     }
-                    if (by_setattr) {
+                    if (by_setattr || init_list != nullptr) {
                         // classe à __slots__ : un setattr par attribut, dans
-                        // l'ordre du JSON (celui du setstate Python)
-                        Py_ssize_t attr_pos = 0;
-                        PyObject* attr_key;
-                        PyObject* attr_value;
-                        while (PyDict_Next(mapping, &attr_pos,
-                                           &attr_key, &attr_value)) {
-                            if (PyObject_SetAttr(inst, attr_key,
-                                                 attr_value) == -1) {
-                                sj_enrich_setattr_error(inst, attr_key);
-                                Py_DECREF(inst);
-                                Py_DECREF(mapping);
-                                return false;
-                            }
-                        }
-                    } else if (init_list != nullptr) {
-                        // le __init__ a pu remplir le __dict__ : FUSION des
-                        // attributs restants (self.__dict__[k] = v du
-                        // setstate Python), jamais de remplacement
-                        if (PyDict_GET_SIZE(mapping) != 0) {
-                            PyObject* inst_dict =
-                                PyObject_GetAttr(inst, dict_dunder_name);
-                            if (inst_dict == nullptr
-                                || !PyDict_CheckExact(inst_dict)) {
-                                // pas de __dict__ ordinaire : setattr,
-                                // même effet pour un objet sans descripteurs
-                                PyErr_Clear();
-                                Py_XDECREF(inst_dict);
-                                Py_ssize_t attr_pos = 0;
-                                PyObject* attr_key;
-                                PyObject* attr_value;
-                                while (PyDict_Next(mapping, &attr_pos,
-                                                   &attr_key, &attr_value)) {
-                                    if (PyObject_SetAttr(inst, attr_key,
-                                                         attr_value) == -1) {
-                                        sj_enrich_setattr_error(inst,
-                                                                attr_key);
-                                        Py_DECREF(inst);
-                                        Py_DECREF(mapping);
-                                        return false;
-                                    }
-                                }
-                            } else {
-                                if (PyDict_Update(inst_dict, mapping) == -1) {
-                                    Py_DECREF(inst_dict);
-                                    Py_DECREF(inst);
-                                    Py_DECREF(mapping);
-                                    return false;
-                                }
-                                Py_DECREF(inst_dict);
-                            }
+                        // l'ordre du JSON (celui du setstate Python) ; après
+                        // un __init__ qui a pu remplir le __dict__ : FUSION
+                        // des attributs restants, jamais de remplacement
+                        if (PyDict_GET_SIZE(mapping) != 0
+                            && !SjAppliqueEtat(inst, mapping, by_setattr)) {
+                            Py_DECREF(inst);
+                            Py_DECREF(mapping);
+                            return false;
                         }
                     // assignation directe du dict d'attributs (objet neuf au
                     // dict vide : équivalent du update() du chemin Python)
@@ -3841,10 +4290,7 @@ struct PyHandler {
                             PyErr_Clear();
                         if (resolved != nullptr) {
                             bool exotique = resolved == mapping
-                                || (PyDict_CheckExact(resolved)
-                                    && PyDict_GetItem(resolved,
-                                                      class_key_name)
-                                           != nullptr);
+                                || !SjCibleRef(&resolved);
                             if (exotique)
                                 Py_DECREF(resolved);   // voie python
                             else {
@@ -4005,6 +4451,8 @@ struct PyHandler {
         ctx.refCheminBrutLg = 0;
         ctx.attenteBase = attente.size();
         ctx.differe = true;
+        ctx.envFresh = false;
+        ctx.envConstruit = false;
         Py_INCREF(list);
 
         stack.push_back(ctx);
@@ -11676,6 +12124,9 @@ module_exec(PyObject* m)
     bytearray_class_name_str = PyUnicode_InternFromString("bytearray");
     collections_prefix_str = PyUnicode_InternFromString("collections.");
     decode_cle_name = PyUnicode_InternFromString("_decode_cle_exotique");
+    construct_name = PyUnicode_InternFromString("construct");
+    live_root_name = PyUnicode_InternFromString("_live_root");
+    updatables_name = PyUnicode_InternFromString("updatableClassStrs");
     already_serialized_name = PyUnicode_InternFromString("_already_serialized");
     keep_alive_name =
         PyUnicode_InternFromString("_already_serialized_keep_alive");

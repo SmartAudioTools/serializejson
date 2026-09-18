@@ -206,6 +206,9 @@ constructors = (
     {}
 )  # custom construtors for loaded classes. keys are string corresponding to the class qualified name, value is the constructor
 decoder_parameters = {}  # decoder extra parameters for plugins with their default value
+# mode rehydrate : lecteurs virtuels des clés "~…" (ex. "~children" -> enfants
+# d'un widget), pour retrouver l'homologue vivant d'un objet à recharger
+rehydrate_getters = {}
 consts = {}  # dictionnary associating const string to const values
 
 # @profile
@@ -445,7 +448,7 @@ def getstate(
         state_dict = sorted_dict(state_dict)
     if last_classes is not None:
         for key, value in state_dict.items():
-            if type(value) in last_classes:
+            if isinstance(value, last_classes):
                 state_dict[key] = state_dict.pop(key)
     if lasts is not None:
         for key in lasts:
@@ -582,6 +585,10 @@ def setstate(
                     attribut_to_multi_attributs[attr] = attribut
     if order is None:
         for attribut, value in state.items():
+            if attribut[:1] == "~":
+                # clé virtuelle d'un greffon (enfants, connexions) : ses
+                # valeurs ont agi en se construisant, rien à poser
+                continue
             if attribut in setattr_:
                 # marche pour les attribut de __dict__, slots et properties :
                 try:
@@ -609,6 +616,8 @@ def setstate(
     else:
         for attribut in order:
             value = state.popitem(attribut)
+            if attribut[:1] == "~":
+                continue
             if attribut in setattr_:
                 # marche pour les attribut de __dict__, slots et properties
                 try:
@@ -1323,7 +1332,7 @@ def instance(
 valid_char_for_var_name = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_")
 
 
-def from_name(path, accept_dict_as_object=False, **variables):
+def from_name(path, accept_dict_as_object=False, materialize=None, **variables):
     """fonction qui permet d'evaluer une expression pour acceder à une valeure à partir de son nom qualifié
     fonctionne comme eval, mais securisé en acceptant juste la qualification avec "." et l'indexation avec des []
     ATTENTION cette fonction n'a pas été testée à fond,il faudrait ecrire des tests!
@@ -1501,7 +1510,7 @@ def from_name(path, accept_dict_as_object=False, **variables):
                             else __builtins__[element]
                         )
                     current = _getattr(
-                        current, element, accept_dict_as_object
+                        current, element, accept_dict_as_object, materialize
                     )  # permet de marcher avec slot et properties,mais pas getters
                 element_chars = []
             in_squares = True
@@ -1531,7 +1540,7 @@ def from_name(path, accept_dict_as_object=False, **variables):
                             else __builtins__[element]
                         )
                     current = _getattr(
-                        current, element, accept_dict_as_object
+                        current, element, accept_dict_as_object, materialize
                     )  # permet de marcher avec slot et properties,mais pas getters
                 element_chars = []
             in_var = False
@@ -1561,12 +1570,12 @@ def from_name(path, accept_dict_as_object=False, **variables):
                     else __builtins__[element]
                 )
             current = _getattr(
-                current, element, accept_dict_as_object
+                current, element, accept_dict_as_object, materialize
             )  # permet de marcher avec slot et properties,mais pas getters
     return current
 
 
-def _getattr(obj, attribut, accept_dict_as_object):
+def _getattr(obj, attribut, accept_dict_as_object, materialize=None):
     if accept_dict_as_object and type(obj) is dict :#and "__class__" in obj:
         try:
             return obj[attribut]
@@ -1575,7 +1584,15 @@ def _getattr(obj, attribut, accept_dict_as_object):
             # le texte encodé de la clé ('2', b'k'...), le dict reconstruit
             # porte la clé DÉCODÉE
             from serializejson import _decode_cle
-            return obj[_decode_cle(attribut)]
+            try:
+                return obj[_decode_cle(attribut)]
+            except KeyError:
+                # attribut ou méthode d'un OBJET encore en construction (le
+                # chemin traverse son dict d'enveloppe) : résolu sur
+                # l'instance, que materialize crée par anticipation
+                if materialize is None or "__class__" not in obj:
+                    raise
+                return getattr(materialize(obj), attribut)
     else:
         # chemin vers l'intérieur d'une ENVELOPPE de collection
         # (root[0].__items__[0], root[0].__init__['a']...) : sur l'objet
@@ -1586,6 +1603,12 @@ def _getattr(obj, attribut, accept_dict_as_object):
         # (l'encodeur route un état à clé réservée sous __state__)
         if attribut == "__init__":
             return getattr(obj, "default_factory", obj)
+        if attribut[:1] == "~":
+            # cle virtuelle d'un greffon sur un objet deja construit
+            # (root.~windows[0].~children[2]) : son lecteur la rend
+            getter = rehydrate_getters.get(attribut)
+            if getter is not None:
+                return getter(obj)
         try:
             # permet de marcher avec slot et properties,mais pas getters
             return getattr(obj, attribut)

@@ -1,8 +1,4 @@
-﻿try:
-    from SmartFramework.serialize.tools import authorized_classes
-except:
-    from serializejson.tools import authorized_classes
-from ..tools import serializejson_
+﻿from serializejson.tools import authorized_classes, serializejson_
 import datetime
 
 authorized_classes.update(

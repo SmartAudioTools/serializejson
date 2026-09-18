@@ -246,6 +246,7 @@ from .tools import (
     authorized_classes,
     Reference,
     constructors,
+    rehydrate_getters,
 )
 
 
@@ -446,10 +447,10 @@ def loads(json, *, obj=None, iterator=False, **argsDict):
             decoder = etat.decoder = Decoder()
         etat.occupe = True
         try:
-            return decoder(json=json, obj=obj)
+            return decoder.loads(json, obj)
         finally:
             etat.occupe = False
-    return Decoder(**argsDict)(json=json, obj=obj)
+    return Decoder(**argsDict).loads(json, obj)
 
 
 def load(file, *, obj=None, iterator=False, path=None, **argsDict):
@@ -1563,6 +1564,12 @@ class Encoder(rapidjson.Encoder):
                 )
             else:
                 path = self.json_path_from_id(path_id)
+            if path is None:
+                raise ValueError(
+                    "serializejson : Reference to an object that is not in "
+                    f"the document (type {type(inst.obj).__name__}) — it must "
+                    "be serialized before being referenced"
+                )
             return rapidjson.RawString(
                 '{"$ref": "%s%s"}'
                 % (self._echappe_chemin_ref(path), inst.sup_str))
@@ -2357,6 +2364,17 @@ class Decoder(rapidjson.Decoder):
         add_jsonpath
             If True, the source json path will be added to the loaded object as `_jsonpath` attribut.
             If False (by default), nothing will be added to the loaded object, but you can still retrieve the source json path with the "serializejson.jsonpath" function which will find the path from the object identifier
+
+        rehydrate (bool):
+            If True (by default), each object is constructed (or adopted) as soon as its
+            `__class__`/`__init__` are read, BEFORE its attributes and children:
+            the json is never held as a tree of dicts. If False, objects are built
+            when their dict closes (children created by an `__init__` are then duplicated). With `obj` passed to
+            `load`/`loads`, the living objects found at the same place in `obj`
+            (attribute, key, index) and of the same class are updated in place
+            instead of recreated ; the others are created. Children created by
+            an `__init__` are adopted, not duplicated. `updatables_classes`
+            restricts the adoption to the given classes.
     """
 
     """
@@ -2386,6 +2404,7 @@ class Decoder(rapidjson.Decoder):
         strict_pickle=False,
         dotdict=False,
         add_jsonpath=False,
+        rehydrate=True,
     ):
         # PREMIÈRE instruction : locals() ne contient alors que les paramètres,
         # plus la cellule __class__ que pose l'appel à super(). Ils servent à
@@ -2439,6 +2458,9 @@ class Decoder(rapidjson.Decoder):
         self._iter_fini = True  # __iter__ (re)met l'itération en route
         self._iter_ema = None
         self._updating = False
+        self._rehydrate = rehydrate
+        if rehydrate:
+            self.construct = self._construct  # lu par le C (PyHandler)
 
         self.numpy_array_from_list = numpy_array_from_list
         self.numpy_array_from_heterogenous_list = numpy_array_from_heterogenous_list
@@ -2502,7 +2524,7 @@ class Decoder(rapidjson.Decoder):
         elif file is None:  # a priori pointeur vers fichier
             raise ValueError('Encoder.load need a "file" path/file argument')
 
-        loaded = self.__call__(json=file, obj=obj)
+        loaded = self._appel(file, obj)
         if chemin_source:
             if self.add_jsonpath:
                 loaded._jsonpath = chemin_source
@@ -2548,7 +2570,19 @@ class Decoder(rapidjson.Decoder):
         Return:
             created object or updated object if passed obj.
         """
-        return self.__call__(json=json, obj=obj)
+        return self._appel(json, obj)
+
+    def _appel(self, json, obj):
+        if not self._rehydrate:
+            return self.__call__(json=json, obj=obj)
+        # obj est l'homologue vivant de la racine, adopté par le crochet
+        # construct au fil du parse ; passé au C il basculerait sur la voie
+        # update (document entier en dicts, puis _exploreToUpdate)
+        self._live_root = obj
+        try:
+            return self.__call__(json=json, obj=None)
+        finally:
+            self._live_root = None
 
     def set_default_value(self, value=no_default_value):
         """
@@ -2596,19 +2630,57 @@ class Decoder(rapidjson.Decoder):
         serializejson will try to update if already in the provided object `obj` when loading with `load` or `loads`.
         Otherwise the objects are recreated.
         """
-        updatableClassStrs = set()
-        if updatables is not None:
-            for updatable in updatables:
-                if isinstance(updatable, str):
-                    updatableClassStrs.add(updatable)
-                else:
-                    updatableClassStrs.add(class_str_from_class(updatable))
-        self.updatableClassStrs = updatableClassStrs
+        self.updatableClassStrs = _UpdatableClasses(updatables)
 
     # court-circuit du start_object Python par le C++ (racine posée par lui) ;
     # False par défaut : les chemins itérateur et update le laissent inactif
     _fast_start_object = False
     _fast_plain_end_object = False
+    # mode rehydrate : crochet lu par le C, homologue vivant de la racine
+    construct = None
+    _live_root = None
+
+    def _construct(self, class_str, args, slot, ancestor, keys, stateless):
+        # Appelé par le C (mode rehydrate) quand une enveloppe n'a pas de plan
+        # C (classe sans plan, constructeur enregistré, clé '~') : rend
+        # l'objet de cette enveloppe, ou None pour laisser le C continuer
+        # comme sans le mode (classe non autorisée : end_object tranchera).
+        # `keys` : chaîne des clés depuis `ancestor` (instance déjà
+        # construite, None = racine vivante) jusqu'à l'objet ; None = pas
+        # d'homologue vivant possible. `stateless` : enveloppe sans clé
+        # d'état, l'adoption exige alors que `ancestor` soit un argument du
+        # constructeur (un enfant Qt anonyme parenté par son __init__) — sans
+        # cette ancre, une enveloppe-valeur serait figée à sa valeur vivante
+        if class_str not in self._authorized_classes_strs:
+            return None
+        try:
+            cls = constructors[class_str]
+        except KeyError:
+            cls = constructors[class_str] = class_from_class_str(
+                class_str
+            )
+        if keys is not None:
+            if ancestor is None and not keys:
+                if self._live_root is not None:
+                    return self._live_root
+            elif not stateless or _anchored(args, ancestor):
+                live = self._live_root if ancestor is None else ancestor
+                for key in keys:
+                    if live is None:
+                        break
+                    live = _descend(live, key)
+                if type(live) is cls and (
+                    not self.updatableClassStrs
+                    or class_str in self.updatableClassStrs
+                ):
+                    return live
+        # construction sans état, par la voie classique (mêmes formes
+        # d'arguments : liste, dict, scalaire déballé)
+        if args is not None and class_str in remove_add_braces:
+            args = (args,)
+        if slot == 1:
+            return instance(class_str, __new__=args)
+        return instance(class_str, __init__=args)
 
     # classes dont la charge __init__/__new__[0] est du base64 : le parseur
     # C++ la décode directement depuis son tampon de parse, sans matérialiser
@@ -2706,7 +2778,7 @@ class Decoder(rapidjson.Decoder):
         if self._updating:
             self.ancestors.pop()  # se retire lui meme
         class_str = inst.get("__class__", None)
-        if class_str:
+        if class_str is not None:
             if self._updating:
                 if class_str in self.updatableClassStrs:
                     ancestor = self.ancestors[-1]
@@ -2725,23 +2797,15 @@ class Decoder(rapidjson.Decoder):
             if self.root and not inst["$ref"].startswith(indexation.HORS):
                 # try:
                 inst_potential = from_name(
-                    inst["$ref"], accept_dict_as_object=True, root=self.root
+                    inst["$ref"], accept_dict_as_object=True, root=self.root,
+                    materialize=self._materialize,
                 )  # essaye de remplacer tout de suite si possible
                 if inst is inst_potential:
                     raise Exception('{"$ref": "%s"} pointing to himself' % inst["$ref"])
-                if not type(inst_potential) is dict:
-                    # verifie que ce n'est pas un objet qui n'a pas encore été recré
-                    return inst_potential
-                if "__class__" not in inst_potential:
-                    return inst_potential
-                inst_potential_epured = {
-                    key: inst_potential[key]
-                    for key in ["__class__", "__init__", "__new__"]
-                    if key in inst_potential
-                }
-                inst = self._inst_from_dict(inst_potential_epured)
-                inst_potential["__class__"] = inst
-                return inst
+                if type(inst_potential) is dict and "__class__" in inst_potential:
+                    # objet pas encore recréé : créé par anticipation
+                    return self._materialize(inst_potential)
+                return inst_potential
             self.duplicates_to_replace.append(inst)
         elif self._class_from_attributes_names:
             class_from_attributes_names = self._class_from_attributes_names
@@ -2805,6 +2869,20 @@ class Decoder(rapidjson.Decoder):
         del self.node_has_descendants_to_recreate
         self._updating = False
         return obj
+
+    def _materialize(self, dict_):
+        # instance d'un objet dont le dict d'enveloppe est encore en
+        # construction (cible d'un $ref, ou traversé par lui) : créée depuis
+        # __class__/__init__/__new__ et rangée sous "__class__", où sa
+        # fermeture la retrouve pour lui appliquer son état
+        inst = dict_["__class__"]
+        if isinstance(inst, str):
+            inst = dict_["__class__"] = self._inst_from_dict({
+                key: dict_[key]
+                for key in ("__class__", "__init__", "__new__")
+                if key in dict_
+            })
+        return inst
 
     def _resolve_duplicates(self, loaded):
         # on restaure les doublons qu'on n'a pas pu restaurer pendant la
@@ -2880,7 +2958,11 @@ class Decoder(rapidjson.Decoder):
 
     def _inst_from_dict(self, inst):
         class_str = inst["__class__"]
-        if class_str in self._authorized_classes_strs or not isinstance(class_str, str):
+        if not isinstance(class_str, str):
+            # instance déjà construite (mode rehydrate, ou $ref matérialisé) :
+            # instance() l'adopte et lui applique l'état
+            return instance(**inst)
+        if class_str in self._authorized_classes_strs:
             for key in ("__init__", "__new__", "__items__"):
                 if key in inst:
                     if (
@@ -2893,7 +2975,7 @@ class Decoder(rapidjson.Decoder):
                         inst[key] = (inst[key],)
 
             if (
-                inst["__class__"] in ("dict", "dict_non_str_keys")
+                class_str in ("dict", "dict_non_str_keys")
             ):  # je l'ai mis ici car trop specifique à json pour etre dans tools (qui est partagé avec serializePython et serializeRepr)
                 return dict_non_str_keys(inst)
             return instance(**inst)
@@ -3737,6 +3819,74 @@ def _open_with_good_encoding(path):
             else:
                 fp = open(path, "r", encoding="utf_16_le")
     return fp
+
+
+class _UpdatableClasses(set):
+    # noms qualifiés des classes à mettre à jour en place, ET les classes
+    # elles-mêmes : le nom écrit dans un json peut différer de celui que bâtit
+    # class_str_from_class (un greffon Qt écrit "QtWidgets.QSpinBox" là où la
+    # classe se nomme "PySide6.QtWidgets.QSpinBox") — un nom absent est
+    # résolu en classe avant de conclure
+    def __init__(self, updatables):
+        super().__init__()
+        self.classes = set()
+        for updatable in updatables or ():
+            if isinstance(updatable, str):
+                self.add(updatable)
+                try:
+                    self.classes.add(class_from_class_str(updatable))
+                except Exception:
+                    pass
+            else:
+                self.add(class_str_from_class(updatable))
+                self.classes.add(updatable)
+
+    def __contains__(self, class_str):
+        if set.__contains__(self, class_str):
+            return True
+        if not self.classes or not isinstance(class_str, str):
+            return False
+        try:
+            cls = constructors[class_str]
+        except KeyError:
+            try:
+                cls = class_from_class_str(class_str)
+            except Exception:
+                return False
+        return cls in self.classes
+
+
+def _descend(live, key):
+    # un pas de la chaîne des clés sur les objets vivants (mode rehydrate) ;
+    # une clé '~…' est un lecteur virtuel posé par un greffon
+    if isinstance(key, int):
+        if isinstance(live, (list, tuple)) and -len(live) <= key < len(live):
+            return live[key]
+        return None
+    if key[:1] == "~":
+        getter = rehydrate_getters.get(key)
+        return None if getter is None else getter(live)
+    if isinstance(live, dict):
+        return live.get(key)
+    value = getattr(live, key, None)
+    if isinstance(value, (types.MethodType, types.BuiltinMethodType)):
+        # clé d'état servie par un accesseur (Qt : centralWidget, geometry) :
+        # une clé d'état est un attribut de données, jamais une méthode
+        try:
+            return value()
+        except TypeError:
+            return None
+    return value
+
+
+def _anchored(args, ancestor):
+    if ancestor is None or args is None:
+        return False
+    if isinstance(args, dict):
+        args = args.values()
+    elif not isinstance(args, (list, tuple)):
+        return False
+    return any(value is ancestor for value in args)
 
 
 def _get_authorized_classes_strings(classes):

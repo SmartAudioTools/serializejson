@@ -1,9 +1,5 @@
-﻿try:
-    from SmartFramework.serialize.tools import serializejson_, authorized_classes
-    from SmartFramework.serialize import serialize_parameters
-except:
-    from serializejson import serialize_parameters
-    from serializejson.tools import serializejson_, authorized_classes
+﻿from serializejson import serialize_parameters
+from serializejson.tools import serializejson_, authorized_classes
 import array
 
 

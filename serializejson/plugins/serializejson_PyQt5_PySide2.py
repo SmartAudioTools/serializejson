@@ -30,41 +30,97 @@ if API:
     sys.modules["QtGui"] = QtGui
     sys.modules["QtWidgets"] = QtWidgets
 
-    try:
-        from SmartFramework.serialize.tools import (
-            setters,
-            property_types,
-            getstate,
-            setstate,
-            authorized_classes,
-            Reference,
-            constructors,
-            const,
-            consts,
-            class_str_from_class,
-        )
-        from parse import parse
-    except ModuleNotFoundError:
-        from serializejson.tools import (
-            setters,
-            property_types,
-            getstate,
-            setstate,
-            authorized_classes,
-            Reference,
-            constructors,
-            const,
-            consts,
-            class_str_from_class,
-        )
     from SmartFramework.image.image_conversion import (
         QImage_to_bytes_width_height_format,
     )
-    import ctypes
-
-    import sys
+    from serializejson.tools import (
+        setters,
+        property_types,
+        getstate,
+        setstate,
+        authorized_classes,
+        Reference,
+        constructors,
+        const,
+        consts,
+        class_str_from_class,
+        encoder_parameters,
+        rehydrate_getters,
+        serialize_parameters,
+    )
 
     property_types.add(QtCore.Property)
+
+    # ARBRE QT (mot-cle d'encodeur qt_tree=True) ---------------------------------
+    #
+    # Par defaut un QObject n'ecrit que ses attributs python : un enfant Qt
+    # anonyme (QPushButton("ok", self)) ou une fenetre non tenue par un
+    # attribut n'est pas dans le document. Avec qt_tree=True, l'arbre Qt cree
+    # par python est ecrit sous des cles virtuelles, dans l'ordre des
+    # dependances : "~windows" (fenetres de premier niveau, application) et
+    # "~children" (enfants QWidget) EN TETE de l'etat, pour que tout ce qui
+    # les reference ensuite (attributs, layouts, connexions) ne soit qu'un
+    # $ref ; "~layout" (layout anonyme du widget) apres les attributs ;
+    # "~connections" en dernier. Ces cles ne sont jamais posees sur l'objet
+    # (setstate les saute) : leurs valeurs ont agi en se construisant. En
+    # mode rehydrate, les lecteurs rehydrate_getters retrouvent l'homologue
+    # vivant d'une cle virtuelle ; un enfant anonyme est identifie par son
+    # RANG parmi les enfants crees par python (comme un element de liste).
+    # Non couverts : objets non-widgets (QAction, QTimer), arbres uic,
+    # sort_keys=True (casserait l'ordre des cles).
+    encoder_parameters["qt_tree"] = False
+
+    if API == "PySide6":
+        from shiboken6 import Shiboken
+
+        created_by_python = Shiboken.createdByPython
+    elif API == "PySide2":
+        import shiboken2
+
+        created_by_python = shiboken2.createdByPython
+    else:
+        # PyQt : pas d'introspection ; les objets internes de Qt sont nommes
+        # "qt_..." (qt_spinbox_lineedit, qt_scrollarea_viewport...)
+        def created_by_python(obj):
+            return not obj.objectName().startswith("qt_")
+
+    def qt_children(widget):
+        # enfants QWidget crees par python, dans l'ordre de creation
+        return [
+            child
+            for child in widget.children()
+            if isinstance(child, QtWidgets.QWidget) and created_by_python(child)
+        ]
+
+    def qt_layout(widget):
+        layout = widget.layout()
+        if layout is not None and created_by_python(layout):
+            return layout
+        return None
+
+    def qt_windows(app):
+        # fenetres de premier niveau creees par python ; topLevelWidgets est
+        # un ensemble, l'ordre est rendu stable par (classe, nom, titre)
+        windows = [
+            widget
+            for widget in QtWidgets.QApplication.topLevelWidgets()
+            if widget.parent() is None
+            and created_by_python(widget)
+            and widget.windowType()
+            not in (QtCore.Qt.WindowType.Popup, QtCore.Qt.WindowType.ToolTip)
+        ]
+        windows.sort(key=lambda w: (type_str(w), w.objectName(), w.windowTitle()))
+        return windows
+
+    rehydrate_getters["~children"] = qt_children
+    rehydrate_getters["~layout"] = qt_layout
+    rehydrate_getters["~windows"] = qt_windows
+
+    def init_parent(self):
+        parent = self.parent()
+        if parent is not None:
+            return {"parent": parent}
+        return ()
 
     if API.startswith("PyQt"):
         remove_types = None
@@ -241,6 +297,8 @@ if API:
             "QtGui.QTransform",
             "QtGui.QVector3D",
             "QtWidgets.QApplication",
+            "QtGui.QGuiApplication",
+            "QtCore.QCoreApplication",
             "QtWidgets.QCheckBox",
             "QtWidgets.QDoubleSpinBox",
             "QtWidgets.QGridLayout",
@@ -302,12 +360,7 @@ if API:
     QtCore.QObject.__getstate__ = QOBject_gestate
 
     def serializejson_QOBject(self):
-        parent = self.parent()
-        if parent is not None:
-            init = {"parent": parent}
-        else:
-            init = tuple()
-        return (type_str(self), init, self.__getstate__())
+        return (type_str(self), init_parent(self), state_with_connections(self))
 
     QtCore.QObject.__serializejson__ = serializejson_QOBject
 
@@ -362,39 +415,23 @@ if API:
         )
 
     def serializejson_QLayout(self):
-        widgets = []
-        for i in range(self.count()):
-            widgets.append(self.itemAt(i).widget())
-        state = getstate(
-            self,
-            split_dict_slots=False,
-            keep=None,
-            add=None,
-            remove=["parent"],
-            filter_=True,
-            properties=False,
-            getters=False,
-            sort_keys=True,
-            remove_default_values=False,
-        )
-        state["widgets"] = widgets
-        # return type_str(self), (self.parent(),), None #state
-        return type_str(self), None, state  #
-
-    def QLayout_setWidgets(self, widgets):
-        for widget in widgets:
-            self.addWidget(widget)
-
-    QtWidgets.QLayout.setWidgets = QLayout_setWidgets
-    QtWidgets.QLayout.__serializejson__ = serializejson_QLayout
-
-    def serializejson_QGridLayout(self):
+        # "widgets" : les elements dans l'ordre, widget ou sous-layout ; en
+        # grille [element, row, col, rowSpan, colSpan(, alignment)]
+        grid = isinstance(self, QtWidgets.QGridLayout)
         widgets = []
         for i in range(self.count()):
             item = self.itemAt(i)
-            widgets.append(
-                [item.widget()] + list(self.getItemPosition(i)) + [item.alignment()]
-            )
+            element = item.widget()
+            if element is None:
+                element = item.layout()
+                if element is None:  # espaceur
+                    continue
+            if grid:
+                element = [element, *self.getItemPosition(i)]
+                alignment = int(item.alignment())
+                if alignment:
+                    element.append(alignment)
+            widgets.append(element)
         state = getstate(
             self,
             split_dict_slots=False,
@@ -406,40 +443,90 @@ if API:
             getters=False,
             sort_keys=True,
             remove_default_values=False,
+            remove_types=remove_types,
         )
         state["widgets"] = widgets
-        return type_str(self), (self.parent(),), None  # state
+        parent = self.parent()
+        if isinstance(parent, QtWidgets.QWidget):
+            init = {"parent": parent}
+        else:
+            init = ()  # sous-layout : c'est addLayout qui le parente
+        return type_str(self), init, state
 
-    def QGridLayout_setWidgets(self, widgets):
-        for widget in widgets:
-            self.addWidget(widget)
+    def QLayout_setWidgets(self, widgets):
+        for element in widgets:
+            position = []
+            if isinstance(element, list):
+                element, *position = element
+                if len(position) == 5:
+                    position[4] = QtCore.Qt.AlignmentFlag(position[4])
+            if isinstance(element, QtWidgets.QLayout):
+                if element.parent() is not self:  # rehydratation : deja en place
+                    self.addLayout(element, *position)
+            elif self.indexOf(element) == -1:
+                self.addWidget(element, *position)
 
-    QtWidgets.QGridLayout.setWidgets = QGridLayout_setWidgets
-    QtWidgets.QGridLayout.__serializejson__ = serializejson_QGridLayout
+    QtWidgets.QLayout.setWidgets = QLayout_setWidgets
+    QtWidgets.QLayout.__serializejson__ = serializejson_QLayout
 
     def serializejson_QCoreApplication(self):
         remove = ["parent", "eventDispatcher"]
         if self.overrideCursor() is None:
             remove.append("overrideCursor")
-        return (
-            type_str(self),
-            (sys.argv,),
-            getstate(
-                self,
-                split_dict_slots=False,
-                keep=None,
-                add=None,
-                remove=remove,
-                filter_=True,
-                properties=False,
-                getters=False,
-                sort_keys=True,
-                remove_default_values=False,
-                remove_types=remove_types,
-            ),
+        state = getstate(
+            self,
+            split_dict_slots=False,
+            keep=None,
+            add=None,
+            remove=remove,
+            filter_=True,
+            properties=False,
+            getters=False,
+            sort_keys=True,
+            remove_default_values=False,
+            remove_types=remove_types,
         )
+        if serialize_parameters.qt_tree:
+            windows = qt_windows(self)
+            if windows:
+                state = {"~windows": windows, **state}
+            connections_ = connections(self)
+            if connections_:
+                state["~connections"] = connections_
+        return type_str(self), (sys.argv,), state
+
+    def QCoreApplication_setstate(self, state):
+        # une fenetre recreee sans parent n'a d'autre reference python que
+        # celle-ci : sans elle, Python (proprietaire) la detruirait aussitot
+        if "~windows" in state:
+            self._serializejson_windows = state["~windows"]
+        setstate(self, state, setters=True, properties=True)
 
     QtCore.QCoreApplication.__serializejson__ = serializejson_QCoreApplication
+    QtCore.QCoreApplication.__setstate__ = QCoreApplication_setstate
+
+    def application(argv=None, *args):
+        # rend l'application existante (un singleton ne se recree pas) ;
+        # l'argv du json est celui de la machine qui a ecrit, ignore
+        return QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
+
+    for class_str in (
+        "QtWidgets.QApplication",
+        "QtGui.QGuiApplication",
+        "QtCore.QCoreApplication",
+    ):
+        constructors[class_str] = application
+
+    def load_application(file, obj=None, **kwargs):
+        """Recree l'application decrite par un json ecrit avec qt_tree=True
+        (fenetres, enfants anonymes, layouts, connexions), ou la rehydrate
+        si obj est l'application vivante (defaut : celle qui existe).
+        Rend l'application ; app.exec() reste a l'appelant."""
+        import serializejson
+
+        if obj is None:
+            obj = QtWidgets.QApplication.instance()
+        return serializejson.load(file, obj=obj, **kwargs)
 
     def serializejson_QMargins(self):
         return type_str(self), (self.left(), self.top(), self.right(), self.bottom())
@@ -639,13 +726,13 @@ if API:
     #    return type_str(self), {"parent": self.parent()}, getstate(self,split_dict_slots = False, keep=None, add= None, remove = ["parent","minimumSize"], filter_= True, properties=True, getters=True, sort_keys = True, remove_default_values = False)
     # QtWidgets.QWidget.__serializejson__ = serializejson_QWidget
 
-    last_classes = (QtWidgets.QLayout, QtWidgets.QGridLayout)
+    last_classes = (QtWidgets.QLayout,)
 
     def QWidget_getstate(self):
         remove = ["parent", "cursor"]
         if self.layout() is None:
             remove.append("layout")
-        return getstate(
+        state = getstate(
             self,
             split_dict_slots=False,
             keep=None,
@@ -659,20 +746,34 @@ if API:
             last_classes=last_classes,
             remove_types=remove_types,
         )
+        if serialize_parameters.qt_tree:
+            state = qt_tree_state(self, state)
+        return state
+
+    def qt_tree_state(self, state):
+        # les proprietes Qt minimales pour qu'un widget anonyme recree ne
+        # soit pas vide ; setters=True du decodeur les pose (setText...)
+        if self.isWindow():
+            state["windowTitle"] = self.windowTitle()
+            state["geometry"] = self.geometry()
+        if isinstance(self, (QtWidgets.QLabel, QtWidgets.QAbstractButton)):
+            state["text"] = self.text()
+            if isinstance(self, QtWidgets.QAbstractButton) and self.isCheckable():
+                state["checked"] = self.isChecked()
+        if isinstance(self, QtWidgets.QMainWindow) and self.centralWidget() is not None:
+            state["centralWidget"] = self.centralWidget()
+        children = qt_children(self)
+        if children:
+            state = {"~children": children, **state}
+        layout = qt_layout(self)
+        if layout is not None:
+            state["~layout"] = layout
+        return state
 
     QtWidgets.QWidget.__getstate__ = QWidget_getstate
 
     def serializejson_QWidget(self):
-        parent = self.parent()
-        if parent is not None:
-            init = {"parent": parent}
-        else:
-            init = tuple()
-        return (
-            type_str(self),
-            init,
-            self.__getstate__(),
-        )
+        return (type_str(self), init_parent(self), state_with_connections(self))
 
     QtWidgets.QWidget.__serializejson__ = serializejson_QWidget
 
@@ -683,7 +784,7 @@ if API:
     QtWidgets.QSpinBox.__getstate__ = QSpinBox_getstate
 
     def serializejson_QSpinBox(self):
-        return type_str(self), tuple(), self.__getstate__()
+        return type_str(self), init_parent(self), self.__getstate__()
 
     QtWidgets.QSpinBox.__serializejson__ = serializejson_QSpinBox
     QtWidgets.QDoubleSpinBox.__serializejson__ = serializejson_QSpinBox
@@ -722,15 +823,13 @@ if API:
     setters[QtWidgets.QPushButton] = True  # {'checked' : 'setChecked'}
 
     def serializejson_QLineEdit(self):
-        state = {"text": self.text()}
-        return type_str(self), tuple(), state
+        return type_str(self), init_parent(self), {"text": self.text()}
 
     QtWidgets.QLineEdit.__serializejson__ = serializejson_QLineEdit
     setters[QtWidgets.QLineEdit] = {"text": "setText"}
 
     def serializejson_QPlainTextEdit(self):
-        state = {"plainText": self.toPlainText()}
-        return type_str(self), tuple(), state
+        return type_str(self), init_parent(self), {"plainText": self.toPlainText()}
 
     QtWidgets.QPlainTextEdit.__serializejson__ = serializejson_QPlainTextEdit
     setters[QtWidgets.QPlainTextEdit] = {"plainText": "setPlainText"}
@@ -775,134 +874,170 @@ if API:
                             pass
     constructors["const"] = const
 
-    # SERIALISATION DES CONNECTIONS -----------------------------------------------
-
-    # avec pyside les connection sont des elements de __dict__ !!!
-    # je ne les serialize pas pour l'instant en mettant  remove_types = [QtCore.SignalInstance]
-    # mais on pourrait facilement les serializer à priori ! :)
-
-    # hack pour enregistrer les connections dans PyQt6
-
-    old_connect = QtCore.SignalInstance.connect
-
-    def new_connect(signal, slot, save=None):
-        return_value = old_connect(signal, slot)
-        if save is True or (
-            save is None and sys._getframe(1).f_code.co_name != "__init__"
-        ):  # sauve la connection si elle a été crée en dehors d'un __init__
-            (
-                signal_object,
-                signal_name,
-                slot_object,
-                slot_name,
-                signature,
-            ) = connection_infos(signal, slot)
-            signal_parents = get_parents(signal_object)
-            slot_parents = get_parents(slot_object)
-            for commun_parent in signal_parents:
-                if commun_parent in slot_parents:
-                    break
-            else:
-                print(
-                    "No Commun Qt Parent for ",
-                    signal_object,
-                    signal_parents,
-                    slot_object,
-                    slot_parents,
-                )
-            if "~connections" not in commun_parent.__dict__:
-                commun_parent.__dict__["~connections"] = []
-            commun_parent.__dict__["~connections"].append(
-                Connection(
-                    signal_object, signal_name, slot_object, slot_name, signature
-                )
-            )
-        return return_value
-
-    # QtCore.SignalInstance.connect = new_connect
+    # SERIALISATION DES CONNEXIONS ------------------------------------------------
+    #
+    # Sous PySide6, une methode python connectee a un signal est enregistree
+    # comme slot dynamique du meta-objet : QObject.dumpObjectInfo() la liste
+    # (« --> Classe::objectName slot(signature) »), sans surcharger connect.
+    # Lambdas et fonctions libres y figurent en « <functor or function
+    # pointer> » : non retrouvables, donc non serialisees. Sous PyQt, toute
+    # connexion python passe par un PyQtSlotProxy opaque : aucune
+    # introspection possible sans surcharger connect (ancien hack new_connect,
+    # retire — voir l'historique git).
+    #
+    # Une connexion est stockee sous la cle "~connections" (triee en dernier)
+    # de l'objet qui est le plus proche ancetre Qt commun de l'emetteur et du
+    # recepteur : les deux sont alors deja serialises quand la reference est
+    # ecrite, et chaque connexion ne l'est qu'une fois.
 
     class Connection:
-        def __init__(self, signal_object, signal, slot_object, slot, signature=None):
-            # self.id = id
+        def __init__(
+            self, signal_object, signal_name, signature, slot_object, slot_name
+        ):
             self.signal_object = signal_object
-            self.signal_name = signal
-            self.slot_object = slot_object
-            self.slot_name = slot
+            self.signal_name = signal_name
             self.signature = signature
+            self.slot_object = slot_object
+            self.slot_name = slot_name
 
         def __serializejson__(self):
-            signal_name_sig = "." + self.signal_name
-            if self.signature is not None:
-                signal_name_sig += "[" + self.signature + "]"
+            signal = "." + self.signal_name
+            if self.signature:  # signal surcharge : PySide accepte sa signature C++ en index
+                signal += "['" + self.signature + "']"
             return (
                 "Connection",
                 None,
                 {
-                    "signal": Reference(self.signal_object, signal_name_sig),
-                    "slot": Reference(
-                        self.slot_object, "." + self.slot_name
-                    ),  # Reference([self.slot_object,self.slot_name]),
+                    "signal": Reference(self.signal_object, signal),
+                    "slot": Reference(self.slot_object, "." + self.slot_name),
                 },
             )
 
         def __setstate__(self, state):
-            # serialize_parameters.decoder.
-            signal = state["signal"]
-            slot = state["slot"]
-            signal.connect(slot, save=False)
-            (
-                self.signal_object,
-                self.signal_name,
-                self.slot_object,
-                self.slot_name,
-                self.signature,
-            ) = connection_infos(signal, slot)
+            self.signal = state["signal"]
+            self.slot = state["slot"]
+            # UniqueConnection : une connexion deja refaite par le __init__ de
+            # l'objet recharge n'est pas doublee
+            self.signal.connect(self.slot, QtCore.Qt.ConnectionType.UniqueConnection)
 
     constructors["Connection"] = Connection
-    signature_str_from_qt = {
-        "": None,
-        "bool": "bool",
-        "int": "int",
-        "double": "float",
-        "QString": "str",
-        "PyQt_PyObject": "object",
-    }
-    signature_from_srt = {
-        "bool": bool,
-        "int": int,
-        "float": float,
-        "str": str,
-        "object": object,
-    }
 
-    def connection_infos(signal, slot):
-        signal_str = signal.__str__()
-        signal_name, _, hex_id = parse(
-            "<bound PYQT_SIGNAL {} of {} object at {}>", signal_str
-        ).fixed
-        signal_object = ctypes.cast(int(hex_id, 16), ctypes.py_object).value
-        signal_str = signal.signal
-        signature = signature_str_from_qt.get(
-            signal_str[signal_str.rfind("(") + 1 : -1], "object"
-        )
+    if API == "PySide6":
+        import re
 
-        if isinstance(slot, QtCore.SignalInstance):
-            slot_str = slot.__str__()
-            slot_name, _, hex_id = parse(
-                "<bound PYQT_SIGNAL {} of {} object at {}>", slot_str
-            ).fixed
-            slot_object = ctypes.cast(int(hex_id, 16), ctypes.py_object).value
-        else:
-            slot_object = slot.__self__
-            slot_name = slot.__name__
-        return (signal_object, signal_name, slot_object, slot_name, signature)
+        _RE_SIGNAL = re.compile(r"^\s*signal: (\w+)\((.*)\)$")
+        _RE_RECEIVER = re.compile(r"^\s*--> \S+::~sj(\d+) (\w+)\(.*\)$")
 
-    def get_parents(obj):
-        parents = [obj]
-        parent = obj.parent()
-        while parent is not None:
-            parents.append(parent)
-            parent = parent.parent()
-        return parents
+        def connections(root):
+            """Connexions de l'arbre de root dont root est le plus proche
+            ancetre commun de l'emetteur et du recepteur."""
+            objects = [root] + root.findChildren(QtCore.QObject)
+            if isinstance(root, QtCore.QCoreApplication):
+                # les fenetres ne sont pas des enfants de l'application ;
+                # sans qt_tree elles ne sont pas dans le document
+                if not serialize_parameters.qt_tree:
+                    return []
+                for window in qt_windows(root):
+                    objects.append(window)
+                    objects.extend(window.findChildren(QtCore.QObject))
+            qt_tree = serialize_parameters.qt_tree
+
+            def in_document(obj):
+                # un objet ne peut etre reference que s'il est ecrit : tenu
+                # par un attribut python de son parent (directement ou dans
+                # une liste, un tuple, un dict), ou, avec qt_tree, widget ou
+                # layout de l'arbre ; les enfants internes a Qt
+                # (qt_spinbox_lineedit...) n'y sont jamais
+                if obj is root:
+                    return True
+                if not created_by_python(obj):
+                    return False
+                parent = obj.parent()
+                if parent is None:
+                    return True  # fenetre listee par qt_windows
+                if not (qt_tree and isinstance(obj, (QtWidgets.QWidget, QtWidgets.QLayout))):
+                    for value in getattr(parent, "__dict__", {}).values():
+                        if isinstance(value, dict):
+                            value = value.values()
+                        elif not isinstance(value, (list, tuple)):
+                            value = (value,)
+                        if any(element is obj for element in value):
+                            break
+                    else:
+                        return False
+                return in_document(parent)
+
+            visible = [in_document(o) for o in objects]
+            # dumpObjectInfo designe le recepteur par (classe, objectName) :
+            # ambigu des que deux enfants sont anonymes -> noms temporaires
+            # uniques, portant l'index dans objects (emet objectNameChanged)
+            names = [o.objectName() for o in objects]
+            lines = []
+            previous = QtCore.qInstallMessageHandler(
+                lambda mode, context, message: lines.append(message)
+            )
+            try:
+                for i, o in enumerate(objects):
+                    o.setObjectName("~sj%d" % i)
+                for i, o in enumerate(objects):
+                    if visible[i]:
+                        lines.append(i)
+                        o.dumpObjectInfo()
+            finally:
+                QtCore.qInstallMessageHandler(previous)
+                for o, name in zip(objects, names):
+                    o.setObjectName(name)
+
+            def branch(obj):
+                # enfant direct de root (fenetre, pour une application) sous
+                # lequel obj se trouve ; None = root lui-meme
+                while obj is not root:
+                    parent = obj.parent()
+                    if parent is root or parent is None:
+                        break
+                    obj = parent
+                return None if obj is root else obj
+
+            # seule la section SIGNALS OUT porte des lignes « signal: » et
+            # « --> » ; SIGNALS IN ecrit « <-- », que les motifs ignorent
+            result = []
+            for line in lines:
+                if isinstance(line, int):
+                    emitter = objects[line]
+                    emitter_branch = branch(emitter)
+                    continue
+                match = _RE_SIGNAL.match(line)
+                if match:
+                    signal_name, signature = match.groups()
+                    continue
+                match = _RE_RECEIVER.match(line)
+                if match is None or signal_name == "destroyed":
+                    continue
+                if match.group(2).startswith("_q_"):
+                    continue  # slot prive de Qt (QGuiApplication : ecrans)
+                if not visible[int(match.group(1))]:
+                    continue
+                receiver = objects[int(match.group(1))]
+                # emetteur et recepteur sous le meme enfant direct de root :
+                # c'est cet enfant qui la stocke, pas root
+                if emitter_branch is None or emitter_branch is not branch(receiver):
+                    result.append(
+                        Connection(
+                            emitter, signal_name, signature, receiver, match.group(2)
+                        )
+                    )
+            return result
+
+    else:
+
+        def connections(root):
+            return []
+
+    def state_with_connections(self):
+        state = self.__getstate__()
+        connections_ = connections(self)
+        if connections_:
+            state["~connections"] = connections_
+        return state
 
     # -----------------------------------------------------------------------------
