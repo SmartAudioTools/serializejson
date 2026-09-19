@@ -1062,17 +1062,32 @@ motivé la demande (consigne explicite de Baptiste).
   ignorées) et sur le refus du dernier segment vide. Suite complète 308
   verts × 3.12/3.13/3.14.
 
-Constatés, PRÉEXISTANTS, non touchés :
-- **Installation éditable (SmartPython, 19/09 19 h 58-20 h 01)** : elle a
-  rebâti rapidjson/*.so HORS PGO (2,2 Mo au lieu de ≈ 1,99) et déposé des
-  copies non suivies serializejson/rapidjson.cpython-3*.so. tools.py charge
-  blosc dans CETTE copie, les tests (conftest) utilisent celle de rapidjson/ :
-  deux modules distincts, un seul a blosc → 4 échecs « blosc library not
-  loaded » (test_blosc2_parallele_deterministe + 3 de
-  test_compression_diff), identiques sur les sources commitées.
-- Même installation : « rapidjson » s'y résout vers le .so et non vers le
-  paquet → conftest a un repli `import rapidjson`, et les tests Qt en
-  sous-processus passent par `import conftest` au lieu de l'idiome
-  `import rapidjson.rapidjson` (encore présent, non touché, dans
-  types_seuls.py, bench_pyperformance_pickle.py, lance_benchmarks.py,
-  pgo_workload.py).
+## Addendum 19/09/2026 21 h 31 — problèmes de l'installation éditable RÉGLÉS
+## (demande de Baptiste « tu peux régler les problèmes dus à l'installation
+## éditable ? »)
+
+L'installation éditable SmartPython (19/09 19 h 58-20 h 01) avait :
+- rebâti les rapidjson/*.so SUIVIS hors PGO (2,2 Mo au lieu de ≈ 1,99) →
+  restaurés par `git checkout` (les .so commités en 620f02e sont PGO et
+  correspondent aux sources C++, inchangées depuis) ;
+- déposé des copies non suivies serializejson/rapidjson.cpython-3*.so (hors
+  PGO, gitignorées) que `from . import rapidjson` PRÉFÈRE : serializejson et
+  les tests tournaient sur deux modules distincts, libblosc2 chargée dans un
+  seul (4 échecs « blosc library not loaded »), et — plus grave — build_pgo.sh
+  profilait le binaire instrumenté sans que serializejson s'en serve.
+
+Correctif : tests/conftest.py charge rapidjson/rapidjson<EXT_SUFFIX> PAR
+CHEMIN (spec_from_file_location, indépendant du chercheur d'import) et
+l'épingle sous « rapidjson » ET « serializejson.rapidjson » avant tout import
+de serializejson. Les scripts du dépôt (types_seuls, bench_pyperformance_
+pickle, lance_benchmarks, pgo_workload hors roue) font `import conftest` :
+plus aucun idiome `import rapidjson.rapidjson`. 312 verts × 3.12/3.13/3.14 ;
+rouge prouvé sans l'épingle sous le second nom (les 4 mêmes échecs).
+
+Reste hors de portée de ce compte : les copies serializejson/*.so
+appartiennent au compte principal (cp « Permission non accordée ») — hors
+PGO, mais mêmes sources ; elles ne servent plus qu'aux usages hors dépôt
+(SmartFramework). Pour y mettre les binaires PGO, Baptiste :
+`cp rapidjson/rapidjson.cpython-31{2,3,4}-x86_64-linux-gnu.so serializejson/`.
+Toute réinstallation éditable refera les deux dégâts (rapidjson/*.so
+modifiés → `git checkout`).
