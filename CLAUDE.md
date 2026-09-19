@@ -1054,6 +1054,10 @@ motivé la demande (consigne explicite de Baptiste).
   appel). v2 C++ (segments au fil d'écriture, recouvrement du parse) NON
   tentée : les .so de travail ont été rebâtis HORS PGO par l'installation
   éditable (voir ci-dessous) — à reprendre sur arbre propre, format inchangé.
+  Arbre propre depuis 21 h 31, mais v2 = lier libcrypto (OpenSSL) à
+  l'extension C : dépendance NOUVELLE du binaire et des roues (auditwheel
+  l'embarquerait, openssl-devel dans le conteneur) → arbitrage de Baptiste
+  avant d'y toucher.
 - **Preuves** : 11 vecteurs officiels C2SP/CCTV versionnés dans
   tests/age_testdata, sha git vérifiés par le test (seule preuve
   d'interopérabilité : ni réseau ni binaire age ici — PAS de test croisé
@@ -1084,8 +1088,11 @@ pickle, lance_benchmarks, pgo_workload hors roue) font `import conftest` :
 plus aucun idiome `import rapidjson.rapidjson`. 312 verts × 3.12/3.13/3.14 ;
 rouge prouvé sans l'épingle sous le second nom (les 4 mêmes échecs).
 
-Copies serializejson/*.so : fichiers du compte principal, non inscriptibles
-ici (cp « Permission non accordée »), MAIS le dossier l'est → remplacées par
+Copies serializejson/*.so : pip les crée en mode 755, dont les bits de
+groupe (r-x) deviennent le MASQUE ACL et annulent l'écriture du groupe
+partagé (`group:…:rwx #effective:r-x`) — ni le propriétaire ni le partage de
+/DATA/Python en cause. Non réinscriptibles ici (cp « Permission non
+accordée »), MAIS le dossier l'est → remplacées par
 les PGO via copie temporaire + `mv` (renommage = droit sur le dossier seul),
 octets identiques à rapidjson/*.so, masque ACL rwx (lisibles par Baptiste),
 import hors dépôt vérifié avec blosc du fork chargé.
