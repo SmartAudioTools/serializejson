@@ -523,7 +523,7 @@ def index(file, form=indexation.FORME_DEFAUT,
         the index. It holds only `root` when no container reaches `threshold`,
         and nothing is then written on disk.
     """
-    rapidjson.wait_writes()
+    _attend_ecritures()
     return indexation.construit(file, form, threshold)
 
 
@@ -535,7 +535,7 @@ def paths(file):
     rest of the document; any other path stays loadable, through its closest
     indexed ancestor.
     """
-    rapidjson.wait_writes()
+    _attend_ecritures()
     index_ = indexation.lit(file)
     return None if index_ is None else sorted(index_["paths"])
 
@@ -549,7 +549,7 @@ def wait_writes():
     a copy — or before an interpreter that would end without `atexit` running.
     Raise the `OSError` of a write that failed after `dump` returned.
     """
-    rapidjson.wait_writes()
+    _attend_ecritures()
 
 
 def jsonpath(obj):
@@ -571,7 +571,7 @@ _FLUX_A_DESCRIPTEUR = (io.BufferedWriter, io.BufferedRandom, io.FileIO)
 
 # Un dump rendu sans attendre le disque ne doit pas être perdu si le programme
 # se termine dans la foulée : rien ne survit à la fin de l'interpréteur.
-atexit.register(rapidjson.wait_writes)
+atexit.register(lambda: _attend_ecritures())
 
 
 def _descripteur(fp):
@@ -1205,7 +1205,7 @@ class Encoder(rapidjson.Encoder):
             file = self.file
         self._append_reset()
         if isinstance(file, str):
-            self.fp = open(file, "wb")
+            self.fp = _ouvre_chiffre(file)  # même garde qu'un dump chiffré
         else:
             self.fp = file
         fd = _descripteur(self.fp)
@@ -1270,7 +1270,7 @@ class Encoder(rapidjson.Encoder):
         ouvert = getattr(self, "fp", file)
         if hasattr(ouvert, "flush"):
             ouvert.flush()
-        rapidjson.wait_writes()
+        _attend_ecritures()
         indexation.construit(chemin, self.index, self.index_threshold)
 
     def dumps(self, obj):
@@ -1333,7 +1333,7 @@ class Encoder(rapidjson.Encoder):
                 raise Exception("index needs a file path, not %r"
                                 % (self._append_pour,))
             return
-        rapidjson.wait_writes()
+        _attend_ecritures()
         if self._append_index_tenu:
             self._index_append_range(
                 (chemin, indexation.chemin_sidecar(chemin),
@@ -1426,7 +1426,7 @@ class Encoder(rapidjson.Encoder):
             ouvert = suite and hasattr(self, "fp")
             # l'append précédent peut encore être en vol : le fichier ne se
             # rouvre, ne se mesure et ne se tronque qu'une fois posé
-            rapidjson.wait_writes()
+            _attend_ecritures()
             fp, vide = _open_for_append(self.fp if ouvert else file,
                                         self.indent, queue=not ouvert)
             self.fp = fp
@@ -2535,7 +2535,7 @@ class Decoder(rapidjson.Decoder):
 
         # un dump rend la main avant que le disque ait tout reçu : relire sans
         # attendre donnerait un document tronqué
-        rapidjson.wait_writes()
+        _attend_ecritures()
         if file is None:
             file = self.file
         if path is not None:
@@ -3554,16 +3554,23 @@ class _EncodeurChiffre:
             file = self.file
         self._append_reset()
         if isinstance(file, str):
-            chiffre = self._chiffre(obj, True, True)
+            self._applique_profil(True)
+            clair = rapidjson.Encoder.__call__(self, obj, return_bytes=True)
+            _encryption._crypto()  # extra absent : l'erreur ici, pas au wait
             # un dump en clair vers ce chemin peut être encore en vol dans
             # le fil d'écriture, index compris : il finirait APRÈS nous
             rapidjson.wait_writes()
-            with open(file, "wb") as fp:
-                fp.write(chiffre)
+            fp = _ouvre_chiffre(file)
             # l'index d'un document en clair précédent décrirait sa structure
             sidecar = indexation.chemin_sidecar(file)
             if os.path.exists(sidecar):
                 os.remove(sidecar)
+            if self.disk_write_mode == "blocking":
+                _ecrit_chiffre(clair, self.encryption_key, fp)
+            else:
+                # comme en clair, dump rend la main sans attendre le disque :
+                # chiffrement ET écriture partent au fil des dumps chiffrés
+                _differe_chiffre(clair, self.encryption_key, fp, file)
             return
         texte = isinstance(file, io.TextIOBase)
         file.write(self._chiffre(obj, True, not texte))
@@ -3573,6 +3580,57 @@ class _EncodeurChiffre:
     def append(self, obj, file=None, close=False):
         raise ValueError("encryption_key: an encrypted document is written"
                          " as a whole, append is not supported")
+
+
+# Dumps chiffrés vers un chemin, en "fast_release" : le fichier est ouvert
+# (donc créé, tronqué, ses erreurs levées) PAR dump, comme en clair ; le
+# chiffrement et l'écriture partent à UN fil, dans l'ordre des dumps. Le
+# chiffrement (cryptography) rend le GIL : l'appelant continue pendant ce temps.
+# _attend_ecritures remplace rapidjson.wait_writes partout où l'on attend.
+_chiffres_en_vol = deque()  # (chemin, futur)
+_executeur_chiffre = None
+
+
+def _ecrit_chiffre(clair, cle, fp):
+    with fp:
+        fp.write(_encryption.encrypt(clair, cle))
+
+
+def _ouvre_chiffre(file):
+    # un dump chiffré vers ce même chemin encore en vol écrit dans le fichier
+    # que l'on va tronquer : il se pose d'abord
+    if _chiffres_en_vol and any(c == file for c, _ in list(_chiffres_en_vol)):
+        _attend_chiffres()
+    return open(file, "wb")
+
+
+def _differe_chiffre(clair, cle, fp, file):
+    global _executeur_chiffre
+    if _executeur_chiffre is None:
+        from concurrent.futures import ThreadPoolExecutor
+        _executeur_chiffre = ThreadPoolExecutor(1, "serializejson-chiffre")
+    _chiffres_en_vol.append(
+        (file, _executeur_chiffre.submit(_ecrit_chiffre, clair, cle, fp)))
+
+
+def _attend_chiffres():
+    erreur = None
+    while True:
+        try:
+            _, futur = _chiffres_en_vol.popleft()
+        except IndexError:
+            break
+        e = futur.exception()
+        if e is not None and erreur is None:
+            erreur = e
+    if erreur is not None:
+        raise erreur
+
+
+def _attend_ecritures():
+    rapidjson.wait_writes()
+    if _chiffres_en_vol:
+        _attend_chiffres()
 
 
 class _DecodeurChiffre:
@@ -3586,7 +3644,7 @@ class _DecodeurChiffre:
         if path is not None:
             raise ValueError("encryption_key: an encrypted document is read"
                              " as a whole, path is not supported")
-        rapidjson.wait_writes()
+        _attend_ecritures()
         if file is None:
             file = self.file
         if not isinstance(file, str):

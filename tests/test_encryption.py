@@ -345,3 +345,51 @@ def test_sans_cle_rien_ne_change():
         DOC, encryption_key=None)
     assert serializejson.loads(serializejson.dumps(DOC),
                                encryption_key=None) == DOC
+
+
+def test_dump_chiffre_asynchrone_puis_load(tmp_path):
+    # comme en clair, dump vers un chemin rend la main avant le disque :
+    # load, wait_writes et la lecture brute après wait voient le document
+    chemin = str(tmp_path / "doc.json")
+    docs = [{"n": i, "charge": "x" * (70000 + i)} for i in range(4)]
+    for doc in docs:
+        serializejson.dump(doc, chemin, encryption_key="secret")
+    assert serializejson.load(chemin, encryption_key="secret") == docs[-1]
+    serializejson.dump(docs[0], chemin, encryption_key="secret")
+    serializejson.wait_writes()
+    brut = open(chemin, "rb").read()
+    assert serializejson.loads(brut, encryption_key="secret") == docs[0]
+
+
+@pytest.mark.parametrize("ordre", ["chiffre_puis_clair", "clair_puis_chiffre",
+                                   "chiffre_puis_chiffre"])
+def test_dumps_successifs_meme_chemin_le_dernier_gagne(tmp_path, ordre):
+    chemin = str(tmp_path / "doc.json")
+    gros = {"liste": list(range(200000))}
+    petit = {"dernier": True}
+    premier, second = {
+        "chiffre_puis_clair": ("secret", None),
+        "clair_puis_chiffre": (None, "secret"),
+        "chiffre_puis_chiffre": ("secret", "secret"),
+    }[ordre]
+    serializejson.dump(gros, chemin, encryption_key=premier)
+    serializejson.dump(petit, chemin, encryption_key=second)
+    serializejson.wait_writes()
+    assert serializejson.load(chemin, encryption_key=second) == petit
+
+
+def test_dump_chiffre_bloquant_est_synchrone(tmp_path):
+    chemin = str(tmp_path / "doc.json")
+    encodeur = serializejson.Encoder(encryption_key="secret",
+                                     disk_write_mode="blocking")
+    encodeur.dump(DOC, chemin)
+    # aucune attente : le fichier est complet au retour de dump
+    brut = open(chemin, "rb").read()
+    assert serializejson.loads(brut, encryption_key="secret") == DOC
+
+
+def test_dump_chiffre_erreur_d_ouverture_levee_par_dump(tmp_path):
+    with pytest.raises(OSError):
+        serializejson.dump(DOC, str(tmp_path / "absent" / "doc.json"),
+                           encryption_key="secret")
+    serializejson.wait_writes()  # rien de différé en échec
