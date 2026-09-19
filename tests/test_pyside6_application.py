@@ -5,9 +5,12 @@ anonymes, layouts, connexions, au fil du parse (rehydrate=True).
 Le greffon se lie à UNE API Qt au premier import de serializejson : chaque
 étape tourne dans un sous-processus sous QT_API=pyside6. Étapes :
   --ecrit      construit l'application, écrit le json (et vérifie l'opt-in)
-  --recree     processus VIERGE : load_application recrée tout
-  --rehydrate  application vivante modifiée : load_application la remet à jour
+  --recree     processus VIERGE : load recrée tout
+  --rehydrate  application vivante modifiée : load(obj=app) la remet à jour
                deux fois (identités conservées, connexions non doublées)
+  --ecrit-fenetre / --recree-fenetre  racine = UNE fenêtre (pas l'application)
+Options : --sans-obj (load sans obj=app), --sans-app (aucune QApplication avant le load : c'est le json
+qui doit la créer, ou échouer si sa racine n'est pas l'application).
 Avec --sans-rehydrate (rehydrate=False), la recréation passe par la voie
 classique : les enfants créés par __init__ ET ceux du json coexistent
 (rouge attendu).
@@ -46,6 +49,65 @@ def test_application_pyside6(tmp_path):
     assert "AssertionError" in resultat.stderr
 
 
+_PYSIDE6 = pytest.mark.skipif(
+    subprocess.run([sys.executable, "-c", "import PySide6, qtpy"],
+                   capture_output=True).returncode != 0,
+    reason="PySide6 ou qtpy absent",
+)
+
+
+@pytest.fixture(scope="module")
+def json_application(tmp_path_factory):
+    chemin = str(tmp_path_factory.mktemp("qt") / "application.json")
+    resultat = _lance("--ecrit", chemin)
+    assert resultat.returncode == 0, resultat.stderr
+    return chemin
+
+
+@pytest.fixture(scope="module")
+def json_fenetre(tmp_path_factory):
+    chemin = str(tmp_path_factory.mktemp("qt") / "fenetre.json")
+    resultat = _lance("--ecrit-fenetre", chemin)
+    assert resultat.returncode == 0, resultat.stderr
+    return chemin
+
+
+# racine = application : quatre façons de charger, avec ou sans application
+# préexistante. Sans obj=, la recréation adopte les enfants des __init__ (pas
+# de doublon) ; sans application, c'est le constructeur du json qui la crée.
+@_PYSIDE6
+@pytest.mark.parametrize("options", [
+    [],
+    ["--sans-obj"],
+    ["--sans-app"],
+    ["--sans-obj", "--sans-app"],
+], ids=["obj", "sans_obj", "obj-sans_app", "sans_obj-sans_app"])
+def test_recree_racine_application(json_application, options):
+    resultat = _lance("--recree", json_application, *options)
+    assert resultat.returncode == 0, resultat.stderr
+
+
+@_PYSIDE6
+def test_rehydrate_application_vivante(json_application):
+    resultat = _lance("--rehydrate", json_application)
+    assert resultat.returncode == 0, resultat.stderr
+
+
+# racine = une fenêtre : le json ne contient pas l'application.
+@_PYSIDE6
+def test_recree_racine_fenetre_avec_application(json_fenetre):
+    resultat = _lance("--recree-fenetre", json_fenetre)
+    assert resultat.returncode == 0, resultat.stderr
+
+
+@_PYSIDE6
+def test_recree_racine_fenetre_sans_application_echoue(json_fenetre):
+    # limite documentée : aucun QApplication n'existe quand le premier widget
+    # se construit, Qt abandonne (l'application est à créer AVANT le load)
+    resultat = _lance("--recree-fenetre", json_fenetre, "--sans-app")
+    assert resultat.returncode != 0
+
+
 if __name__ == "__main__":
     sys.path.insert(0, RACINE)
     etape, chemin = sys.argv[1], sys.argv[2]
@@ -57,7 +119,10 @@ if __name__ == "__main__":
     from qtpy import QtCore, QtWidgets
 
     assert greffon.API == "PySide6"
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    sans_app = "--sans-app" in sys.argv
+    sans_obj = "--sans-obj" in sys.argv
+    app = None if sans_app else (
+        QtWidgets.QApplication.instance() or QtWidgets.QApplication([]))
 
     class Panel(QtWidgets.QWidget):
         def __init__(self, parent=None):
@@ -146,17 +211,41 @@ if __name__ == "__main__":
         assert '"principale": {"$ref": "root.~windows[0]"}' in json
         assert '"__class__": "QtWidgets.QGridLayout"' in json
     elif etape == "--recree":
-        assert not hasattr(app, "principale")
+        assert (app is None) == sans_app
+        assert app is None or not hasattr(app, "principale")
         if sans_rehydrate:
             serializejson.load(chemin, rehydrate=False, authorized_classes=classes)
+            resultat = app
         else:
-            assert greffon.load_application(chemin, authorized_classes=classes) is app
+            resultat = serializejson.load(
+                chemin, obj=None if sans_obj else app, authorized_classes=classes)
+        app = QtWidgets.QApplication.instance()
+        assert app is not None and resultat is app
         principale = app.principale
         assert isinstance(principale, Principale)
         (secondaire,) = [f for f in greffon.qt_windows(app) if f is not principale]
         verifie(principale, secondaire)
         QtCore.QTimer.singleShot(0, app.quit)
         assert app.exec() == 0
+    elif etape == "--ecrit-fenetre":
+        principale, secondaire = construit()
+        principale.spin.setValue(7)
+        serializejson.dump(principale, chemin, qt_tree=True)
+        serializejson.wait_writes()
+        with open(chemin, encoding="utf-8") as fichier:
+            json = fichier.read()
+        assert '"windowTitle"' in json and "QApplication" not in json
+    elif etape == "--recree-fenetre":
+        # sans --sans-app : application vivante ; avec : le load doit échouer
+        principale = serializejson.load(chemin, authorized_classes=classes)
+        assert isinstance(principale, Principale)
+        assert principale.windowTitle() == "Principale"
+        assert principale.spin.value() == 7
+        assert len(principale.findChildren(QtWidgets.QLabel)) == 1
+        assert len(principale.findChildren(QtWidgets.QSpinBox)) == 2
+        assert principale.panel.spin.parent() is principale.panel
+        principale.panel.plus.pressed.emit()
+        assert principale.panel.spin.value() == 1
     elif etape == "--rehydrate":
         principale, secondaire = construit()
         principale.spin.setValue(3)
@@ -166,7 +255,7 @@ if __name__ == "__main__":
                                secondaire, principale.layout())]
         enfants = [len(principale.children()), len(secondaire.children())]
         for _ in range(2):
-            assert greffon.load_application(chemin, authorized_classes=classes) is app
+            assert serializejson.load(chemin, obj=app, authorized_classes=classes) is app
         assert app.principale is principale
         assert [id(o) for o in (principale, principale.label, principale.spin,
                                 principale.panel, principale.panel.spin, bouton,

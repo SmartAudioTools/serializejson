@@ -532,17 +532,6 @@ if API:
     ):
         constructors[class_str] = application
 
-    def load_application(file, obj=None, **kwargs):
-        """Recree l'application decrite par un json ecrit avec qt_tree=True
-        (fenetres, enfants anonymes, layouts, connexions), ou la rehydrate
-        si obj est l'application vivante (defaut : celle qui existe).
-        Rend l'application ; app.exec() reste a l'appelant."""
-        import serializejson
-
-        if obj is None:
-            obj = QtWidgets.QApplication.instance()
-        return serializejson.load(file, obj=obj, **kwargs)
-
     def serializejson_QMargins(self):
         return type_str(self), (self.left(), self.top(), self.right(), self.bottom())
 
