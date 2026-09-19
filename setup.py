@@ -125,6 +125,7 @@ if __name__ == "__main__":
         extras_require={
             "dev": ["pytest", "numpy", "qtpy", "PyQt5"],
             "test": ["pytest", "numpy"],
+            "crypto": ["cryptography>=47"],
         },
         project_urls={
             "Documentation": "https://smartaudiotools.github.io/serializejson",
