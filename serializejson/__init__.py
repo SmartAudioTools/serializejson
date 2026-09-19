@@ -343,13 +343,33 @@ def dump(obj, file, **argsDict):
 # d'une par instance et par bascule du drapeau — le reste n'est plus que de
 # l'accès d'attribut Python ordinaire, sur un objet déjà en main.
 class _EtatParDefaut:
-    __slots__ = ("encoder_str", "encoder_bytes", "decoder", "occupe")
+    __slots__ = ("encoder_str", "encoder_bytes", "decoder", "occupe",
+                 "chiffres")
 
     def __init__(self):
         self.encoder_str = None
         self.encoder_bytes = None
         self.decoder = None
         self.occupe = False
+        # même économie pour un appel dont la SEULE option est
+        # encryption_key : genre ("dumps"/"dumpb"/"loads") → dernière
+        # instance chiffrante, reprise tant que la clé ne change pas
+        self.chiffres = {}
+
+
+def _par_defaut_chiffre(etat, genre, argsDict):
+    if len(argsDict) != 1 or etat.occupe:
+        return None
+    cle = argsDict.get("encryption_key")
+    if cle is None:
+        return None
+    instance = etat.chiffres.get(genre)
+    if instance is None or instance.encryption_key != cle:
+        instance = (Decoder(encryption_key=cle) if genre == "loads" else
+                    Encoder(encryption_key=cle,
+                            return_bytes=genre == "dumpb"))
+        etat.chiffres[genre] = instance
+    return instance
 
 
 _instances_par_defaut = threading.local()
@@ -384,6 +404,13 @@ def dumps(obj, **argsDict):
             return encoder(obj)
         finally:
             etat.occupe = False
+    encoder = _par_defaut_chiffre(etat, "dumps", argsDict)
+    if encoder is not None:
+        etat.occupe = True
+        try:
+            return encoder.dumps(obj)
+        finally:
+            etat.occupe = False
     # par la méthode, et non par __call__ : c'est elle qui refuse un index,
     # qui n'a de sens que dans un fichier
     return Encoder(**argsDict).dumps(obj)
@@ -405,6 +432,13 @@ def dumpb(obj, **argsDict):
         etat.occupe = True
         try:
             return encoder(obj)
+        finally:
+            etat.occupe = False
+    encoder = _par_defaut_chiffre(etat, "dumpb", argsDict)
+    if encoder is not None:
+        etat.occupe = True
+        try:
+            return encoder.dumpb(obj)
         finally:
             etat.occupe = False
     return Encoder(**argsDict).dumpb(obj)
@@ -460,6 +494,13 @@ def loads(json, *, obj=None, iterator=False, **argsDict):
         decoder = etat.decoder
         if decoder is None:
             decoder = etat.decoder = Decoder()
+        etat.occupe = True
+        try:
+            return decoder.loads(json, obj)
+        finally:
+            etat.occupe = False
+    decoder = _par_defaut_chiffre(etat, "loads", argsDict)
+    if decoder is not None:
         etat.occupe = True
         try:
             return decoder.loads(json, obj)

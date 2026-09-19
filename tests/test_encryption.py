@@ -61,6 +61,17 @@ def _scrypt_rapide(monkeypatch):
     _encryption._vide_caches()
 
 
+@pytest.fixture(autouse=True, params=["c", "python"])
+def voie(request, monkeypatch):
+    # chaque test passe par les DEUX voies de la charge utile : C (libcrypto
+    # chargée à l'exécution) et python (cryptography), mêmes octets attendus
+    if request.param == "python":
+        monkeypatch.setattr(_encryption, "_voie_c", False)
+    elif not _encryption._payload_c():
+        pytest.skip("libcrypto introuvable : voie C indisponible")
+    return request.param
+
+
 # --- vecteurs officiels --------------------------------------------------------
 
 
@@ -193,6 +204,7 @@ def test_aller_retour_fichier_sans_index(tmp_path):
     assert os.path.exists(sidecar)
     serializejson.dump(DOC, chemin, encryption_key="secret")
     assert not os.path.exists(sidecar)
+    serializejson.wait_writes()  # dump vers un chemin : asynchrone
     brut = open(chemin, "rb").read()
     assert brut.startswith(b"age-encryption.org/v1\n")
     assert b"alpha" not in brut
@@ -393,3 +405,23 @@ def test_dump_chiffre_erreur_d_ouverture_levee_par_dump(tmp_path):
         serializejson.dump(DOC, str(tmp_path / "absent" / "doc.json"),
                            encryption_key="secret")
     serializejson.wait_writes()  # rien de différé en échec
+
+
+def test_voies_c_et_python_memes_octets(monkeypatch, voie):
+    # même en-tête (cache) et même nonce : la charge doit être identique
+    # à l'octet, multi-segments et bornes de segment comprises
+    if voie == "python":
+        pytest.skip("comparaison faite une fois, sous la voie C")
+    c_voie = _encryption._voie_c
+    monkeypatch.setattr(_encryption.os, "urandom", lambda n: bytes(range(n)))
+    for n in (0, 1, 65536, 65537, 20 * 65536 + 3):
+        clair = bytes(i % 251 for i in range(n))
+        c = _encryption.encrypt(clair, "secret")
+        _encryption._voie_c = False
+        try:
+            p = _encryption.encrypt(clair, "secret")
+            assert _encryption.decrypt(c, "secret") == clair
+        finally:
+            _encryption._voie_c = c_voie
+        assert c == p, n
+        assert _encryption.decrypt(p, "secret") == clair

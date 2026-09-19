@@ -181,6 +181,7 @@ static inline PyObject* sj_unicode_from_utf8_hint(const char* s, size_t len,
 #include "pybytesbuffer.h"
 #include "fdwritestream.h"
 #include "indexscan.h"
+#include "sjcrypto.h"
 
 
 using namespace rapidjson;
@@ -12000,6 +12001,11 @@ static PyMethodDef functions[] = {
      dump_docstring},
     {"load_blosc_library", (PyCFunction) load_blosc_library, METH_O,
      "Charge libblosc2 (chemin du .so) pour compresser en C via BloscToBase64."},
+    {"load_crypto_library", (PyCFunction) load_crypto_library, METH_O,
+     "Charge libcrypto (chemin du .so) : charge utile age chiffrée en C."},
+    {"_age_payload", (PyCFunction) age_payload, METH_VARARGS,
+     "Segments age ChaCha20-Poly1305 (clé de flux, données, chiffre[,"
+     " préfixe]) : bytes chiffré, ou bytearray clair / None si falsifié."},
     {"blosc_set_nthreads", (PyCFunction) blosc_set_nthreads_fn, METH_O,
      "Nombre de threads de la libblosc2 chargée (None si non chargée)."},
     {"blosc_decompress_chunks", (PyCFunction) blosc_decompress_chunks_fn,

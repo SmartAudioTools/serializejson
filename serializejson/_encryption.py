@@ -13,6 +13,9 @@ decryption fail, never returning partial data.
 
 The primitives come from the ``cryptography`` package, imported lazily: it is
 needed only when a key is given (``pip install serializejson[crypto]``).
+When OpenSSL's libcrypto is found at run time (dlopen, no build dependency),
+the payload segments are processed by the C extension instead, spread over
+several threads with the GIL released; the output is identical byte for byte.
 """
 
 import base64
@@ -50,17 +53,35 @@ class DecryptionError(ValueError):
 def _crypto():
     try:
         from cryptography.exceptions import InvalidTag
-        from cryptography.hazmat.primitives import hashes
-        from cryptography.hazmat.primitives import hmac as chmac
         from cryptography.hazmat.primitives.ciphers.aead import (
             ChaCha20Poly1305)
-        from cryptography.hazmat.primitives.kdf.hkdf import HKDF
         from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
     except ImportError as e:
         raise ImportError(
             "encryption_key needs the 'cryptography' package:"
             " pip install serializejson[crypto]") from e
-    return InvalidTag, hashes, chmac, ChaCha20Poly1305, HKDF, Scrypt
+    return InvalidTag, ChaCha20Poly1305, Scrypt
+
+
+# Charge utile en C (rapidjson._age_payload) : libcrypto chargée à l'exécution,
+# segments répartis sur plusieurs fils, ×6 mesuré sur 64 Mo. Sans libcrypto,
+# voie python (cryptography), mêmes octets. None : pas encore tenté.
+_voie_c = None
+
+
+def _payload_c():
+    global _voie_c
+    if _voie_c is None:
+        _voie_c = False
+        from . import rapidjson
+        for nom in ("libcrypto.so.3", "libcrypto.so.1.1", "libcrypto.so"):
+            try:
+                rapidjson.load_crypto_library(nom)
+            except (OSError, AttributeError):
+                continue
+            _voie_c = rapidjson._age_payload
+            break
+    return _voie_c
 
 
 def check_key(key):
@@ -79,22 +100,22 @@ def check_key(key):
 
 
 def _scrypt(mot_de_passe, sel, logn):
-    Scrypt = _crypto()[5]
+    Scrypt = _crypto()[2]
     return Scrypt(salt=_ETIQUETTE_SCRYPT + sel, length=32, n=1 << logn,
                   r=8, p=1).derive(mot_de_passe)
 
 
 def _hkdf(cle, sel, info):
-    _, hashes, _, _, HKDF, _ = _crypto()
-    return HKDF(algorithm=hashes.SHA256(), length=32, salt=sel,
-                info=info).derive(cle)
+    # HKDF-SHA256 (RFC 5869) à 32 octets = extraction + UN bloc d'expansion,
+    # par hmac.digest (hashlib, en C) : ~0,5 µs contre 3,4 par les objets de
+    # cryptography. Sel vide = clé HMAC nulle, que HMAC complète de zéros
+    # comme le sel de 32 zéros de la RFC ; les vecteurs officiels le prouvent.
+    prk = hmac.digest(sel, cle, "sha256")
+    return hmac.digest(prk, info + b"\x01", "sha256")
 
 
 def _mac(file_key, entete):
-    _, hashes, chmac, _, _, _ = _crypto()
-    h = chmac.HMAC(_hkdf(file_key, b"", b"header"), hashes.SHA256())
-    h.update(entete)
-    return h.finalize()
+    return hmac.digest(_hkdf(file_key, b"", b"header"), entete, "sha256")
 
 
 def _b64(octets):
@@ -157,7 +178,7 @@ def _entete_ecriture(mot_de_passe):
     trouve = _entetes_ecriture.get((mot_de_passe, logn))
     if trouve is not None:
         return trouve
-    ChaCha20Poly1305 = _crypto()[3]
+    ChaCha20Poly1305 = _crypto()[1]
     sel = os.urandom(16)
     emballage = _scrypt(mot_de_passe.encode("utf-8"), sel, logn)
     file_key = os.urandom(16)
@@ -180,10 +201,14 @@ def encrypt(data, password, armor=False):
     ``armor`` is true.
     """
     check_key(password)
-    ChaCha20Poly1305 = _crypto()[3]
     entete, file_key = _entete_ecriture(password)
     nonce = os.urandom(16)
-    aead = ChaCha20Poly1305(_hkdf(file_key, nonce, b"payload"))
+    cle_flux = _hkdf(file_key, nonce, b"payload")
+    c = _payload_c()
+    if c:
+        sortie = c(cle_flux, data, True, entete + nonce)
+        return _en_armure(sortie) if armor else sortie
+    aead = _crypto()[1](cle_flux)
     vue = memoryview(data)
     n = len(vue)
     derniers = max(1, -(-n // SEGMENT))
@@ -263,7 +288,7 @@ def decrypt(data, password):
 
 
 def _ouvre_entete(data, mot_de_passe):
-    InvalidTag, _, _, ChaCha20Poly1305, _, _ = _crypto()
+    InvalidTag, ChaCha20Poly1305, _ = _crypto()
     fin_mac = data.find(b"\n--- ")
     if fin_mac < 0:
         raise DecryptionError("invalid age header")
@@ -312,11 +337,11 @@ def _ouvre_entete(data, mot_de_passe):
 
 
 def _dechiffre_charge(data, debut, file_key):
-    InvalidTag, _, _, ChaCha20Poly1305, _, _ = _crypto()
+    InvalidTag, ChaCha20Poly1305, _ = _crypto()
     nonce = data[debut:debut + 16]
     if len(nonce) != 16:
         raise DecryptionError(MESSAGE_AUTHENTIFICATION)
-    aead = ChaCha20Poly1305(_hkdf(file_key, nonce, b"payload"))
+    cle_flux = _hkdf(file_key, nonce, b"payload")
     vue = memoryview(data)[debut + 16:]
     n = len(vue)
     plein = SEGMENT + ETIQUETTE
@@ -326,8 +351,15 @@ def _dechiffre_charge(data, debut, file_key):
     taille = n - ETIQUETTE * derniers
     if taille < 0 or (derniers > 1 and taille == SEGMENT * (derniers - 1)):
         raise DecryptionError(MESSAGE_AUTHENTIFICATION)
+    c = _payload_c()
+    if c:
+        sortie = c(cle_flux, vue, False)
+        if sortie is None:
+            raise DecryptionError(MESSAGE_AUTHENTIFICATION)
+        return sortie
     # déchiffré EN PLACE dans un tampon unique, remis tel quel au parseur
     # (qui lit un bytearray) : ni morceaux ni copie finale, −10 à −19 %
+    aead = ChaCha20Poly1305(cle_flux)
     sortie = bytearray(taille)
     cible = memoryview(sortie)
     try:

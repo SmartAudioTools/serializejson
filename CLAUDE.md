@@ -1054,10 +1054,8 @@ motivé la demande (consigne explicite de Baptiste).
   appel). v2 C++ (segments au fil d'écriture, recouvrement du parse) NON
   tentée : les .so de travail ont été rebâtis HORS PGO par l'installation
   éditable (voir ci-dessous) — à reprendre sur arbre propre, format inchangé.
-  Arbre propre depuis 21 h 31, mais v2 = lier libcrypto (OpenSSL) à
-  l'extension C : dépendance NOUVELLE du binaire et des roues (auditwheel
-  l'embarquerait, openssl-devel dans le conteneur) → arbitrage de Baptiste
-  avant d'y toucher.
+  → FAITE plus tard dans la nuit, SANS dépendance de construction (libcrypto
+  chargée par dlopen) : voir l'addendum « charge utile en C » plus bas.
 - **Preuves** : 11 vecteurs officiels C2SP/CCTV versionnés dans
   tests/age_testdata, sha git vérifiés par le test (seule preuve
   d'interopérabilité : ni réseau ni binaire age ici — PAS de test croisé
@@ -1098,3 +1096,43 @@ octets identiques à rapidjson/*.so, masque ACL rwx (lisibles par Baptiste),
 import hors dépôt vérifié avec blosc du fork chargé.
 Toute réinstallation éditable refera les deux dégâts (rapidjson/*.so
 modifiés → `git checkout`).
+
+## Addendum nuit du 19 au 20/09/2026 — chiffrement : dump asynchrone,
+## charge utile en C, coûts fixes (suite de l'ordre « optimise » ; Baptiste
+## 21 h 5x : « je ne t'ai jamais dit de ne pas ajouter de dépendances »)
+
+- **dump chiffré vers un chemin ASYNCHRONE** (git eff4e36) : ouverture du
+  fichier et suppression du sidecar périmé SYNCHRONES dans dump (erreur
+  d'ouverture levée par dump ; l'index ne survit jamais) ; chiffrement +
+  écriture sur un ThreadPoolExecutor(1). `_attend_ecritures()` remplace
+  rapidjson.wait_writes partout (attend aussi les dumps chiffrés en vol) ;
+  un dump/load vers un même chemin attend d'abord celui en vol.
+  `disk_write_mode="blocking"` reste synchrone. Latence dicts 24,6 → 18,7
+  ms, 1M str 29,9 → 11,1 ms.
+- **Charge utile age en C** (rapidjson/sjcrypto.h, `load_crypto_library` /
+  `_age_payload`) : libcrypto (OpenSSL ≥ 1.1) chargée par dlopen comme
+  libblosc2 — ni en-tête ni lien, AUCUNE dépendance du binaire ni des
+  roues ; absente → voie python inchangée. EVP ChaCha20-Poly1305 par
+  segment, segments en tranches contiguës sur ≤ 8 fils (≥ 8 segments par
+  fil), GIL rendu, chiffré = préfixe + segments en UNE allocation, clair
+  rendu en bytearray. Identité à l'octet C ≡ python prouvée par test
+  (urandom figé, tailles 0 / 1 / 64 Ki / 64 Ki+1 / 20×64 Ki+3) ; toute la
+  suite test_encryption tourne sur les DEUX voies (fixture `voie`).
+  Mesures (3.13, hors PGO) : 64 Mo 64,7 → 10,3 ms ; surcoût contre clair
+  100k dicts dumpb/loads +10/+9 % → +4/±0 %, 1M str +98/+25 % → +15/+6 %.
+  Revérifié sur PGO (3.13, charge variable) : 1M str dumpb +146 % → +18 %,
+  loads +31 → +9 % ; dicts +3/+12 → −6/+5 % (bruit).
+  Un dernier segment chiffré plus court qu'une étiquette → None (échec
+  d'authentification), sans sous-débordement de taille.
+- **Coûts fixes** : HKDF/HMAC par `hmac.digest` de la stdlib au lieu des
+  objets `cryptography` (hkdf 3,4 → 1,9 µs, mac 5,6 → 2,8) ; instances
+  chiffrantes par défaut par thread (`_EtatParDefaut.chiffres`, clé comme
+  seul argument) pour dumps/dumpb/loads. Petit document (~7 Ko) : dumpb
+  42,2 → 20,8 µs (clair 12,8), loads 65,1 → 47,5 µs (clair 28,5).
+- Résistance quantique (question de Baptiste) : tout est symétrique
+  (scrypt + ChaCha20-Poly1305 256 bits), Grover ramène à ~128 bits, Shor
+  sans objet faute de clé publique ; le maillon faible est le mot de passe.
+  Extension usuelle des fichiers age : `.age` (`x.json.age`) ; serializejson
+  détecte par l'en-tête, l'extension est libre.
+- pgo_workload.py n'exerce PAS le chiffrement : le travail est dans
+  OpenSSL, la glue C n'y gagnerait rien.
