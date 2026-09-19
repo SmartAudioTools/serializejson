@@ -37,7 +37,8 @@ static const int CTRL_GET_TAG = 0x10;  // EVP_CTRL_AEAD_GET_TAG
 static const int CTRL_SET_TAG = 0x11;  // EVP_CTRL_AEAD_SET_TAG
 static const size_t SEG = 64 * 1024;
 static const size_t TAG = 16;
-// par fil : en deçà, le lancement d'un fil (~30 µs) coûte plus que le travail
+// par fil : en deçà, le lancement d'un fil coûte plus que le travail (mesuré
+// dans le bac à sable : 1 Mio sur un fil 0,40 ms, sur deux 0,50)
 static const size_t SEG_PAR_FIL = 8;
 
 // Segments [k0, k1) d'une charge de `clair` octets en clair et `nseg`
@@ -76,11 +77,13 @@ static bool
 segments(const unsigned char* cle, const unsigned char* src, unsigned char* dst,
          size_t clair, size_t nseg, int enc)
 {
-    // hardware_concurrency est un appel système coûteux dans le bac à sable
+    // hardware_concurrency est un appel système coûteux dans le bac à sable.
+    // Tous les cœurs : 25 Mo en 1,7 ms contre 3,4 plafonné à 8 fils (12700H,
+    // 6 cœurs P + 8 E), le débit mémoire n'est pas encore le mur
     static const size_t maxFils = std::max<size_t>(
-        1, std::min<size_t>(8, std::thread::hardware_concurrency()));
-    const size_t fils = std::max<size_t>(
-        1, std::min(maxFils, nseg / SEG_PAR_FIL));
+        1, std::thread::hardware_concurrency());
+    const size_t fils = nseg <= 2 * SEG_PAR_FIL
+        ? 1 : std::min(maxFils, nseg / SEG_PAR_FIL);
     if (fils == 1)
         return tranche(cle, src, dst, clair, nseg, 0, nseg, enc);
     std::atomic<bool> ok(true);

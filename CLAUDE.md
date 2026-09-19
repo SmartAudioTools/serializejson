@@ -1142,3 +1142,18 @@ modifiés → `git checkout`).
   détecte par l'en-tête, l'extension est libre.
 - pgo_workload.py n'exerce PAS le chiffrement : le travail est dans
   OpenSSL, la glue C n'y gagnerait rien.
+- **Gros documents (question de Baptiste « comment encore optimiser sur les
+  gros fichiers ? »)** : profil d'abord (25 Mo de 1M str, 3.13). Le surcoût
+  restant EST le chiffrement : dumpb +2,7 ms ≈ `_age_payload` 3,3 ms, loads
+  +2,3 ms ≈ 3,0 ms. Allocations et copies sont gratuites : 9 défauts de page
+  par appel, l'allocateur recycle. D'où les pistes ÉCARTÉES sur mesure :
+  déchiffrement sur place (readinto), chiffrement sur place dans le tampon de
+  dumpb. Et le recouvrement déchiffrement/parse : 3 ms au mieux sur 42.
+  Seul levier retenu, `sjcrypto.h` : les fils ne sont plus plafonnés à 8
+  mais au nombre de cœurs (12700H : 6 P + 8 E). Un seul fil jusqu'à 1 Mio
+  (lancer un fil coûte plus de 100 µs dans le bac à sable). A/B même
+  processus contre le .so commité, avec A/A témoin : charge utile −27 à
+  −50 % dès 8 Mo (25 Mo 3,3 → 1,7 ms), 1 Mo −16/−28 %, 512 Ko neutre ;
+  dumpb/loads de bout en bout dans le bruit (le chiffrement n'y pèse plus
+  que ~3 ms sur 20-40). Pool de fils persistant NON fait : il ne servirait
+  qu'autour de 1-2 Mo, contre un risque réel (fils perdus après fork).
