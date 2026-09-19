@@ -6,11 +6,15 @@ import os
 import random
 
 # sys.path[0] est le dossier du script (rapidjson/), où le .so masquerait le
-# paquet : on le remplace par la racine du dépôt
-sys.path[0] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-import rapidjson.rapidjson as rj
+# paquet : on le remplace par le paquet construit (setup.py, variable posée par
+# build_ext) ou par la racine du dépôt (build_pgo.sh)
+if os.environ.get("SERIALIZEJSON_PGO_LIB"):
+    sys.path[0] = os.environ["SERIALIZEJSON_PGO_LIB"]
+else:
+    sys.path[0] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    import rapidjson.rapidjson as rj
 
-sys.modules["rapidjson"] = rj
+    sys.modules["rapidjson"] = rj
 import serializejson
 
 

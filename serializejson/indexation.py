@@ -33,7 +33,7 @@ import json
 import os
 import re
 
-import rapidjson
+from serializejson import rapidjson
 
 FORMES = ("sidecar", "comment")
 
@@ -366,7 +366,7 @@ def charge(fichier, chemin_objet, fabrique_decodeur, index=None):
         the object, or `NotImplemented` if the file has no usable index —
         the caller then reads the whole document.
     """
-    import rapidjson
+    from serializejson import rapidjson
 
     if index is None:
         index = lit(fichier)

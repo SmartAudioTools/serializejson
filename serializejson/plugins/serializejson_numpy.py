@@ -8,7 +8,7 @@ else:
     from base64 import b64decode
 
     # base64 écrit directement dans la sortie, et compression blosc2 faite en C
-    from rapidjson import (RawBytesToBase64, BloscToBase64, BloscDiffere,
+    from serializejson.rapidjson import (RawBytesToBase64, BloscToBase64, BloscDiffere,
                            EtiquetteDiffere, _cumsum_axis0,
                            _diff_axis0, blosc_decompress_chunks)
     import sys

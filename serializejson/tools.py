@@ -1,12 +1,12 @@
 ﻿from . import serialize_parameters
-from SmartFramework.string.encodings import ascii_printables
-from SmartFramework.tools.dictionaries import sorted_dict, sorted_filtered  # ,filtered
-from SmartFramework.tools.objects import (
+from serializejson._smartframework.string.encodings import ascii_printables
+from serializejson._smartframework.tools.dictionaries import sorted_dict, sorted_filtered  # ,filtered
+from serializejson._smartframework.tools.objects import (
     isInstance,
     class_has_method,
     ismethod_methoddescriptor_or_function,
 )  # ,hasMethod
-from SmartFramework.tools.functions import cached_one_arg_func
+from serializejson._smartframework.tools.functions import cached_one_arg_func
 from inspect import isclass, signature
 import types
 from base64 import b64decode
@@ -122,7 +122,7 @@ use_blosc2_cpp = False
 use_blosc2_fork = False
 try:
     import os as _os
-    import rapidjson as _rapidjson
+    from serializejson import rapidjson as _rapidjson
 
     _fork_lib = _os.path.join(
         _os.path.dirname(_rapidjson.__file__), "libblosc2_serializejson.so"
@@ -162,7 +162,7 @@ def blosc_chunks_decompress(frame, as_bytearray=False):
     # trames blosc concaténées dans l'ordre (compression parallèle
     # déterministe) : décompression parallèle en C, chaque trame vers sa
     # position finale
-    import rapidjson
+    from serializejson import rapidjson
 
     if type(frame) is str:
         frame = b64decode(sans_prefixe_longueur(frame), validate=True)
@@ -175,7 +175,7 @@ def blosc_decompress(frame, as_bytearray=False):
     # python-blosc n'est plus une dépendance ; replis sans libblosc2 :
     # roue python-blosc2 (v2 seulement), puis python-blosc (v1)
     if use_blosc2_cpp:
-        import rapidjson
+        from serializejson import rapidjson
 
         return rapidjson.blosc_decompress_chunks(
             frame, 1 if as_bytearray else 0

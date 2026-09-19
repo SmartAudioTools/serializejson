@@ -1,9 +1,24 @@
+[build-system]
+# apply et numpy : importés par la charge PGO (rapidjson/pgo_workload.py)
+requires = ["setuptools>=64", "wheel", "apply", "numpy"]
+build-backend = "setuptools.build_meta"
+
+[tool.cibuildwheel]
+build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
+skip = "*-musllinux_*"
+archs = ["x86_64"]
+before-all = "bash scripts/construit_libblosc2_serializejson.sh"
+environment = { SERIALIZEJSON_PGO = "auto" }
+# les tests du dépôt importent ses sources (tests/conftest.py) : ici, on
+# vérifie la roue installée elle-même, depuis un dossier neutre
+test-command = "cd / && python -c \"import serializejson, serializejson.tools as t; assert t.use_blosc2_fork; assert serializejson.loads(serializejson.dumps({'a': b'x' * 5000})) == {'a': b'x' * 5000}\""
+
 [tool.black]
 line-length = 120
 exclude = '''
 (
   /(
-      \python_virtual_env 
+      \python_virtual_env
   )/
 )
 '''

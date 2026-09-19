@@ -4,8 +4,8 @@ import io
 import inspect
 import codecs
 from time import perf_counter
-from SmartFramework.files import joinPath, directory, removeExistingPathAndCreateFolder
-from SmartFramework.tools.objects import deepCompare
+from serializejson._smartframework.files import joinPath, directory, removeExistingPathAndCreateFolder
+from serializejson._smartframework.tools.objects import deepCompare
 
 
 from statistics import median

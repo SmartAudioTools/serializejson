@@ -15,7 +15,7 @@ from base64 import b64decode
 # base64 écrit directement dans la sortie, et compression blosc2 faite en C
 # (BloscDiffere : compression déférée au writer C++ — son fil d'écriture
 # compresse et choisit l'étiquette lui-même, mêmes octets que la voie hâtive)
-from rapidjson import RawBytesToBase64, BloscToBase64, BloscDiffere
+from serializejson.rapidjson import RawBytesToBase64, BloscToBase64, BloscDiffere
 
 
 def sans_prefixe_longueur(string):

@@ -1,0 +1,7 @@
+# sdist : de quoi reconstruire le module compilé et sa libblosc2 depuis les sources
+include CHANGELOG.rst LICENSE*.rst README.rst
+include rapidjson/version.txt rapidjson/blosc2_determinisme.patch rapidjson/pgo_workload.py
+recursive-include rapidjson *.h
+include scripts/construit_libblosc2_serializejson.sh
+# construits sur la machine de développement, jamais distribués
+global-exclude *.so

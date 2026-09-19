@@ -3,17 +3,17 @@
 
     API = qtpy.API_NAME
     from qtpy import QtGui, QtWidgets  # ,QtCore
-except ModuleNotFoundError:
+except ImportError:
     try:
         from PyQt5 import QtGui, QtWidgets  # ,QtCore
 
         API = "PyQt5"
-    except ModuleNotFoundError:
+    except ImportError:
         try:
             from PySide2 import QtGui, QtWidgets  # ,QtCore
 
             API = "PySide2"
-        except ModuleNotFoundError:
+        except ImportError:
             API = None
 if API:
     from apply import apply

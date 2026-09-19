@@ -1,6 +1,6 @@
-Version suivante (non publiée)
-------------------------------
-:Date: 2026-08-07
+Version 0.4.0
+-------------
+:Date: 2026-09-19
 
 * position index: ``load(file, path="root['a'][0].b")`` reads one object of a
   json file without parsing the rest, ``serializejson.index()`` indexes a file

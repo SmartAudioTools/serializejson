@@ -8,7 +8,7 @@
         QtCore.SignalInstance = QtCore.pyqtBoundSignal  # qtpy < ?
 
 
-except ModuleNotFoundError:
+except ImportError:
     try:
         from PyQt5 import QtGui, QtWidgets, QtCore
 
@@ -16,12 +16,15 @@ except ModuleNotFoundError:
         QtCore.SignalInstance = QtCore.pyqtBoundSignal
         QtCore.Slot = QtCore.pyqtSlot
         QtCore.Property = QtCore.pyqtProperty
+        API = "PyQt5"
 
         # from PyQt5.QtCore import QT_VERSION_STR as __version__
-    except ModuleNotFoundError:
+    except ImportError:
         try:
             from PySide2 import QtGui, QtWidgets, QtCore
-        except ModuleNotFoundError:
+
+            API = "PySide2"
+        except ImportError:
             API = None
 if API:
     import sys
@@ -30,9 +33,6 @@ if API:
     sys.modules["QtGui"] = QtGui
     sys.modules["QtWidgets"] = QtWidgets
 
-    from SmartFramework.image.image_conversion import (
-        QImage_to_bytes_width_height_format,
-    )
     from serializejson.tools import (
         setters,
         property_types,
@@ -687,6 +687,9 @@ if API:
     setters[QtGui.QBitmap] = {"data": "loadFromData"}
 
     def serializejson_QImage(self):
+        # importé ici : il exige qtpy et numpy, que le reste du greffon n'exige pas
+        from serializejson._smartframework.image.image_conversion import QImage_to_bytes_width_height_format
+
         return (
             type_str(self),
             QImage_to_bytes_width_height_format(self),

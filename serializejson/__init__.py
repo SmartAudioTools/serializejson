@@ -181,7 +181,16 @@ import types
 import warnings
 import weakref
 import io
-import rapidjson
+try:
+    # roue installée : le module compilé vit dans le paquet
+    from . import rapidjson
+except ImportError:
+    # dépôt de développement : module compilé de rapidjson/, exposé sous le
+    # même nom pour les imports « from serializejson import rapidjson »
+    import rapidjson
+    import sys as _sys
+
+    _sys.modules[__name__ + ".rapidjson"] = rapidjson
 import gc
 import copyreg
 import atexit

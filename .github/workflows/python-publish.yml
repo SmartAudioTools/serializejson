@@ -1,52 +1,45 @@
-# This workflows will upload a Python Package using Twine when a release is created
-# For more information see: https://help.github.com/en/actions/language-and-framework-guides/using-python-with-github-actions#publishing-to-package-registries
+# Publication sur PyPI, déclenchée par un tag de version (git tag v0.4.0 ;
+# git push origin v0.4.0). Authentification par Trusted Publishing : PyPI fait
+# confiance à CE fichier, dans l'environnement « pypi » — aucun mot de passe ni
+# jeton stocké. Ne pas renommer ce fichier sans mettre à jour la déclaration
+# sur pypi.org (Your projects > serializejson > Publishing).
 
-name: Upload Python Package
+name: Publication PyPI
 
 on:
   push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+    tags: ["v*"]
 
-jobs:        
-  deploy:
+jobs:
+  roues_linux:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v2
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: '3.x'
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pytest flake8 pep8-naming flake8-bugbear flake8-builtins flake8-docstrings flake8-import-order     
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        pip freeze
-        pip install setuptools wheel twine
-    - name: Install package
-      run: |
-        python setup.py install
-        
-    - name: Lint with flake8
-      run: |
- 
-        # stop the build if there are Python syntax errors or undefined names
-        # flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        # flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+      - uses: actions/checkout@v4
+      - uses: pypa/cibuildwheel@v4.2.1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: roues-linux
+          path: wheelhouse/*.whl
 
-    - name: Test with pytest
-      run: |
-        cd tests
-        pytest
-        
-    - name: Build and publish
-      env:
-        TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
-        TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-      run: |
-        python setup.py sdist
-        twine upload dist/*
+  sources:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pipx run build --sdist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sources
+          path: dist/*.tar.gz
+
+  publication:
+    needs: [roues_linux, sources]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
