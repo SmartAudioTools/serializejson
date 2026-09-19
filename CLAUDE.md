@@ -1014,3 +1014,65 @@ protocole inter-processus, le neuf reste dans cette fourchette (−2,5 à
 Piège : un A/B ENTRE PROCESSUS sans A/A témoin fait croire à une
 régression de +9-16 % sur les données (premier passage) — toujours
 lancer l'A/A dans la même boucle.
+
+## Addendum nuit du 19 au 20/09/2026 — chiffrement authentifié optionnel,
+## format age v1 (ordre de Baptiste 20 h 59 « code les tests, implémente,
+## puis optimise »), plan ~/.claude/plans/hazy-dazzling-creek.md
+
+Bibliothèque GÉNÉRALISTE : aucun nom, test ni exemple n'évoque l'usage qui a
+motivé la demande (consigne explicite de Baptiste).
+
+- **API : un seul argument `encryption_key=None`** (str = mot de passe) sur
+  dump/dumps/dumpb/load/loads/Encoder/Decoder. dumpb → binaire age, dumps →
+  armure ASCII age (str), load/loads reconnaissent les deux. append,
+  iterator, path= et un index demandé + clé → ValueError ; dump chiffré vers
+  un chemin n'écrit AUCUN index et supprime un sidecar périmé (il décrirait
+  la structure). Chiffré lu sans clé → ValueError « pass its password as
+  encryption_key » (détecté APRÈS l'échec du parse : chemin nominal gratuit) ;
+  clé sur un clair → DecryptionError. `DecryptionError(ValueError)` exportée.
+  Extra `serializejson[crypto]` = cryptography>=47 (import paresseux).
+- **serializejson/_encryption.py** : spec age v1, stanza scrypt seule ;
+  analyse STRICTE (une stanza, base64 canonique, logN décimal ≤ 22 vérifié
+  AVANT tout scrypt), segments 64 Kio ChaCha20-Poly1305, dernier segment vide
+  refusé sauf s'il est seul. Écriture logN 18 (défaut de l'outil age, ~1 s).
+- **Branchement à coût nul sans clé** : un Encoder/Decoder à clé est une
+  instance d'une SOUS-CLASSE créée à la volée (_classe_chiffrante, même nom,
+  isinstance préservé, sous-classes utilisateur comprises) ; les classes
+  sans clé ne voient pas un test de plus. `encoder(obj)` direct chiffre aussi.
+- **Cache d'écriture = EN-TÊTE ENTIER + file key**, par (mot de passe,
+  logN) — PAS le sel seul avec une file key neuve : la stanza emballe sous
+  nonce NUL imposé, deux file keys sous la même clé scrypt réutiliseraient
+  (clé, nonce) de ChaCha20-Poly1305. La charge reste unique par document
+  (nonce aléatoire 128 bits → clé de flux). Révèle seulement que deux
+  documents du même processus ont le même mot de passe. Un document LU au
+  logN d'écriture amorce ce cache : relire puis réécrire = un seul scrypt.
+- **Optimisation** : decrypt_into dans un bytearray remis tel quel au
+  parseur (−10 à −19 %, 1 à 25 Mo). encrypt_into ÉCARTÉ côté écriture : il
+  faudrait recopier en bytes (type public de dumpb), la copie mange le gain.
+  Threads sur les segments ÉCARTÉS : plus lents à toute taille (0,4-1,6 Go/s
+  contre ~2,2 séquentiel, segments de 64 Kio trop petits pour le coût par
+  appel). v2 C++ (segments au fil d'écriture, recouvrement du parse) NON
+  tentée : les .so de travail ont été rebâtis HORS PGO par l'installation
+  éditable (voir ci-dessous) — à reprendre sur arbre propre, format inchangé.
+- **Preuves** : 11 vecteurs officiels C2SP/CCTV versionnés dans
+  tests/age_testdata, sha git vérifiés par le test (seule preuve
+  d'interopérabilité : ni réseau ni binaire age ici — PAS de test croisé
+  avec l'outil age) ; 40 tests tests/test_encryption.py, rouge prouvé sur
+  deux variantes (MAC d'en-tête non vérifié ; étiquettes de charge
+  ignorées) et sur le refus du dernier segment vide. Suite complète 308
+  verts × 3.12/3.13/3.14.
+
+Constatés, PRÉEXISTANTS, non touchés :
+- **Installation éditable (SmartPython, 19/09 19 h 58-20 h 01)** : elle a
+  rebâti rapidjson/*.so HORS PGO (2,2 Mo au lieu de ≈ 1,99) et déposé des
+  copies non suivies serializejson/rapidjson.cpython-3*.so. tools.py charge
+  blosc dans CETTE copie, les tests (conftest) utilisent celle de rapidjson/ :
+  deux modules distincts, un seul a blosc → 4 échecs « blosc library not
+  loaded » (test_blosc2_parallele_deterministe + 3 de
+  test_compression_diff), identiques sur les sources commitées.
+- Même installation : « rapidjson » s'y résout vers le .so et non vers le
+  paquet → conftest a un repli `import rapidjson`, et les tests Qt en
+  sous-processus passent par `import conftest` au lieu de l'idiome
+  `import rapidjson.rapidjson` (encore présent, non touché, dans
+  types_seuls.py, bench_pyperformance_pickle.py, lance_benchmarks.py,
+  pgo_workload.py).
