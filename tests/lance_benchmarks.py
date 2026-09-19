@@ -35,10 +35,8 @@ from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
-if "rapidjson" not in sys.modules:
-    import rapidjson.rapidjson as _rapidjson_compile
-
-    sys.modules["rapidjson"] = _rapidjson_compile
+sys.path.insert(0, str(RACINE / "tests"))
+import conftest  # noqa: E402,F401 — module compilé du dépôt (voir conftest)
 import serializejson  # noqa: E402  (charge libblosc2)
 from serializejson.tools import (bareme_smart,  # noqa: E402
                                  bareme_smart_defaut_fichier,

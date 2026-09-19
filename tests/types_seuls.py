@@ -12,10 +12,7 @@ RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(RACINE)
 sys.path.insert(0, ".")
 sys.path.insert(0, "tests")
-if "rapidjson" not in sys.modules:
-    import rapidjson.rapidjson as rj
-
-    sys.modules["rapidjson"] = rj
+import conftest  # noqa: F401 — module compilé du dépôt (voir conftest)
 spec = importlib.util.spec_from_file_location("lb", "tests/lance_benchmarks.py")
 lb = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(lb)

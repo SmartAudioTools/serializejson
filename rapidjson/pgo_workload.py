@@ -11,10 +11,8 @@ import random
 if os.environ.get("SERIALIZEJSON_PGO_LIB"):
     sys.path[0] = os.environ["SERIALIZEJSON_PGO_LIB"]
 else:
-    sys.path[0] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-    import rapidjson.rapidjson as rj
-
-    sys.modules["rapidjson"] = rj
+    sys.path[0] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests")
+    import conftest  # noqa: F401 — le binaire INSTRUMENTÉ, sous les deux noms
 import serializejson
 
 

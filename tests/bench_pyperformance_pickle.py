@@ -8,10 +8,8 @@ import sys
 import time
 
 sys.path.insert(0, ".")
-if "rapidjson" not in sys.modules:
-    import rapidjson.rapidjson as rj
-
-    sys.modules["rapidjson"] = rj
+sys.path.insert(0, "tests")
+import conftest  # noqa: F401 — module compilé du dépôt (voir conftest)
 import serializejson
 
 DICT = {
