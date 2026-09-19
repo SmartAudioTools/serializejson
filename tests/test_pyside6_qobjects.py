@@ -5,7 +5,11 @@ API Qt au premier import).
 - recréation : l'état Qt des QTimer/QAction (intervalle, actif, texte,
   raccourci, coché) est rendu, et les enfants créés par le __init__ de la
   racine ne sont pas doublés — y compris un QWidget/QLabel écrit SANS état,
-  que seule l'ancre « ancêtre construit encore ouvert » rattache à son vivant ;
+  adopté parce que son seul argument (le parent) est égal ;
+- un enfant dont l'argument a changé sans être applicable par son nom
+  (Echelle : argument transformé) est RECONSTRUIT, et l'ancien détaché de son
+  parent (rehydrate_discarders) — pas de doublon ;
+- un enfant adopté reste visible (setParent jamais rejoué à parent égal) ;
 - réhydratation (obj=) : identités conservées, état appliqué.
 Avec --rouge, la voie classique (rehydrate=False) doit doubler.
 """
@@ -51,9 +55,18 @@ if __name__ == "__main__":
 
     app = QtWidgets.QApplication([])
 
+    class Echelle(QtWidgets.QWidget):
+        def __init__(self, parent, n):
+            super().__init__(parent)
+            self._double = 2 * n
+
+        def __serializejson__(self):
+            return serializejson.tools.class_str_from_class(Echelle), (self.parent(), self._double // 2), None
+
     class W(QtWidgets.QWidget):
         def __init__(self, parent=None):
             super().__init__(parent)
+            self.echelle = Echelle(self, 1)
             self.label = QtWidgets.QLabel(self)
             self.sub = QtWidgets.QWidget(self)
             self.timer = QtCore.QTimer(self)
@@ -67,8 +80,10 @@ if __name__ == "__main__":
     w.action.setCheckable(True)
     w.action.setChecked(True)
     w.action.setShortcut("Ctrl+O")
+    w.echelle.setParent(None)
+    w.echelle = Echelle(w, 5)
     texte = serializejson.dumps(w)
-    options = {"authorized_classes": [W]}
+    options = {"authorized_classes": [W, Echelle]}
     if "--rouge" in sys.argv:
         options["rehydrate"] = False
 
@@ -79,12 +94,18 @@ if __name__ == "__main__":
         assert len(v.findChildren(QtCore.QTimer)) == 1
         assert len(v.findChildren(QtGui.QAction)) == 1
         assert len(v.findChildren(QtWidgets.QLabel)) == 1
-        assert len(v.findChildren(QtWidgets.QWidget)) == 2
+        assert v.echelle._double == 10 and v.echelle.parent() is v
+        assert v.findChildren(Echelle) == [v.echelle]
+        assert len(v.findChildren(QtWidgets.QWidget)) == 3
+        v.show()
+        assert v.label.isVisible()
 
     verifie(serializejson.loads(texte, **options))
     if "--rouge" not in sys.argv:
         vivant = W()
         identites = (id(vivant.timer), id(vivant.action), id(vivant.label))
+        ancienne = vivant.echelle
         assert serializejson.loads(texte, obj=vivant, **options) is vivant
         assert identites == (id(vivant.timer), id(vivant.action), id(vivant.label))
+        assert vivant.echelle is not ancienne and ancienne.parent() is None
         verifie(vivant)

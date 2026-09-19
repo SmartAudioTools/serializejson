@@ -46,6 +46,7 @@ if API:
         consts,
         class_str_from_class,
         encoder_parameters,
+        rehydrate_discarders,
         rehydrate_getters,
         serialize_parameters,
     )
@@ -117,6 +118,14 @@ if API:
     rehydrate_getters["~children"] = qt_children
     rehydrate_getters["~layout"] = qt_layout
     rehydrate_getters["~windows"] = qt_windows
+
+    def qt_discard(obj):
+        # homologue vivant remplacé par un neuf (arguments inapplicables) :
+        # sinon il resterait l'enfant de son parent, en doublon du neuf
+        obj.setParent(None)
+        obj.deleteLater()
+
+    rehydrate_discarders[QtCore.QObject] = qt_discard
 
     def init_parent(self):
         parent = self.parent()

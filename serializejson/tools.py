@@ -209,6 +209,10 @@ decoder_parameters = {}  # decoder extra parameters for plugins with their defau
 # mode rehydrate : lecteurs virtuels des clés "~…" (ex. "~children" -> enfants
 # d'un widget), pour retrouver l'homologue vivant d'un objet à recharger
 rehydrate_getters = {}
+# mode rehydrate : un homologue vivant REMPLACÉ (arguments inapplicables) est
+# confié au premier « défausseur » dont il est instance (Qt : le détacher de
+# son parent, sinon il y reste en doublon du neuf)
+rehydrate_discarders = {}
 consts = {}  # dictionnary associating const string to const values
 
 # @profile

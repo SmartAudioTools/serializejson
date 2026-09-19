@@ -322,7 +322,7 @@ static PyObject* collections_prefix_str = nullptr;    // "collections."
 static PyObject* decode_cle_name = nullptr;
 static PyObject* construct_name = nullptr;            // "construct"
 static PyObject* live_root_name = nullptr;            // "_live_root"
-static PyObject* adopted_name = nullptr;              // "_adopted"
+static PyObject* reconcile_name = nullptr;            // "_reconcile"
 static PyObject* updatables_name = nullptr;           // "updatableClassStrs"
 static PyObject* already_serialized_name = nullptr;
 static PyObject* keep_alive_name = nullptr;
@@ -1920,11 +1920,9 @@ struct PyHandler {
     bool rehydrateOn = false;
     PyObject* decoderConstruct = nullptr;   // repli python Decoder._construct
     PyObject* liveRoot = nullptr;           // obj= : homologue vivant de la racine
-    // id() des objets ADOPTÉS pendant ce parse (set python partagé avec
-    // Decoder._construct, la racine vivante inscrite d'emblée) : seule
-    // ancre qui autorise l'adoption d'une enveloppe sans état — un objet
-    // donné au constructeur est un vivant, donc le construit l'est aussi
-    PyObject* adoptes = nullptr;
+    // Decoder._reconcile : l'homologue vivant trouvé en C, avec arguments,
+    // n'est adopté que si ses arguments se réconcilient avec ceux du json
+    PyObject* decoderReconcile = nullptr;
     bool rehydrateEnC = true;               // faux si updatables_classes restreint l'adoption
     // plans de classe par TYPE construit (empruntés à decodePlans) : l'état
     // d'une instance déjà rangée dans __class__ s'applique en C
@@ -2028,11 +2026,9 @@ struct PyHandler {
                         PyErr_Clear();
                     else if (liveRoot == Py_None)
                         Py_CLEAR(liveRoot);
-                    adoptes = PyObject_GetAttr(decoder, adopted_name);
-                    if (adoptes == nullptr)
+                    decoderReconcile = PyObject_GetAttr(decoder, reconcile_name);
+                    if (decoderReconcile == nullptr)
                         PyErr_Clear();
-                    else if (!PySet_Check(adoptes))
-                        Py_CLEAR(adoptes);
                     PyObject* updatables =
                         PyObject_GetAttr(decoder, updatables_name);
                     if (updatables == nullptr)
@@ -2128,7 +2124,7 @@ struct PyHandler {
         Py_CLEAR(decodeCleFn);
         Py_CLEAR(decoderConstruct);
         Py_CLEAR(liveRoot);
-        Py_CLEAR(adoptes);
+        Py_CLEAR(decoderReconcile);
         Py_CLEAR(refPathCache);
         Py_CLEAR(cleExotiqueCache);
         Py_CLEAR(sharedKeys);
@@ -2793,8 +2789,8 @@ struct PyHandler {
     // encore construite : un objet donné au constructeur d'un parent
     // (l'enfant Qt anonyme est écrit en plein dans le __init__ de son
     // premier enfant nommé). Le pas est alors un couple (slot, classe) —
-    // l'homologue vivant du parent doit être de cette classe exacte (il
-    // sera adopté, ses arguments sont donc les vivants) et le pas suivant
+    // l'homologue vivant du parent doit être de cette classe exacte (s'il
+    // est adopté, ses arguments réconciliés sont ceux du json) et le pas suivant
     // lit l'argument par son accesseur (parent()). Rend une liste NEUVE, ou
     // nullptr sans erreur : aucun homologue vivant possible — sous une clé
     // d'état d'une enveloppe déclinée, sous une clé indécodable ou des
@@ -2889,8 +2885,8 @@ struct PyHandler {
 
     // homologue vivant au bout de la chaîne : NOUVELLE réf, ou nullptr sans
     // erreur (attribut, clé ou indice absent). Un pas (slot, classe) reste
-    // sur place si l'objet courant est de cette classe exacte (le parent
-    // sera adopté : ses arguments de constructeur sont les vivants) ; un
+    // sur place si l'objet courant est de cette classe exacte (le parent,
+    // s'il est adopté, aura des arguments égaux à ceux du json) ; un
     // attribut servi par une méthode (accesseur Qt : parent(), comme
     // _descend en python) est lu par son appel sans argument
     PyObject* SjVivant(PyObject* depart, PyObject* cles) {
@@ -2936,63 +2932,14 @@ struct PyHandler {
         return courant;
     }
 
-    // registre des adoptés (voir `adoptes`) : inscription, et test
-    bool SjAdopte(PyObject* obj, bool inscrit) {
-        if (adoptes == nullptr)
-            return false;
-        PyObject* id = PyLong_FromVoidPtr(obj);
-        if (id == nullptr) {
-            PyErr_Clear();
-            return false;
-        }
-        int rc = inscrit ? PySet_Add(adoptes, id) : PySet_Contains(adoptes, id);
-        Py_DECREF(id);
-        if (rc < 0)
-            PyErr_Clear();
-        return rc > 0;
-    }
-
-    // vrai si `v` est l'instance d'un niveau ENCORE OUVERT de la pile, déjà
-    // construit (rangée dans __class__ de son dict ou de sa capture) : un
-    // ancêtre dont le __init__ a pu créer des enfants
-    bool SjOuvert(PyObject* v) {
-        for (const HandlerContext& ctx : stack) {
-            if (!ctx.envConstruit)
-                continue;
-            PyObject* inst = ctx.object != nullptr && PyDict_CheckExact(ctx.object)
-                ? PyDict_GetItem(ctx.object, class_key_name)
-                : ctx.envClass;
-            if (inst == v)
-                return true;
-        }
-        return false;
-    }
-
-    // vrai si un argument du constructeur est un objet ADOPTÉ ou un ancêtre
-    // construit encore ouvert (un enfant Qt anonyme est parenté par son
-    // __init__, et ce parent est un vivant, ou vient de créer ses enfants) :
-    // seule ancre qui autorise l'adoption d'un objet sans état — sans elle
-    // une enveloppe-valeur (Decimal, QColor) serait figée à sa valeur vivante.
-    // Pas n'importe quel objet construit : un argument déjà FERMÉ (le Vec
-    // d'un Point) n'a plus d'enfants à venir dans ce document
-    bool SjAncre(PyObject* args) {
-        if (args == nullptr)
-            return false;
-        if (PyDict_CheckExact(args)) {
-            Py_ssize_t pos = 0;
-            PyObject* k;
-            PyObject* v;
-            while (PyDict_Next(args, &pos, &k, &v))
-                if (SjAdopte(v, false) || SjOuvert(v))
-                    return true;
-        } else if (PyList_CheckExact(args) || PyTuple_CheckExact(args)) {
-            Py_ssize_t n = PySequence_Fast_GET_SIZE(args);
-            PyObject** items = PySequence_Fast_ITEMS(args);
-            for (Py_ssize_t i = 0; i < n; i++)
-                if (SjAdopte(items[i], false) || SjOuvert(items[i]))
-                    return true;
-        }
-        return false;
+    // vrai si `args` (json) est vide : rien à comparer, l'homologue vivant
+    // est adopté sans appel python — le cas des données (forme __new__ ou
+    // tp_new seul)
+    static bool SjSansArgs(PyObject* args) {
+        return args == nullptr
+            || ((PyList_CheckExact(args) || PyTuple_CheckExact(args))
+                && PySequence_Fast_GET_SIZE(args) == 0)
+            || (PyDict_CheckExact(args) && PyDict_GET_SIZE(args) == 0);
     }
 
     // construction par le plan de classe, mêmes formes que instance() :
@@ -3029,12 +2976,11 @@ struct PyHandler {
     // (même type exact, trouvé par la chaîne des clés depuis l'ancêtre
     // construit ou la racine vivante), sinon construit. NOUVELLE réf ;
     // nullptr = déclin sans erreur (classe native ou sans plan et refusée par
-    // python) ou erreur posée. `stateless` : fermeture sans clé d'état,
-    // l'adoption exige alors l'ancre (SjAncre), tranchée ici pour les deux
-    // voies
+    // python) ou erreur posée. Un vivant de même type est adopté sans
+    // condition si le json n'a pas d'arguments, sinon si Decoder._reconcile
+    // accepte (arguments égaux, ou différences applicables par nom)
     PyObject* SjConstruit(size_t niveau, bool insere, PyObject* classe,
-                          PyObject* args, int slot, bool stateless,
-                          bool* fresh = nullptr) {
+                          PyObject* args, int slot, bool* fresh = nullptr) {
         Py_ssize_t n;
         const char* s = PyUnicode_AsUTF8AndSize(classe, &n);
         if (s == nullptr)
@@ -3059,11 +3005,10 @@ struct PyHandler {
             // voie python : classe sans plan (constructors, non autorisée,
             // setters...), lecteur virtuel '~', ou updatables_classes
             PyObject* res = PyObject_CallFunction(
-                decoderConstruct, "OOiOOO", classe,
+                decoderConstruct, "OOiOO", classe,
                 args != nullptr ? args : Py_None, slot,
                 ancetre != nullptr ? ancetre : Py_None,
-                cles != nullptr ? cles : Py_None,
-                stateless && !SjAncre(args) ? Py_True : Py_False);
+                cles != nullptr ? cles : Py_None);
             Py_XDECREF(cles);
             if (res == Py_None)
                 Py_CLEAR(res);
@@ -3078,15 +3023,30 @@ struct PyHandler {
                 // la racine : l'objet obj= est adopté tel quel
                 inst = liveRoot;
                 Py_XINCREF(inst);
-            } else if (!stateless || SjAncre(args)) {
-                // sans état : l'ancre seulement — jamais une enveloppe-valeur
+            } else {
                 PyObject* depart = ancetre != nullptr ? ancetre : liveRoot;
                 if (depart != nullptr) {
                     inst = SjVivant(depart, cles);
                     if (inst != nullptr && Py_TYPE(inst) != cls)
                         Py_CLEAR(inst);
-                    else if (inst != nullptr)
-                        SjAdopte(inst, true);
+                    else if (inst != nullptr && !SjSansArgs(args)) {
+                        if (decoderReconcile == nullptr) {
+                            Py_CLEAR(inst);
+                        } else {
+                            PyObject* ok = PyObject_CallFunction(
+                                decoderReconcile, "OOi", inst, args, slot);
+                            if (ok == nullptr) {
+                                Py_DECREF(inst);
+                                Py_DECREF(cles);
+                                return nullptr;
+                            }
+                            int vrai = PyObject_IsTrue(ok);
+                            Py_DECREF(ok);
+                            if (vrai != 1)
+                                Py_CLEAR(inst);
+                            PyErr_Clear();
+                        }
+                    }
                 }
             }
             Py_DECREF(cles);
@@ -3148,7 +3108,7 @@ struct PyHandler {
             }
         }
         PyObject* inst = SjConstruit(stack.size() - 1, current.object != nullptr,
-                                     classe, args, slot, false,
+                                     classe, args, slot,
                                      &current.envFresh);
         if (inst == nullptr)
             return !PyErr_Occurred();
@@ -4045,7 +4005,7 @@ struct PyHandler {
                 direct = SjConstruit(stack.size() - 1,
                                      ctx_ref.object != nullptr,
                                      ctx_ref.envClass, ctx_ref.envArgs,
-                                     ctx_ref.envSlot, true);
+                                     ctx_ref.envSlot);
             if (direct != nullptr) {
                 if (ctx_ref.copiedKey)
                     PyMem_Free((void*) ctx_ref.key);
@@ -4109,7 +4069,7 @@ struct PyHandler {
 
         // ----- réhydratation : enveloppe classique sans état {__class__
         // (, __init__|__new__)} d'une classe non native, fermée avant toute
-        // clé d'état — construite ou adoptée ici (ancre exigée)
+        // clé d'état — construite ou adoptée ici
         if (rehydrateOn && PyDict_CheckExact(mapping)
             && PyDict_GET_SIZE(mapping) <= 2) {
             PyObject* classe = PyDict_GetItem(mapping, class_key_name);
@@ -4126,7 +4086,7 @@ struct PyHandler {
                 }
                 if (PyDict_GET_SIZE(mapping) == 1 || args != nullptr) {
                     replacement = SjConstruit(stack.size(), true, classe,
-                                              args, slot, true);
+                                              args, slot);
                     if (replacement == nullptr && PyErr_Occurred()) {
                         Py_DECREF(mapping);
                         return false;
@@ -12242,7 +12202,7 @@ module_exec(PyObject* m)
     decode_cle_name = PyUnicode_InternFromString("_decode_cle_exotique");
     construct_name = PyUnicode_InternFromString("construct");
     live_root_name = PyUnicode_InternFromString("_live_root");
-    adopted_name = PyUnicode_InternFromString("_adopted");
+    reconcile_name = PyUnicode_InternFromString("_reconcile");
     updatables_name = PyUnicode_InternFromString("updatableClassStrs");
     already_serialized_name = PyUnicode_InternFromString("_already_serialized");
     keep_alive_name =

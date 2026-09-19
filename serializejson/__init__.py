@@ -178,6 +178,7 @@ import re
 import threading
 import time
 import types
+import inspect
 import warnings
 import weakref
 import io
@@ -256,6 +257,7 @@ from .tools import (
     Reference,
     constructors,
     rehydrate_getters,
+    rehydrate_discarders,
 )
 
 
@@ -2588,14 +2590,20 @@ class Decoder(rapidjson.Decoder):
         # construct au fil du parse ; passé au C il basculerait sur la voie
         # update (document entier en dicts, puis _exploreToUpdate)
         self._live_root = obj
-        # id() des objets adoptés pendant ce parse (racine comprise), lu par
-        # le C : seule ancre de l'adoption d'une enveloppe sans état
-        self._adopted = set() if obj is None else {id(obj)}
+        self._discarded = []
         try:
-            return self.__call__(json=json, obj=None)
+            result = self.__call__(json=json, obj=None)
         finally:
             self._live_root = None
-            self._adopted = None
+            discarded, self._discarded = self._discarded, None
+        # homologues remplacés, défaussés APRÈS le parse : les détacher en
+        # cours de route décalerait les rangs des enfants Qt (~children)
+        for live in discarded:
+            for base, defausse in rehydrate_discarders.items():
+                if isinstance(live, base):
+                    defausse(live)
+                    break
+        return result
 
     def set_default_value(self, value=no_default_value):
         """
@@ -2652,9 +2660,9 @@ class Decoder(rapidjson.Decoder):
     # mode rehydrate : crochet lu par le C, homologue vivant de la racine
     construct = None
     _live_root = None
-    _adopted = None
+    _discarded = None
 
-    def _construct(self, class_str, args, slot, ancestor, keys, stateless):
+    def _construct(self, class_str, args, slot, ancestor, keys):
         # Appelé par le C (mode rehydrate) quand une enveloppe n'a pas de plan
         # C (classe sans plan, constructeur enregistré, clé '~') : rend
         # l'objet de cette enveloppe, ou None pour laisser le C continuer
@@ -2665,11 +2673,8 @@ class Decoder(rapidjson.Decoder):
         # ARGUMENTS du constructeur d'un parent pas encore construit (un
         # enfant Qt anonyme est écrit en plein dans le __init__ de son
         # premier enfant nommé) : le vivant y est lu par l'accesseur du
-        # parent, qui doit être de cette classe exacte (il sera adopté).
-        # `stateless` : enveloppe sans clé d'état et sans ancre (aucun
-        # argument adopté ni ancêtre construit ouvert, tranché par le C,
-        # SjAncre) — jamais adoptée : une enveloppe-valeur serait figée à
-        # sa valeur vivante
+        # parent, qui doit être de cette classe exacte. L'homologue de même
+        # classe est adopté si ses arguments se réconcilient (_reconcile)
         if class_str not in self._authorized_classes_strs:
             return None
         try:
@@ -2682,7 +2687,7 @@ class Decoder(rapidjson.Decoder):
             if ancestor is None and not keys:
                 if self._live_root is not None:
                     return self._live_root
-            elif not stateless:
+            else:
                 live = self._live_root if ancestor is None else ancestor
                 for key in keys:
                     if live is None:
@@ -2691,8 +2696,7 @@ class Decoder(rapidjson.Decoder):
                 if type(live) is cls and (
                     not self.updatableClassStrs
                     or class_str in self.updatableClassStrs
-                ):
-                    self._adopted.add(id(live))
+                ) and self._reconcile(live, args, slot):
                     return live
         # construction sans état, par la voie classique (mêmes formes
         # d'arguments : liste, dict, scalaire déballé)
@@ -2701,6 +2705,81 @@ class Decoder(rapidjson.Decoder):
         if slot == 1:
             return instance(class_str, __new__=args)
         return instance(class_str, __init__=args)
+
+    def _reconcile(self, live, args, slot):
+        # Adoption d'un homologue vivant de même classe (appelé par le C et
+        # par _construct) : vrai si ses arguments de constructeur égalent
+        # ceux du json, ou si chaque argument qui diffère s'applique par son
+        # NOM (setter Qt setNom, ou attribut inscriptible) — les différences
+        # sont alors appliquées ici, avant l'état. Faux sinon : l'appelant
+        # construit un neuf, le vivant sera défaussé en fin de parse.
+        # Jamais d'application à l'aveugle : un setter n'est pas neutre
+        # (QWidget.setParent cache le widget, même parent identique)
+        if not args:
+            return True
+        cls = type(live)
+        # argument unique écrit déballé (forme de l'écrivain), ou séquence
+        # qui EST l'argument (remove_add_braces)
+        if not isinstance(args, (list, tuple, dict)) or (
+            class_str_from_class(cls) in remove_add_braces
+        ):
+            args = (args,)
+        if isinstance(args, dict):
+            nommes = args
+        elif slot != 1:
+            noms = _noms_arguments(cls)
+            nommes = None if noms is None or len(args) > len(noms) else dict(zip(noms, args))
+        else:
+            nommes = None
+        diffs = []
+        if nommes is None:
+            # arguments sans nom (constructeur compilé, __new__) :
+            # comparés en bloc à ceux du réducteur du vivant, rien d'applicable
+            try:
+                vivants = tuple_from_instance(live)[1]
+            except Exception:
+                vivants = None
+            ok = (
+                isinstance(vivants, (list, tuple))
+                and len(vivants) == len(args)
+                and all(map(_egaux, vivants, args))
+            )
+        else:
+            ok = True
+            for nom, valeur in nommes.items():
+                vivant = getattr(live, nom, _ABSENT)
+                accesseur = isinstance(vivant, (types.MethodType, types.BuiltinMethodType))
+                if accesseur:
+                    try:
+                        vivant = vivant()
+                    except TypeError:
+                        vivant = _ABSENT
+                if vivant is _ABSENT:
+                    ok = False
+                    break
+                if _egaux(vivant, valeur):
+                    continue
+                if accesseur:
+                    setter = getattr(live, "set" + nom[:1].upper() + nom[1:], None)
+                    if not callable(setter):
+                        ok = False
+                        break
+                    diffs.append((setter, None, valeur))
+                elif _inscriptible(live, nom):
+                    diffs.append((None, nom, valeur))
+                else:
+                    ok = False
+                    break
+        if not ok:
+            if self._discarded is not None:
+                self._discarded.append(live)
+            return False
+        for setter, nom, valeur in diffs:
+            if setter is None:
+                setattr(live, nom, valeur)
+            else:
+                setter(valeur)
+        return True
 
     # classes dont la charge __init__/__new__[0] est du base64 : le parseur
     # C++ la décode directement depuis son tampon de parse, sans matérialiser
@@ -3874,6 +3953,57 @@ class _UpdatableClasses(set):
             except Exception:
                 return False
         return cls in self.classes
+
+
+_ABSENT = object()
+_noms_arguments_cache = {}
+
+
+def _noms_arguments(cls):
+    # noms des paramètres positionnels du constructeur (self exclu, arrêt au
+    # premier *args ou mot-clé seul), None si la signature est illisible
+    try:
+        return _noms_arguments_cache[cls]
+    except KeyError:
+        pass
+    try:
+        parametres = list(inspect.signature(cls).parameters.values())
+    except Exception:
+        noms = None
+    else:
+        noms = []
+        for p in parametres:
+            if p.kind not in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD):
+                break
+            noms.append(p.name)
+        noms = tuple(noms)
+    _noms_arguments_cache[cls] = noms
+    return noms
+
+
+def _egaux(a, b):
+    # identité pour les objets, == pour les valeurs ; une comparaison qui
+    # ne rend pas un booléen net (tableau numpy) compte pour différente
+    if a is b:
+        return True
+    if type(a) is not type(b):
+        return False
+    try:
+        return bool(a == b)
+    except Exception:
+        return False
+
+
+def _inscriptible(live, nom):
+    # l'attribut `nom` peut-il être affecté sans lever ? property sans
+    # setter : non ; autre descripteur de données : oui ; sinon il faut un
+    # __dict__ d'instance
+    descripteur = inspect.getattr_static(type(live), nom, None)
+    if isinstance(descripteur, property):
+        return descripteur.fset is not None
+    if hasattr(type(descripteur), "__set__"):
+        return True
+    return hasattr(live, "__dict__")
 
 
 def _descend(live, key):

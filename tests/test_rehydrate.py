@@ -38,8 +38,8 @@ class AvecSetstate:
 
 
 class Valeur:
-    # enveloppe-valeur (comme Decimal, QColor) : sans état, jamais adoptée —
-    # l'adopter figerait la valeur vivante
+    # enveloppe-valeur (comme Decimal, QColor) : sans état ; adoptée si son
+    # argument est égal, ou modifiée sur place (attribut homonyme inscriptible)
     def __init__(self, x):
         self.x = x
 
@@ -48,8 +48,8 @@ class Valeur:
 
 
 class Enfant:
-    # parenté par son __init__ (comme un enfant Qt anonyme) : cette ancre
-    # autorise l'adoption même sans état
+    # parenté par son __init__ (comme un enfant Qt anonyme) : son argument,
+    # le parent, est égal par identité → adopté même sans état
     def __init__(self, parent):
         self.parent = parent
 
@@ -58,9 +58,8 @@ class Enfant:
 
 
 class Segment:
-    # enveloppe-valeur dont l'argument est lui-même CONSTRUIT par __init__
-    # (Valeur) : un argument fermé n'est pas une ancre, le segment n'est pas
-    # adopté — seul un ancêtre construit ENCORE OUVERT en est une
+    # enveloppe-valeur dont un argument est lui-même CONSTRUIT (Valeur) :
+    # l'argument construit diffère du vivant, il est posé par son nom
     def __init__(self, debut, fin):
         self.debut, self.fin = debut, fin
 
@@ -116,15 +115,17 @@ def test_rehydrate_remplace_sur_classe_differente():
     assert isinstance(p.b, Fils) and p.b.n == 2
 
 
-def test_rehydrate_sans_etat_ancre_ou_remplace():
+def test_rehydrate_sans_etat_reconcilie_par_argument():
     p = _parent()
-    p.valeur = Valeur(9)
+    p.egale = Valeur(9)
+    p.modifiee = Valeur(9)
     p.enfant = Enfant(p)
     json = dumps(p)
-    p.valeur.x = 0
-    enfant = p.enfant
+    p.modifiee.x = 0
+    egale, modifiee, enfant = p.egale, p.modifiee, p.enfant
     loads(json, obj=p, rehydrate=True, authorized_classes=CLASSES)
-    assert p.valeur.x == 9  # remplacée
+    assert p.egale is egale and p.egale.x == 9  # égale : adoptée telle quelle
+    assert p.modifiee is modifiee and p.modifiee.x == 9  # modifiée sur place
     assert p.enfant is enfant  # adopté
 
 

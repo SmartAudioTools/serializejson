@@ -949,3 +949,68 @@ force les sources) — le test de cibuildwheel est un smoke depuis `/`.
 - Tests : tests/test_pyside6_qobjects.py (recréation + réhydratation,
   `--rouge` = voie classique qui double) ; 235 tests × 3.12/3.13/3.14
   sur PGO rebâtie (19/09 18 h 30, gcda supprimés avant).
+
+## Addendum 19/09/2026 soir — critère d'adoption : réconciliation PAR
+## ARGUMENT (plan ~/.claude/plans/eager-humming-wilkes.md)
+
+Défaut de départ : un enfant créé par le `__init__` de son parent, avec
+arguments de constructeur ET état, était adopté en IGNORANT ses arguments
+(`SegEtat(3, 4)` rouge relu `0 0 rouge`). La règle d'ancre (sans état →
+adopté seulement si ancré ; avec état → toujours adopté) ne regardait pas
+les arguments. Baptiste a refusé d'étendre l'ancre (« c'est du sparadra »)
+et demandé de comparer les alternatives avant de choisir.
+
+Alternatives écartées (détail dans le plan) : B lire les arguments du vivant
+par son RÉDUCTEUR (le réducteur Qt calcule état + connexions par
+dumpObjectInfo : ×N sur un arbre, et les positionnels restent sans nom) ;
+C tout appliquer par nom sans comparer (setParent CACHE le widget même à
+parent identique) ; D reconstruire puis transplanter l'état (widgets non
+transplantables, enfants du neuf pointant sur le neuf) ; E déclaration par
+classe (intrusif, déjà rejeté en 2021) ; F déplacer les arguments dans
+l'état côté écrivain (change la sortie, ne répare pas les json existants).
+
+**Retenu (G) : réconcilier argument par argument, PAR NOM, sur le vivant de
+même type exact.**
+- json sans arguments (nullptr, liste/tuple/dict vide) → adopté en C, aucun
+  appel python (chemin chaud des données inchangé) ;
+- sinon `Decoder._reconcile(vivant, args, slot)` : noms du dict de kwargs,
+  ou `inspect.signature(cls)` pour un positionnel (cache par classe ;
+  argument unique écrit DÉBALLÉ et remove_add_braces emballés d'abord) ;
+  valeur vivante lue par attribut, ou par accesseur appelé (Qt) ; égale
+  (identité, ou même type et `==`) → rien ; différente → setter `setNom`
+  (accesseur) ou attribut inscriptible (property avec fset, descripteur de
+  données, `__dict__`) ; illisible/inapplicable → Faux, l'appelant
+  construit un neuf. Différences appliquées seulement si TOUTES passent
+  (jamais de mutation partielle), avant l'état. Sans noms : comparaison en
+  bloc au réducteur, rien d'applicable.
+- Le parent d'un enfant Qt est un argument égal par identité : l'ancienne
+  ancre devient un cas particulier. SUPPRIMÉS : SjAncre, SjOuvert, SjAdopte,
+  le registre `adoptes`/`Decoder._adopted`, le paramètre stateless (C et
+  `_construct`), remplacés par SjSansArgs + `decoderReconcile`.
+- Étage 3 (reconstruit) : l'ancien vivant est DÉFAUSSÉ EN FIN DE PARSE
+  (`tools.rehydrate_discarders`, Qt : setParent(None) + deleteLater). Pas
+  en cours de route : détacher un enfant décalerait les rangs `~children`
+  des frères suivants.
+- Connexions (question de Baptiste) : celles du json sont déjà différées
+  (`~connections` en dernier, UniqueConnection) ; celles du `__init__` sont
+  du code utilisateur — hors périmètre, comme le risque d'un signal émis
+  pendant la restauration, qui existait déjà pour l'état.
+- Risque assumé : modifier sur place un vivant PARTAGÉ le modifie pour tous
+  ses détenteurs (déjà vrai pour l'état adopté).
+
+Tests : tests/test_adoption.py (neuf, 9 cas × valeurs/voie × recréation/
+réhydratation : échelle/fige reconstruits, les autres adoptés) ;
+test_rehydrate (Valeur égale adoptée telle quelle, différente modifiée sur
+place) ; test_pyside6_qobjects (Echelle Qt reconstruite sans doublon,
+l'ancienne détachée — ROUGE sans défausse —, label adopté resté visible).
+
+Validation (19/09, 19 h 45) : PGO ×3 rebâtie (gcda supprimés, .so ≈ 1,99
+Mo), 272 tests verts × 3.12/3.13/3.14, aucun test Qt sauté, goldens
+restaurés. A/B lecture 3.13 PGO contre PGO commité ab79a30 (7 tours
+interlacés, min de 40 loads, charge 3-4) : dans le bruit — un A/A
+(commité contre sa propre copie) donne déjà jusqu'à ±10 % sur ce
+protocole inter-processus, le neuf reste dans cette fourchette (−2,5 à
++7,8 %, signes mêlés, avec_init/slots/plain légèrement devant).
+Piège : un A/B ENTRE PROCESSUS sans A/A témoin fait croire à une
+régression de +9-16 % sur les données (premier passage) — toujours
+lancer l'A/A dans la même boucle.
