@@ -47,9 +47,8 @@ def test_qobjects_pyside6():
 
 if __name__ == "__main__":
     sys.path.insert(0, RACINE)
-    import rapidjson.rapidjson as rj
+    import conftest  # noqa: F401 — rend rapidjson importable (voir conftest)
 
-    sys.modules["rapidjson"] = rj
     import serializejson
     from qtpy import QtCore, QtGui, QtWidgets
 

@@ -42,9 +42,8 @@ def test_connexions_pyside6():
 if __name__ == "__main__":
     sys.path.insert(0, RACINE)
     avec_lister = "--sans-lister" not in sys.argv
-    import rapidjson.rapidjson as rj
+    import conftest  # noqa: F401 — rend rapidjson importable (voir conftest)
 
-    sys.modules["rapidjson"] = rj
     import serializejson
     from serializejson.plugins import serializejson_PyQt5_PySide2 as greffon
     from qtpy import QtCore, QtWidgets

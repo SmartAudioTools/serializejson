@@ -13,6 +13,12 @@ racine = str(Path(__file__).resolve().parent.parent)
 if racine not in sys.path:
     sys.path.insert(0, racine)
 if "rapidjson" not in sys.modules:
-    import rapidjson.rapidjson as _rapidjson_compile
+    try:
+        import rapidjson.rapidjson as _rapidjson_compile
+    except ModuleNotFoundError:
+        # installation éditable (requirements SmartPython) : son chercheur
+        # résout « rapidjson » directement vers le module compilé du dépôt,
+        # qui n'est alors pas un paquet
+        import rapidjson as _rapidjson_compile
 
     sys.modules["rapidjson"] = _rapidjson_compile

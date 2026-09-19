@@ -50,9 +50,8 @@ if __name__ == "__main__":
     sys.path.insert(0, RACINE)
     etape, chemin = sys.argv[1], sys.argv[2]
     sans_rehydrate = "--sans-rehydrate" in sys.argv
-    import rapidjson.rapidjson as rj
+    import conftest  # noqa: F401 — rend rapidjson importable (voir conftest)
 
-    sys.modules["rapidjson"] = rj
     import serializejson
     from serializejson.plugins import serializejson_PyQt5_PySide2 as greffon
     from qtpy import QtCore, QtWidgets
@@ -139,7 +138,7 @@ if __name__ == "__main__":
         assert "~windows" not in json_defaut and "~children" not in json_defaut
         assert '"text"' not in json_defaut
         serializejson.dump(app, chemin, qt_tree=True)
-        rj.wait_writes()
+        serializejson.wait_writes()
         with open(chemin, encoding="utf-8") as fichier:
             json = fichier.read()
         assert json.count('"windowTitle"') == 2
