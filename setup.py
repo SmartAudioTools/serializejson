@@ -95,8 +95,15 @@ class build_ext_pgo(build_ext):
 
     def _copie_blosc2(self):
         source = os.path.join(__location__, BLOSC2_LIB)
-        if os.path.exists(source):
-            destination = os.path.dirname(self.get_ext_fullpath("serializejson.rapidjson"))
+        if not os.path.exists(source):
+            return
+        destinations = {os.path.dirname(self.get_ext_fullpath("serializejson.rapidjson"))}
+        # pip install -e : setuptools recopie le module compilé dans les sources
+        # (serializejson/), mais pas cette lib, que tools.py cherche à côté de lui ;
+        # sans elle, repli silencieux sur une compression non déterministe
+        if self.editable_mode:
+            destinations.add(os.path.join(__location__, "serializejson"))
+        for destination in destinations:
             shutil.copy2(source, os.path.join(destination, os.path.basename(BLOSC2_LIB)))
 
 

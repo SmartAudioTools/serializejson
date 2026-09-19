@@ -3,3 +3,6 @@ build-rapidjson-Desktop-Debug/
 build/
 rapidjson/build/
 .~lock.*#
+
+# produits par pip install -e (module compilé et libblosc2 recopiés dans les sources)
+serializejson/*.so
