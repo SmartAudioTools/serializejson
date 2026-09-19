@@ -1084,10 +1084,10 @@ pickle, lance_benchmarks, pgo_workload hors roue) font `import conftest` :
 plus aucun idiome `import rapidjson.rapidjson`. 312 verts × 3.12/3.13/3.14 ;
 rouge prouvé sans l'épingle sous le second nom (les 4 mêmes échecs).
 
-Reste hors de portée de ce compte : les copies serializejson/*.so
-appartiennent au compte principal (cp « Permission non accordée ») — hors
-PGO, mais mêmes sources ; elles ne servent plus qu'aux usages hors dépôt
-(SmartFramework). Pour y mettre les binaires PGO, Baptiste :
-`cp rapidjson/rapidjson.cpython-31{2,3,4}-x86_64-linux-gnu.so serializejson/`.
+Copies serializejson/*.so : fichiers du compte principal, non inscriptibles
+ici (cp « Permission non accordée »), MAIS le dossier l'est → remplacées par
+les PGO via copie temporaire + `mv` (renommage = droit sur le dossier seul),
+octets identiques à rapidjson/*.so, masque ACL rwx (lisibles par Baptiste),
+import hors dépôt vérifié avec blosc du fork chargé.
 Toute réinstallation éditable refera les deux dégâts (rapidjson/*.so
 modifiés → `git checkout`).
