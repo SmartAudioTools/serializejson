@@ -1,9 +1,6 @@
 ﻿from .log import log
 
-try:
-    from SmartFramework.serialize.serializejson import getstate
-except:
-    from serializejson import getstate
+from serializejson import getstate
 
 # with INIT -----------------
 

@@ -938,12 +938,12 @@ if API:
             if isinstance(root, QtCore.QCoreApplication):
                 # les fenetres ne sont pas des enfants de l'application ;
                 # sans qt_tree elles ne sont pas dans le document
-                if not serialize_parameters.qt_tree:
+                if not getattr(serialize_parameters, "qt_tree", False):
                     return []
                 for window in qt_windows(root):
                     objects.append(window)
                     objects.extend(window.findChildren(QtCore.QObject))
-            qt_tree = serialize_parameters.qt_tree
+            qt_tree = getattr(serialize_parameters, "qt_tree", False)
 
             def in_document(obj):
                 # un objet ne peut etre reference que s'il est ecrit : tenu
@@ -959,7 +959,14 @@ if API:
                 if parent is None:
                     return True  # fenetre listee par qt_windows
                 if not (qt_tree and isinstance(obj, (QtWidgets.QWidget, QtWidgets.QLayout))):
-                    for value in getattr(parent, "__dict__", {}).values():
+                    # memes regles que QOBject_gestate/QWidget_getstate :
+                    # un attribut `_xxx` ou d'un type de remove_types n'est
+                    # jamais ecrit (un `_sync` de ControlUI, par exemple)
+                    for key, value in getattr(parent, "__dict__", {}).items():
+                        if key.startswith("_") or (
+                            remove_types and type(value) in remove_types
+                        ):
+                            continue
                         if isinstance(value, dict):
                             value = value.values()
                         elif not isinstance(value, (list, tuple)):

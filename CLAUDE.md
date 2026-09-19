@@ -551,7 +551,7 @@ rapidjson/rapidjson.cpp, .so ×4 PGO, ce fichier.
 
 ## Addendum nuit du 16 au 17/09/2026 — connexions Qt par introspection
 ## PySide6 (ordre de Baptiste « vas-y, implémente ça dans le greffon pour
-## PySide6 »), NON COMMITÉ, autorisation attendue au matin
+## PySide6 »), COMMITÉ git 3ddae9b (18/09 22 h 15)
 
 Le greffon serializejson_PyQt5_PySide2.py sérialise les connexions
 signal→slot SANS surcharger connect (ancien hack new_connect/parse
@@ -607,7 +607,7 @@ commitées (vérifié par stash). Pendant json du mode
 
 ## Addendum nuit du 17 au 18/09/2026 — réhydrater ou recréer une application
 ## AU FIL DU PARSE (rehydrate — DÉFAUT depuis 01 h 22 —, qt_tree=True,
-## load_application), NON COMMITÉ, autorisation attendue au matin (avec celui du 16→17/09)
+## load_application), COMMITÉ git 3ddae9b (18/09 22 h 15)
 
 Demande de Baptiste (17/09 soir) : « réhydrater une application ou en
 recréer une de toutes pièces en désérialisant (loader qui crée
@@ -797,7 +797,7 @@ valeur par défaut change ; l'écrivain n'est pas touché.
 
 ## Addendum 18/09, 02 h → 03 h — SmartFramework passe sur le paquet
 ## (demande de Baptiste « peut tu passer SmartFramework sur la nouvelle
-## voie ? »), NON COMMITÉ (git ici, hg dans SmartFramework et SmartOS)
+## voie ? »), COMMITÉ git 3ddae9b, hg SmartFramework r146-148, SmartOS r129
 
 Réponse à « qu'est-ce qui empêche SmartFramework d'utiliser la version
 actuelle ? l'absence de serializePython ? » : NON. Quatre obstacles, tous
@@ -843,9 +843,77 @@ Cas limite CONNU de l'adoption, non couvert : `self.a = self.b = Fils()`
 (un même enfant sous deux attributs) — le second est un `$ref`, adopté
 tel quel ; sans problème tant que le json vient du même code.
 
-Pièges payés : le .dat de SmartFace au format python importe `numpyB64`
-depuis `SmartFramework.serialize.plugins.serializejson_numpy` → ce
-chemin doit rester un relais, pas disparaître ; `authorized_classes`
+Pièges payés : les .dat au format python écrits avant le 18/09 importent
+`numpyB64`/`instance` depuis `SmartFramework.serialize.…` → migrés par
+`SmartFramework/serialize/migre_dat_vers_paquet.py` (18/09 23 h 10, plus
+aucun relais dans SmartFramework ; Dropbox à migrer par Baptiste) ;
+`authorized_classes`
 est obligatoire pour la classe cible (TypeError « not in
 authorized_classes » sinon, même en rehydrate : `_construct` décline
 puis `_inst_from_dict` tranche).
+
+## Addendum nuit du 18 au 19/09/2026 — doublons de widgets à la relecture
+## json d'un .dat SmartFace, migration des .dat, COMMITÉ 19/09 au soir
+
+Point de départ : « quelle serait la meilleure méthode pour migrer tous
+mes fichiers .dat en json ? » puis « peux-tu écrire un script qui permette
+d'orchestrer tout ça ? ». Le premier aller-retour sur
+SmartFace/patchs/SmartFaceEditUI.dat (1,8 Mo python) rechargé depuis son
+json DOUBLAIT 35 QWidget (contenus de dock anonymes, group boxes, labels,
+PlotUI) : l'adoption d'une enveloppe SANS ÉTAT n'était autorisée que si
+l'ancêtre construit figurait dans ses arguments, or un contenu de dock
+anonyme s'écrit `root.dockWidgetContents_N` avec pour seul argument son
+QDockWidget (lui-même adopté), pas la racine.
+
+- **Ancre = registre des ADOPTÉS** (rapidjson.cpp `adoptes`/SjAdopte/
+  SjAncre, `Decoder._adopted` créé par parse dans `_appel` avec l'id de la
+  racine vivante, lu par le C par l'attribut interné `_adopted`) : une
+  enveloppe sans état est adoptée ssi l'un de ses arguments de constructeur
+  est un objet déjà adopté ; chaque adoption (C ou `_construct`) s'inscrit.
+  Remplace l'ancienne règle « ancêtre dans les args ou traversée »
+  (drapeau `traversee` supprimé). Les enveloppes-valeur (Decimal, QColor :
+  args scalaires) restent jamais adoptées.
+- **Chaîne à travers une enveloppe pas encore construite** (SjChaine /
+  SjEnveloppeTraversee, `_descend` sur pas-tuple) : un objet donné au
+  `__init__` d'un enfant nommé (le parent écrit en plein dans
+  `root.X.__init__['parent']`, référencé ensuite par $ref) est atteint par
+  un pas `(slot, classe_str)` — l'homologue vivant doit être de cette
+  classe exacte, le pas suivant lit l'argument par son accesseur Qt
+  (`parent()`, méthode liée appelée sans argument).
+- Greffon Qt : `qt_tree` lu par `getattr(serialize_parameters, "qt_tree",
+  False)` (paramètre absent d'un `serialize_parameters` importé avant le
+  greffon) ; `connections()` ignore les attributs `_…` et les
+  `remove_types` en cherchant les objets du document ; tools `_getitem`
+  descend par clé, sinon attribut, accesseur appelé si méthode.
+- Validé : sonde de doublons vide (findChildren par (type, objectName,
+  parent) avant/après), re-dump python A (dat) == B (json), json A == B
+  (2 172 228 octets), 233 tests × 3.12/3.13/3.14 sur PGO rebâtie (02 h 24,
+  .so ≈ 1,99 Mo, gcda supprimés avant), goldens restaurés.
+- Script livré côté SmartFramework : `serialize/migre_dat_vers_json.py`
+  (voir le CLAUDE.md de SmartFramework, section serialize/). Dans le bac à
+  sable seul SmartFaceEditUI.dat est migrable (4 lignes d'écart : vidéo
+  Dropbox invisible → `--garde-diff`) ; SmartFaceUI/SmartFaceRecordUI ne
+  s'importent pas ici (ids_peak, playsound — préexistant), Dropbox/Data/
+  DAT invisible : la migration réelle est à lancer par Baptiste.
+
+Fichiers du chantier (les MIENS) : rapidjson/rapidjson.cpp, .so ×3 PGO,
+serializejson/{__init__.py,tools.py}, serializejson/plugins/
+serializejson_PyQt5_PySide2.py, tests/objects/*.py (imports vers le
+paquet), ce fichier. Le .so 311 apparaît modifié : PAS à moi, ne pas le
+commiter.
+
+## Addendum 19/09/2026 — publication PyPI (git 28b96d0)
+
+Trusted Publishing (OIDC, environnement « pypi », workflow
+`.github/workflows/python-publish.yml` — NE PAS le renommer sans mettre
+à jour pypi.org). Déclenché par un tag `v*`. Roues Linux x86_64 cp310 →
+cp314 par cibuildwheel, PGO dans `setup.py` (`SERIALIZEJSON_PGO=auto` :
+passe generate, `rapidjson/pgo_workload.py`, passe use), libblosc2 du
+fork construite dans le conteneur par
+`scripts/construit_libblosc2_serializejson.sh`. Roue testée en local
+(cp313) ; cp310/311, cibuildwheel et le clone réseau : CI seulement.
+SmartFramework embarqué sous `serializejson/_smartframework`.
+
+Pièges : `sed -i` convertit les CRLF de CHANGELOG.rst en LF (diff de
+150 lignes pour 3) ; pytest ne teste PAS la roue (`tests/conftest.py`
+force les sources) — le test de cibuildwheel est un smoke depuis `/`.

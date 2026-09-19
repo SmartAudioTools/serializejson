@@ -2588,10 +2588,14 @@ class Decoder(rapidjson.Decoder):
         # construct au fil du parse ; passé au C il basculerait sur la voie
         # update (document entier en dicts, puis _exploreToUpdate)
         self._live_root = obj
+        # id() des objets adoptés pendant ce parse (racine comprise), lu par
+        # le C : seule ancre de l'adoption d'une enveloppe sans état
+        self._adopted = set() if obj is None else {id(obj)}
         try:
             return self.__call__(json=json, obj=None)
         finally:
             self._live_root = None
+            self._adopted = None
 
     def set_default_value(self, value=no_default_value):
         """
@@ -2648,6 +2652,7 @@ class Decoder(rapidjson.Decoder):
     # mode rehydrate : crochet lu par le C, homologue vivant de la racine
     construct = None
     _live_root = None
+    _adopted = None
 
     def _construct(self, class_str, args, slot, ancestor, keys, stateless):
         # Appelé par le C (mode rehydrate) quand une enveloppe n'a pas de plan
@@ -2656,10 +2661,16 @@ class Decoder(rapidjson.Decoder):
         # comme sans le mode (classe non autorisée : end_object tranchera).
         # `keys` : chaîne des clés depuis `ancestor` (instance déjà
         # construite, None = racine vivante) jusqu'à l'objet ; None = pas
-        # d'homologue vivant possible. `stateless` : enveloppe sans clé
-        # d'état, l'adoption exige alors que `ancestor` soit un argument du
-        # constructeur (un enfant Qt anonyme parenté par son __init__) — sans
-        # cette ancre, une enveloppe-valeur serait figée à sa valeur vivante
+        # d'homologue vivant possible. Un pas (slot, classe) traverse les
+        # ARGUMENTS du constructeur d'un parent pas encore construit (un
+        # enfant Qt anonyme est écrit en plein dans le __init__ de son
+        # premier enfant nommé) : le vivant y est lu par l'accesseur du
+        # parent, qui doit être de cette classe exacte (il sera adopté).
+        # `stateless` : enveloppe sans clé d'état, l'adoption exige alors
+        # qu'un argument du constructeur soit un objet déjà ADOPTÉ (un
+        # enfant Qt anonyme parenté par son __init__, ce parent étant un
+        # vivant) — sans cette ancre, une enveloppe-valeur serait figée à
+        # sa valeur vivante
         if class_str not in self._authorized_classes_strs:
             return None
         try:
@@ -2672,7 +2683,7 @@ class Decoder(rapidjson.Decoder):
             if ancestor is None and not keys:
                 if self._live_root is not None:
                     return self._live_root
-            elif not stateless or _anchored(args, ancestor):
+            elif not stateless or _anchored(args, self._adopted):
                 live = self._live_root if ancestor is None else ancestor
                 for key in keys:
                     if live is None:
@@ -2682,6 +2693,7 @@ class Decoder(rapidjson.Decoder):
                     not self.updatableClassStrs
                     or class_str in self.updatableClassStrs
                 ):
+                    self._adopted.add(id(live))
                     return live
         # construction sans état, par la voie classique (mêmes formes
         # d'arguments : liste, dict, scalaire déballé)
@@ -3867,11 +3879,20 @@ class _UpdatableClasses(set):
 
 def _descend(live, key):
     # un pas de la chaîne des clés sur les objets vivants (mode rehydrate) ;
-    # une clé '~…' est un lecteur virtuel posé par un greffon
+    # une clé '~…' est un lecteur virtuel posé par un greffon ; un couple
+    # (slot, classe) reste sur place si l'objet est de cette classe exacte
+    # (parent adopté : ses arguments de constructeur sont les vivants)
     if isinstance(key, int):
         if isinstance(live, (list, tuple)) and -len(live) <= key < len(live):
             return live[key]
         return None
+    if type(key) is tuple:
+        # sans inscrire la classe dans `constructors` (ce qui priverait ses
+        # enveloppes du plan C aux chargements suivants)
+        cls = constructors.get(key[1])
+        if cls is None:
+            cls = class_from_class_str(key[1])
+        return live if type(live) is cls else None
     if key[:1] == "~":
         getter = rehydrate_getters.get(key)
         return None if getter is None else getter(live)
@@ -3888,14 +3909,14 @@ def _descend(live, key):
     return value
 
 
-def _anchored(args, ancestor):
-    if ancestor is None or args is None:
+def _anchored(args, adopted):
+    if args is None or not adopted:
         return False
     if isinstance(args, dict):
         args = args.values()
     elif not isinstance(args, (list, tuple)):
         return False
-    return any(value is ancestor for value in args)
+    return any(id(value) in adopted for value in args)
 
 
 def _get_authorized_classes_strings(classes):

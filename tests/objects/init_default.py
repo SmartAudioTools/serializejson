@@ -1,7 +1,4 @@
-﻿try:
-    from SmartFramework.serialize.serializejson import getstate
-except:
-    from serializejson import getstate
+﻿from serializejson import getstate
 
 
 from .log import log

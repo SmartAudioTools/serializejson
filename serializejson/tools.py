@@ -1463,7 +1463,7 @@ def from_name(path, accept_dict_as_object=False, materialize=None, **variables):
                             else:
                                 current = current[key]
                         else:
-                            current = current[key]
+                            current = _getitem(current, key)
                         # is_first = False
                         element_chars = []
                     else:
@@ -1573,6 +1573,19 @@ def from_name(path, accept_dict_as_object=False, materialize=None, **variables):
                 current, element, accept_dict_as_object, materialize
             )  # permet de marcher avec slot et properties,mais pas getters
     return current
+
+
+def _getitem(obj, key):
+    try:
+        return obj[key]
+    except TypeError:
+        # `x.__init__['parent']` sur un objet DEJA construit (mode rehydrate,
+        # ou $ref vers un objet ferme) : l'argument du constructeur n'est plus
+        # accessible que par son accesseur (parent() d'un QObject)
+        if type(key) is not str:
+            raise
+        valeur = getattr(obj, key)
+        return valeur() if callable(valeur) else valeur
 
 
 def _getattr(obj, attribut, accept_dict_as_object, materialize=None):
