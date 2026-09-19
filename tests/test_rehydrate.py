@@ -57,7 +57,27 @@ class Enfant:
         return class_str_from_class(Enfant), {"parent": self.parent}, None
 
 
-CLASSES = [Parent, Fils, AvecSetstate, Valeur, Enfant]
+class Segment:
+    # enveloppe-valeur dont l'argument est lui-même CONSTRUIT par __init__
+    # (Valeur) : un argument fermé n'est pas une ancre, le segment n'est pas
+    # adopté — seul un ancêtre construit ENCORE OUVERT en est une
+    def __init__(self, debut, fin):
+        self.debut, self.fin = debut, fin
+
+    def __serializejson__(self):
+        return class_str_from_class(Segment), (self.debut, self.fin), None
+
+
+class Trace:
+    # écrite avec __init__ : recréée, elle crée un Segment vivant sous elle
+    def __init__(self):
+        self.segment = Segment(0, Valeur(0))
+
+    def __serializejson__(self):
+        return class_str_from_class(Trace), (), {"segment": self.segment}
+
+
+CLASSES = [Parent, Fils, AvecSetstate, Valeur, Enfant, Segment, Trace]
 
 
 def _parent():
@@ -106,6 +126,13 @@ def test_rehydrate_sans_etat_ancre_ou_remplace():
     loads(json, obj=p, rehydrate=True, authorized_classes=CLASSES)
     assert p.valeur.x == 9  # remplacée
     assert p.enfant is enfant  # adopté
+
+
+def test_rehydrate_argument_construit_ferme_n_ancre_pas():
+    t = Trace()
+    t.segment = Segment(0, Valeur(5))
+    q = loads(dumps(t), authorized_classes=CLASSES)
+    assert q.segment.fin.x == 5
 
 
 def test_rehydrate_updatables_classes_restreint_l_adoption():

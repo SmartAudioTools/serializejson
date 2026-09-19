@@ -27,6 +27,7 @@ except ImportError:
         except ImportError:
             API = None
 if API:
+    import enum
     import sys
 
     sys.modules["QtCore"] = QtCore
@@ -66,7 +67,8 @@ if API:
     # mode rehydrate, les lecteurs rehydrate_getters retrouvent l'homologue
     # vivant d'une cle virtuelle ; un enfant anonyme est identifie par son
     # RANG parmi les enfants crees par python (comme un element de liste).
-    # Non couverts : objets non-widgets (QAction, QTimer), arbres uic,
+    # QTimer et QAction ecrivent leur etat Qt (voir qt_state). Non couverts :
+    # autres QObject non-widgets (etat Qt non ecrit), arbres uic,
     # sort_keys=True (casserait l'ordre des cles).
     encoder_parameters["qt_tree"] = False
 
@@ -324,6 +326,10 @@ if API:
             "QtWidgets.QLabel",
             "QtCore.QLocale.NumberOptions",
             "QtWidgets.QMainWindow",
+            "QtCore.QTimer",
+            "const",
+            "QtGui.QAction",
+            "QtWidgets.QAction",
         }
     )
 
@@ -837,6 +843,51 @@ if API:
     QtWidgets.QPlainTextEdit.__serializejson__ = serializejson_QPlainTextEdit
     setters[QtWidgets.QPlainTextEdit] = {"plainText": "setPlainText"}
 
+    # QObject non-widgets : leur etat Qt (lu par getter) rejoint les
+    # attributs python ; __setstate__ le repose par les setters, dans
+    # l'ordre du tableau ("active" en dernier : start() apres reglage).
+    # Adopte en rehydrate, l'objet vivant recoit l'etat sans etre recree.
+    QAction = getattr(QtGui, "QAction", None) or QtWidgets.QAction
+    qt_state = {
+        QtCore.QTimer: {
+            "interval": ("interval", "setInterval"),
+            "singleShot": ("isSingleShot", "setSingleShot"),
+            "timerType": ("timerType", "setTimerType"),
+            "active": ("isActive", lambda self, v: self.start() if v else self.stop()),
+        },
+        QAction: {
+            "text": ("text", "setText"),
+            "shortcut": (lambda self: self.shortcut().toString(), "setShortcut"),
+            "checkable": ("isCheckable", "setCheckable"),
+            "checked": ("isChecked", "setChecked"),
+            "enabled": ("isEnabled", "setEnabled"),
+            "visible": ("isVisible", "setVisible"),
+        },
+    }
+
+    def qt_state_table(self):
+        return next(t for c, t in qt_state.items() if isinstance(self, c))
+
+    def qt_state_getstate(self):
+        state = QOBject_gestate(self)
+        for key, (getter, _) in qt_state_table(self).items():
+            state[key] = getter(self) if callable(getter) else getattr(self, getter)()
+        return state
+
+    def qt_state_setstate(self, state):
+        for key, (_, setter) in qt_state_table(self).items():
+            if key in state:
+                value = state.pop(key)
+                if callable(setter):
+                    setter(self, value)
+                else:
+                    getattr(self, setter)(value)
+        setstate(self, state)
+
+    for cls in qt_state:
+        cls.__getstate__ = qt_state_getstate
+        cls.__setstate__ = qt_state_setstate
+
     # vire le prefixe PyQt5. et PySide2.
     def type_str(self):
         s = class_str_from_class(type(self))
@@ -851,30 +902,34 @@ if API:
 
     qt_const_name = dict()
     qt_const_type = type(QtCore.Qt.CheckState)
-    # for module,module_name in ((QtGui,'QtGui'),): #(QtCore.Qt,'QtCore.Qt')
-    for key, value in QtCore.Qt.__dict__.items():
-        type_value = type(value)
-        if type_value is qt_const_type:
-            value.__serializejson__ = serializejson_Enum
-        if type(type_value) is qt_const_type:
-            str_ = f"QtCore.Qt.{key}"
-            qt_const_name[(type(value), value)] = str_
-            consts[str_] = value
 
-    for module, module_name in ((QtGui, "QtGui"), (QtWidgets, "QtWidgets")):
+    def register_consts(prefix, namespace):
+        for key, value in namespace.__dict__.items():
+            type_value = type(value)
+            if type_value is qt_const_type:
+                value.__serializejson__ = serializejson_Enum
+                # enums python (PySide6) : les membres ne sont PAS dans le
+                # dict du parent, seulement dans leur classe d'enum
+                if isinstance(value, type) and issubclass(value, enum.Enum):
+                    for member in value:
+                        str_ = f"{prefix}.{key}.{member.name}"
+                        qt_const_name.setdefault((value, member), str_)
+                        consts[str_] = member
+            if type(type_value) is qt_const_type:
+                try:
+                    str_ = f"{prefix}.{key}"
+                    qt_const_name[(type(value), value)] = str_
+                    consts[str_] = value
+                except TypeError:
+                    pass
+
+    register_consts("QtCore.Qt", QtCore.Qt)
+    for module, module_name in (
+        (QtCore, "QtCore"), (QtGui, "QtGui"), (QtWidgets, "QtWidgets")
+    ):
         for class_name, class_ in module.__dict__.items():
-            if hasattr(class_, "__dict__"):
-                for key, value in class_.__dict__.items():
-                    type_value = type(value)
-                    if type_value is qt_const_type:
-                        value.__serializejson__ = serializejson_Enum
-                    if type(type_value) is qt_const_type:
-                        try:
-                            str_ = f"{module_name}.{class_name}.{key}"
-                            qt_const_name[(type(value), value)] = str_
-                            consts[str_] = value
-                        except TypeError:
-                            pass
+            if hasattr(class_, "__dict__") and class_name != "Qt":
+                register_consts(f"{module_name}.{class_name}", class_)
     constructors["const"] = const
 
     # SERIALISATION DES CONNEXIONS ------------------------------------------------

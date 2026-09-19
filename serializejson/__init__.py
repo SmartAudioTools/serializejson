@@ -2666,10 +2666,9 @@ class Decoder(rapidjson.Decoder):
         # enfant Qt anonyme est écrit en plein dans le __init__ de son
         # premier enfant nommé) : le vivant y est lu par l'accesseur du
         # parent, qui doit être de cette classe exacte (il sera adopté).
-        # `stateless` : enveloppe sans clé d'état, l'adoption exige alors
-        # qu'un argument du constructeur soit un objet déjà ADOPTÉ (un
-        # enfant Qt anonyme parenté par son __init__, ce parent étant un
-        # vivant) — sans cette ancre, une enveloppe-valeur serait figée à
+        # `stateless` : enveloppe sans clé d'état et sans ancre (aucun
+        # argument adopté ni ancêtre construit ouvert, tranché par le C,
+        # SjAncre) — jamais adoptée : une enveloppe-valeur serait figée à
         # sa valeur vivante
         if class_str not in self._authorized_classes_strs:
             return None
@@ -2683,7 +2682,7 @@ class Decoder(rapidjson.Decoder):
             if ancestor is None and not keys:
                 if self._live_root is not None:
                     return self._live_root
-            elif not stateless or _anchored(args, self._adopted):
+            elif not stateless:
                 live = self._live_root if ancestor is None else ancestor
                 for key in keys:
                     if live is None:
@@ -3907,16 +3906,6 @@ def _descend(live, key):
         except TypeError:
             return None
     return value
-
-
-def _anchored(args, adopted):
-    if args is None or not adopted:
-        return False
-    if isinstance(args, dict):
-        args = args.values()
-    elif not isinstance(args, (list, tuple)):
-        return False
-    return any(id(value) in adopted for value in args)
 
 
 def _get_authorized_classes_strings(classes):

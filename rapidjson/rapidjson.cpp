@@ -2952,10 +2952,29 @@ struct PyHandler {
         return rc > 0;
     }
 
-    // vrai si un argument du constructeur est un objet ADOPTÉ (un enfant Qt
-    // anonyme est parenté par son __init__, et ce parent est un vivant) :
+    // vrai si `v` est l'instance d'un niveau ENCORE OUVERT de la pile, déjà
+    // construit (rangée dans __class__ de son dict ou de sa capture) : un
+    // ancêtre dont le __init__ a pu créer des enfants
+    bool SjOuvert(PyObject* v) {
+        for (const HandlerContext& ctx : stack) {
+            if (!ctx.envConstruit)
+                continue;
+            PyObject* inst = ctx.object != nullptr && PyDict_CheckExact(ctx.object)
+                ? PyDict_GetItem(ctx.object, class_key_name)
+                : ctx.envClass;
+            if (inst == v)
+                return true;
+        }
+        return false;
+    }
+
+    // vrai si un argument du constructeur est un objet ADOPTÉ ou un ancêtre
+    // construit encore ouvert (un enfant Qt anonyme est parenté par son
+    // __init__, et ce parent est un vivant, ou vient de créer ses enfants) :
     // seule ancre qui autorise l'adoption d'un objet sans état — sans elle
-    // une enveloppe-valeur (Decimal, QColor) serait figée à sa valeur vivante
+    // une enveloppe-valeur (Decimal, QColor) serait figée à sa valeur vivante.
+    // Pas n'importe quel objet construit : un argument déjà FERMÉ (le Vec
+    // d'un Point) n'a plus d'enfants à venir dans ce document
     bool SjAncre(PyObject* args) {
         if (args == nullptr)
             return false;
@@ -2964,13 +2983,13 @@ struct PyHandler {
             PyObject* k;
             PyObject* v;
             while (PyDict_Next(args, &pos, &k, &v))
-                if (SjAdopte(v, false))
+                if (SjAdopte(v, false) || SjOuvert(v))
                     return true;
         } else if (PyList_CheckExact(args) || PyTuple_CheckExact(args)) {
             Py_ssize_t n = PySequence_Fast_GET_SIZE(args);
             PyObject** items = PySequence_Fast_ITEMS(args);
             for (Py_ssize_t i = 0; i < n; i++)
-                if (SjAdopte(items[i], false))
+                if (SjAdopte(items[i], false) || SjOuvert(items[i]))
                     return true;
         }
         return false;
@@ -3011,8 +3030,8 @@ struct PyHandler {
     // construit ou la racine vivante), sinon construit. NOUVELLE réf ;
     // nullptr = déclin sans erreur (classe native ou sans plan et refusée par
     // python) ou erreur posée. `stateless` : fermeture sans clé d'état,
-    // l'adoption exige alors l'ancre (SjAncre) ; la voie python tient le
-    // même registre
+    // l'adoption exige alors l'ancre (SjAncre), tranchée ici pour les deux
+    // voies
     PyObject* SjConstruit(size_t niveau, bool insere, PyObject* classe,
                           PyObject* args, int slot, bool stateless,
                           bool* fresh = nullptr) {
@@ -3044,7 +3063,7 @@ struct PyHandler {
                 args != nullptr ? args : Py_None, slot,
                 ancetre != nullptr ? ancetre : Py_None,
                 cles != nullptr ? cles : Py_None,
-                stateless ? Py_True : Py_False);
+                stateless && !SjAncre(args) ? Py_True : Py_False);
             Py_XDECREF(cles);
             if (res == Py_None)
                 Py_CLEAR(res);

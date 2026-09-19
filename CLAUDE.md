@@ -835,9 +835,11 @@ fork refusait déjà la str : branche json jamais utilisée avant).
 Test manuel neuf `serialize/tests/test_SerializeInterface_rehydrate.py`
 (json + python OK, `--sans-rehydrate` rouge : spin à 0).
 
-Côté machine : lien `/DATA/Python/serializejson -> GITHUB/serializejson/
-serializejson` (posé le 18/09 02 h 13) + ligne `ln -sfn` dans les deux
-`installation_SmartPythons_*.sh` de SmartOS (moitié durable).
+Côté machine : depuis le 19/09/2026, le dépôt est `/DATA/Python/serializejson`
+(plus de lien depuis `GITHUB/`), installé en éditable `editable_mode=compat`
+par les requirements SmartPython de SmartOS (le mode par défaut laisse
+gagner le dossier du dépôt, paquet espace de noms vide, car `/DATA/Python`
+est sur `sys.path`).
 
 Cas limite CONNU de l'adoption, non couvert : `self.a = self.b = Fils()`
 (un même enfant sous deux attributs) — le second est un `$ref`, adopté
@@ -917,3 +919,33 @@ SmartFramework embarqué sous `serializejson/_smartframework`.
 Pièges : `sed -i` convertit les CRLF de CHANGELOG.rst en LF (diff de
 150 lignes pour 3) ; pytest ne teste PAS la roue (`tests/conftest.py`
 force les sources) — le test de cibuildwheel est un smoke depuis `/`.
+
+## Addendum 19/09/2026 — greffons QTimer/QAction, enums PySide6, ancre
+## « ancêtre ouvert » (question de Baptiste « on ne peut pas créer des
+## greffons pour ces objets ? »)
+
+- **qt_state (greffon Qt)** : QTimer (interval, singleShot, timerType,
+  active en dernier → start()) et QAction (text, shortcut, checkable,
+  checked, enabled, visible) écrivent leur état Qt via getters, reposé
+  par setters dans __setstate__. toolTip/statusTip ÉCARTÉS exprès :
+  toolTip vaut le texte par défaut, l'écrire le figerait. Autorisés :
+  "QtCore.QTimer", "QtGui.QAction", "QtWidgets.QAction" (Qt5), "const".
+- **Défaut PRÉEXISTANT corrigé : aucune valeur d'enum PySide6 n'était
+  sérialisable** (KeyError dans serializejson_Enum) — les membres d'un
+  enum python ne sont pas dans le __dict__ du parent. register_consts
+  parcourt les membres de chaque classe d'enum ; QtCore couvert en plus
+  de QtGui/QtWidgets.
+- **Défaut corrigé : en RECRÉATION (sans obj=), les enfants sans état
+  d'une racine construite par __init__ étaient DOUBLÉS** (2 QLabel /
+  4 QWidget pour 1 / 2) : l'ancre n'acceptait que les objets adoptés.
+  Ancre élargie aux ANCÊTRES CONSTRUITS ENCORE OUVERTS (SjOuvert : pile
+  des contextes, envConstruit, instance dans __class__/envClass) ;
+  tranchée en C pour les deux voies (python reçoit stateless=False si
+  ancré ; `_anchored` supprimé). Première tentative REJETÉE : inscrire
+  tout objet construit par __init__ comme adopté — trop large, un
+  argument FERMÉ (le Vec d'un Point) faisait adopter une enveloppe-valeur
+  vivante. Test test_rehydrate_argument_construit_ferme_n_ancre_pas,
+  rouge (0 ≠ 5) sur cette version.
+- Tests : tests/test_pyside6_qobjects.py (recréation + réhydratation,
+  `--rouge` = voie classique qui double) ; 235 tests × 3.12/3.13/3.14
+  sur PGO rebâtie (19/09 18 h 30, gcda supprimés avant).
