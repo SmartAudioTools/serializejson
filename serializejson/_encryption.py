@@ -153,10 +153,16 @@ def _de_b64(texte):
 #   de l'un connaît le mot de passe de tous, rien de plus.
 # Un document LU au mot de passe et au logN d'écriture fournit aussi son
 # en-tête à l'écriture : relire puis réécrire ne coûte qu'un seul scrypt.
+# - Ouverture : (mot de passe, en-tête EXACT, MAC compris) -> file key. Un
+#   en-tête déjà authentifié sous ce mot de passe l'est à nouveau à l'octet
+#   près (unwrap et MAC sont des fonctions de ces seules entrées) : relire un
+#   document de même en-tête — tous ceux qu'écrit un même processus — saute
+#   analyse, unwrap et MAC (8,7 -> ~1 µs).
 
 _verrou = threading.Lock()
 _cles_lecture = {}
 _entetes_ecriture = {}
+_entetes_ouverts = {}
 _TAILLE_CACHE = 32
 
 
@@ -171,6 +177,7 @@ def _vide_caches():
     with _verrou:
         _cles_lecture.clear()
         _entetes_ecriture.clear()
+        _entetes_ouverts.clear()
 
 
 def _entete_ecriture(mot_de_passe):
@@ -188,6 +195,7 @@ def _entete_ecriture(mot_de_passe):
     trouve = (entete + b" " + _b64(_mac(file_key, entete)) + b"\n", file_key)
     _range(_cles_lecture, (mot_de_passe, sel, logn), emballage)
     _range(_entetes_ecriture, (mot_de_passe, logn), trouve)
+    _range(_entetes_ouverts, (mot_de_passe, trouve[0]), file_key)
     return trouve
 
 
@@ -288,13 +296,17 @@ def decrypt(data, password):
 
 
 def _ouvre_entete(data, mot_de_passe):
-    InvalidTag, ChaCha20Poly1305, _ = _crypto()
     fin_mac = data.find(b"\n--- ")
     if fin_mac < 0:
         raise DecryptionError("invalid age header")
     fin_ligne = data.find(b"\n", fin_mac + 1)
     if fin_ligne < 0:
         raise DecryptionError("invalid age header")
+    ouvert = (mot_de_passe, data[:fin_ligne + 1])
+    file_key = _entetes_ouverts.get(ouvert)
+    if file_key is not None:
+        return file_key, fin_ligne + 1
+    InvalidTag, ChaCha20Poly1305, _ = _crypto()
     entete = data[:fin_mac + 4]
     lignes = entete[len(ENTETE):].split(b"\n")
     # une seule stanza, scrypt, à deux arguments, corps d'une ligne : la spec
@@ -333,6 +345,7 @@ def _ouvre_entete(data, mot_de_passe):
     if logn == LOGN_ECRITURE and (mot_de_passe, logn) not in _entetes_ecriture:
         _range(_entetes_ecriture, (mot_de_passe, logn),
                (data[:fin_ligne + 1], file_key))
+    _range(_entetes_ouverts, ouvert, file_key)
     return file_key, fin_ligne + 1
 
 

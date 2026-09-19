@@ -1129,6 +1129,12 @@ modifiés → `git checkout`).
   chiffrantes par défaut par thread (`_EtatParDefaut.chiffres`, clé comme
   seul argument) pour dumps/dumpb/loads. Petit document (~7 Ko) : dumpb
   42,2 → 20,8 µs (clair 12,8), loads 65,1 → 47,5 µs (clair 28,5).
+  Puis cache des en-têtes OUVERTS (mot de passe, en-tête exact MAC compris)
+  → file key, alimenté aussi à l'écriture : relire un en-tête déjà
+  authentifié saute analyse/unwrap/MAC (_ouvre_entete 8,7 → 0,3 µs) ;
+  loads chiffré ≈ 30 µs contre 20,7 en clair (même run, machine plus calme).
+  Test rouge sans le cache. Reste au-dessus du clair : HKDF de la clé de
+  flux (~2 µs, nonce propre au document) + ChaCha lui-même — incompressible.
 - Résistance quantique (question de Baptiste) : tout est symétrique
   (scrypt + ChaCha20-Poly1305 256 bits), Grover ramène à ~128 bits, Shor
   sans objet faute de clé publique ; le maillon faible est le mot de passe.

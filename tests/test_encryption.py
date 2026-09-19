@@ -352,6 +352,23 @@ def test_reecriture_sans_nouveau_scrypt(monkeypatch):
     assert len(appels) == 2
 
 
+def test_entete_deja_authentifie_non_rouvert(monkeypatch):
+    binaire = serializejson.dumpb(DOC, encryption_key="secret")
+    appels = []
+    vrai = _encryption._mac
+    monkeypatch.setattr(_encryption, "_mac",
+                        lambda *a: appels.append(a) or vrai(*a))
+    assert serializejson.loads(binaire, encryption_key="secret") == DOC
+    assert appels == []
+    # le cache ne vaut que pour cet en-tête exact et ce mot de passe
+    fin = binaire.index(b"\n", binaire.index(b"\n--- ") + 1)
+    altere = bytearray(binaire)
+    altere[fin - 1] ^= 0x01
+    for donnees, cle in ((bytes(altere), "secret"), (binaire, "Secret")):
+        with pytest.raises(_encryption.DecryptionError):
+            serializejson.loads(donnees, encryption_key=cle)
+
+
 def test_sans_cle_rien_ne_change():
     assert serializejson.dumpb(DOC) == serializejson.dumpb(
         DOC, encryption_key=None)
