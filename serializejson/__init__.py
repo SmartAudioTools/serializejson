@@ -210,6 +210,8 @@ except ModuleNotFoundError:
     use_numpy = False
 from . import serialize_parameters
 from . import indexation
+from . import _encryption
+from ._encryption import DecryptionError
 from enum import Enum
 
 
@@ -302,6 +304,7 @@ __all__ = [
     "wait_writes",
     "Encoder",
     "Decoder",
+    "DecryptionError",
     "getstate",
     "class_from_class_str",
 ]
@@ -450,6 +453,7 @@ def loads(json, *, obj=None, iterator=False, **argsDict):
         created object, updated object if `obj` is provided or elements iterator if `iterator` is `True`.
     """
     if iterator:
+        _refuse_iteration_chiffree(argsDict)
         return Decoder(**argsDict)
     etat = _etat_par_defaut()
     if not argsDict and not etat.occupe:
@@ -487,11 +491,18 @@ def load(file, *, obj=None, iterator=False, path=None, **argsDict):
     """
 
     if iterator:
+        _refuse_iteration_chiffree(argsDict)
         # le fichier passait à la trappe (Decoder() sans file) : l'itérateur
         # rendu n'avait rien à lire — défaut préexistant, jamais testé
         return Decoder(file, **argsDict)
     else:
         return Decoder(**argsDict).load(file=file, obj=obj, path=path)
+
+
+def _refuse_iteration_chiffree(argsDict):
+    if argsDict.get("encryption_key") is not None:
+        raise ValueError("encryption_key: an encrypted document is read as a"
+                         " whole, iterator=True is not supported")
 
 
 def index(file, form=indexation.FORME_DEFAUT,
@@ -960,6 +971,7 @@ class Encoder(rapidjson.Encoder):
         index=indexation.NON_PRECISE,
         index_threshold=indexation.SEUIL_DEFAUT,
         protocol=4,  # protocol pour pickle
+        encryption_key=None,
         **plugins_parameters,
     ):
 
@@ -968,6 +980,17 @@ class Encoder(rapidjson.Encoder):
         # else:
         #    bytes_mode = rapidjson.BM_UTF8
 
+        if encryption_key is not None:
+            _encryption.check_key(encryption_key)
+            # le chiffrement vit dans une sous-classe (_EncodeurChiffre) :
+            # l'encodeur sans clé garde ses méthodes et son __call__ C
+            # intouchés, pas même un test d'attribut sur son chemin chaud
+            if index is not indexation.NON_PRECISE and index is not None:
+                raise ValueError(
+                    "encryption_key: an index would reveal the structure of"
+                    " the encrypted document, index must stay None")
+            index = None
+            cls = _classe_chiffrante(cls, _EncodeurChiffre)
         if strict_pickle:
             attributes_filter = False
             sort_keys = False
@@ -1133,6 +1156,7 @@ class Encoder(rapidjson.Encoder):
         self.index = index
         self.index_threshold = index_threshold
         self.strict_pickle = strict_pickle
+        self.encryption_key = encryption_key
 
         unexpected_keywords_arguments = set(plugins_parameters) - set(
             encoder_parameters
@@ -2416,6 +2440,7 @@ class Decoder(rapidjson.Decoder):
         dotdict=False,
         add_jsonpath=False,
         rehydrate=True,
+        encryption_key=None,
     ):
         # PREMIÈRE instruction : locals() ne contient alors que les paramètres,
         # plus la cellule __class__ que pose l'appel à super(). Ils servent à
@@ -2426,6 +2451,9 @@ class Decoder(rapidjson.Decoder):
         # rendu à un appel sur mille
         parametres = locals()
 
+        if encryption_key is not None:
+            _encryption.check_key(encryption_key)
+            cls = _classe_chiffrante(cls, _DecodeurChiffre)
         if accept_comments:
             parse_mode = rapidjson.PM_COMMENTS
         else:
@@ -2440,6 +2468,7 @@ class Decoder(rapidjson.Decoder):
             number_mode=rapidjson.NM_NATIVE | rapidjson.NM_NAN,
         )  # , **argsDict)
         self._parametres = parametres
+        self.encryption_key = encryption_key
         self.strict_pickle = strict_pickle
         if strict_pickle:
             setters = False
@@ -2584,6 +2613,18 @@ class Decoder(rapidjson.Decoder):
         return self._appel(json, obj)
 
     def _appel(self, json, obj):
+        try:
+            return self._appel_clair(json, obj)
+        except Exception as e:
+            # testé seulement après l'échec : le chemin nominal ne paie rien
+            if (not isinstance(e, DecryptionError)
+                    and _encryption.is_encrypted(json)):
+                raise ValueError(
+                    "this document is encrypted: pass its password as"
+                    " encryption_key") from e
+            raise
+
+    def _appel_clair(self, json, obj):
         if not self._rehydrate:
             return self.__call__(json=json, obj=obj)
         # obj est l'homologue vivant de la racine, adopté par le crochet
@@ -3031,6 +3072,11 @@ class Decoder(rapidjson.Decoder):
                 # iter() exige un ITÉRATEUR : la liste nue d'origine levait
                 # TypeError (défaut préexistant, jamais testé)
                 return iter([self.default_value])
+            with open(file, "rb") as tete:
+                if _encryption.is_encrypted(tete.read(64)):
+                    raise ValueError(
+                        "this document is encrypted: iteration is not"
+                        " supported, load it whole with its encryption_key")
             self.file_iter = _json_object_file_iterator(file, mode="rb")
         else:
             raise Exception("not yet able to load_iter on %s" % str(type(file)))
@@ -3452,6 +3498,119 @@ class _LectureAvance:
 # types dans lesquels un marqueur {"$ref": ...} ne peut pas se trouver :
 # inutile de les explorer
 _leaf_types = (str, int, float, bool, type(None), bytes, bytearray, complex)
+
+
+# --- CHIFFREMENT (encryption_key) ----------------------------------------------
+#
+# Un Encoder/Decoder construit avec une clé est une instance d'une SOUS-CLASSE
+# de la classe demandée (même nom, isinstance préservé, sous-classes
+# utilisateur comprises) qui ajoute le chiffrement : les instances sans clé
+# gardent leurs méthodes d'origine, sans le moindre test de plus. Toutes les
+# entrées publiques sont couvertes, l'appel direct encoder(obj) compris : un
+# encodeur à clé ne rend JAMAIS de clair.
+# Le document est chiffré ENTIER, en mémoire (format age, voir _encryption) :
+# pas d'append, d'itération ni de chargement par chemin, et pas d'index, qui
+# décrirait la structure du document.
+
+_classes_chiffrantes = {}
+
+
+def _classe_chiffrante(cls, mixin):
+    if issubclass(cls, mixin):
+        return cls
+    sous_classe = _classes_chiffrantes.get(cls)
+    if sous_classe is None:
+        sous_classe = type(cls.__name__, (mixin, cls), {
+            "__module__": cls.__module__, "__qualname__": cls.__qualname__})
+        _classes_chiffrantes[cls] = sous_classe
+    return sous_classe
+
+
+class _EncodeurChiffre:
+    __slots__ = ()
+
+    def _chiffre(self, obj, fichier, return_bytes):
+        self._applique_profil(fichier)
+        clair = rapidjson.Encoder.__call__(self, obj, return_bytes=True)
+        return _encryption.encrypt(clair, self.encryption_key,
+                                   armor=not return_bytes)
+
+    def __call__(self, obj, return_bytes=None, **kwargs):
+        if kwargs:
+            raise ValueError("encryption_key: use dump() to write an"
+                             " encrypted document into a file")
+        if return_bytes is None:
+            return_bytes = self.return_bytes
+        return self._chiffre(obj, False, return_bytes)
+
+    def dumps(self, obj):
+        return self._chiffre(obj, False, False)
+
+    def dumpb(self, obj):
+        return self._chiffre(obj, False, True)
+
+    def dump(self, obj, file=None, close=True):
+        if file is None:
+            file = self.file
+        self._append_reset()
+        if isinstance(file, str):
+            chiffre = self._chiffre(obj, True, True)
+            # un dump en clair vers ce chemin peut être encore en vol dans
+            # le fil d'écriture, index compris : il finirait APRÈS nous
+            rapidjson.wait_writes()
+            with open(file, "wb") as fp:
+                fp.write(chiffre)
+            # l'index d'un document en clair précédent décrirait sa structure
+            sidecar = indexation.chemin_sidecar(file)
+            if os.path.exists(sidecar):
+                os.remove(sidecar)
+            return
+        texte = isinstance(file, io.TextIOBase)
+        file.write(self._chiffre(obj, True, not texte))
+        if close:
+            file.close()
+
+    def append(self, obj, file=None, close=False):
+        raise ValueError("encryption_key: an encrypted document is written"
+                         " as a whole, append is not supported")
+
+
+class _DecodeurChiffre:
+    __slots__ = ()
+
+    def __call__(self, json, *args, **kwargs):
+        return super().__call__(
+            _encryption.decrypt(json, self.encryption_key), *args, **kwargs)
+
+    def load(self, file=None, obj=None, path=None):
+        if path is not None:
+            raise ValueError("encryption_key: an encrypted document is read"
+                             " as a whole, path is not supported")
+        rapidjson.wait_writes()
+        if file is None:
+            file = self.file
+        if not isinstance(file, str):
+            if file is None:
+                raise ValueError('Decoder.load need a "file" path/file'
+                                 ' argument')
+            return self._appel(file.read(), obj)
+        if not os.path.exists(file):
+            if self.default_value is no_default_value:
+                raise FileNotFoundError(
+                    errno.ENOENT, os.strerror(errno.ENOENT), file)
+            return self.default_value
+        # les octets BRUTS : ni détection d'encodage ni queue d'index ôtée,
+        # tout octet ajouté au fichier doit faire échouer l'authentification
+        with open(file, "rb") as fp:
+            loaded = self._appel(fp.read(), obj)
+        if self.add_jsonpath:
+            loaded._jsonpath = file
+        id_to_path[id(loaded)] = file
+        return loaded
+
+    def __iter__(self):
+        raise ValueError("encryption_key: an encrypted document is read as a"
+                         " whole, iteration is not supported")
 
 
 def _replace_ref_placeholders(root, placeholders):
