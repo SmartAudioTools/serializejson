@@ -123,7 +123,7 @@ if __name__ == "__main__":
         python_requires=">=3.10",
         install_requires=["apply"],
         extras_require={
-            "dev": ["pytest", "numpy", "qtpy", "PyQt5"],
+            "dev": ["pytest", "numpy", "qtpy6", "PySide6"],
             "test": ["pytest", "numpy"],
             "crypto": ["cryptography>=47"],
         },

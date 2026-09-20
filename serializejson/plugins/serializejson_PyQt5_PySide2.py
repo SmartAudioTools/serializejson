@@ -1,31 +1,32 @@
 ﻿try:
-    import qtpy
+    import qtpy6
 
-    API = qtpy.API_NAME
-    from qtpy import QtGui, QtWidgets, QtCore
-
-    if not hasattr(QtCore, "SignalInstance"):
-        QtCore.SignalInstance = QtCore.pyqtBoundSignal  # qtpy < ?
-
+    API = qtpy6.API_NAME
+    from qtpy6 import QtGui, QtWidgets, QtCore
 
 except ImportError:
+    # qtpy6 absent : le binding est pris directement. PyQt6 n'est pas propose
+    # ici, il a besoin de la couche (enumerations scopees, noms pyqt*).
     try:
-        from PyQt5 import QtGui, QtWidgets, QtCore
+        from PySide6 import QtGui, QtWidgets, QtCore
 
-        QtCore.Signal = QtCore.pyqtSignal
-        QtCore.SignalInstance = QtCore.pyqtBoundSignal
-        QtCore.Slot = QtCore.pyqtSlot
-        QtCore.Property = QtCore.pyqtProperty
-        API = "PyQt5"
-
-        # from PyQt5.QtCore import QT_VERSION_STR as __version__
+        API = "PySide6"
     except ImportError:
         try:
-            from PySide2 import QtGui, QtWidgets, QtCore
+            from PyQt5 import QtGui, QtWidgets, QtCore
 
-            API = "PySide2"
+            QtCore.Signal = QtCore.pyqtSignal
+            QtCore.SignalInstance = QtCore.pyqtBoundSignal
+            QtCore.Slot = QtCore.pyqtSlot
+            QtCore.Property = QtCore.pyqtProperty
+            API = "PyQt5"
         except ImportError:
-            API = None
+            try:
+                from PySide2 import QtGui, QtWidgets, QtCore
+
+                API = "PySide2"
+            except ImportError:
+                API = None
 if API:
     import enum
     import sys
@@ -691,7 +692,7 @@ if API:
     setters[QtGui.QBitmap] = {"data": "loadFromData"}
 
     def serializejson_QImage(self):
-        # importé ici : il exige qtpy et numpy, que le reste du greffon n'exige pas
+        # importé ici : il exige numpy, que le reste du greffon n'exige pas
         from serializejson._smartframework.image.image_conversion import QImage_to_bytes_width_height_format
 
         return (

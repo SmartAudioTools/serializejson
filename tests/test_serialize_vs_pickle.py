@@ -11,7 +11,7 @@ from serializejson._smartframework.tools.objects import deepCompare
 from statistics import median
 
 use_numpy = False
-use_qtpy = False
+use_pyqt5 = False
 if use_numpy:
     import numpy
 
@@ -152,7 +152,7 @@ modules = [
 ]
 objects = basic_objects.objects
 # objects.update(heriting_basic_object.objects)
-if use_qtpy:
+if use_pyqt5:
     app = QtWidgets.QApplication(sys.argv)
     if __package__:
         from .objects import pyqt_objects

@@ -1157,3 +1157,100 @@ modifiés → `git checkout`).
   dumpb/loads de bout en bout dans le bruit (le chiffrement n'y pèse plus
   que ~3 ms sur 20-40). Pool de fils persistant NON fait : il ne servirait
   qu'autour de 1-2 Mo, contre un risque réel (fils perdus après fork).
+
+## Addendum 20/09/2026 — qtpy remplacé par qtpy6 (decision de Baptiste
+## « je veux remplacer qtpy par qtpy6 »)
+
+Les deux greffons Qt (`serializejson_PyQt5_PySide2.py`,
+`pickle_PyQt5_PySide2.py`) prennent `qtpy6` (PySide6/PyQt6, PySide6 par
+défaut) au lieu de `qtpy` (qui part sur PyQt5 quand `QT_API` n'est pas
+posé — c'est ce qui se mesurait ici, dans un shell nu). Repli inchangé
+en cascade si qtpy6 est absent : PySide6 direct → PyQt5 (ses alias
+`pyqt*` posés en place) → PySide2 → `API = None`. **PyQt6 n'est pas
+proposé en repli direct** : enums scopées et noms `pyqt*`, deux branches
+du greffon (`API != "PyQt6"`) supposent la normalisation de la couche.
+
+- Le patch `QtCore.SignalInstance` disparaît : qtpy6 le garantit, la
+  branche PyQt5 le pose elle-même.
+- `_smartframework/image/image_conversion.py` (seul autre import qtpy,
+  importé par le greffon seul) ne choisit plus de couche : il prend
+  `QtGui`/`QtCore` **publiés par le greffon dans `sys.modules`** — son
+  binding, jamais un second.
+- `tests/objects/pyqt_objects.py` exigeait déjà `PyQt5.sip` : il importe
+  PyQt5 directement ; le drapeau `use_qtpy` de `test_serialize_vs_pickle`
+  devient `use_pyqt5` (il dit ce qu'il allume).
+- Format json INCHANGÉ (`type_str` retire le préfixe d'API, relecture par
+  `sys.modules["QtCore"…]`) : goldens et anciens json intacts, les chaînes
+  `"qtpy.QtCore.*"` d'`authorized_classes` restent (compat de lecture).
+- `setup.py`/`setup.cfg`/`egg-info` : extra `dev` = qtpy6 + PySide6.
+
+**Défaut PRÉEXISTANT trouvé en exerçant ce qu'aucun test ne couvrait
+(question de Baptiste « tu as tout testé ? »), corrigé** : la
+sérialisation d'un QImage était ROUGE sous PySide (donc sous tout lanceur
+posant `QT_API=PySide6`, et désormais par défaut) — `constBits()` rend un
+`sip.voidptr` à dimensionner sous PyQt mais un `memoryview` déjà
+dimensionné sous PySide, et `image_conversion` appelait `setsize`
+inconditionnellement. `_octets_dimensionnes` sert les deux formes (tranche
+à la même longueur que l'ancien `setsize`, octets identiques) ; test neuf
+`tests/test_pyside6_qimage.py`, rouge prouvé correctif neutralisé.
+
+Branches de repli du greffon exercées une par une (finder qui masque les
+modules) : qtpy6 → PySide6 direct → PyQt5 (alias `Signal`/`SignalInstance`
+posés, modules publiés) → `API = None`. PySide2 n'est pas testable ici
+(son `shiboken2` natif ne charge pas sous 3.13).
+
+Validé : 375 tests × 3.12/3.13/3.14 (venvs SmartPython, qtpy6 installé,
+API_NAME = PySide6), dont les 56 tests Qt réellement exécutés (pas
+skippés) ; goldens restaurés après run. Constatés au passage, PRÉEXISTANTS
+et hors périmètre : `libblosc2.so` est introuvable dans ces venvs, la
+compression ne se fait donc plus (les goldens réécrits par un run passent
+de `b64_blosc2` à `b64`) ; `tests/objects/pyqt_objects.py` casse à
+l'import (widgets créés sans QApplication) — code mort, `use_pyqt5`
+est faux.
+
+## Addendum 20/09/2026 — tests complétés sur le périmètre Qt (demande de
+## Baptiste « peux-tu compléter les tests ? »)
+
+Ce qui n'avait été vérifié que par scripts jetables est versionné, et le
+reste du périmètre touché est couvert. Quatre défauts de plus, tous
+PRÉEXISTANTS mais tous rendus visibles PAR DÉFAUT par le passage à PySide6,
+trouvés en écrivant ces tests et corrigés (chacun prouvé par le rouge,
+correctif neutralisé un par un) :
+
+- **Le pas des lignes (`bytesPerLine`) était ignoré** : toute QImage dont la
+  largeur utile n'est pas un multiple de 4 octets (Grayscale8, RGB888 ou
+  RGB16 de 5 pixels) se relisait DÉCALÉE, en silence — sous PyQt comme sous
+  PySide. `_octets_image` (image_conversion) prend les octets au pas réel et
+  les remet au pas aligné sur 32 bits, seul pas que
+  `QImage(bytes, w, h, format)` suppose à la relecture ; une image bâtie sur
+  un tampon étranger au pas imposé est redécoupée. Les images alignées (tout
+  ARGB32/RGB32) ne changent pas d'un octet.
+- **`QImage_to_numpy` était inappelable** (`array.QImage = qimage` sur un
+  ndarray nu, sans `__dict__`) → sous-classe `_ArrayQImage`.
+- **`numpy_to_QImage(array, Format_RGB32)` levait OverflowError** : `array *
+  65793` sur un uint8, que numpy ≥ 2 refuse de promouvoir → `.astype` avant.
+- **Le greffon PICKLE était rouge sous PySide6** : `int(obj.style())` sur une
+  enum PySide6 lève TypeError, et son constructeur refuse l'entier en retour
+  — les enums sont désormais transmises telles quelles (elles se picklent),
+  comparées par `.value` (`_entier`). Au passage `reduce_QPen` perdait les
+  largeurs fractionnaires (`width()` arrondit : 2,5 relu 3) → `widthF()`.
+
+Tests neufs (37 cas) :
+  - `tests/test_pyside6_qimage.py` étendu : aller-retour 5 formats × largeur
+    alignée/non alignée, pas des lignes, pas étranger, image nulle, Indexed8
+    (les octets passent, la table de couleurs NON — limite du format, le json
+    ne porte que octets/largeur/hauteur/format), `QImage_to_compressed_bytes`,
+    `QImage_to_numpy`, `numpy_to_QImage` (6 formes + 2 refus).
+  - `tests/test_qt_plugins_fallback.py` : les quatre branches de la cascade
+    d'import des DEUX greffons, chacune en sous-processus, modules masqués par
+    un chercheur en tête de `sys.meta_path` — qtpy6, PySide6 direct, PyQt5
+    (avec ses alias `Signal`/`SignalInstance`/`Slot`/`Property`), aucune API
+    (serializejson reste utilisable). Vérifie aussi les modules `QtCore`/
+    `QtGui`/`QtWidgets` publiés dans `sys.modules`, dont `image_conversion`
+    dépend. Rouge prouvé en retirant la publication, puis un alias.
+  - `tests/test_qt_pickle_plugin.py` : réducteurs du greffon pickle (QPen ×4,
+    QBrush ×3, QPolygon/QPolygonF) et, en sous-processus offscreen, les
+    widgets (QSpinBox, QCheckBox, QLineEdit, QPlainTextEdit, QWidget).
+
+Validé : **412 tests verts + 1 skip × 3.12/3.13/3.14**, goldens restaurés,
+aucun `.so` touché (changements purement python).

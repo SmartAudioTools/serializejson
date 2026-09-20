@@ -33,9 +33,9 @@ def _lance(*args):
 
 
 @pytest.mark.skipif(
-    subprocess.run([sys.executable, "-c", "import PySide6, qtpy"],
+    subprocess.run([sys.executable, "-c", "import PySide6, qtpy6"],
                    capture_output=True).returncode != 0,
-    reason="PySide6 ou qtpy absent",
+    reason="PySide6 ou qtpy6 absent",
 )
 def test_qobjects_pyside6():
     resultat = _lance()
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     import conftest  # noqa: F401 — rend rapidjson importable (voir conftest)
 
     import serializejson
-    from qtpy import QtCore, QtGui, QtWidgets
+    from qtpy6 import QtCore, QtGui, QtWidgets
 
     app = QtWidgets.QApplication([])
 

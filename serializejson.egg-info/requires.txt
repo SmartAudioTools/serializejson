@@ -7,8 +7,8 @@ importlib_metadata
 [dev]
 pytest
 numpy
-qtpy
-PyQt5
+qtpy6
+PySide6
 
 [test]
 pytest

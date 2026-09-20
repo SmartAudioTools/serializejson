@@ -35,9 +35,9 @@ def _lance(*args):
 
 
 @pytest.mark.skipif(
-    subprocess.run([sys.executable, "-c", "import PySide6, qtpy"],
+    subprocess.run([sys.executable, "-c", "import PySide6, qtpy6"],
                    capture_output=True).returncode != 0,
-    reason="PySide6 ou qtpy absent",
+    reason="PySide6 ou qtpy6 absent",
 )
 def test_application_pyside6(tmp_path):
     chemin = str(tmp_path / "application.json")
@@ -50,9 +50,9 @@ def test_application_pyside6(tmp_path):
 
 
 _PYSIDE6 = pytest.mark.skipif(
-    subprocess.run([sys.executable, "-c", "import PySide6, qtpy"],
+    subprocess.run([sys.executable, "-c", "import PySide6, qtpy6"],
                    capture_output=True).returncode != 0,
-    reason="PySide6 ou qtpy absent",
+    reason="PySide6 ou qtpy6 absent",
 )
 
 
@@ -116,7 +116,7 @@ if __name__ == "__main__":
 
     import serializejson
     from serializejson.plugins import serializejson_PyQt5_PySide2 as greffon
-    from qtpy import QtCore, QtWidgets
+    from qtpy6 import QtCore, QtWidgets
 
     assert greffon.API == "PySide6"
     sans_app = "--sans-app" in sys.argv

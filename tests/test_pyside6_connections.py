@@ -2,10 +2,11 @@
 connect) : listées par QObject.dumpObjectInfo, stockées sous "~connections"
 chez le plus proche ancêtre commun, rejouées au rechargement.
 
-Le greffon se lie à UNE API Qt au premier import de serializejson (qtpy prend
-PyQt5 par défaut) : le scénario tourne donc dans un sous-processus sous
-QT_API=pyside6. Lancé avec --sans-lister, il neutralise l'introspection pour
-prouver que les assertions dépendent bien d'elle (rouge attendu).
+Le greffon se lie à UNE API Qt au premier import de serializejson (qtpy6 prend
+celle déjà importée, sinon QT_API, sinon PySide6) : le scénario tourne donc
+dans un sous-processus sous QT_API=pyside6. Lancé avec --sans-lister, il
+neutralise l'introspection pour prouver que les assertions dépendent bien
+d'elle (rouge attendu).
 """
 
 import os
@@ -27,9 +28,9 @@ def _lance(*args):
 
 
 @pytest.mark.skipif(
-    subprocess.run([sys.executable, "-c", "import PySide6, qtpy"],
+    subprocess.run([sys.executable, "-c", "import PySide6, qtpy6"],
                    capture_output=True).returncode != 0,
-    reason="PySide6 ou qtpy absent",
+    reason="PySide6 ou qtpy6 absent",
 )
 def test_connexions_pyside6():
     resultat = _lance()
@@ -46,7 +47,7 @@ if __name__ == "__main__":
 
     import serializejson
     from serializejson.plugins import serializejson_PyQt5_PySide2 as greffon
-    from qtpy import QtCore, QtWidgets
+    from qtpy6 import QtCore, QtWidgets
 
     assert greffon.API == "PySide6"
     if not avec_lister:

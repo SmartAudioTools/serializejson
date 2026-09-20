@@ -1,6 +1,9 @@
 ﻿import numpy
-from qtpy.QtGui import QImage
-from qtpy.QtCore import QByteArray, QBuffer, QIODevice
+
+# QtGui et QtCore publies par le greffon Qt de serializejson (seul importateur
+# de ce module) : son binding, quel qu'il soit, plutot qu'un second choisi ici.
+from QtGui import QImage
+from QtCore import QByteArray, QBuffer, QIODevice
 
 grayTable = [(255 << 24) + (g << 16) + (g << 8) + g for g in range(256)]
 
@@ -38,6 +41,45 @@ QImage_format_bits = {
 }
 
 
+
+def _pas_aligne(width, format_):
+    """Octets par ligne d'une QImage allouee par Qt : largeur utile arrondie au
+    multiple de 4 octets. C'est aussi le pas que QImage(bytes, width, height,
+    format) suppose a la relecture."""
+    return ((width * QImage_format_bits[format_] + 31) // 32) * 4
+
+
+def _octets_dimensionnes(ptr, taille):
+    """constBits() rend un sip.voidptr a dimensionner (PyQt) ou un memoryview
+    deja dimensionne sur toute l'image, padding de lignes compris (PySide)."""
+    if hasattr(ptr, "setsize"):  # sip.voidptr
+        ptr.setsize(taille)
+        return ptr
+    return ptr[:taille]
+
+
+def _octets_image(qimage):
+    """Octets d'une QImage dans la disposition attendue par
+    QImage(bytes, width, height, format) : lignes alignees sur 32 bits.
+
+    bytesPerLine() depasse la largeur utile des que celle-ci n'est pas alignee
+    (Grayscale8 de 5 pixels : 8 octets par ligne), et une QImage batie sur un
+    tampon etranger porte le pas qu'on lui a donne : ignorer ce pas decalait
+    toutes les lignes sauf la premiere.
+    """
+    ptr = qimage.constBits()
+    if ptr is None:
+        return b""
+    height = qimage.height()
+    pas = qimage.bytesPerLine()
+    octets = bytes(_octets_dimensionnes(ptr, pas * height))
+    pas_attendu = _pas_aligne(qimage.width(), qimage.format())
+    if pas == pas_attendu:
+        return octets
+    utile = min(pas, pas_attendu)
+    return b"".join(octets[y * pas : y * pas + utile].ljust(pas_attendu, b"\0") for y in range(height))
+
+
 # @profile
 def QImage_to_bytes_width_height_format(qimage):
     """Converts a QImage into raw bytes,width,height,format tuple
@@ -46,14 +88,7 @@ def QImage_to_bytes_width_height_format(qimage):
     To reconstruct the QImage :
     image = QImage(bytes,width,height,format)
     """
-    width = qimage.width()
-    height = qimage.height()
-    format_ = qimage.format()
-    ptr = qimage.constBits()
-    if ptr is None:
-        return b"", width, height, format_
-    ptr.setsize(width * height * int(QImage_format_bits[format_] / 8))
-    return bytes(ptr), width, height, format_
+    return _octets_image(qimage), qimage.width(), qimage.height(), qimage.format()
 
 
 def QImage_to_compressed_bytes(qimage, format):
@@ -86,15 +121,18 @@ def QImage_to_compressed_bytes(qimage, format):
     # return qbytearray.toBase64()
 
 
+class _ArrayQImage(numpy.ndarray):
+    """Un ndarray nu n'a pas de __dict__ : porter l'attribut QImage demande une
+    sous-classe (sinon AttributeError a l'affectation)."""
+
+
 def QImage_to_numpy(qimage):
     """  Converts a QImage into an opencv MAT format  """
     qimage = qimage.convertToFormat(QImage.Format.Format_RGB32)
     width = qimage.width()
     height = qimage.height()
-    format_ = qimage.format()
-    ptr = qimage.constBits()
-    ptr.setsize(width * height * int(QImage_format_bits[format_] / 8))
-    array = numpy.frombuffer(ptr, numpy.uint8).reshape((height, width, 4))
+    ptr = _octets_dimensionnes(qimage.constBits(), width * height * 4)  # RGB32 : pas deja aligne
+    array = numpy.frombuffer(ptr, numpy.uint8).reshape((height, width, 4)).view(_ArrayQImage)
     array.QImage = qimage  # garde une reference pour eviter de predre données si QImage est détruite ?
     return array
 
@@ -122,7 +160,8 @@ def numpy_to_QImage(array, QImage_format=None):
             qimage.data = array
             return qimage
         elif QImage_format is QImage.Format_RGB32:
-            bgrx = numpy.require(array * 65793, numpy.uint32, "C")  # 0.7 a 0.9 msec (65793    = (1<<16)+(1<<8)+1)
+            # .astype avant la multiplication : numpy >= 2 refuse de promouvoir un uint8
+            bgrx = numpy.require(array.astype(numpy.uint32) * 65793, numpy.uint32, "C")  # (65793 = (1<<16)+(1<<8)+1)
             qimage = QImage(bgrx.data, w, h, QImage.Format_RGB32)
             qimage.data = (
                 bgrx  # permet de garder un reference de l'image et lui eviter un destruction qui fait planter PySide2

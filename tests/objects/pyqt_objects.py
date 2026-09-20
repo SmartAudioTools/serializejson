@@ -1,5 +1,4 @@
-﻿from qtpy import QtCore, QtGui, QtWidgets
-from PyQt5 import sip
+﻿from PyQt5 import QtCore, QtGui, QtWidgets, sip
 
 sip._unpickle_type.__module__ = "PyQt5.sip"
 authorized_classes = ["sip._unpickle_type"]
