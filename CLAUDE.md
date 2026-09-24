@@ -1254,3 +1254,25 @@ Tests neufs (37 cas) :
 
 Validé : **412 tests verts + 1 skip × 3.12/3.13/3.14**, goldens restaurés,
 aucun `.so` touché (changements purement python).
+
+## Addendum 24/09/2026 — datetime.datetime en texte RFC 9557 (demande de
+## Baptiste « pars sur la RFC 9557 », depuis plan_de_classe de SmartTeacher)
+
+Forme écrite : `{"__class__": "datetime.datetime", "__init__": "<texte>"}`,
+texte = `isoformat()` (naïf ; `datetime.timezone` sans nom propre, UTC
+compris) ou `isoformat() + "[<clé ZoneInfo>]"` : le nom redonne les règles
+d'heure d'été, le décalage départage le fold au passage à l'heure d'hiver.
+- Naïf : branche C du writer (snprintf, identique à isoformat) ; avec
+  fuseau : greffon plugins/serializejson_datetime.py. Tout autre tzinfo
+  (timezone NOMMÉ, pytz, dateutil) garde la forme reduce. AVANT : un
+  datetime à ZoneInfo ne se sérialisait PAS (`_unpickle.__module__ is None`).
+- Lecture : case 17 du reader → `fromisoformat` en C si pas de `]` final,
+  sinon voie générique → constructeur du greffon (ZoneInfo, fold essayé 0
+  puis 1, ValueError si le décalage ne colle pas). Formes reduce 10 octets
+  et 7 entiers toujours lues.
+- tests/test_datetime_rfc9557.py (13), rouge prouvé sur l'ancien .so (les 3
+  naïfs) ; 425 verts × 3.12/3.13/3.14 sous build_pgo. Fichiers :
+  rapidjson.cpp, .so ×3 PGO (+ copies serializejson/*.so par cp + mv),
+  greffon, test, ce fichier. Le .so 311 n'est PAS rebâti (interpréteur
+  3.11 non exécutable par ce compte, cf. plus haut) : il écrit encore les
+  naïfs en 10 octets, relus sans souci.

@@ -3930,11 +3930,19 @@ struct PyHandler {
                     struct_time_type, PyList_GET_ITEM(ctor_args, 0),
                     PyList_GET_ITEM(ctor_args, 1), nullptr);
             break;
-        case 17:  // datetime.datetime : forme reduce 10 octets (rapide,
-            // celle de l'encodeur depuis le 06/08), ou l'ancienne forme
-            // 7 entiers (fichiers existants) via le TYPE (validation python)
+        case 17:  // datetime.datetime : texte RFC 9557 sans [zone] (celui de
+            // l'encodeur depuis le 24/09) par fromisoformat — avec [zone],
+            // la voie générique appelle le constructeur du greffon python ;
+            // formes reduce 10 octets (06/08 → 24/09) et 7 entiers (avant)
+            // relues pour les fichiers existants
             if (memcmp(cls, "datetime.datetime", 17) == 0) {
-                if (PyBytes_CheckExact(ctor_args)
+                if (PyUnicode_CheckExact(ctor_args)) {
+                    Py_ssize_t len = PyUnicode_GET_LENGTH(ctor_args);
+                    if (len > 0 && PyUnicode_READ_CHAR(ctor_args, len - 1) != ']')
+                        replacement = PyObject_CallMethod(
+                            (PyObject*) PyDateTimeAPI->DateTimeType,
+                            "fromisoformat", "O", ctor_args);
+                } else if (PyBytes_CheckExact(ctor_args)
                     && PyBytes_GET_SIZE(ctor_args) == 10
                     && (pendingB64.empty() || FlushPendingB64())) {
                     replacement = PyObject_CallFunctionObjArgs(
@@ -7158,46 +7166,26 @@ dumps_internal(
         writer->EndObject();
     }
 
-	// datetime.datetime : {"__class__": "datetime.datetime", "__init__":
-	// [a, mois, j, h, mn, s, µs]} — comme la voie Python actuelle (qui perd
-	// fold et tzinfo : dette pré-existante, répliquée à l'identique)
+	// datetime.datetime naïf : {"__class__": "datetime.datetime", "__init__":
+	// "2026-09-24T18:26:00"} — texte RFC 9557, identique à isoformat() (le
+	// greffon python écrit les datetimes avec fuseau : décalage, [zone])
 	else if (PyDateTime_CheckExact(object) && pathTracker != nullptr
              && !pathTracker->strictPickle
              && PyDateTime_DATE_GET_TZINFO(object) == Py_None) {
         CONTAINER_MEMO_OR_REF()
         writer->EnvelopeHead("datetime.datetime", 17, "__init__", 8);
-        writer->EnvelopeHead("bytes", 5, "__new__", 7);
-        bool dt_compact = pathTracker->singleLineNew && !writer->InCompact();
-        if (dt_compact)
-            writer->PushCompact();
-        writer->StartArray();
-        {
-            // les 10 octets du __reduce_ex__(2) natif (fold non transporté
-            // par le protocole 2, ni ici) — relus par le constructeur
-            // RAPIDE datetime(bytes), comme date et time
-            int year = PyDateTime_GET_YEAR(object);
-            int us = PyDateTime_DATE_GET_MICROSECOND(object);
-            unsigned char raw10[10] = {
-                (unsigned char) ((year >> 8) & 0xFF),
-                (unsigned char) (year & 0xFF),
-                (unsigned char) PyDateTime_GET_MONTH(object),
-                (unsigned char) PyDateTime_GET_DAY(object),
-                (unsigned char) PyDateTime_DATE_GET_HOUR(object),
-                (unsigned char) PyDateTime_DATE_GET_MINUTE(object),
-                (unsigned char) PyDateTime_DATE_GET_SECOND(object),
-                (unsigned char) ((us >> 16) & 0xFF),
-                (unsigned char) ((us >> 8) & 0xFF),
-                (unsigned char) (us & 0xFF),
-            };
-            char b64_buf[17];
-            serializejson_b64_encode(raw10, 10, b64_buf);
-            writer->String(b64_buf, 16);
-            writer->String("b64", 3);
-        }
-        writer->EndArray();
-        if (dt_compact)
-            writer->PopCompact();
-        writer->EndObject();
+        int us = PyDateTime_DATE_GET_MICROSECOND(object);
+        char iso[32];
+        int n = snprintf(iso, sizeof(iso), "%04d-%02d-%02dT%02d:%02d:%02d",
+                         PyDateTime_GET_YEAR(object),
+                         PyDateTime_GET_MONTH(object),
+                         PyDateTime_GET_DAY(object),
+                         PyDateTime_DATE_GET_HOUR(object),
+                         PyDateTime_DATE_GET_MINUTE(object),
+                         PyDateTime_DATE_GET_SECOND(object));
+        if (us)
+            n += snprintf(iso + n, sizeof(iso) - n, ".%06d", us);
+        writer->String(iso, n);
         writer->EndObject();
     }
 
