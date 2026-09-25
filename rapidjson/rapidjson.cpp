@@ -7,8 +7,11 @@
 //
 
 // chemins SIMD de rapidjson (saut d'espaces et scan des chaînes sans
-// échappement) — la machine cible compile déjà en -march=native
+// échappement) — la machine cible compile déjà en -march=native. Pas en
+// WebAssembly (lecteur web sous Pyodide), qui n'a pas SSE4.2.
+#ifndef __EMSCRIPTEN__
 #define RAPIDJSON_SSE42
+#endif
 
 // exigée par les formats « # » de PyArg_ParseTuple/Py_BuildValue, qui sans
 // elle lèvent SystemError avant Python 3.13 (où Python.h la pose d'office)
@@ -613,8 +616,11 @@ struct PtrMemo {
     size_t count = 0;
 
     static inline size_t hash(PyObject* k) {
-        uintptr_t h = (uintptr_t) k;
-        h ^= h >> 33; h *= (uintptr_t) 0xff51afd7ed558ccdULL; h ^= h >> 29;
+        // en 64 bits même quand les pointeurs n'en font que 32 (WebAssembly) :
+        // un décalage de 33 sur un uintptr_t de 32 bits est indéfini, et clang
+        // en fait un piège (unreachable)
+        uint64_t h = (uint64_t) (uintptr_t) k;
+        h ^= h >> 33; h *= 0xff51afd7ed558ccdULL; h ^= h >> 29;
         return (size_t) h;
     }
     void rehash(size_t newSize) {
@@ -11994,6 +12000,14 @@ static PyMethodDef functions[] = {
     {"_age_payload", (PyCFunction) age_payload, METH_VARARGS,
      "Segments age ChaCha20-Poly1305 (clé de flux, données, chiffre[,"
      " préfixe]) : bytes chiffré, ou bytearray clair / None si falsifié."},
+    {"load_sodium_library", (PyCFunction) load_sodium_library, METH_O,
+     "Charge libsodium (chemin du .so ; ignoré si déjà là, liée en wasm) :"
+     " scrypt, ChaCha20-Poly1305 et charge utile age sans cryptography."},
+    {"_scrypt", (PyCFunction) sj_scrypt, METH_VARARGS,
+     "scrypt (mot de passe, sel, n, r, p, longueur) par libsodium -> bytes."},
+    {"_chacha20poly1305", (PyCFunction) sj_chacha20poly1305, METH_VARARGS,
+     "ChaCha20-Poly1305 IETF (clé, nonce, données, chiffre) par libsodium :"
+     " bytes, ou None si l'étiquette ne s'authentifie pas."},
     {"blosc_set_nthreads", (PyCFunction) blosc_set_nthreads_fn, METH_O,
      "Nombre de threads de la libblosc2 chargée (None si non chargée)."},
     {"blosc_decompress_chunks", (PyCFunction) blosc_decompress_chunks_fn,

@@ -1276,3 +1276,37 @@ d'heure d'été, le décalage départage le fold au passage à l'heure d'hiver.
   greffon, test, ce fichier. Le .so 311 n'est PAS rebâti (interpréteur
   3.11 non exécutable par ce compte, cf. plus haut) : il écrit encore les
   naïfs en 10 octets, relus sans souci.
+
+## Addendum nuit du 25/09/2026 — construction WebAssembly (Pyodide 0.29.3)
+
+Pour le lecteur web PyQt6 de SmartTeacher. Outils (réseau) : `scripts/installer_outils_wasm.sh`, lancé par
+l'utilisateur, tout sous /DATA/Python/outils_wasm. Construction hors ligne, en ~1 min : `scripts/construit_wasm.sh`
+→ `dist_wasm/serializejson-<version>-cp313-cp313-pyemscripten_2025_0_wasm32.whl` (860 Kio, ignoré par git).
+Les .so natifs ne sont pas touchés. Correctifs source : SSE4.2 coupé sous `__EMSCRIPTEN__` (rapidjson.cpp),
+`PtrMemo::hash` sans comportement indéfini en 32 bits, `_descripteur` → None sous emscripten (__init__.py).
+Pièges (payés) :
+  - zlib-ng avec détection CPU à l'exécution (functable) donne un module wasm INVALIDE : `WITH_RUNTIME_CPU_DETECTION=OFF`
+    (commentaire dans le script) ; le symptôme « symboles blosc2 introuvables » de tools.py est trompeur.
+  - CHANGELOG.rst en CRLF : la version lue par sed portait un `\r`, nom de roue introuvable (`tr -d "\r"`).
+  - Une ROUE chargée par `loadPackage`, jamais un dépaquetage : `unpackArchive` ne précharge pas les .so, compilés
+    alors en synchrone à l'import (refusé par Chrome au-delà de 8 Mo). Le nom de la roue doit rester un nom de roue
+    valide (`nom-version-tags.whl`), sinon Pyodide installe à moitié ; `emfs:` n'est pas accepté en 0.29.
+Pas de threads sous Pyodide, d'où deux limites connues (pytest wasm : 158 verts, échecs tous de cette famille) :
+`append` perd le rattrapage de rang des `$ref` (chemin fd=None), et l'itérateur ne lit pas d'avance
+(`_SEUIL_LECTURE_AVANCE` infini sous emscripten). Le chiffrement différé (`_differe_chiffre`) y écrit en synchrone :
+son exécuteur levait « can't start new thread » au premier enregistrement d'une copie chiffrée. Équivalence natif/wasm mesurée sur les 72 fichiers du dépôt SmartTeacher
+(empreinte identique) ; lecteur web : 3 sujets ouverts sous Firefox sans interface (sonde.py).
+
+### Chiffrement sans cryptography : libsodium (nuit du 25 au 26/09/2026)
+
+Le lecteur web ne télécharge plus rien d'un tiers : `cryptography` (jsdelivr) remplacé par libsodium 1.0.22-RELEASE,
+clone épinglé non versionné dans `libsodium/` (commit vérifié par `construit_wasm.sh`, comme c-blosc2). Trois
+primitives seulement, dans `sjcrypto.h` : scrypt, AEAD ChaCha20-Poly1305 IETF chiffrement/déchiffrement.
+  - wasm : liée STATIQUEMENT dans le module rapidjson (`-DSJ_SODIUM_STATIQUE`, ~15 Kio gardés). `sodium_init` n'est
+    JAMAIS appelé : son randombytes passe par EM_ASM, absent d'un side module ; ces trois fonctions n'en ont pas besoin.
+  - natif : `load_sodium_library` (dlopen de libsodium.so.26/.23/.so), comme `load_crypto_library` pour libcrypto.
+  - `_encryption._crypto()` : cryptography d'abord s'il est là, sinon trois classes-façades sur sodium ; la voie C
+    `_age_payload` retombe aussi sur sodium sans libcrypto. `encrypt` tire son sel et son nonce de `os.urandom`.
+Preuves : parité octet pour octet sodium/cryptography en natif ; 21 .qcm identiques sous Node+Pyodide ; lecteur web
+sous Firefox sans interface, sans réseau : .qcm ouvert (~580 ms, scrypt logN 18 → tas wasm 294 Mio, qui ne rétrécit
+pas), copie chiffrée enregistrée, rendue, reprise.

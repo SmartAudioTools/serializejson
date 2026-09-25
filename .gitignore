@@ -6,3 +6,6 @@ rapidjson/build/
 
 # produits par pip install -e (module compilé et libblosc2 recopiés dans les sources)
 serializejson/*.so
+
+# roue WebAssembly du lecteur web SmartTeacher (scripts/construit_wasm.sh)
+dist_wasm/

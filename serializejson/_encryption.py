@@ -13,9 +13,12 @@ decryption fail, never returning partial data.
 
 The primitives come from the ``cryptography`` package, imported lazily: it is
 needed only when a key is given (``pip install serializejson[crypto]``).
-When OpenSSL's libcrypto is found at run time (dlopen, no build dependency),
-the payload segments are processed by the C extension instead, spread over
-several threads with the GIL released; the output is identical byte for byte.
+Without it, libsodium is used through the C extension: loaded at run time
+natively (dlopen), linked into the WebAssembly build, where no package has to
+be downloaded. When OpenSSL's libcrypto is found at run time (dlopen, no build
+dependency), the payload segments are processed by the C extension, spread
+over several threads with the GIL released; the output is identical byte for
+byte whatever the path.
 """
 
 import base64
@@ -57,15 +60,68 @@ def _crypto():
             ChaCha20Poly1305)
         from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
     except ImportError as e:
+        if _sodium():
+            return _TagInvalide, _ChaCha20Poly1305, _Scrypt
         raise ImportError(
-            "encryption_key needs the 'cryptography' package:"
-            " pip install serializejson[crypto]") from e
+            "encryption_key needs the 'cryptography' package"
+            " (pip install serializejson[crypto]) or libsodium") from e
     return InvalidTag, ChaCha20Poly1305, Scrypt
+
+
+# libsodium par l'extension C, quand cryptography manque : liée dans le module
+# WebAssembly, cherchée par dlopen en natif. None : pas encore tenté.
+_voie_sodium = None
+
+
+def _sodium():
+    global _voie_sodium
+    if _voie_sodium is None:
+        _voie_sodium = False
+        from . import rapidjson
+        for nom in ("libsodium.so.26", "libsodium.so.23", "libsodium.so"):
+            try:
+                rapidjson.load_sodium_library(nom)
+            except (OSError, AttributeError):
+                continue
+            _voie_sodium = rapidjson
+            break
+    return _voie_sodium
+
+
+# les trois objets de cryptography dont ce module se sert, sur libsodium
+
+
+class _TagInvalide(Exception):
+    pass
+
+
+class _ChaCha20Poly1305:
+    def __init__(self, cle):
+        self._cle = cle
+
+    def encrypt(self, nonce, data, associe):
+        return _voie_sodium._chacha20poly1305(self._cle, nonce, data, True)
+
+    def decrypt(self, nonce, data, associe):
+        clair = _voie_sodium._chacha20poly1305(self._cle, nonce, data, False)
+        if clair is None:
+            raise _TagInvalide
+        return clair
+
+
+class _Scrypt:
+    def __init__(self, salt, length, n, r, p):
+        self._reglages = salt, n, r, p, length
+
+    def derive(self, mot_de_passe):
+        sel, n, r, p, longueur = self._reglages
+        return _voie_sodium._scrypt(mot_de_passe, sel, n, r, p, longueur)
 
 
 # Charge utile en C (rapidjson._age_payload) : libcrypto chargée à l'exécution,
 # segments répartis sur plusieurs fils, ×6 mesuré sur 64 Mo. Sans libcrypto,
-# voie python (cryptography), mêmes octets. None : pas encore tenté.
+# libsodium si elle est là, sinon voie python (cryptography), mêmes octets.
+# None : pas encore tenté.
 _voie_c = None
 
 
@@ -81,6 +137,9 @@ def _payload_c():
                 continue
             _voie_c = rapidjson._age_payload
             break
+        else:
+            if _sodium():
+                _voie_c = rapidjson._age_payload
     return _voie_c
 
 

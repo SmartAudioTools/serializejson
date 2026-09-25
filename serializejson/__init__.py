@@ -173,6 +173,7 @@ try:
 except:
     pass
 import os
+import sys
 import queue
 import re
 import threading
@@ -213,6 +214,10 @@ from . import indexation
 from . import _encryption
 from ._encryption import DecryptionError
 from enum import Enum
+
+# WebAssembly (Pyodide) : ni pthreads ni fils python — thread d'écriture,
+# lecture d'avance et chiffrement différé y travaillent en ligne
+_SANS_FILS = sys.platform == "emscripten"
 
 
 # def add_authorized_classes(*classes):
@@ -623,7 +628,9 @@ def _descripteur(fp):
     octets déposés n'appartiennent alors à aucun objet python : dump n'attend
     plus le disque (voir rapidjson/fdwritestream.h pour les mesures).
     """
-    if not isinstance(fp, _FLUX_A_DESCRIPTEUR):
+    # sans fils, le thread d'écriture ne peut pas démarrer : chemin des
+    # tranches bytes
+    if not isinstance(fp, _FLUX_A_DESCRIPTEUR) or _SANS_FILS:
         return None
     try:
         fd = fp.fileno()
@@ -3458,8 +3465,9 @@ rapidjson.register_serializejson(Encoder, Decoder, serialize_parameters)
 # (~13 µs mesurés par maillon) mange le recouvrement possible ; au-delà,
 # il en coûte au pire ~8 % quand rien ne recouvre (appelant sans travail),
 # contre un décodage entièrement masqué quand l'appelant rend le GIL
-# (entrées-sorties, numpy, décompression ≥ 1 Mio du pool)
-_SEUIL_LECTURE_AVANCE = 500e-6
+# (entrées-sorties, numpy, décompression ≥ 1 Mio du pool). Sans fils,
+# jamais engagé
+_SEUIL_LECTURE_AVANCE = float("inf") if _SANS_FILS else 500e-6
 
 
 class _LectureAvance:
@@ -3647,6 +3655,8 @@ def _ouvre_chiffre(file):
 
 def _differe_chiffre(clair, cle, fp, file):
     global _executeur_chiffre
+    if _SANS_FILS:
+        return _ecrit_chiffre(clair, cle, fp)
     if _executeur_chiffre is None:
         from concurrent.futures import ThreadPoolExecutor
         _executeur_chiffre = ThreadPoolExecutor(1, "serializejson-chiffre")
