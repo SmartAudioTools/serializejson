@@ -224,6 +224,39 @@ def test_aller_retour_flux():
     assert serializejson.load(texte, encryption_key="secret") == DOC
 
 
+def test_encryption_in_base64(tmp_path):
+    debut = b"-----BEGIN AGE ENCRYPTED FILE-----"
+    # True : l'armure partout, octets et chemins compris
+    armure = serializejson.dumpb(DOC, encryption_key="secret",
+                                 encryption_in_base64=True)
+    assert armure.startswith(debut)
+    assert serializejson.loads(armure, encryption_key="secret") == DOC
+    chemin = str(tmp_path / "doc.json")
+    for mode in ("blocking", "fast_release"):
+        serializejson.dump(DOC, chemin, encryption_key="secret",
+                           encryption_in_base64=True, disk_write_mode=mode)
+        serializejson.wait_writes()
+        assert open(chemin, "rb").read().startswith(debut)
+        assert serializejson.load(chemin, encryption_key="secret") == DOC
+    flux = io.BytesIO()
+    serializejson.Encoder(encryption_key="secret", encryption_in_base64=True
+                          ).dump(DOC, flux, close=False)
+    assert flux.getvalue().startswith(debut)
+    # False : le binaire partout, et une erreur là où la sortie est du texte
+    binaire = serializejson.dumpb(DOC, encryption_key="secret",
+                                  encryption_in_base64=False)
+    assert binaire.startswith(b"age-encryption.org/v1\n")
+    with pytest.raises(ValueError, match="encryption_in_base64"):
+        serializejson.dumps(DOC, encryption_key="secret",
+                            encryption_in_base64=False)
+    with pytest.raises(ValueError, match="encryption_in_base64"):
+        serializejson.dump(DOC, io.StringIO(), encryption_key="secret",
+                           encryption_in_base64=False)
+    # sans clé, l'option ne change rien : du clair
+    assert serializejson.dumps(DOC, encryption_in_base64=True) == \
+        serializejson.dumps(DOC)
+
+
 def test_armure_relue_depuis_un_fichier(tmp_path):
     chemin = tmp_path / "doc.age"
     chemin.write_text(serializejson.dumps(DOC, encryption_key="secret"))

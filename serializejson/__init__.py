@@ -953,6 +953,24 @@ class Encoder(rapidjson.Encoder):
             Containers smaller than that many bytes are not indexed. Their
             path stays loadable, through the closest indexed ancestor.
 
+        encryption_key (str or None):
+            A password: the document is written encrypted, as a standard age
+            v1 file (scrypt, ChaCha20-Poly1305), that `load` reads back with
+            the same `encryption_key`.
+
+        encryption_in_base64 (None, True or False):
+            The form of the encrypted document.
+
+            - None (default) : base64 (age ASCII armor) where the output is
+              text (`dumps`, a file opened in text mode), binary elsewhere
+              (`dumpb`, a path, a binary file).
+            - True : always base64, bytes and paths included — an encrypted
+              document to store or send as text.
+            - False : always binary, a third shorter ; raises where the
+              output is text.
+
+            `load` recognizes both forms by itself.
+
         strict_pickle (False by default)
             If True serialize with exactly the same behaviour than pickle:
 
@@ -1020,6 +1038,7 @@ class Encoder(rapidjson.Encoder):
         index_threshold=indexation.SEUIL_DEFAUT,
         protocol=4,  # protocol pour pickle
         encryption_key=None,
+        encryption_in_base64=None,
         **plugins_parameters,
     ):
 
@@ -1205,6 +1224,7 @@ class Encoder(rapidjson.Encoder):
         self.index_threshold = index_threshold
         self.strict_pickle = strict_pickle
         self.encryption_key = encryption_key
+        self.encryption_in_base64 = encryption_in_base64
 
         unexpected_keywords_arguments = set(plugins_parameters) - set(
             encoder_parameters
@@ -3581,8 +3601,8 @@ class _EncodeurChiffre:
     def _chiffre(self, obj, fichier, return_bytes):
         self._applique_profil(fichier)
         clair = rapidjson.Encoder.__call__(self, obj, return_bytes=True)
-        return _encryption.encrypt(clair, self.encryption_key,
-                                   armor=not return_bytes)
+        return _en_forme(clair, self.encryption_key,
+                         self.encryption_in_base64, return_bytes)
 
     def __call__(self, obj, return_bytes=None, **kwargs):
         if kwargs:
@@ -3614,12 +3634,13 @@ class _EncodeurChiffre:
             sidecar = indexation.chemin_sidecar(file)
             if os.path.exists(sidecar):
                 os.remove(sidecar)
+            args = (clair, self.encryption_key, self.encryption_in_base64, fp)
             if self.disk_write_mode == "blocking":
-                _ecrit_chiffre(clair, self.encryption_key, fp)
+                _ecrit_chiffre(*args)
             else:
                 # comme en clair, dump rend la main sans attendre le disque :
                 # chiffrement ET écriture partent au fil des dumps chiffrés
-                _differe_chiffre(clair, self.encryption_key, fp, file)
+                _differe_chiffre(args, file)
             return
         texte = isinstance(file, io.TextIOBase)
         file.write(self._chiffre(obj, True, not texte))
@@ -3640,9 +3661,23 @@ _chiffres_en_vol = deque()  # (chemin, futur)
 _executeur_chiffre = None
 
 
-def _ecrit_chiffre(clair, cle, fp):
+def _en_forme(clair, cle, base64, return_bytes):
+    # encryption_in_base64 : None suit la sortie (armure pour un str, binaire
+    # pour des octets) ; True donne l'armure partout, en octets ASCII au
+    # besoin ; False le binaire, qu'un str ne peut pas porter
+    if base64 is None:
+        base64 = not return_bytes
+    elif not base64 and not return_bytes:
+        raise ValueError("encryption_in_base64=False: a binary encrypted"
+                         " document can't be text, use dumpb() or a binary"
+                         " file")
+    sortie = _encryption.encrypt(clair, cle, armor=base64)
+    return sortie.encode("ascii") if base64 and return_bytes else sortie
+
+
+def _ecrit_chiffre(clair, cle, base64, fp):
     with fp:
-        fp.write(_encryption.encrypt(clair, cle))
+        fp.write(_en_forme(clair, cle, base64, True))
 
 
 def _ouvre_chiffre(file):
@@ -3653,15 +3688,15 @@ def _ouvre_chiffre(file):
     return open(file, "wb")
 
 
-def _differe_chiffre(clair, cle, fp, file):
+def _differe_chiffre(args, file):
     global _executeur_chiffre
     if _SANS_FILS:
-        return _ecrit_chiffre(clair, cle, fp)
+        return _ecrit_chiffre(*args)
     if _executeur_chiffre is None:
         from concurrent.futures import ThreadPoolExecutor
         _executeur_chiffre = ThreadPoolExecutor(1, "serializejson-chiffre")
     _chiffres_en_vol.append(
-        (file, _executeur_chiffre.submit(_ecrit_chiffre, clair, cle, fp)))
+        (file, _executeur_chiffre.submit(_ecrit_chiffre, *args)))
 
 
 def _attend_chiffres():

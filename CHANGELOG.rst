@@ -7,7 +7,9 @@ Version 0.4.0
   writes and reads standard `age <https://age-encryption.org>`_ v1 files
   (scrypt passphrase, ChaCha20-Poly1305), decryptable by any age tool; any
   modified byte or wrong password raises ``DecryptionError``; ``dumps``
-  returns the ASCII armored form; needs ``pip install serializejson[crypto]``
+  returns the ASCII armored form, ``encryption_in_base64=True`` forces it
+  everywhere (bytes, files) and ``False`` forces the binary form; needs
+  ``pip install serializejson[crypto]``
 * position index: ``load(file, path="root['a'][0].b")`` reads one object of a
   json file without parsing the rest, ``serializejson.index()`` indexes a file
   already written and ``serializejson.paths()`` lists what it holds

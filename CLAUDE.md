@@ -1024,7 +1024,10 @@ motivé la demande (consigne explicite de Baptiste).
 
 - **API : un seul argument `encryption_key=None`** (str = mot de passe) sur
   dump/dumps/dumpb/load/loads/Encoder/Decoder. dumpb → binaire age, dumps →
-  armure ASCII age (str), load/loads reconnaissent les deux. append,
+  armure ASCII age (str), load/loads reconnaissent les deux. Second argument
+  `encryption_in_base64=None` (Encoder seul, pas le Decoder qui détecte) :
+  None suit la sortie (texte → armure), True force l'armure (octets, chemin),
+  False force le binaire et lève ValueError vers un texte. append,
   iterator, path= et un index demandé + clé → ValueError ; dump chiffré vers
   un chemin n'écrit AUCUN index et supprime un sidecar périmé (il décrirait
   la structure). Chiffré lu sans clé → ValueError « pass its password as
