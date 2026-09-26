@@ -373,6 +373,29 @@ def test_reecriture_sans_nouveau_scrypt(monkeypatch):
     assert len(appels) == 2
 
 
+def test_sel_impose_puis_relu():
+    # un mot de passe dérivé du sel : le détenteur du secret maître relit le
+    # sel en clair et en redérive le mot de passe
+    sel = bytes(range(16))
+    _encryption.prime("derive", sel)
+    binaire = serializejson.dumpb(DOC, encryption_key="derive")
+    armure = _encryption.encrypt(b"x", "derive", armor=True)
+    assert _encryption.salt(binaire) == sel
+    assert _encryption.salt(armure) == sel
+    assert _encryption.salt(armure.encode()) == sel
+    assert serializejson.loads(binaire, encryption_key="derive") == DOC
+    # relu puis réécrit par un autre processus : le sel reste
+    _encryption._vide_caches()
+    assert serializejson.loads(binaire, encryption_key="derive") == DOC
+    assert _encryption.salt(serializejson.dumpb(DOC, encryption_key="derive")) == sel
+    # un autre mot de passe garde un sel aléatoire
+    assert _encryption.salt(serializejson.dumpb(DOC, encryption_key="autre")) != sel
+    with pytest.raises(ValueError):
+        _encryption.prime("derive", b"court")
+    with pytest.raises(_encryption.DecryptionError):
+        _encryption.salt(b"en clair")
+
+
 def test_entete_deja_authentifie_non_rouvert(monkeypatch):
     binaire = serializejson.dumpb(DOC, encryption_key="secret")
     appels = []

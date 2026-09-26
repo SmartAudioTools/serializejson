@@ -25,7 +25,8 @@ import threading
 
 from . import rapidjson
 
-__all__ = ["DecryptionError", "encrypt", "decrypt", "is_encrypted"]
+__all__ = ["DecryptionError", "encrypt", "decrypt", "is_encrypted",
+           "salt", "prime"]
 
 ENTETE = b"age-encryption.org/v1\n"
 DEBUT_ARMURE = "-----BEGIN AGE ENCRYPTED FILE-----"
@@ -145,12 +146,13 @@ def _vide_caches():
         _entetes_ouverts.clear()
 
 
-def _entete_ecriture(mot_de_passe):
+def _entete_ecriture(mot_de_passe, sel=None):
     logn = LOGN_ECRITURE
-    trouve = _entetes_ecriture.get((mot_de_passe, logn))
-    if trouve is not None:
-        return trouve
-    sel = os.urandom(16)
+    if sel is None:
+        trouve = _entetes_ecriture.get((mot_de_passe, logn))
+        if trouve is not None:
+            return trouve
+        sel = os.urandom(16)
     emballage = _scrypt(mot_de_passe.encode("utf-8"), sel, logn)
     file_key = os.urandom(16)
     corps = rapidjson._chacha20poly1305(emballage, bytes(12), file_key, True)
@@ -161,6 +163,21 @@ def _entete_ecriture(mot_de_passe):
     _range(_entetes_ecriture, (mot_de_passe, logn), trouve)
     _range(_entetes_ouverts, (mot_de_passe, trouve[0]), file_key)
     return trouve
+
+
+def prime(password, salt):
+    """Make the next encryptions with ``password``, in this process, write
+    ``salt`` (16 bytes) in their scrypt stanza instead of a random one.
+
+    For a password derived from the salt (a master secret and the salt
+    through HMAC, say): whoever holds the master secret reads the salt of
+    such a file (``salt``) and derives its password. Draw the salt at random
+    (``os.urandom(16)``), derive the password, then prime.
+    """
+    check_key(password)
+    if not isinstance(salt, bytes) or len(salt) != 16:
+        raise ValueError("salt must be 16 bytes")
+    _entete_ecriture(password, salt)
 
 
 # --- chiffrement -----------------------------------------------------------------
@@ -226,36 +243,53 @@ def decrypt(data, password):
     modified, or if the password is wrong.
     """
     check_key(password)
-    if isinstance(data, str):
-        if not is_encrypted(data):
-            raise DecryptionError("data is not encrypted (not an age file)")
-        data = _de_armure(data)
-    else:
-        data = bytes(data)
-        if not data.startswith(ENTETE):
-            if not is_encrypted(data):
-                raise DecryptionError(
-                    "data is not encrypted (not an age file)")
-            try:
-                data = _de_armure(data.decode("ascii"))
-            except UnicodeDecodeError:
-                raise DecryptionError("invalid age armor") from None
+    data = _binaire(data)
     file_key, fin_entete = _ouvre_entete(data, password)
     return _dechiffre_charge(data, fin_entete, file_key)
 
 
-def _ouvre_entete(data, mot_de_passe):
+def salt(data):
+    """The scrypt salt (16 bytes) of an age file (bytes, or armored str/bytes).
+
+    It is written in clear in the header, readable without the password: see
+    ``prime``. Raises DecryptionError if ``data`` is not a password-encrypted
+    age file.
+    """
+    data = _binaire(data)
+    fin_mac, _ = _fin_entete(data)
+    return _stanza(data[:fin_mac + 4])[0]
+
+
+def _binaire(data):
+    # le fichier age binaire, désarmuré s'il le faut
+    if isinstance(data, str):
+        if not is_encrypted(data):
+            raise DecryptionError("data is not encrypted (not an age file)")
+        return _de_armure(data)
+    data = bytes(data)
+    if data.startswith(ENTETE):
+        return data
+    if not is_encrypted(data):
+        raise DecryptionError("data is not encrypted (not an age file)")
+    try:
+        return _de_armure(data.decode("ascii"))
+    except UnicodeDecodeError:
+        raise DecryptionError("invalid age armor") from None
+
+
+def _fin_entete(data):
+    # position du « \n--- » qui précède le MAC, et de la fin de sa ligne
     fin_mac = data.find(b"\n--- ")
     if fin_mac < 0:
         raise DecryptionError("invalid age header")
     fin_ligne = data.find(b"\n", fin_mac + 1)
     if fin_ligne < 0:
         raise DecryptionError("invalid age header")
-    ouvert = (mot_de_passe, data[:fin_ligne + 1])
-    file_key = _entetes_ouverts.get(ouvert)
-    if file_key is not None:
-        return file_key, fin_ligne + 1
-    entete = data[:fin_mac + 4]
+    return fin_mac, fin_ligne
+
+
+def _stanza(entete):
+    # (sel, logn, corps) de l'unique stanza scrypt de l'en-tête
     lignes = entete[len(ENTETE):].split(b"\n")
     # une seule stanza, scrypt, à deux arguments, corps d'une ligne : la spec
     # interdit toute autre stanza à côté d'une stanza scrypt
@@ -274,10 +308,20 @@ def _ouvre_entete(data, mot_de_passe):
     if not _ENTIER.fullmatch(args[2]) or int(args[2]) > LOGN_MAX:
         raise DecryptionError("invalid age header: bad or excessive scrypt"
                               " work factor")
-    logn = int(args[2])
     corps = _de_b64(lignes[1])
     if len(corps) != 32 or len(lignes[1]) >= 64:
         raise DecryptionError("invalid age header: bad scrypt stanza body")
+    return sel, int(args[2]), corps
+
+
+def _ouvre_entete(data, mot_de_passe):
+    fin_mac, fin_ligne = _fin_entete(data)
+    ouvert = (mot_de_passe, data[:fin_ligne + 1])
+    file_key = _entetes_ouverts.get(ouvert)
+    if file_key is not None:
+        return file_key, fin_ligne + 1
+    entete = data[:fin_mac + 4]
+    sel, logn, corps = _stanza(entete)
     cle_cache = (mot_de_passe, sel, logn)
     emballage = _cles_lecture.get(cle_cache)
     if emballage is None:
