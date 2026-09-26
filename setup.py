@@ -54,7 +54,8 @@ if cxx and "g++" in cxx:
         "-O3", "-fno-semantic-interposition",
         "-pthread",  # thread d'écriture (writerthread.h)
     ]
-    link_args = ["-pthread"]
+    # libsodium liée (build_ext_pgo) : ses symboles restent internes au module
+    link_args = ["-pthread", "-Wl,--exclude-libs,ALL"]
     if platform.machine() in ("x86_64", "AMD64"):
         # rapidjson.cpp pose RAPIDJSON_SSE42 : sans ce drapeau, un python aux
         # CFLAGS génériques (manylinux) refuse les intrinsèques SSE4.2
@@ -62,7 +63,8 @@ if cxx and "g++" in cxx:
 
 
 class build_ext_pgo(build_ext):
-    """build_ext + copie de la libblosc2 patchée à côté du module compilé.
+    """build_ext + libsodium liée (rapidjson/libsodium_statique.py) + copie de
+    la libblosc2 patchée à côté du module compilé.
 
     SERIALIZEJSON_PGO=auto : optimisation guidée par profil en deux passes,
     à objets identiques (les .gcda sont retrouvés par leur chemin) —
@@ -71,6 +73,11 @@ class build_ext_pgo(build_ext):
     """
 
     def build_extensions(self):
+        sys.path.insert(0, os.path.join(__location__, "rapidjson"))
+        import libsodium_statique
+
+        for ext in self.extensions:
+            ext.extra_objects = [libsodium_statique.construit()]
         if os.environ.get("SERIALIZEJSON_PGO") != "auto":
             super().build_extensions()
             self._copie_blosc2()
@@ -125,7 +132,6 @@ if __name__ == "__main__":
         extras_require={
             "dev": ["pytest", "numpy", "qtpy6", "PySide6"],
             "test": ["pytest", "numpy"],
-            "crypto": ["cryptography>=47"],
         },
         project_urls={
             "Documentation": "https://smartaudiotools.github.io/serializejson",

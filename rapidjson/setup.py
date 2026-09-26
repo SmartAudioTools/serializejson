@@ -36,8 +36,13 @@ with open('README.rst', encoding='utf-8') as f:
 with open('CHANGES.rst', encoding='utf-8') as f:
     CHANGES = f.read()
 
+# chiffrement : libsodium liée dans le module (libsodium_statique.py)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import libsodium_statique
+
 extension_options = {
     'sources': ['./rapidjson.cpp'],
+    'extra_objects': [libsodium_statique.construit()],
     'include_dirs': ['.'],
     'define_macros': [('PYTHON_RAPIDJSON_VERSION', VERSION)],
     'depends': ['./rapidjson_exact_version.txt'],
@@ -68,7 +73,9 @@ if cxx and 'g++' in cxx:
         '-pedantic', '-Wno-long-long', '-std=c++11',
         '-O3', '-fno-semantic-interposition',
         '-pthread']   # thread d'écriture (writerthread.h)
-    extension_options.setdefault('extra_link_args', []).append('-pthread')
+    # libsodium : ses symboles restent internes au module
+    extension_options.setdefault('extra_link_args', []).extend(
+        ['-pthread', '-Wl,--exclude-libs,ALL'])
 
     # optimisation guidée par profil (voir build_pgo.sh) :
     #   SERIALIZEJSON_PGO=generate -> instrumente, écrit les .gcda dans le

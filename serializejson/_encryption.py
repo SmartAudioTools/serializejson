@@ -11,14 +11,10 @@ password, the same one encrypts and decrypts. The payload is ChaCha20-Poly1305
 in 64 KiB segments: any modified, removed, swapped or appended byte makes
 decryption fail, never returning partial data.
 
-The primitives come from the ``cryptography`` package, imported lazily: it is
-needed only when a key is given (``pip install serializejson[crypto]``).
-Without it, libsodium is used through the C extension: loaded at run time
-natively (dlopen), linked into the WebAssembly build, where no package has to
-be downloaded. When OpenSSL's libcrypto is found at run time (dlopen, no build
-dependency), the payload segments are processed by the C extension, spread
-over several threads with the GIL released; the output is identical byte for
-byte whatever the path.
+The primitives (scrypt, ChaCha20-Poly1305) come from libsodium, linked into
+the C extension, natively as in the WebAssembly build: no dependency at run
+time, and one cryptographic chain on every platform. The payload segments are
+spread over several threads with the GIL released.
 """
 
 import base64
@@ -26,6 +22,8 @@ import hmac
 import os
 import re
 import threading
+
+from . import rapidjson
 
 __all__ = ["DecryptionError", "encrypt", "decrypt", "is_encrypted"]
 
@@ -53,96 +51,6 @@ class DecryptionError(ValueError):
     """The encrypted data is malformed, modified, or the password is wrong."""
 
 
-def _crypto():
-    try:
-        from cryptography.exceptions import InvalidTag
-        from cryptography.hazmat.primitives.ciphers.aead import (
-            ChaCha20Poly1305)
-        from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-    except ImportError as e:
-        if _sodium():
-            return _TagInvalide, _ChaCha20Poly1305, _Scrypt
-        raise ImportError(
-            "encryption_key needs the 'cryptography' package"
-            " (pip install serializejson[crypto]) or libsodium") from e
-    return InvalidTag, ChaCha20Poly1305, Scrypt
-
-
-# libsodium par l'extension C, quand cryptography manque : liée dans le module
-# WebAssembly, cherchée par dlopen en natif. None : pas encore tenté.
-_voie_sodium = None
-
-
-def _sodium():
-    global _voie_sodium
-    if _voie_sodium is None:
-        _voie_sodium = False
-        from . import rapidjson
-        for nom in ("libsodium.so.26", "libsodium.so.23", "libsodium.so"):
-            try:
-                rapidjson.load_sodium_library(nom)
-            except (OSError, AttributeError):
-                continue
-            _voie_sodium = rapidjson
-            break
-    return _voie_sodium
-
-
-# les trois objets de cryptography dont ce module se sert, sur libsodium
-
-
-class _TagInvalide(Exception):
-    pass
-
-
-class _ChaCha20Poly1305:
-    def __init__(self, cle):
-        self._cle = cle
-
-    def encrypt(self, nonce, data, associe):
-        return _voie_sodium._chacha20poly1305(self._cle, nonce, data, True)
-
-    def decrypt(self, nonce, data, associe):
-        clair = _voie_sodium._chacha20poly1305(self._cle, nonce, data, False)
-        if clair is None:
-            raise _TagInvalide
-        return clair
-
-
-class _Scrypt:
-    def __init__(self, salt, length, n, r, p):
-        self._reglages = salt, n, r, p, length
-
-    def derive(self, mot_de_passe):
-        sel, n, r, p, longueur = self._reglages
-        return _voie_sodium._scrypt(mot_de_passe, sel, n, r, p, longueur)
-
-
-# Charge utile en C (rapidjson._age_payload) : libcrypto chargée à l'exécution,
-# segments répartis sur plusieurs fils, ×6 mesuré sur 64 Mo. Sans libcrypto,
-# libsodium si elle est là, sinon voie python (cryptography), mêmes octets.
-# None : pas encore tenté.
-_voie_c = None
-
-
-def _payload_c():
-    global _voie_c
-    if _voie_c is None:
-        _voie_c = False
-        from . import rapidjson
-        for nom in ("libcrypto.so.3", "libcrypto.so.1.1", "libcrypto.so"):
-            try:
-                rapidjson.load_crypto_library(nom)
-            except (OSError, AttributeError):
-                continue
-            _voie_c = rapidjson._age_payload
-            break
-        else:
-            if _sodium():
-                _voie_c = rapidjson._age_payload
-    return _voie_c
-
-
 def check_key(key):
     """Validate an ``encryption_key`` argument (None allowed: no encryption)."""
     if key is None:
@@ -152,22 +60,20 @@ def check_key(key):
                         % type(key).__name__)
     if not key:
         raise ValueError("encryption_key must not be empty")
-    _crypto()
 
 
 # --- dérivations ---------------------------------------------------------------
 
 
 def _scrypt(mot_de_passe, sel, logn):
-    Scrypt = _crypto()[2]
-    return Scrypt(salt=_ETIQUETTE_SCRYPT + sel, length=32, n=1 << logn,
-                  r=8, p=1).derive(mot_de_passe)
+    return rapidjson._scrypt(mot_de_passe, _ETIQUETTE_SCRYPT + sel, 1 << logn,
+                             8, 1, 32)
 
 
 def _hkdf(cle, sel, info):
     # HKDF-SHA256 (RFC 5869) à 32 octets = extraction + UN bloc d'expansion,
-    # par hmac.digest (hashlib, en C) : ~0,5 µs contre 3,4 par les objets de
-    # cryptography. Sel vide = clé HMAC nulle, que HMAC complète de zéros
+    # par hmac.digest (hashlib, en C) : ~0,5 µs contre 3,4 par les objets du
+    # paquet cryptography. Sel vide = clé HMAC nulle, que HMAC complète de zéros
     # comme le sel de 32 zéros de la RFC ; les vecteurs officiels le prouvent.
     prk = hmac.digest(sel, cle, "sha256")
     return hmac.digest(prk, info + b"\x01", "sha256")
@@ -244,11 +150,10 @@ def _entete_ecriture(mot_de_passe):
     trouve = _entetes_ecriture.get((mot_de_passe, logn))
     if trouve is not None:
         return trouve
-    ChaCha20Poly1305 = _crypto()[1]
     sel = os.urandom(16)
     emballage = _scrypt(mot_de_passe.encode("utf-8"), sel, logn)
     file_key = os.urandom(16)
-    corps = ChaCha20Poly1305(emballage).encrypt(bytes(12), file_key, None)
+    corps = rapidjson._chacha20poly1305(emballage, bytes(12), file_key, True)
     entete = (ENTETE + b"-> scrypt " + _b64(sel) + b" " + b"%d" % logn
               + b"\n" + _b64(corps) + b"\n---")
     trouve = (entete + b" " + _b64(_mac(file_key, entete)) + b"\n", file_key)
@@ -271,22 +176,7 @@ def encrypt(data, password, armor=False):
     entete, file_key = _entete_ecriture(password)
     nonce = os.urandom(16)
     cle_flux = _hkdf(file_key, nonce, b"payload")
-    c = _payload_c()
-    if c:
-        sortie = c(cle_flux, data, True, entete + nonce)
-        return _en_armure(sortie) if armor else sortie
-    aead = _crypto()[1](cle_flux)
-    vue = memoryview(data)
-    n = len(vue)
-    derniers = max(1, -(-n // SEGMENT))
-    # encrypt_into ne gagne ici RIEN : le tampon bytearray devrait être recopié
-    # en bytes, type public de dumpb (mesuré : la copie mange le gain)
-    morceaux = [entete, nonce]
-    for k in range(derniers):
-        morceaux.append(aead.encrypt(
-            k.to_bytes(11, "big") + (b"\x01" if k == derniers - 1 else b"\x00"),
-            vue[k * SEGMENT:(k + 1) * SEGMENT], None))
-    sortie = b"".join(morceaux)
+    sortie = rapidjson._age_payload(cle_flux, data, True, entete + nonce)
     return _en_armure(sortie) if armor else sortie
 
 
@@ -365,7 +255,6 @@ def _ouvre_entete(data, mot_de_passe):
     file_key = _entetes_ouverts.get(ouvert)
     if file_key is not None:
         return file_key, fin_ligne + 1
-    InvalidTag, ChaCha20Poly1305, _ = _crypto()
     entete = data[:fin_mac + 4]
     lignes = entete[len(ENTETE):].split(b"\n")
     # une seule stanza, scrypt, à deux arguments, corps d'une ligne : la spec
@@ -393,10 +282,9 @@ def _ouvre_entete(data, mot_de_passe):
     emballage = _cles_lecture.get(cle_cache)
     if emballage is None:
         emballage = _scrypt(mot_de_passe.encode("utf-8"), sel, logn)
-    try:
-        file_key = ChaCha20Poly1305(emballage).decrypt(bytes(12), corps, None)
-    except InvalidTag:
-        raise DecryptionError(MESSAGE_AUTHENTIFICATION) from None
+    file_key = rapidjson._chacha20poly1305(emballage, bytes(12), corps, False)
+    if file_key is None:
+        raise DecryptionError(MESSAGE_AUTHENTIFICATION)
     _range(_cles_lecture, cle_cache, emballage)
     mac = _de_b64(data[fin_mac + 5:fin_ligne])
     if len(mac) != 32 or not hmac.compare_digest(mac, _mac(file_key, entete)):
@@ -409,7 +297,6 @@ def _ouvre_entete(data, mot_de_passe):
 
 
 def _dechiffre_charge(data, debut, file_key):
-    InvalidTag, ChaCha20Poly1305, _ = _crypto()
     nonce = data[debut:debut + 16]
     if len(nonce) != 16:
         raise DecryptionError(MESSAGE_AUTHENTIFICATION)
@@ -423,25 +310,9 @@ def _dechiffre_charge(data, debut, file_key):
     taille = n - ETIQUETTE * derniers
     if taille < 0 or (derniers > 1 and taille == SEGMENT * (derniers - 1)):
         raise DecryptionError(MESSAGE_AUTHENTIFICATION)
-    c = _payload_c()
-    if c:
-        sortie = c(cle_flux, vue, False)
-        if sortie is None:
-            raise DecryptionError(MESSAGE_AUTHENTIFICATION)
-        return sortie
-    # déchiffré EN PLACE dans un tampon unique, remis tel quel au parseur
-    # (qui lit un bytearray) : ni morceaux ni copie finale, −10 à −19 %
-    aead = ChaCha20Poly1305(cle_flux)
-    sortie = bytearray(taille)
-    cible = memoryview(sortie)
-    try:
-        for k in range(derniers):
-            segment = vue[k * plein:(k + 1) * plein]
-            aead.decrypt_into(
-                k.to_bytes(11, "big")
-                + (b"\x01" if k == derniers - 1 else b"\x00"),
-                segment, None,
-                cible[k * SEGMENT:k * SEGMENT + len(segment) - ETIQUETTE])
-    except InvalidTag:
-        raise DecryptionError(MESSAGE_AUTHENTIFICATION) from None
+    # déchiffré dans un tampon unique, remis tel quel au parseur (qui lit un
+    # bytearray) : ni morceaux ni copie finale
+    sortie = rapidjson._age_payload(cle_flux, vue, False)
+    if sortie is None:
+        raise DecryptionError(MESSAGE_AUTHENTIFICATION)
     return sortie

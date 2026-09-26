@@ -4,7 +4,7 @@ Deux familles de preuves :
 - les vecteurs de test OFFICIELS d'age (C2SP/CCTV, age/testdata), copiés dans
   tests/age_testdata et vérifiés ici à l'octet par leur sha git : c'est la
   preuve d'interopérabilité avec les autres implémentations (age, rage...) ;
-- les tests d'API : aller-retour par toutes les voies, altération de CHAQUE
+- les tests d'API : aller-retour, altération de CHAQUE
   octet refusée, mauvais mot de passe, document chiffré lu sans clé, bornes
   des segments de 64 Kio, cache de scrypt.
 """
@@ -18,8 +18,7 @@ import pytest
 
 import serializejson
 from serializejson import _encryption
-
-pytest.importorskip("cryptography")
+from serializejson import rapidjson
 
 DOSSIER_VECTEURS = os.path.join(os.path.dirname(__file__), "age_testdata")
 
@@ -59,17 +58,6 @@ def _scrypt_rapide(monkeypatch):
     _encryption._vide_caches()
     yield
     _encryption._vide_caches()
-
-
-@pytest.fixture(autouse=True, params=["c", "python"])
-def voie(request, monkeypatch):
-    # chaque test passe par les DEUX voies de la charge utile : C (libcrypto
-    # chargée à l'exécution) et python (cryptography), mêmes octets attendus
-    if request.param == "python":
-        monkeypatch.setattr(_encryption, "_voie_c", False)
-    elif not _encryption._payload_c():
-        pytest.skip("libcrypto introuvable : voie C indisponible")
-    return request.param
 
 
 # --- vecteurs officiels --------------------------------------------------------
@@ -164,16 +152,16 @@ def test_segments_ne_peuvent_pas_etre_permutes_ni_retires():
 def test_dernier_segment_vide_refuse_apres_un_segment_plein():
     # la spec : le dernier segment n'est vide que s'il est le seul. Fabriqué
     # avec la VRAIE clé de flux (un écrivain fautif, pas un attaquant)
-    from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
     clair = os.urandom(65536)
     chiffre = _encryption.encrypt(clair, "secret")
     debut = chiffre.index(b"\n--- ") + 49
     entete, nonce = chiffre[:debut], bytes(chiffre[debut:debut + 16])
     _, file_key = _encryption._entete_ecriture("secret")
-    aead = ChaCha20Poly1305(_encryption._hkdf(file_key, nonce, b"payload"))
+    cle = _encryption._hkdf(file_key, nonce, b"payload")
     fautif = (entete + nonce
-              + aead.encrypt(bytes(11) + b"\x00", clair, None)
-              + aead.encrypt((1).to_bytes(11, "big") + b"\x01", b"", None))
+              + rapidjson._chacha20poly1305(cle, bytes(11) + b"\x00", clair, True)
+              + rapidjson._chacha20poly1305(
+                  cle, (1).to_bytes(11, "big") + b"\x01", b"", True))
     with pytest.raises(_encryption.DecryptionError):
         _encryption.decrypt(fautif, "secret")
 
@@ -457,21 +445,41 @@ def test_dump_chiffre_erreur_d_ouverture_levee_par_dump(tmp_path):
     serializejson.wait_writes()  # rien de différé en échec
 
 
-def test_voies_c_et_python_memes_octets(monkeypatch, voie):
-    # même en-tête (cache) et même nonce : la charge doit être identique
-    # à l'octet, multi-segments et bornes de segment comprises
-    if voie == "python":
-        pytest.skip("comparaison faite une fois, sous la voie C")
-    c_voie = _encryption._voie_c
+def test_scrypt_vecteur_rfc7914():
+    # RFC 7914, § 12 : libsodium liée, primitive nue
+    assert rapidjson._scrypt(b"password", b"NaCl", 1024, 8, 16, 64).hex() == (
+        "fdbabe1c9d3472007856e7190d01e9fe7c6ad7cbc8237830e77376634b373162"
+        "2eaf30d92e22a3886ff109279d9830dac727afb94a83ee6d8360cbdfa2cc0640")
+
+
+def test_memes_octets_qu_une_implementation_independante(monkeypatch):
+    # le fichier entier refait par une AUTRE implémentation (le paquet
+    # cryptography, sur OpenSSL) à partir des mêmes aléas : identique à
+    # l'octet, multi-segments et bornes de segment comprises
+    aead = pytest.importorskip(
+        "cryptography.hazmat.primitives.ciphers.aead").ChaCha20Poly1305
+    Scrypt = pytest.importorskip(
+        "cryptography.hazmat.primitives.kdf.scrypt").Scrypt
     monkeypatch.setattr(_encryption.os, "urandom", lambda n: bytes(range(n)))
     for n in (0, 1, 65536, 65537, 20 * 65536 + 3):
+        _encryption._vide_caches()
         clair = bytes(i % 251 for i in range(n))
-        c = _encryption.encrypt(clair, "secret")
-        _encryption._voie_c = False
-        try:
-            p = _encryption.encrypt(clair, "secret")
-            assert _encryption.decrypt(c, "secret") == clair
-        finally:
-            _encryption._voie_c = c_voie
-        assert c == p, n
-        assert _encryption.decrypt(p, "secret") == clair
+        chiffre = _encryption.encrypt(clair, "secret")
+        sel = file_key = nonce = bytes(range(16))
+        emballage = Scrypt(salt=b"age-encryption.org/v1/scrypt" + sel,
+                           length=32, n=1 << 10, r=8, p=1).derive(b"secret")
+        entete = (b"age-encryption.org/v1\n-> scrypt " + _encryption._b64(sel)
+                  + b" 10\n" + _encryption._b64(
+                      aead(emballage).encrypt(bytes(12), file_key, None))
+                  + b"\n---")
+        entete += b" " + _encryption._b64(
+            _encryption._mac(file_key, entete)) + b"\n"
+        flux = aead(_encryption._hkdf(file_key, nonce, b"payload"))
+        nseg = max(1, -(-n // 65536))
+        attendu = entete + nonce + b"".join(
+            flux.encrypt(k.to_bytes(11, "big") + bytes([k == nseg - 1]),
+                         clair[k * 65536:(k + 1) * 65536], None)
+            for k in range(nseg))
+        assert chiffre == attendu, n
+        assert _encryption.decrypt(attendu, "secret") == clair
+

@@ -11995,14 +11995,9 @@ static PyMethodDef functions[] = {
      dump_docstring},
     {"load_blosc_library", (PyCFunction) load_blosc_library, METH_O,
      "Charge libblosc2 (chemin du .so) pour compresser en C via BloscToBase64."},
-    {"load_crypto_library", (PyCFunction) load_crypto_library, METH_O,
-     "Charge libcrypto (chemin du .so) : charge utile age chiffrée en C."},
     {"_age_payload", (PyCFunction) age_payload, METH_VARARGS,
      "Segments age ChaCha20-Poly1305 (clé de flux, données, chiffre[,"
      " préfixe]) : bytes chiffré, ou bytearray clair / None si falsifié."},
-    {"load_sodium_library", (PyCFunction) load_sodium_library, METH_O,
-     "Charge libsodium (chemin du .so ; ignoré si déjà là, liée en wasm) :"
-     " scrypt, ChaCha20-Poly1305 et charge utile age sans cryptography."},
     {"_scrypt", (PyCFunction) sj_scrypt, METH_VARARGS,
      "scrypt (mot de passe, sel, n, r, p, longueur) par libsodium -> bytes."},
     {"_chacha20poly1305", (PyCFunction) sj_chacha20poly1305, METH_VARARGS,
@@ -12026,6 +12021,15 @@ module_exec(PyObject* m)
     PyObject* datetimeModule;
     PyObject* decimalModule;
     PyObject* uuidModule;
+
+#ifndef __EMSCRIPTEN__
+    // libsodium liée (sjcrypto.h) : choisit ses variantes SIMD. Pas en wasm,
+    // où son randombytes passe par EM_ASM et où il n'y a rien à choisir
+    if (sjcrypto::sodium_init() < 0) {
+        PyErr_SetString(PyExc_ImportError, "sodium_init failed");
+        return -1;
+    }
+#endif
 
     if (PyType_Ready(&Decoder_Type) < 0)
         return -1;

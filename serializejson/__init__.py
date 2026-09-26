@@ -3625,7 +3625,6 @@ class _EncodeurChiffre:
         if isinstance(file, str):
             self._applique_profil(True)
             clair = rapidjson.Encoder.__call__(self, obj, return_bytes=True)
-            _encryption._crypto()  # extra absent : l'erreur ici, pas au wait
             # un dump en clair vers ce chemin peut être encore en vol dans
             # le fil d'écriture, index compris : il finirait APRÈS nous
             rapidjson.wait_writes()
@@ -3655,7 +3654,7 @@ class _EncodeurChiffre:
 # Dumps chiffrés vers un chemin, en "fast_release" : le fichier est ouvert
 # (donc créé, tronqué, ses erreurs levées) PAR dump, comme en clair ; le
 # chiffrement et l'écriture partent à UN fil, dans l'ordre des dumps. Le
-# chiffrement (cryptography) rend le GIL : l'appelant continue pendant ce temps.
+# chiffrement (libsodium, en C) rend le GIL : l'appelant continue pendant ce temps.
 # _attend_ecritures remplace rapidjson.wait_writes partout où l'on attend.
 _chiffres_en_vol = deque()  # (chemin, futur)
 _executeur_chiffre = None

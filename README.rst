@@ -50,6 +50,8 @@ Some of the main features:
 - serializejson is easly interoperable outside of the Python ecosystem with this recognition of objects from keys names or with `__class__` translation between python and other language classes.
 - dump and load support string path.
 - can iteratively encode (with append) and decode (with iterator) a list in json file, which helps saving memory space during the process of serialization and deserialization and useful for logs.
+- can encrypt with a password (``encryption_key="…"``) in the standard `age <https://age-encryption.org>`_ format, as binary or as ASCII armor (``encryption_in_base64``).
+- runs in the browser under `Pyodide <https://pyodide.org>`_ (WebAssembly wheel), encryption included.
 
 .. warning::
 
@@ -264,6 +266,30 @@ Examples
     >0
     >1
     >2
+
+**Encryption with a password**
+
+``encryption_key`` encrypts in the `age <https://age-encryption.org>`_ v1
+format (scrypt + ChaCha20-Poly1305), checked against age's official test
+vectors: the file opens with ``age --decrypt`` as well. No extra package:
+libsodium is linked into the C extension, the same on every platform.
+
+.. code-block:: python
+
+    serializejson.dump(state, "state.json", encryption_key="secret")
+    state = serializejson.load("state.json", encryption_key="secret")
+
+``encryption_in_base64`` chooses between the binary form and the ASCII armor
+(base64 between ``-----BEGIN AGE ENCRYPTED FILE-----`` lines). By default
+(``None``) ``dumps`` returns the armor, since its result is text, and files and
+bytes stay binary, a third shorter; ``True`` forces the armor everywhere,
+``False`` the binary form. Loading recognizes both forms by itself.
+
+**In the browser (Pyodide)**
+
+A WebAssembly wheel (``scripts/construit_wasm.sh``) is loaded by
+``pyodide.loadPackage``. Encryption works there too, through the same
+libsodium linked into the extension.
 
 More examples and complete documentation `here <https://smartaudiotools.github.io/serializejson/>`_
 

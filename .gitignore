@@ -1,6 +1,7 @@
 __pycache__
 build-rapidjson-Desktop-Debug/
 build/
+libsodium/
 rapidjson/build/
 .~lock.*#
 

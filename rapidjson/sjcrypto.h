@@ -1,24 +1,18 @@
-// Charge utile age v1 (https://age-encryption.org/v1) en C : segments de
-// 64 Kio chiffrés ChaCha20-Poly1305, nonce = compteur 11 octets gros-boutiste
-// + drapeau « dernier segment ». Les segments sont INDÉPENDANTS : répartis sur
-// plusieurs fils, GIL rendu. L'en-tête (scrypt, HKDF, MAC) reste en python —
-// quelques microsecondes par document, rien à gagner ici.
-//
-// libcrypto (OpenSSL ≥ 1.1) est chargée à l'exécution par dlopen, comme
-// libblosc2 : ni en-tête ni lien à la construction, aucune dépendance du
-// binaire. Absente, _encryption.py garde sa voie python (cryptography).
-//
-// libsodium prend le relais de libcrypto pour la charge, et fournit aussi
-// scrypt et l'AEAD de l'en-tête (_scrypt, _chacha20poly1305) quand le paquet
-// cryptography manque. Chargée par dlopen en natif ; LIÉE dans le module pour
-// WebAssembly (SJ_SODIUM_STATIQUE, scripts/construit_wasm.sh), où le lecteur
-// web ne doit rien télécharger d'ailleurs que de ses propres fichiers.
+// Chiffrement age v1 (https://age-encryption.org/v1) en C, par libsodium LIÉE
+// dans le module (rapidjson/libsodium_statique.py, et pour WebAssembly
+// scripts/construit_wasm.sh) : une seule chaîne cryptographique partout, sans
+// dépendance à l'exécution ni divergence possible entre plateformes.
+//   _scrypt, _chacha20poly1305 : primitives de l'en-tête, le reste de
+//   l'en-tête (HKDF, MAC) restant en python ;
+//   _age_payload : la charge utile, segments de 64 Kio chiffrés
+//   ChaCha20-Poly1305, nonce = compteur 11 octets gros-boutiste + drapeau
+//   « dernier segment ». Les segments sont INDÉPENDANTS : répartis sur
+//   plusieurs fils, GIL rendu.
 
 #ifndef SJ_CRYPTO_H_
 #define SJ_CRYPTO_H_
 
 #include <Python.h>
-#include <dlfcn.h>
 #include <atomic>
 #include <cstdint>
 #include <cstring>
@@ -27,21 +21,8 @@
 
 namespace sjcrypto {
 
-struct Ctx;     // EVP_CIPHER_CTX
-struct Cipher;  // EVP_CIPHER
-
-static Ctx* (*ctxNew)(void) = nullptr;
-static void (*ctxFree)(Ctx*) = nullptr;
-static const Cipher* (*chacha)(void) = nullptr;
-static int (*cipherInit)(Ctx*, const Cipher*, void*, const unsigned char*,
-                         const unsigned char*, int) = nullptr;
-static int (*cipherUpdate)(Ctx*, unsigned char*, int*, const unsigned char*,
-                           int) = nullptr;
-static int (*cipherFinal)(Ctx*, unsigned char*, int*) = nullptr;
-static int (*ctxCtrl)(Ctx*, int, int, void*) = nullptr;
-
-#ifdef SJ_SODIUM_STATIQUE
 extern "C" {
+int sodium_init(void);
 int crypto_pwhash_scryptsalsa208sha256_ll(const uint8_t*, size_t,
                                           const uint8_t*, size_t, uint64_t,
                                           uint32_t, uint32_t, uint8_t*, size_t);
@@ -54,29 +35,7 @@ int crypto_aead_chacha20poly1305_ietf_decrypt_detached(
     const unsigned char*, const unsigned char*, unsigned long long,
     const unsigned char*, const unsigned char*);
 }
-#define SJ_SOD(f) f
-#else
-#define SJ_SOD(f) nullptr
-#endif
 
-// libsodium : scrypt (mot de passe, sel, N, r, p, sortie) et AEAD détaché
-static int (*sodScrypt)(const uint8_t*, size_t, const uint8_t*, size_t,
-                        uint64_t, uint32_t, uint32_t, uint8_t*, size_t)
-    = SJ_SOD(crypto_pwhash_scryptsalsa208sha256_ll);
-static int (*sodEnc)(unsigned char*, unsigned char*, unsigned long long*,
-                     const unsigned char*, unsigned long long,
-                     const unsigned char*, unsigned long long,
-                     const unsigned char*, const unsigned char*,
-                     const unsigned char*)
-    = SJ_SOD(crypto_aead_chacha20poly1305_ietf_encrypt_detached);
-static int (*sodDec)(unsigned char*, unsigned char*, const unsigned char*,
-                     unsigned long long, const unsigned char*,
-                     const unsigned char*, unsigned long long,
-                     const unsigned char*, const unsigned char*)
-    = SJ_SOD(crypto_aead_chacha20poly1305_ietf_decrypt_detached);
-
-static const int CTRL_GET_TAG = 0x10;  // EVP_CTRL_AEAD_GET_TAG
-static const int CTRL_SET_TAG = 0x11;  // EVP_CTRL_AEAD_SET_TAG
 static const size_t SEG = 64 * 1024;
 static const size_t TAG = 16;
 // par fil : en deçà, le lancement d'un fil coûte plus que le travail (mesuré
@@ -99,38 +58,18 @@ tranche(const unsigned char* cle, const unsigned char* src, unsigned char* dst,
         size_t clair, size_t nseg, size_t k0, size_t k1, int enc)
 {
     unsigned char iv[12];
-    if (ctxNew == nullptr) {  // libsodium
-        bool ok = true;
-        for (size_t k = k0; ok && k < k1; k++) {
-            const size_t n = k + 1 < nseg ? SEG : clair - k * SEG;
-            const unsigned char* in = src + k * (enc ? SEG : SEG + TAG);
-            unsigned char* out = dst + k * (enc ? SEG + TAG : SEG);
-            nonce(iv, k, nseg);
-            ok = enc ? sodEnc(out, out + n, nullptr, in, n, nullptr, 0,
-                              nullptr, iv, cle) == 0
-                     : sodDec(out, nullptr, in, n, in + n, nullptr, 0, iv,
-                              cle) == 0;
-        }
-        return ok;
-    }
-    Ctx* ctx = ctxNew();
-    if (ctx == nullptr)
-        return false;
-    bool ok = cipherInit(ctx, chacha(), nullptr, cle, nullptr, enc) == 1;
+    bool ok = true;
     for (size_t k = k0; ok && k < k1; k++) {
         const size_t n = k + 1 < nseg ? SEG : clair - k * SEG;
         const unsigned char* in = src + k * (enc ? SEG : SEG + TAG);
         unsigned char* out = dst + k * (enc ? SEG + TAG : SEG);
         nonce(iv, k, nseg);
-        int lu;
-        ok = cipherInit(ctx, nullptr, nullptr, nullptr, iv, enc) == 1
-             && (n == 0 || cipherUpdate(ctx, out, &lu, in, (int) n) == 1)
-             && (enc || ctxCtrl(ctx, CTRL_SET_TAG, (int) TAG,
-                                (void*) (in + n)) == 1)
-             && cipherFinal(ctx, out + n, &lu) == 1
-             && (!enc || ctxCtrl(ctx, CTRL_GET_TAG, (int) TAG, out + n) == 1);
+        ok = enc ? crypto_aead_chacha20poly1305_ietf_encrypt_detached(
+                       out, out + n, nullptr, in, n, nullptr, 0, nullptr, iv,
+                       cle) == 0
+                 : crypto_aead_chacha20poly1305_ietf_decrypt_detached(
+                       out, nullptr, in, n, in + n, nullptr, 0, iv, cle) == 0;
     }
-    ctxFree(ctx);
     return ok;
 }
 
@@ -171,77 +110,6 @@ segments(const unsigned char* cle, const unsigned char* src, unsigned char* dst,
 }  // namespace sjcrypto
 
 
-static PyObject*
-load_crypto_library(PyObject* Py_UNUSED(self), PyObject* arg)
-{
-    using namespace sjcrypto;
-    const char* path = PyUnicode_AsUTF8(arg);
-    if (path == nullptr)
-        return nullptr;
-    void* h = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-    if (h == nullptr) {
-        PyErr_Format(PyExc_OSError, "dlopen(%s) : %s", path, dlerror());
-        return nullptr;
-    }
-    // tout ou rien : aucun pointeur posé tant qu'un symbole manque
-    void* s[] = {dlsym(h, "EVP_CIPHER_CTX_new"), dlsym(h, "EVP_CIPHER_CTX_free"),
-                 dlsym(h, "EVP_chacha20_poly1305"), dlsym(h, "EVP_CipherInit_ex"),
-                 dlsym(h, "EVP_CipherUpdate"), dlsym(h, "EVP_CipherFinal_ex"),
-                 dlsym(h, "EVP_CIPHER_CTX_ctrl")};
-    for (void* p : s)
-        if (p == nullptr) {
-            dlclose(h);
-            PyErr_SetString(PyExc_OSError,
-                            "ChaCha20-Poly1305 symbols not found in library");
-            return nullptr;
-        }
-    ctxNew = (decltype(ctxNew)) s[0];
-    ctxFree = (decltype(ctxFree)) s[1];
-    chacha = (decltype(chacha)) s[2];
-    cipherInit = (decltype(cipherInit)) s[3];
-    cipherUpdate = (decltype(cipherUpdate)) s[4];
-    cipherFinal = (decltype(cipherFinal)) s[5];
-    ctxCtrl = (decltype(ctxCtrl)) s[6];
-    Py_RETURN_TRUE;
-}
-
-
-static PyObject*
-load_sodium_library(PyObject* Py_UNUSED(self), PyObject* arg)
-{
-    using namespace sjcrypto;
-    // déjà là (chargée, ou liée dans le module) : le chemin est ignoré
-    if (sodScrypt != nullptr)
-        Py_RETURN_TRUE;
-    const char* path = PyUnicode_AsUTF8(arg);
-    if (path == nullptr)
-        return nullptr;
-    void* h = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-    if (h == nullptr) {
-        PyErr_Format(PyExc_OSError, "dlopen(%s) : %s", path, dlerror());
-        return nullptr;
-    }
-    void* s[] = {dlsym(h, "crypto_pwhash_scryptsalsa208sha256_ll"),
-                 dlsym(h, "crypto_aead_chacha20poly1305_ietf_encrypt_detached"),
-                 dlsym(h, "crypto_aead_chacha20poly1305_ietf_decrypt_detached")};
-    for (void* p : s)
-        if (p == nullptr) {
-            dlclose(h);
-            PyErr_SetString(PyExc_OSError,
-                            "scrypt/ChaCha20-Poly1305 symbols not found in"
-                            " library");
-            return nullptr;
-        }
-    // choisit les variantes SIMD ; sans lui, les versions de référence
-    if (void* init = dlsym(h, "sodium_init"))
-        ((int (*)(void)) init)();
-    sodScrypt = (decltype(sodScrypt)) s[0];
-    sodEnc = (decltype(sodEnc)) s[1];
-    sodDec = (decltype(sodDec)) s[2];
-    Py_RETURN_TRUE;
-}
-
-
 // _scrypt(mot de passe, sel, n, r, p, longueur) -> bytes, GIL rendu
 static PyObject*
 sj_scrypt(PyObject* Py_UNUSED(self), PyObject* args)
@@ -254,16 +122,15 @@ sj_scrypt(PyObject* Py_UNUSED(self), PyObject* args)
     if (!PyArg_ParseTuple(args, "y*y*KIIn", &mdp, &sel, &n, &r, &p, &lg))
         return nullptr;
     PyObject* res = nullptr;
-    if (sodScrypt == nullptr)
-        PyErr_SetString(PyExc_RuntimeError, "sodium library not loaded");
-    else if (lg <= 0)
+    if (lg <= 0)
         PyErr_SetString(PyExc_ValueError, "length must be positive");
     else if ((res = PyBytes_FromStringAndSize(nullptr, lg)) != nullptr) {
         int rc;
         Py_BEGIN_ALLOW_THREADS
-        rc = sodScrypt((const uint8_t*) mdp.buf, (size_t) mdp.len,
-                       (const uint8_t*) sel.buf, (size_t) sel.len, n, r, p,
-                       (uint8_t*) PyBytes_AS_STRING(res), (size_t) lg);
+        rc = crypto_pwhash_scryptsalsa208sha256_ll(
+            (const uint8_t*) mdp.buf, (size_t) mdp.len,
+            (const uint8_t*) sel.buf, (size_t) sel.len, n, r, p,
+            (uint8_t*) PyBytes_AS_STRING(res), (size_t) lg);
         Py_END_ALLOW_THREADS
         if (rc != 0) {
             Py_CLEAR(res);
@@ -288,9 +155,7 @@ sj_chacha20poly1305(PyObject* Py_UNUSED(self), PyObject* args)
         return nullptr;
     PyObject* res = nullptr;
     const size_t n = (size_t) src.len;
-    if (sodEnc == nullptr)
-        PyErr_SetString(PyExc_RuntimeError, "sodium library not loaded");
-    else if (cle.len != 32 || iv.len != 12)
+    if (cle.len != 32 || iv.len != 12)
         PyErr_SetString(PyExc_ValueError,
                         "key must be 32 bytes and nonce 12 bytes");
     else if (!enc && n < TAG)
@@ -303,9 +168,11 @@ sj_chacha20poly1305(PyObject* Py_UNUSED(self), PyObject* args)
         const unsigned char* k = (const unsigned char*) cle.buf;
         const unsigned char* v = (const unsigned char*) iv.buf;
         if (enc)
-            sodEnc(out, out + n, nullptr, in, n, nullptr, 0, nullptr, v, k);
-        else if (sodDec(out, nullptr, in, n - TAG, in + n - TAG, nullptr, 0, v,
-                        k) != 0) {
+            crypto_aead_chacha20poly1305_ietf_encrypt_detached(
+                out, out + n, nullptr, in, n, nullptr, 0, nullptr, v, k);
+        else if (crypto_aead_chacha20poly1305_ietf_decrypt_detached(
+                     out, nullptr, in, n - TAG, in + n - TAG, nullptr, 0, v, k)
+                 != 0) {
             Py_DECREF(res);
             res = Py_NewRef(Py_None);
         }
@@ -336,9 +203,7 @@ age_payload(PyObject* Py_UNUSED(self), PyObject* args)
     // pas s'authentifier (et rendrait la taille du clair négative)
     const bool court = !enc && n - (nseg - 1) * plein < TAG;
     const size_t clair = enc ? n : court ? 0 : n - TAG * nseg;
-    if (ctxNew == nullptr && sodEnc == nullptr)
-        PyErr_SetString(PyExc_RuntimeError, "crypto library not loaded");
-    else if (cle.len != 32)
+    if (cle.len != 32)
         PyErr_SetString(PyExc_ValueError, "stream key must be 32 bytes");
     else if (court)
         res = Py_NewRef(Py_None);

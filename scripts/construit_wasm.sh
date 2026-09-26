@@ -3,7 +3,7 @@
 # dist_wasm/serializejson : le paquet python, le module rapidjson compilé en side module wasm et le fork
 # déterministe de blosc2 (libblosc2_serializejson.so, wasm lui aussi), que tools.py charge par dlopen.
 # Le chiffrement ne dépend d'aucun paquet à télécharger : libsodium (clone épinglé dans libsodium/) est
-# LIÉE dans le module rapidjson (SJ_SODIUM_STATIQUE), et _encryption.py s'en sert quand cryptography manque.
+# LIÉE dans le module rapidjson, comme en natif (rapidjson/libsodium_statique.py).
 # Hors ligne : les outils viennent de scripts/installer_outils_wasm.sh (à lancer une fois, avec le réseau),
 # et les sources de lz4/zlib-ng/zstd du dossier _deps de la construction native de c-blosc2.
 # Les .so natifs de rapidjson/ ne sont pas touchés.
@@ -63,7 +63,7 @@ mkdir -p "$TRAVAIL/sodium"
 
 # --- le module rapidjson, libsodium liée dedans
 SRC="$DEPOT/rapidjson"
-em++ -c $SIDE_MODULE_CFLAGS -I"$PY_INCLUDE" -I"$SRC" -DSJ_SODIUM_STATIQUE \
+em++ -c $SIDE_MODULE_CFLAGS -I"$PY_INCLUDE" -I"$SRC" \
     -DPYTHON_RAPIDJSON_VERSION="\"$(cat "$SRC/version.txt")\"" \
     "$SRC/rapidjson.cpp" -o "$TRAVAIL/rapidjson.o"
 SUFFIXE=.cpython-313-wasm32-emscripten.so
