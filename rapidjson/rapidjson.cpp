@@ -11952,7 +11952,139 @@ sj_cumsum_axis0(PyObject* Py_UNUSED(module), PyObject* args)
     Py_RETURN_NONE;
 }
 
+// valeur == defaut, ou (defaut is None et valeur falsy et valeur != 0), ou
+// (defaut est un tuple et valeur == list(defaut)) : 1 / 0, -1 sur exception.
+static int
+sj_est_defaut(PyObject* valeur, PyObject* defaut)
+{
+    PyObject* r = PyObject_RichCompare(valeur, defaut, Py_EQ);
+    if (r == nullptr)
+        return -1;
+    int ok = PyObject_IsTrue(r);
+    Py_DECREF(r);
+    if (ok != 0)
+        return ok;
+    if (defaut == Py_None) {
+        ok = PyObject_Not(valeur);
+        if (ok <= 0)
+            return ok;
+        PyObject* zero = PyLong_FromLong(0);
+        if (zero == nullptr)
+            return -1;
+        r = PyObject_RichCompare(valeur, zero, Py_NE);
+        Py_DECREF(zero);
+        if (r == nullptr)
+            return -1;
+        ok = PyObject_IsTrue(r);
+        Py_DECREF(r);
+        return ok;
+    }
+    if (PyTuple_Check(defaut)) {
+        PyObject* liste = PySequence_List(defaut);
+        if (liste == nullptr)
+            return -1;
+        r = PyObject_RichCompare(valeur, liste, Py_EQ);
+        Py_DECREF(liste);
+        if (r == nullptr)
+            return -1;
+        ok = PyObject_IsTrue(r);
+        Py_DECREF(r);
+        return ok;
+    }
+    return 0;
+}
+
+static PyObject*
+sj_etat_sans_defauts(PyObject*, PyObject* args)
+{
+    PyObject *obj, *defauts, *proprietes;
+    if (!PyArg_ParseTuple(args, "OO!O", &obj, &PyDict_Type, &defauts, &proprietes))
+        return nullptr;
+    PyObject* vars_ = PyObject_GetAttrString(obj, "__dict__");
+    if (vars_ != nullptr && !PyDict_Check(vars_)) {  // mappingproxy d'une classe, mapping exotique
+        Py_DECREF(vars_);
+        vars_ = nullptr;
+    }
+    if (vars_ == nullptr) {
+        PyErr_Clear();
+        PyErr_SetString(PyExc_TypeError, "etat_sans_defauts() argument must have a dict __dict__");
+        return nullptr;
+    }
+    PyObject* etat = PyDict_New();
+    if (etat == nullptr) {
+        Py_DECREF(vars_);
+        return nullptr;
+    }
+    {
+        Py_ssize_t pos = 0, taille = PyDict_Size(vars_);
+        PyObject *cle, *valeur;
+        while (PyDict_Next(vars_, &pos, &cle, &valeur)) {
+            Py_INCREF(cle);
+            Py_INCREF(valeur);
+            int echec = 1;
+            PyObject* defaut = PyDict_GetItemWithError(defauts, cle);
+            if (defaut != nullptr) {
+                Py_INCREF(defaut);
+                int d = sj_est_defaut(valeur, defaut);
+                Py_DECREF(defaut);
+                if (d == 0)
+                    echec = PyDict_SetItem(etat, cle, valeur) < 0;
+                else
+                    echec = d < 0;
+            } else {
+                echec = PyErr_Occurred() != nullptr;
+            }
+            Py_DECREF(cle);
+            Py_DECREF(valeur);
+            if (echec)
+                goto erreur;
+            if (PyDict_Size(vars_) != taille) {
+                PyErr_SetString(PyExc_RuntimeError, "dictionary changed size during iteration");
+                goto erreur;
+            }
+        }
+    }
+    {
+        PyObject* it = PyObject_GetIter(proprietes);
+        if (it == nullptr)
+            goto erreur;
+        PyObject* nom;
+        while ((nom = PyIter_Next(it)) != nullptr) {
+            int present = PyDict_Contains(etat, nom);
+            if (present == 0) {
+                PyObject* valeur = PyObject_GetAttr(obj, nom);
+                PyObject* defaut = valeur ? PyObject_GetItem(defauts, nom) : nullptr;
+                int d = defaut ? sj_est_defaut(valeur, defaut) : -1;
+                if (d == 0)
+                    d = PyDict_SetItem(etat, nom, valeur);
+                Py_XDECREF(valeur);
+                Py_XDECREF(defaut);
+                present = d;
+            }
+            Py_DECREF(nom);
+            if (present < 0) {
+                Py_DECREF(it);
+                goto erreur;
+            }
+        }
+        Py_DECREF(it);
+        if (PyErr_Occurred())
+            goto erreur;
+    }
+    Py_DECREF(vars_);
+    return etat;
+erreur:
+    Py_DECREF(vars_);
+    Py_DECREF(etat);
+    return nullptr;
+}
+
 static PyMethodDef functions[] = {
+    {"etat_sans_defauts", (PyCFunction) sj_etat_sans_defauts, METH_VARARGS,
+     "etat_sans_defauts(obj, defauts, proprietes) -> dict : les attributs de"
+     " vars(obj) nommés dans defauts, puis les properties de la liste"
+     " proprietes, chacun omis s'il vaut son défaut (== défaut ; ou défaut"
+     " None et valeur vide non nulle ; ou défaut tuple et valeur == list)."},
     {"wait_writes", (PyCFunction) wait_writes, METH_NOARGS,
      "Attend que les écritures encore en vol soient posées sur le disque,"
      " et relève l'erreur de celle qui aurait raté après le retour de dump."},

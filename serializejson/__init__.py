@@ -307,6 +307,7 @@ __all__ = [
     "index",
     "paths",
     "wait_writes",
+    "etat_sans_defauts",
     "Encoder",
     "Decoder",
     "DecryptionError",
@@ -584,6 +585,11 @@ def paths(file):
     _attend_ecritures()
     index_ = indexation.lit(file)
     return None if index_ is None else sorted(index_["paths"])
+
+
+# Absente d'un module compilé plus ancien (le .so 311 n'est plus rebâti) :
+# l'appelant garde son repli python par getattr(serializejson, ..., None).
+etat_sans_defauts = getattr(rapidjson, "etat_sans_defauts", None)
 
 
 def wait_writes():
