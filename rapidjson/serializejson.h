@@ -8,6 +8,12 @@
 #if defined(__SSSE3__)
 #include <tmmintrin.h>
 #endif
+// SSE4.1 (_mm_extract_epi8, sj_prefix_u8) : à inclure soi-même — le python
+// de CachyOS compile en -march=x86-64-v3, qui l'amenait indirectement ; la CI
+// manylinux (-msse4.2 seul) non
+#ifdef RAPIDJSON_SSE42
+#include <nmmintrin.h>
+#endif
 #include <vector>
 
 // En-têtes blosc2 vendorés (roue python-blosc2) : uniquement pour les TYPES

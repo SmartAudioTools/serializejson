@@ -48,6 +48,24 @@
 - **Jamais exécuté** : le workflow GitHub lui-même (aucun tag n'a encore été poussé),
   cibuildwheel dans le conteneur manylinux, les clones réseau de c-blosc2 et libsodium, cp310/311.
 
+## Premier passage de la CI (tag v0.4.0 poussé, run 37021264476) : ÉCHEC, corrigé
+
+- Le job `sources` est passé ; `roues_linux` a échoué dès cp310 à la compilation :
+  `serializejson.h:1020: '_mm_extract_epi8' was not declared` (SSE4.1, dans `sj_prefix_u8`).
+  Rien n'a été publié (job de publication sauté).
+- Cause : `serializejson.h` n'incluait que `<tmmintrin.h>` (SSSE3). En local, le python de
+  CachyOS compile avec `-march=x86-64-v3` (CFLAGS de sysconfig, repris par setup.py), qui amenait
+  l'en-tête SSE4.1 indirectement ; la CI manylinux compile avec `-msse4.2` seul. Le smoke de la
+  roue fait ici (voir plus haut) héritait des mêmes CFLAGS : il ne pouvait pas voir le défaut.
+- Correctif : `#include <nmmintrin.h>` sous `RAPIDJSON_SSE42`, à côté de `<tmmintrin.h>`.
+  Alternative écartée : ajouter `-msse4.1`/`-march` à la CI — l'erreur est un en-tête manquant,
+  pas un jeu d'instructions manquant (`-msse4.2` implique SSE4.1).
+- Preuve : erreur REPRODUITE en local en compilant avec les drapeaux exacts de la CI
+  (`-std=c++11 -O3 -msse4.2`, sans les CFLAGS de sysconfig) contre les en-têtes 3.11, 3.12, 3.13
+  et 3.14, avec g++ 15 ; disparue avec le correctif sur les quatre. Code généré inchangé (un
+  include de plus, déjà présent indirectement ici) : les `.so` PGO commités ne sont pas rebâtis.
+  La CI elle-même reste la seule preuve complète (gcc-toolset-14, clones réseau).
+
 ## Points ouverts
 
 - Le Trusted Publisher doit exister côté pypi.org pour ce dépôt, workflow
