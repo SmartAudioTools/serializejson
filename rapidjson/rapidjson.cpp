@@ -295,6 +295,7 @@ sj_enrich_setattr_error(PyObject* inst, PyObject* attr_key)
 static PyObject* init_key_name = nullptr;
 static PyObject* new_key_name = nullptr;
 static PyObject* state_key_name = nullptr;
+static PyObject* setstate_name = nullptr;
 static PyObject* items_key_name = nullptr;
 static PyObject* empty_args_tuple = nullptr;
 static PyObject* b64_payload_classes_name = nullptr;
@@ -3166,6 +3167,28 @@ struct PyHandler {
         return true;
     }
 
+    // marque d'un plan de decode_class_plan : 0 = état posé en C (classe, ou
+    // (classe, True) __slots__), 2 = constructeur seul, 3 = __setstate__
+    static int SjMarquePlan(PyObject* plan) {
+        if (!PyTuple_Check(plan) || !PyLong_CheckExact(PyTuple_GET_ITEM(plan, 1)))
+            return 0;
+        return (int) PyLong_AsLong(PyTuple_GET_ITEM(plan, 1));
+    }
+
+    // plan (classe, 3) : la classe a un __setstate__ — l'état restant lui est
+    // remis en UN appel, comme instance() (`if __state__: inst.__setstate__(
+    // argsSup)`) : rien si l'état est vide, les clés '~…' transmises telles
+    // quelles. Faux = erreur posée
+    bool SjAppliqueSetstate(PyObject* inst, PyObject* mapping) {
+        if (PyDict_GET_SIZE(mapping) == 0)
+            return true;
+        PyObject* res = PyObject_CallMethodOneArg(inst, setstate_name, mapping);
+        if (res == nullptr)
+            return false;
+        Py_DECREF(res);
+        return true;
+    }
+
     bool Key(const char* str, SizeType length, bool copy) {
         HandlerContext& current = stack.back();
 
@@ -4135,13 +4158,13 @@ struct PyHandler {
                 && PyDict_GetItem(mapping, dict_dunder_name) == nullptr) {
                 // réhydratation : l'objet est déjà construit (rangé dans
                 // __class__ à sa première clé d'état) ; son état s'applique
-                // en C si son type a un plan __dict__ ou __slots__ — avec
-                // setters/properties/__setstate__ (classe, 2), voie python
+                // en C si son type a un plan __dict__ ou __slots__, ou par
+                // UN appel de __setstate__ (classe, 3) — avec setters/
+                // properties (classe, 2), voie python
                 auto par_type = plansParType.find(Py_TYPE(class_value));
-                if (par_type != plansParType.end()
-                    && !(PyTuple_Check(par_type->second)
-                         && PyLong_CheckExact(
-                                PyTuple_GET_ITEM(par_type->second, 1)))) {
+                int marque = par_type == plansParType.end() ? -1
+                    : SjMarquePlan(par_type->second);
+                if (marque == 0 || marque == 3) {
                     PyObject* inst = class_value;
                     Py_INCREF(inst);
                     for (PyObject* cle : {class_key_name, init_key_name,
@@ -4156,7 +4179,13 @@ struct PyHandler {
                     // instance nue (object.__new__, __dict__ vide) à plan
                     // __dict__ : le dict d'état devient son __dict__ tel
                     // quel, comme sur la voie classique — sinon fusion
-                    if (envFresh && !by_setattr) {
+                    if (marque == 3) {
+                        if (!SjAppliqueSetstate(inst, mapping)) {
+                            Py_DECREF(inst);
+                            Py_DECREF(mapping);
+                            return false;
+                        }
+                    } else if (envFresh && !by_setattr) {
                         if (PyObject_SetAttr(inst, dict_dunder_name,
                                              mapping) == -1) {
                             Py_DECREF(inst);
@@ -4186,13 +4215,16 @@ struct PyHandler {
                 // (Decimal, datetime, deque...) appelées directement —
                 // uniquement pour l'enveloppe stricte {__class__, __init__} ;
                 // toute autre forme (attributs, __state__, kwargs dict)
-                // reste en voie python
-                bool ctor_only = plan != Py_None && PyTuple_Check(plan)
-                    && PyLong_CheckExact(PyTuple_GET_ITEM(plan, 1));
-                if (ctor_only
-                    && (PyDict_GET_SIZE(mapping) != 2
-                        || init_list == nullptr
-                        || PyDict_CheckExact(init_list))) {
+                // reste en voie python. (classe, 3) : la même enveloppe
+                // stricte, ou des attributs (__init__ absent ou liste) remis
+                // à __setstate__ après construction
+                int marque = plan != Py_None ? SjMarquePlan(plan) : -1;
+                bool ctor_only = marque == 2 || marque == 3;
+                bool stricte = PyDict_GET_SIZE(mapping) == 2
+                    && init_list != nullptr && !PyDict_CheckExact(init_list);
+                if ((marque == 2 && !stricte)
+                    || (marque == 3 && !stricte && init_list != nullptr
+                        && !init_is_list)) {
                     // enveloppe inattendue : voie python
                 } else if (plan != Py_None
                            && (init_list == nullptr || init_is_list
@@ -4240,7 +4272,13 @@ struct PyHandler {
                         Py_DECREF(mapping);
                         return false;
                     }
-                    if (by_setattr || init_list != nullptr) {
+                    if (marque == 3) {
+                        if (!SjAppliqueSetstate(inst, mapping)) {
+                            Py_DECREF(inst);
+                            Py_DECREF(mapping);
+                            return false;
+                        }
+                    } else if (by_setattr || init_list != nullptr) {
                         // classe à __slots__ : un setattr par attribut, dans
                         // l'ordre du JSON (celui du setstate Python) ; après
                         // un __init__ qui a pu remplir le __dict__ : FUSION
@@ -12383,6 +12421,10 @@ module_exec(PyObject* m)
 
     state_key_name = PyUnicode_InternFromString("__state__");
     if (state_key_name == nullptr)
+        return -1;
+
+    setstate_name = PyUnicode_InternFromString("__setstate__");
+    if (setstate_name == nullptr)
         return -1;
 
     items_key_name = PyUnicode_InternFromString("__items__");

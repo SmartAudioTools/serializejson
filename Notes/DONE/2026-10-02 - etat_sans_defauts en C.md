@@ -423,3 +423,197 @@ le test qui est faux, c'est une COURSE réelle, et elle n'a rien à voir avec le
 - Les environnements ont changé depuis les addenda (3.13.14/3.14.6/3.12.13 dans
   `versions/<v>/envs/SmartPython-<v>_2026-07-26/`) ; 3.13.15/3.14.7/3.11.x non exécutables
   par ce compte.
+
+## Audit du 02/10 (fin de journée, Fable 5.1) — relecture des commits fba6665,
+## 15554c7 et 5abea26 avec un œil neuf
+
+Demande de Baptiste, dictée : « un petit audit sur ce qu'a fait Opus, voir si c'est toujours la
+meilleure solution, la meilleure approche, et voir s'il y a d'autres optimisations qui seraient
+faisables ou d'autres cas auxquels on n'aurait pas pensé dans la banque d'objets servant à
+benchmarker ». Audit par LECTURE SEULE (aucun fichier de code touché, aucune mesure nouvelle) :
+`decode_class_plan`, `instance()`, les trois voies C (SjConstruit / SjKeyConstruit /
+SjAppliqueEtat / SjChaine, EndObject), `sj_etat_sans_defauts`, le plan d'écriture
+`__serializejson__`, `tests/objects/crochets_objects.py`, `lance_benchmarks.mesure_types_objets`,
+`test_serialize_vs_pickle.py`, et `noyau.py` de SmartTeacher (lecture seule).
+
+### Verdict sur les deux commits
+
+- **Critère registre (5abea26) : à GARDER.** Le plan n'est refusé que si la cible du registre
+  n'est pas une classe portant le dernier segment du nom — c'est exactement la règle
+  d'`instance()` (même dict, mêmes formes `__new__`/`__init__`), moins cher qu'une vérification
+  d'identité par import, et il laisse passer les classes imbriquées et le nom raccourci de
+  SmartTeacher tout en continuant d'exclure substitutions (`bytes` → `bytesB64`) et fabriques.
+  Rien de plus simple qui garde les quatre tests de refus.
+- **`etat_sans_defauts` en C (fba6665) : correct, mais c'est une DEMI-MESURE.** Le filtrage
+  lui-même ne pèse plus que ~0,2 µs ; ce qui reste par objet (+0,9 µs contre le témoin, banc
+  crochets 3.13 : 1,7 contre 0,8 µs) est l'appel python de `__serializejson__` + la construction
+  du tuple + l'appel C — la primitive a déplacé le coût, pas supprimé la boucle python.
+  L'alternative structurelle : un attribut de classe DÉCLARATIF (défauts + propriétés à
+  écrire, l'ordre à part) que le plan d'écriture C lirait une fois par classe → zéro python
+  par objet, ≈ témoin. C'est un AJOUT d'API (mémoire `api-fidelity-constraint`) : proposition
+  pour Baptiste, pas de code. Mineur : `sj_est_defaut` alloue `list(defaut)` à chaque défaut
+  tuple — comparaison élément par élément possible, négligeable, pas une priorité.
+
+### Autres optimisations faisables, par ordre de rendement attendu
+
+1. **Lecture : plan C « tp_new + collecte des clés d'état + UN appel `__setstate__` ».**
+   Toute classe à `__setstate__` prend aujourd'hui le plan `(cls, 2)` : construction en C, mais
+   l'état est posé par `instance()` en python, objet par objet (450 appels par chargement du
+   document réel). Mesuré dans la section « trois pistes » : 2,35 → ~0,8 µs/objet, soit ≈ −20 %
+   des 3,19 ms de lecture. TOUTES les classes SmartTeacher sont éligibles (`__setstate__` =
+   `self.__init__(**etat)` dans `noyau.py`). Première piste à ouvrir.
+2. **`SjChaine` parcourt la pile des ancêtres (SjEnveloppeTraversee / SjPlan par niveau) même
+   quand `liveRoot == nullptr`** (lecture sans `obj=`, le cas de 100 % des `load` SmartTeacher) :
+   `possible` est calculé mais il n'y a pas de sortie anticipée en tête. Court-circuit à tenter,
+   borné par le plafond « réhydratation = 26,4 % de la lecture », à mesurer en A/B interlacé
+   avec témoin A/A — peut être dans le bruit.
+3. **Écriture : `__reduce__` n'a AUCUN plan C** (voie python par défaut, `Encoder.default`),
+   alors que `__getstate__` et `__serializejson__` en ont un. La barre `crochet_reduce` du banc
+   le mesure déjà ; à chiffrer avant de décider (rare chez SmartTeacher, courant ailleurs).
+
+### Cas manquants dans la banque d'objets du banc
+
+- **Le banc ne voit que `basic_objects` + `crochets_objects`**, alors que `test_serialize_vs_
+  pickle.py` fusionne déjà TOUS les modules de `tests/objects/` (slots avec/sans init,
+  properties, setters, init args/kwargs/défauts, sous-classes de dict/tuple, variantes
+  getstate, init_and_new). Gain de couverture le moins cher : donner au banc le MÊME catalogue
+  fusionné (une ligne dans `mesure_types_objets`), chaque module devenant une barre.
+- **Pas de catégorie « nom raccourci »** (`constructors[cls.__name__] = cls`, le cas
+  SmartTeacher) : l'empoisonnement ×5 corrigé le 02/10 n'aurait été visible QUE par une telle
+  barre. À ajouter dans `crochets_objects` (même objet, inscrit sous son nom court).
+- **Pas de document synthétique PROFOND et hétérogène** (paquets × questions × choix, références
+  arrière denses en `$ref`) : le banc mesure des lots plats de 32 × 8 objets homogènes ; le
+  document réel de 450 objets ne s'exerce que hors banc. Un substitut contrôlé, sans dépendance
+  à SmartTeacher, donnerait une barre « document » reproductible.
+- **Pas de banc d'adoption** (`obj=`, réconciliation par argument) ni d'A/B
+  `rehydrate=True/False` : la voie SjChaine/SjVivant n'est mesurée nulle part.
+- **Types absents** : namedtuple (commenté dans le test), dataclass, enum, `datetime` à
+  ZoneInfo (greffon python PAR objet depuis le 24/09 — à chiffrer), objets numpy sur la page des
+  types, `__reduce_ex__` / `__getnewargs__`.
+- **Rapport** : afficher les µs/objet ABSOLUS à côté des ratios pickle — pickle paie aussi
+  `__getstate__`/`__reduce__`, un ratio seul masque que la barre « crochet » coûte 2× le témoin
+  dans les deux camps.
+
+### Niveau de preuve et suite
+
+Tout ce qui précède est vérifié par LECTURE ; seuls les chiffres cités viennent des mesures
+déjà consignées plus haut dans cette note. Rien n'est codé : chaque piste (plan C
+`__setstate__`, court-circuit SjChaine, extension de la banque) demande son feu vert, sa propre
+entrée ici, sa passe de simplification et son autorisation de commit. La proposition d'API
+déclarative pour l'écriture se décide avant tout code.
+
+## Suites de l'audit (02/10 soir) — plan `polished-orbiting-swing`
+
+Demande de Baptiste après l'audit : `/plan` « fais un plan ». Ses deux arbitrages : périmètre
+« **Lecture + banque** » ; API déclarative d'écriture « **Non, plus tard** » (reste une
+proposition, section précédente). Trois étapes : plan C `__setstate__`, court-circuit SjChaine
+(mesurer d'abord), banque d'objets.
+
+### Étape 1 — `__setstate__` remis en C : plan `(classe, 3)`
+
+**Livré.**
+- `serializejson/__init__.py`, `decode_class_plan` : une classe python (heap) à `__setstate__`
+  rend `(classe, 3)` au lieu de `(classe, 2)`. Les classes C (non-HEAPTYPE), setters et
+  properties gardent `(classe, 2)`.
+- `rapidjson/rapidjson.cpp` : `SjMarquePlan` (second item entier du plan, sinon 0) et
+  `SjAppliqueSetstate` (rien si l'état est vide, sinon `inst.__setstate__(mapping)` en un appel,
+  `setstate_name` interné). Branchés dans les DEUX branches d'`EndObject` :
+  - réhydratation (instance déjà construite par `SjConstruit`, le cas par défaut) : le plan 3
+    n'est plus décliné vers python ; `__class__`/`__init__`/`__new__` retirés du mapping par la
+    boucle existante, puis `__setstate__` au lieu de `__dict__ = mapping` / `SjAppliqueEtat` ;
+  - classique (`rehydrate=False`) : instanciation inchangée (`tp_new`, ou `cls(*args)` pour un
+    `__init__` liste), puis le même appel. Un `__init__` dict, un `__init__` scalaire avec
+    état, reste en python comme avant ; l'enveloppe stricte `{__class__, __init__}` reste
+    « constructeur seul » (le 3 est un entier, `ctor_only` le couvre déjà).
+- `tests/test_plan_registre.py` : le plan attendu de `AvecSetstate` devient `(AvecSetstate, 3)` ;
+  son test de relecture (`__setstate__` qui multiplie par 10) reste vert, preuve que l'appel a lieu.
+- `tests/test_setstate_en_c.py` (neuf, 16 cas × rehydrate True/False) : état remis, état vide =
+  `__setstate__` NON appelé, clés `~` transmises, `__init__` liste puis `__setstate__`,
+  enveloppe stricte = constructeur seul, aller-retour, exception de `__setstate__` propagée
+  avec son type, et **preuve de voie** : `serializejson.instance` remplacé par une fonction qui
+  lève, la lecture passe quand même.
+
+**Sémantique de référence** : celle d'`instance()` (`tools.py:1206-1338`) — instance déjà
+construite → `__init__`/`__new__` ignorés, toutes les autres clés passées à `__setstate__`
+(`~…` compris) seulement si non vide.
+
+**Choix et alternatives écartées.**
+- Passer le mapping du décodeur lui-même à `__setstate__` plutôt qu'une copie : personne d'autre
+  ne le tient après remplacement chez le parent (même raisonnement que `__dict__ = mapping` du
+  cas `envFresh`). Une copie coûterait une allocation par objet pour rien.
+- Nouveau marqueur 3 plutôt qu'un plan distinct (classe nue + drapeau ailleurs) : le 3 reste un
+  entier, donc tous les consommateurs existants du plan (SjChaine, SjVivant, `ctor_only`) le
+  traitent sans retouche ; vérifié par lecture, aucun ne dépend de la valeur 2.
+- Écart ACCEPTÉ : une vieille clé `__initArgs__` serait passée à `__setstate__` par la voie C,
+  alors que la voie python la consomme. Format antérieur à 2021, jamais écrit depuis ; rare.
+
+**Preuves.**
+- Suite complète 3.13 sur binaire de chantier : 403 verts. Sur la PGO finale (gcda supprimés
+  avant, .so ≈ 2,34 Mo comme le commité), suite complète APRÈS l'étape 3 : **419 verts ×
+  3.12/3.13/3.14**, goldens restaurés. Roue wasm rebâtie (`construit_wasm.sh`, 861 Kio) :
+  construite sans erreur, NON rejouée sous Pyodide.
+- Rouge sur le binaire commité : les 2 cas de preuve de voie échouent, les 14 de sémantique
+  passent à l'identique (le comportement observable ne change pas, seule la voie).
+- Identité : `dumps(loads(doc), sort_keys=True)` de 120 json de la banque SmartTeacher, × 2
+  voies, même sha256 sur les deux binaires.
+- A/B lecture (3.13, hors PGO des deux côtés, sous-processus interlacés, 7 tours, min de 25,
+  **charge 24-28**) : document réel (`07 - Structures de contrôle.json`) 3,51 → 2,67 ms
+  (**−24 %**), synthétique 2000 objets à `__setstate__` 5,39 → 2,80 ms (**−48 %**) ; témoin
+  A/A −3,6 / +2,3 %. Cible du plan (≈ −20 %) atteinte.
+
+### Étape 2 — court-circuit de `SjChaine` sans `obj=` : NON fait, sur lecture et mesure
+
+**Prémisse de l'audit fausse, vérifiée par lecture** (`rapidjson.cpp`, `SjChaine`) : sans racine
+vivante, `possible` part faux mais est REMIS à vrai par le premier ancêtre construit non frais
+(`possible = !ctx.envFresh`). C'est voulu : en recréation, un parent construit par son `__init__`
+a déjà créé ses enfants, qu'il faut adopter au lieu de les doubler (addendum CLAUDE.md du 19/09,
+« enfants sans état d'une racine construite par __init__ DOUBLÉS »). Une sortie anticipée sur
+`liveRoot == nullptr` réintroduirait ce défaut. Le seul parcours évitable est celui qui remonte
+jusqu'à la racine sans trouver d'ancêtre construit : quelques niveaux, sans allocation.
+
+**Mesure du plafond** (3.13, binaire de chantier de l'étape 1, même processus, 9 tours
+interlacés, min de 40, charge 24-28), document réel : `rehydrate=True` 2,81 ms, `False` 2,91 ms,
+témoin `True'` 2,86 ms. Le crochet ENTIER (SjChaine compris) est sous le bruit depuis l'étape 1 :
+le « 26,4 % » de l'audit venait surtout du déclin des plans `(classe, 2)` vers python, qu'a
+résorbé l'étape 1. Rien à gagner ici ; ne pas y revenir sans nouveau profil.
+
+### Étape 3 — banque d'objets du banc
+
+**Demande** : étape 3 du plan (catalogue partagé, barre « nom raccourci », document profond,
+colonne µs/objet).
+
+**Livré.**
+- `tests/objects/__init__.py` : `catalogue(pyqt5=False, numpy=False) -> (objects,
+  authorized_classes)`, la fusion qui vivait dans `test_serialize_vs_pickle.py` seul (liste
+  `MODULES`, catégories `object_<module>`). Le test l'appelle ; sa boucle de fusion disparaît.
+- `tests/objects/crochets_objects.py` : `CrochetCourt`, inscrit sous son nom court dans
+  `serializejson.constructors` (la forme de SmartTeacher), catégorie `crochet_C_nom_court` ;
+  `nombre_objets` par catégorie.
+- `tests/objects/document_objects.py` (neuf) : `Paquet → 50 Question → 8 Choix` + un `Bareme`
+  partagé (452 objets), référence arrière choix → question encore ouverte, `__setstate__ =
+  __init__(**etat)`, `etat_sans_defauts`, noms courts par `__init_subclass__`. Catégorie `document`.
+- `tests/lance_benchmarks.py`, `mesure_types_objets` : catalogue + crochets + document ;
+  `log.logs` vidée avant chaque catégorie (liste globale remplie par les `__init__` des
+  modules) ; nombre d'objets mesuré par catégorie. Page markdown : deux colonnes « sj par objet
+  (µs) » (dumps, loads), « — » pour les catégories de types. Figure SCINDÉE : `benchmark_types_
+  objets` (types python) et `benchmark_classes_objets` (voies de construction, crochets,
+  document), préfixe `object_objects.` retiré des étiquettes.
+
+**Choix et alternatives écartées.**
+- Une figure unique : 59 groupes illisibles sur une page A4 (constaté au rendu) → deux pages,
+  séparées par `_categorie_applicative` (préfixe `object_` ou nombre d'objets connu).
+- Raccourcir les noms de catégories dans `catalogue()` : ce sont les noms du test (messages
+  d'échec, goldens éventuels) → raccourcis dans la figure seulement.
+- Compter les objets par parcours de l'arbre : un compteur déclaré par module (`nombre_objets`)
+  est exact par construction et ne coûte rien ; les catégories de types n'en ont pas, la
+  colonne y vaut « — » (un « objet » n'y a pas de sens commun).
+
+**Preuves.** `test_serialize_vs_pickle` vert sur le catalogue partagé. Document : aller-retour
+identique (`dumps` des deux côtés), plans `(classe, 3)` vérifiés, `$ref` présents. Banc en
+fumée (chronos et disque neutralisés) : 59 catégories mesurées, 25 types + 34 classes, une seule
+écartée (`object_objects.no_init_slots_and_dict`, déjà écartée avant, nommée par le rapport).
+Figure des classes rendue et relue à l'œil. Pas de banc complet chiffré : à rejouer machine
+calme.
+
+**Points ouverts.** `README.rst` ne référence que `benchmark_types_objets.svg` ; le nouveau
+`benchmark_classes_objets.svg` n'y est pas lié (README tenu par une autre instance).

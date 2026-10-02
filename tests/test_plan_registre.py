@@ -73,7 +73,7 @@ def test_plan_accorde_a_une_classe_inscrite_sous_son_nom(registre):
 
 
 def test_plan_accorde_a_une_classe_a_setstate_inscrite_sous_son_nom(registre):
-    assert plan("AvecSetstate") == (AvecSetstate, 2)
+    assert plan("AvecSetstate") == (AvecSetstate, 3)
 
 
 def test_plan_refuse_a_une_substitution_de_classe(registre):

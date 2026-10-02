@@ -2958,7 +2958,11 @@ class Decoder(rapidjson.Decoder):
                 # enveloppe (attributs, __state__, kwargs) reste python
                 return (class_, 2)
             if hasattr(class_, "__setstate__"):
-                return (class_, 2)
+                # (classe, 3) : construite en C, état remis en UN appel de
+                # __setstate__ (instance() fait de même, setters/properties
+                # n'y jouent pas) ; l'enveloppe stricte reste « constructeur
+                # seul » comme (classe, 2)
+                return (class_, 3)
             by_setattr = False
             if hasattr(class_, "__slots__"):
                 if class_.__dictoffset__ != 0:
