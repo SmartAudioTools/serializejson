@@ -146,6 +146,20 @@ part du travail.
 - Essayé et ÉCARTÉ : supprimer le `getattr` tolérant au profit d'un import direct — c'est ce
   qui a cassé l'import des autres sessions, le .so 311 ne sera jamais rebâti.
 
+## Leçon générale, écrite ailleurs
+
+Question de Baptiste : « pourquoi n'avais tu pas pensé et codé cette optimisation plus tôt,
+lorsqu'on avait d'optimiser au maximum serializejson ». Cause réelle : toutes les campagnes
+ont mesuré serializejson sur SON corpus de banc, où `__serializejson__` — code de l'appelant —
+n'apparaît jamais ; elles chassaient les replis python que serializejson déclenche lui-même,
+pas ceux que l'application lui tend. Sur son accord, la leçon est écrite comme règle de
+méthode (déclencheur en geste : profiler la bibliothèque dans une application réelle qui la
+consomme) dans le CLAUDE.md global — source versionnée
+`/DATA/Python/SmartOS/Commun/config_files/Claude/CLAUDE.md` (hg r205, draft) ET copie active
+`/home/claude/.claude/CLAUDE.md`, éditée à la main parce que le déploiement ne réécrit ce
+fichier que s'il est ABSENT (`installation_Claude_commun.sh:1017`). Écarté : la mémoire
+automatique, ni versionnée ni propagée à une machine neuve.
+
 ## Points ouverts / relecteur
 
 - À regarder en premier : `sj_etat_sans_defauts` dans `rapidjson.cpp` (refcounts et ordre des
