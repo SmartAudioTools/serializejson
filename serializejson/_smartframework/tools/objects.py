@@ -188,9 +188,14 @@ builtInTypes = (
 )
 
 
+# inspect.isclass/isfunction/ismodule SONT ces trois isinstance (inspect.py) :
+# un seul isinstance au lieu de trois appels python, à sémantique identique
+notInstanceTypes = builtInTypes + (type, types.FunctionType, types.ModuleType)
+
+
 def isInstance(obj):
-    return hasattr(obj, "__new__") and not (
-        isinstance(obj, builtInTypes) or inspect.isclass(obj) or inspect.isfunction(obj) or inspect.ismodule(obj)
+    return not isinstance(obj, notInstanceTypes) and hasattr(
+        obj, "__new__"
     )  # permet d'eliminer les types de base (int, float etc et les fonctions)
     # return hasattr(obj,'__new__') and ( str(obj.__class__)[1:6] == 'class' or  str(type(obj)) == "<type 'numpy.ndarray'>") and not inspect.isclass(obj) and not inspect.isfunction(obj) # permet d'eliminer les types de base (int, float etc et les fonctions)
 

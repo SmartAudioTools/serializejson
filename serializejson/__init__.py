@@ -2925,14 +2925,29 @@ class Decoder(rapidjson.Decoder):
         try:
             if self._updating or class_str not in self._authorized_classes_strs:
                 return None
-            if class_str in constructors or class_str in remove_add_braces:
+            # un nom inscrit dans `constructors` rendait None sans regarder ce
+            # qu'il désigne. Or ce registre sert AUSSI de cache de résolution
+            # (class_from_class_str_dict), et une application qui raccourcit
+            # les noms de ses classes y inscrit la CLASSE elle-même sous son
+            # propre nom (SmartTeacher : constructors[cls.__name__] = cls) :
+            # instance() résout alors exactement cette classe, le plan peut
+            # donc la prendre. Une SUBSTITUTION (le registre désigne une AUTRE
+            # classe que le nom, "bytes" -> bytesB64) ou une fabrique qui n'est
+            # pas une classe gardent None.
+            cible = constructors.get(class_str)
+            if cible is not None and not (
+                isinstance(cible, type)
+                and class_str.rsplit(".", 1)[-1] == cible.__name__
+            ):
+                return None
+            if class_str in remove_add_braces:
                 return None
             if class_str == "type":
                 # branche SPÉCIALE de instance() (type à un argument rendrait
                 # la classe de l'argument !) — servie par le cache des valeurs
                 # de type côté C, jamais par un plan constructeur
                 return None
-            class_ = class_from_class_str(class_str)
+            class_ = cible if cible is not None else class_from_class_str(class_str)
             if not isinstance(class_, type):
                 return None
             if not (class_.__flags__ & _TPFLAGS_HEAPTYPE):

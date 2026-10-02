@@ -55,8 +55,15 @@ def _scrypt_rapide(monkeypatch):
     # logN 18 (défaut d'écriture, celui de l'outil age) coûte ~1 s par
     # dérivation : les tests écrivent en logN 10 et repartent d'un cache vide
     monkeypatch.setattr(_encryption, "LOGN_ECRITURE", 10)
+    # un dump chiffré vers un CHEMIN est asynchrone : son fil range l'en-tête
+    # dans le cache d'écriture. Sans cette attente, l'insertion d'un dump d'un
+    # test précédent tombe APRÈS le vidage et le cache n'est pas vide à
+    # l'entrée (test_reecriture_sans_nouveau_scrypt comptait alors 0 scrypt au
+    # lieu de 1, rouge intermittent sous charge).
+    serializejson._attend_ecritures()
     _encryption._vide_caches()
     yield
+    serializejson._attend_ecritures()
     _encryption._vide_caches()
 
 

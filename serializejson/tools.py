@@ -2,12 +2,12 @@
 from serializejson._smartframework.string.encodings import ascii_printables
 from serializejson._smartframework.tools.dictionaries import sorted_dict, sorted_filtered  # ,filtered
 from serializejson._smartframework.tools.objects import (
-    isInstance,
+    notInstanceTypes,
     class_has_method,
     ismethod_methoddescriptor_or_function,
 )  # ,hasMethod
 from serializejson._smartframework.tools.functions import cached_one_arg_func
-from inspect import isclass, signature
+from inspect import signature
 import types
 from base64 import b64decode
 from apply import apply
@@ -1255,9 +1255,14 @@ def instance(
         if type(__class__) is dict:
             # permet de gere le cas ou on donne directement un dictionnaire en premier argument
             return instance(**__class__)
-        elif isclass(__class__):
+        elif isinstance(__class__, type):  # isclass, sans l'appel python
             class_ = __class__
-        elif isInstance(__class__):  # arrrive avec serializeRepr
+        elif not isinstance(__class__, notInstanceTypes) and hasattr(
+            __class__, "__new__"
+        ):
+            # isInstance en ligne : une instance DÉJÀ construite (mode
+            # rehydrate, $ref matérialisé, serializeRepr) — chemin pris une
+            # fois par objet applicatif, les appels python y comptent
             inst = __class__
             class_ = inst.__class__
         else:

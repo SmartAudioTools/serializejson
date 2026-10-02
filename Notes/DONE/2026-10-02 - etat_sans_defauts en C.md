@@ -244,11 +244,180 @@ exécutée ») ; page de figure rendue et relue à l'image (28 catégories, libe
 n'est pas rebâtie** : le corpus enrichi ne vaudra qu'au prochain `build_pgo.sh` — à faire lors du
 prochain chantier C, pas pour un changement sans source C++.
 
-## Points ouverts / relecteur
+## Suite (02/10, 14 h 30 → 16 h) — les trois pistes de lecture croisées
+
+### Demande (Baptiste, dictée)
+
+« Vois-tu d'autres choses pour optimiser serializejson qui n'auraient pas été vues à l'époque et
+qui pourraient être mises en évidence par ces nouveaux tests ou par d'autres tests auxquels on n'a
+pas encore pensé ? », puis, sur les trois pistes proposées : « **On croise toutes les pistes en
+autonomie.** »
+
+Les trois pistes, telles qu'elles ont été énoncées : (1) seule la moitié ÉCRITURE a jamais été
+optimisée du côté de l'appelant — la lecture repose l'état objet par objet en python, jamais
+mesurée ; (2) le banc ne mesure que des lots HOMOGÈNES d'objets identiques, jamais un document
+applicatif profond et hétérogène ; (3) la résolution des noms de classes à la lecture
+(`authorized_classes` / `constructors`) n'a jamais été isolée.
+
+### Le défaut trouvé (piste 3), et ce qu'il coûtait
+
+`serializejson.constructors` porte DEUX rôles : registre des constructeurs personnalisés, et cache
+de résolution des noms de classes — `class_from_class_str_dict` **est** `constructors`
+(`tools.py:690`), et `instance()` y écrit la classe résolue (`tools.py:1250-1254`).
+`Decoder.decode_class_plan` rendait `None` dès que le nom figurait dans ce registre, **sans regarder
+ce qu'il désigne**. Or une application qui raccourcit les noms de ses classes y inscrit la CLASSE
+elle-même sous son propre nom : SmartTeacher le fait pour toutes les siennes
+(`constructors[cls.__name__] = cls`, `noyau.py:145`, dans `__init_subclass__`). Ces classes
+perdaient donc le chemin rapide C alors que la voie python se contente de lire dans ce même
+registre exactement la même classe.
+
+Mesure sur le document applicatif réel (274 843 octets, 450 objets ; A/B interlacé dans le même
+processus, 9 tours, min de 3 lectures par tour, empreinte de sortie vérifiée identique,
+SmartPython 3.13.14) : **−22,9 %** de temps de lecture (4,14 → 3,19 ms, soit 9,19 → 7,09 µs par
+objet) contre un témoin A/A à **+1,8 %**. Un premier passage du même protocole avait donné −21,9 %
+contre −1,0 % : l'effet est reproduit. Les trois classes rencontrées (`Paquet`, `Question`,
+`Choix`) passent du plan `None` au plan `(classe, 2)`.
+
+Effet de bord, et c'est le plus grave des deux : `instance()` INSCRIT le nom qu'elle résout, donc
+le plan d'une classe était perdu **définitivement, pour tout le processus**, dès qu'un seul de ses
+objets était passé par la voie python (un objet écrit avec des arguments, un appel direct à
+`tools.instance` depuis serializeRepr). Mesuré avant correctif, à sémantique identique :
+**+409,8 %** de temps de lecture pour un nom seulement PRÉSENT, contre un témoin A/A à +4,9 %.
+Après correctif, le même protocole donne **+2,6 % contre un témoin à +0,9 %** — l'empoisonnement
+est éteint, puisqu'une inscription faite par `instance()` est par construction « ce nom désigne
+cette classe-là », donc un raccourci de nom.
+
+### Livré
+
+- `serializejson/__init__.py`, `decode_class_plan` : le test d'appartenance au registre devient un
+  test de NATURE — le plan est accordé si l'entrée est une **classe portant ce nom**
+  (`class_str.rsplit(".", 1)[-1] == cible.__name__`), et la résolution réutilise cette entrée au
+  lieu de refaire un import. Tout le reste de la cascade (garde `type`, HEAPTYPE, `__setstate__`,
+  slots, setters, properties, `except Exception: return None`) est intact.
+- `serializejson/_smartframework/tools/objects.py` : `notInstanceTypes` nommé une fois, et
+  `isInstance` écrit par un seul `isinstance` au lieu de trois appels python
+  (`inspect.isclass`/`isfunction`/`ismodule` SONT ces trois `isinstance`, cf. `inspect.py`).
+- `serializejson/tools.py` : la nature du `__class__` reçu par `instance()` est tranchée en ligne
+  (`isinstance(__class__, type)`, puis le test d'instance déjà construite) — un appel python de
+  moins par objet applicatif, soit 450 par lecture du document réel, ~3,6 %.
+- `tests/test_plan_registre.py` : 9 tests.
+- `tests/test_encryption.py` : la fixture autouse attend les écritures chiffrées en vol avant de
+  vider les caches (course diagnostiquée en fin de chantier, section plus bas).
+
+### Choix, et alternatives écartées
+
+- **Le critère retenu est « le registre RACCOURCIT le nom de cette classe-là »**, pas « le registre
+  contient un type ». Alternative écartée, et c'est ce qui l'écarte : `constructors["bytes"]` est
+  `bytesB64`, une **substitution** délibérée (une autre classe que celle que le nom désigne) sur le
+  chemin le plus chaud de la bibliothèque — et `bytesB64` étant un type du tas sans `__setstate__`,
+  elle aurait même gagné le plan COMPLET, pour un bénéfice nul (bytes est déjà servi nativement).
+  Une fabrique qui n'est pas une classe (`application`, `const`, `numpyB64`, `datetime_depuis`…)
+  garde `None` par le même test. Inventaire fait : 10 entrées à l'import, dont 2 types seulement.
+- **Écarté : séparer le cache de résolution du registre de constructeurs** (garder
+  `class_from_class_str_dict` en alias public consulté d'abord, et écrire les résolutions dans un
+  dict distinct). C'était la réponse à l'empoisonnement, et elle n'est plus nécessaire : le test de
+  nature l'éteint à lui seul (+2,6 % contre témoin +0,9 %, ci-dessus). Un dict de plus serait une
+  deuxième source de vérité pour le même fait, et romprait le point de dérogation documenté dans
+  `class_from_class_str` (« il ne faut pas mettre en caching sinon ne peut pas bidouiller
+  class_from_class_str_dict »).
+- **Équivalence sémantique établie par LECTURE, pas supposée** : `instance()` résout par ce même
+  dict puis fait le même `class_.__new__(class_)` (état seul) ou `class_(*__init__)` (arguments) ;
+  le commentaire de `class_from_class_str` dit que le registre EST le point de dérogation voulu —
+  un plan bâti dessus est donc plus fidèle qu'un plan bâti par import. Empiriquement,
+  `__setstate__` reste honoré sous le plan `(classe, 2)` (test `AvecSetstate` → 30) et l'empreinte
+  du document réel, dont toutes les classes en ont un, est inchangée.
+- **Non implémenté, mesuré : un code de plan « tp_new + collecte des clés d'état + UN seul appel à
+  `__setstate__` »**. Après correctif, `instance()` est encore appelée **450 fois par lecture** du
+  document réel (contre 900 avant) : une fois par objet, parce que `(classe, 2)` laisse la pose de
+  l'état à python. Ce serait exactement ce que fait `instance()` pour une classe à `__setstate__`,
+  et cela ramènerait ces classes de 2,35 µs vers les 0,68-0,80 µs du plan complet — un appel python
+  par objet au lieu de sept. C'est un changement C++ : noté, pas fait.
+
+### Pistes 1 et 2 : ce qu'elles ont donné
+
+- **Piste 1 (plafonds)** : sur le document réel, la lecture coûte 3,2-4,2 ms contre 1,42 ms pour
+  l'écrire — l'asymétrie annoncée est réelle. Dans ce temps, le défaut `rehydrate` pèse 26,4 % et
+  la descente vers l'homologue vivant au plus 12,2 % (A/B interlacé, témoin ±2,2 %). Ces deux
+  chiffres sont des PLAFONDS de gain, pas des gains : les deux mécanismes rendent un service
+  (adoption, réconciliation) qu'on ne peut pas retirer.
+  ⚠ Niveau de preuve : **les premiers chiffres de plafond ont été JETÉS** — ils avaient été mesurés
+  en blocs séquentiels séparés, ce que le `CLAUDE.md` du dépôt interdit explicitement. Tous ceux
+  écrits ici sont interlacés et portent leur témoin A/A.
+- **Piste 2 (document hétérogène)** : vérifiée — aucune catégorie du banc n'exerçait un document
+  applicatif. Sa forme CONTRÔLÉE est le corpus `tests/objects/crochets_objects.py` livré plus haut
+  dans la journée ; un document applicatif réel ne peut pas entrer au banc (il dépend de
+  SmartTeacher). C'est pourquoi la mesure de la piste 3 vit dans une sonde de session, et le TEST
+  qui la garde dans `tests/test_plan_registre.py`.
+
+### Passe de simplification (par fichier du commit)
+
+- `serializejson/__init__.py` : regardé en entier. Le bloc neuf tient en un `get` + un test de
+  nature ; essayé et écarté : factoriser le test dans `tools.py` auprès du registre — il n'a qu'un
+  appelant, le déplacer éloignerait le critère de la cascade de plans qu'il sert. La résolution par
+  `class_from_class_str` n'est plus appelée quand le registre a répondu : une ligne au lieu de
+  deux chemins.
+- `serializejson/tools.py` : l'import d'`isInstance` devenu INUTILE après l'inlinage a été retiré
+  (seul `notInstanceTypes` est importé) ; sans cette passe il restait un import mort. `isInstance`
+  reste défini dans le module vendu : c'est une API préexistante de `_smartframework`, pas du code
+  que j'ai écrit, et sa forme neuve est la seule à ne pas redire ce que `notInstanceTypes` dit déjà.
+- `serializejson/_smartframework/tools/objects.py` : regardé, rien à enlever — le fait (« quels
+  types ne sont pas des instances ») est désormais écrit UNE fois et `isInstance` s'en déduit.
+- `tests/test_plan_registre.py` : les quatre formes du registre (raccourci, raccourci à
+  `__setstate__`, substitution, fabrique) sont posées par UNE fixture qui rend le registre tel
+  qu'elle l'a trouvé ; deux tests de relecture au lieu de six (un paramétré pour l'état seul, un
+  pour la fabrique). Essayé et écarté : un seul test paramétré pour les deux formes d'enveloppe —
+  une fabrique ne peut PAS servir une enveloppe d'état seul (`function.__new__` lève), les deux
+  formes ne se paramètrent pas ensemble.
+- `tests/test_encryption.py` : une seule ligne ajoutée de chaque côté du `yield` de la fixture
+  autouse ; regardé le reste du fichier, rien à enlever.
+- `Notes/DONE/…` (ce fichier) : regardé.
+
+### La fragilité de `test_reecriture_sans_nouveau_scrypt`, DIAGNOSTIQUÉE et fermée
+
+Ce rouge intermittent sous charge (noté plus haut comme préexistant et non reproductible) a été
+cerné en fin de chantier, parce qu'il brouillait la validation du correctif de plan. Ce n'est pas
+le test qui est faux, c'est une COURSE réelle, et elle n'a rien à voir avec le plan de classe :
+
+- **Mécanisme** : un `dump(..., chemin, encryption_key=…)` est ASYNCHRONE depuis l'addendum du
+  19/09 ; le chiffrement tourne sur un exécuteur et c'est LUI qui range l'en-tête d'écriture dans
+  `_entetes_ecriture`. Deux tests avant (lignes 322 et 339) écrivent ainsi sous le mot de passe
+  « secret » sans attendre. Quand l'insertion du fil tombe APRÈS le `_vide_caches()` de la fixture,
+  le test entre avec l'en-tête déjà en cache, son premier `dumpb` ne dérive plus rien et il compte
+  **0 scrypt au lieu de 1** — exactement l'assertion observée en rouge. Sous charge (runs à 45-54 s)
+  le fil finit tard, d'où l'intermittence ; machine calme (16-22 s) il a fini avant, d'où les runs
+  verts et la non-reproductibilité initiale.
+- **Niveau de preuve : mécanisme DÉMONTRÉ en direct**, pas déduit. Sonde hors dépôt (dump chiffré
+  vers un chemin, puis `_vide_caches()`, puis le comptage du test) : **0 scrypt comptés** ; la même
+  sonde avec l'attente intercalée : **1**. La course elle-même reste par nature non reproductible à
+  volonté.
+- **Correctif** : `serializejson._attend_ecritures()` avant chacun des deux `_vide_caches()` de la
+  fixture autouse — on vide les caches quand plus aucun fil ne peut y écrire. Alternative écartée :
+  changer le test en `assert len(appels) <= 1`, qui aurait rendu muet ce que ce test garde (un seul
+  scrypt par mot de passe) ; autre alternative écartée : attendre dans les deux tests coupables —
+  la fixture couvre tout le fichier, y compris les tests à venir.
+- **Rien à corriger dans la bibliothèque** : un `dump` asynchrone non attendu puis un vidage de
+  cache est un enchaînement que seul un test fait ; le piège « `dump` vers un chemin est asynchrone,
+  `_attend_ecritures()` avant toute lecture » est déjà écrit dans le `CLAUDE.md` du dépôt.
+
+### Vérification
+
+- **403 verts × 3.12.13 / 3.13.14 / 3.14.6, DEUX fois chacun** (six runs, après le correctif de
+  fixture ; venvs SmartPython, `-p no:typeguard`), goldens
+  `tests/serialized` restaurés après chaque run ; aucun `.so` touché (changement purement python,
+  la PGO n'a pas à être rebâtie).
+- **Preuve par le rouge** : les 9 tests neufs rejoués sur le `__init__.py` COMMITÉ (`git show HEAD:`)
+  → exactement les deux tests qui exigent le plan échouent (`assert None == (<class
+  AvecSetstate>, 2)`), les 7 autres passent. Les quatre tests de REFUS passent dans les deux
+  versions : le statu quo des substitutions et des fabriques est bien préservé, c'est ce qu'ils
+  gardent.
+- Empreinte de sortie du document réel (`dumps(..., sort_keys=True)`) vérifiée identique entre les
+  deux versions avant toute mesure de temps.
 
 - À regarder en premier : `sj_etat_sans_defauts` dans `rapidjson.cpp` (refcounts et ordre des
   exceptions), puis `tests/test_etat_sans_defauts.py::test_exceptions_propagees`.
-- Fragilité préexistante de `test_reecriture_sans_nouveau_scrypt` (ci-dessus), non corrigée.
+- Fragilité de `test_reecriture_sans_nouveau_scrypt` : diagnostiquée et fermée (section ci-dessus) ;
+  ce qui reste à surveiller est la famille, pas ce test — tout test qui vide un cache ou relit un
+  fichier après un `dump` chiffré vers un chemin doit d'abord appeler `_attend_ecritures()`.
 - Le `.so` 311 reste sans la fonction (interpréteur non exécutable par ce compte) : le repli
   python de `noyau.py` est ce qui couvre ce cas.
 - Les environnements ont changé depuis les addenda (3.13.14/3.14.6/3.12.13 dans
