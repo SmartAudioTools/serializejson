@@ -775,6 +775,12 @@ def mesure_types_objets():
     # les catégories que l'un des deux camps ne sait pas rejouer aux
     # réglages par défaut sont écartées (et nommées dans le rapport)
     from objects import basic_objects  # tests/ est sur le chemin
+    # et les cinq voies qu'une APPLICATION peut prendre sur un même état : le catalogue de types
+    # n'exerce aucun des crochets que l'appelant tend (`__serializejson__`, `__getstate__`,
+    # `__reduce__`), restés en python alors que tout le reste est passé en C — ils n'avaient donc
+    # jamais de barre dans ce rapport (cf. l'en-tête du module crochets_objects)
+    from objects import crochets_objects
+    catalogue = dict(basic_objects.objects, **crochets_objects.objects)
 
     # LOTS de N répliques par catégorie, pour mesurer le coût PAR OBJET et
     # non le coût fixe d'un appel (dominant sur un document minuscule). Le
@@ -783,7 +789,7 @@ def mesure_types_objets():
     # mais distincts, que le mémo de dédoublonnage ne fusionne pas
     N = 32
     lignes, ecartees = [], []
-    for categorie, objets in basic_objects.objects.items():
+    for categorie, objets in catalogue.items():
         try:
             encodeur = serializejson.Encoder(return_bytes=True)
             encodeur(objets)   # peuple les classes vues par l'encodeur
@@ -1099,12 +1105,37 @@ def rendu_markdown(donnees, types_ecartes, codecs_ecartes, entete):
            " comparables ENTRE EUX sur chaque ligne : ils sont mesurés"
            " interlacés, donc sous le même régime.",
            "",
-           "## catalogue d'objets du dépôt, par catégorie de types python",
+           "## catalogue d'objets du dépôt : types python, puis voies de"
+           " sérialisation d'un objet applicatif",
            "",
            "Les objets de `tests/objects/basic_objects.py` (ceux de"
            " `test_serialize_vs_pickle`), sérialisés par catégorie, réglages"
            " par défaut des deux côtés (Decoder avec les classes autorisées"
            " du dump).",
+           "",
+           "Les cinq dernières catégories ne sont pas des types mais les cinq"
+           " VOIES qu'une application peut prendre pour sérialiser ses propres"
+           " classes (`tests/objects/crochets_objects.py`). Elles écrivent"
+           " toutes le MÊME état — les six champs hors valeur par défaut d'un"
+           " objet qui en porte dix —, seule la voie change :"
+           " `crochet_python` filtre les défauts en python (un"
+           " `__serializejson__` de six lignes), `crochet_C` fait le même"
+           " filtrage par `serializejson.etat_sans_defauts`,"
+           " `crochet_getstate` et `crochet_reduce` rendent cet état par les"
+           " deux crochets de la bibliothèque standard, et `sans_crochet` est"
+           " le TÉMOIN : aucun crochet, `__dict__` lu en C. L'écart entre ces"
+           " barres est donc le prix de la VOIE, pas celui du document —"
+           " **à une réserve près : les barres sont des RAPPORTS à pickle, et"
+           " pickle appelle lui aussi `__getstate__` et `__reduce__`**. Ces"
+           " deux lignes-là sous-estiment donc le prix du crochet (les deux"
+           " camps le paient), tandis que `crochet_python` contre `crochet_C`"
+           " se lit directement : pickle y fait exactement le même travail"
+           " dans les deux cas, il ne connaît pas `__serializejson__`."
+           " Jusqu'au 02/10/2026 ce rapport n'en montrait aucune : le"
+           " catalogue de types n'exerce pas le code de l'appelant, resté en"
+           " python alors que tout le reste est passé en C — et qui finit"
+           " donc par dominer (mesuré : 3 806 appels d'un tel crochet pesaient"
+           " 60 ms des 1,7 s d'ouverture d'un document réel).",
            "",
            "Ces lots pèsent quelques kilo-octets : le cache et la RAM n'y sont"
            " PAS distinguables — un lot de cette taille tient en cache dans la"
@@ -1710,7 +1741,9 @@ def figure_machines(donnees, sens, titre):
 
 
 def figure_types(donnees, sens, titre):
-    # le catalogue d'objets du dépôt, par catégorie de types python, au même
+    # le catalogue d'objets du dépôt (types python, puis les cinq voies de
+    # sérialisation d'un objet applicatif — les lignes font foi, rien n'est
+    # énuméré ici), au même
     # dispositif que les tableaux — à ceci près que le régime RAM n'y a pas de
     # sens (quelques kilo-octets tiennent en cache dans la vraie vie aussi) :
     # les deux premières barres sont donc des temps de cache
@@ -1910,7 +1943,7 @@ def figure_iteration(donnees, sens, titre):
 # les comparaisons hors pickle, et les deux scénarios de support ferment
 FIGURES = [
     ("benchmark_types_objets", figure_types, "",
-     "catalogue d'objets du dépôt, par catégorie de types python"),
+     "catalogue du dépôt : types python, puis voies applicatives"),
     # les variantes du barème dans l'ordre CROISSANT. Le profil par défaut
     # dépendant de la CIBLE depuis le 10/08, il occupe DEUX pages (demande de
     # Baptiste, 10/08) : la RAM au barreau RAM, puis le disque seul au barreau
@@ -2071,7 +2104,7 @@ if __name__ == "__main__":
         print("profil :", nom)
         lignes.append((nom, mesure(tableau), groupe))
     resultats = agrege_par_groupe(lignes)
-    print("catalogue d'objets du dépôt (par catégorie de types)...")
+    print("catalogue d'objets du dépôt (types, puis voies d'un applicatif)...")
     types_objets, types_ecartes = mesure_types_objets()
     print("codecs d'images spécialisés (PNG, JPEG XL)...")
     codecs_images, codecs_ecartes = mesure_codecs_images()

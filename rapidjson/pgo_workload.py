@@ -24,6 +24,40 @@ class Point:
         self.active = i % 2 == 0
 
 
+class Objet:
+    """Un objet APPLICATIF, écrit par le crochet `__serializejson__` : l'état filtré de ses
+    valeurs par défaut par `etat_sans_defauts` (C). C'est le chemin chaud de toute application
+    qui sérialise ses propres classes — et le seul endroit où cette fonction, appelée une fois
+    par objet, est exercée ici ; sans ce cas elle serait compilée comme code froid."""
+
+    DEFAUTS = {"nom": "", "x": 0.0, "y": 0.0, "poids": 1.0, "actif": True,
+               "etiquettes": (), "reponse": None, "commentaire": "", "saisie": ""}
+    PROPRIETES = ["saisie"]
+
+    def __init__(self, i=0):
+        self.__dict__.update({nom: valeur for nom, valeur in self.DEFAUTS.items()
+                              if nom != "saisie"})
+        self.nom = "objet%d" % i
+        self.x, self.y = i * 1.5, i * 2.5
+        self.actif = i % 2 == 0
+        self.etiquettes = ["a", "b"] if i % 3 else ()
+        self._saisie = "s%d" % i if i % 2 else ""
+
+    @property
+    def saisie(self):
+        return self.__dict__.get("_saisie", "")
+
+    @saisie.setter
+    def saisie(self, valeur):
+        self.__dict__["_saisie"] = valeur
+
+    def __serializejson__(self):
+        return ("Objet", None,
+                serializejson.etat_sans_defauts(self, self.DEFAUTS, self.PROPRIETES))
+
+
+serializejson.constructors["Objet"] = Objet   # le nom écrit par le crochet, pour la relecture
+
 import collections
 import datetime
 import decimal
@@ -35,6 +69,7 @@ except ModuleNotFoundError:
 
 cases = [
     [Point(i) for i in range(5000)],
+    [Objet(i) for i in range(5000)],
     [{"a": [1, 2.5, "x"], "b": {"c": list(range(10)), "d": "hello"}} for _ in range(5000)],
     ["chaine numéro %d avec du texte" % i for i in range(20000)],
     list(range(200000)),
@@ -67,7 +102,7 @@ for _ in range(3):
         # compilé comme code froid (mesuré +50 % avant son ajout ici)
         serializejson.Encoder(return_bytes=True)(obj, fp=io.BytesIO())
         decoder = serializejson.Decoder(
-            authorized_classes=[Point, collections.defaultdict])
+            authorized_classes=[Point, collections.defaultdict, "Objet"])
         decoder(dumped if isinstance(dumped, str) else dumped.decode())
         # entrée bytes : chemin direct sans conversion unicode
         decoder(dumped if isinstance(dumped, bytes) else dumped.encode())

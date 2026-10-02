@@ -160,6 +160,90 @@ consomme) dans le CLAUDE.md global — source versionnée
 fichier que s'il est ABSENT (`installation_Claude_commun.sh:1017`). Écarté : la mémoire
 automatique, ni versionnée ni propagée à une machine neuve.
 
+## Suite (02/10, 14 h) — le coût d'un crochet d'appelant entre au banc et au corpus PGO
+
+Proposé en conclusion de la leçon ci-dessus, accepté par Baptiste (« Oui ») : *« ajouter au banc
+(et au corpus PGO) une famille “objet à crochet python”, pour que ce coût ait désormais sa barre
+dans le rapport »*. C'est la contrepartie OUTILLÉE de la leçon : une règle de méthode s'oublie, une
+barre dans le rapport se voit.
+
+### Livré
+
+- `tests/objects/crochets_objects.py` (neuf) : **cinq catégories qui écrivent exactement le même
+  état** — six champs hors défaut d'un objet qui en porte dix, à la forme de l'`Objet` de
+  SmartTeacher (défauts de constructeur, une property, la règle `_defaut` recopiée) — par les cinq
+  voies qu'une application peut prendre : `crochet_python` (filtrage en python),
+  `crochet_C` (`etat_sans_defauts`), `crochet_getstate`, `crochet_reduce`, et `sans_crochet`
+  (TÉMOIN, pas de crochet, `__dict__` lu en C). Module inerte pour le reste du dépôt : rien
+  n'énumère `tests/objects/`, seul le banc l'importe.
+- `tests/lance_benchmarks.py` : `mesure_types_objets` itère `dict(basic_objects.objects,
+  **crochets_objects.objects)` ; titre de page, intro markdown et commentaire de `figure_types`
+  étendus. Aucune liste de catégories n'est codée en dur : la figure et le tableau se déduisent
+  des lignes.
+- `rapidjson/pgo_workload.py` : classe `Objet` à `__serializejson__` appelant `etat_sans_defauts`,
+  5 000 instances dans `cases`, nom enregistré dans `serializejson.constructors` pour la
+  relecture. Sans ce cas, la fonction neuve était compilée comme **code froid** par la PGO.
+
+### Mesures (niveau de preuve : exécuté, 3.13.14, machine chargée ; rapports à pickle)
+
+`dumps` : `crochet_python` ×2,49 contre `crochet_C` ×1,60 — soit, en absolu sur un lot de 256
+objets, 750 µs contre 437 µs (**−42 %**), le témoin étant à 205 µs. Le crochet python coûte donc
+≈ 2,1 µs par objet au-dessus du témoin, sa version C ≈ 0,9 µs. `crochet_getstate` ×0,84 et
+`crochet_reduce` ×1,13 : **pickle appelle ces deux crochets-là lui aussi**, le rapport sous-estime
+leur prix — c'est écrit dans la page. `ECARTEES: []` : aucune des cinq n'est muette d'un côté ou de
+l'autre. `loads` (×1,98 à ×2,43) ne doit rien à la voie : aucun crochet n'y est appelé.
+
+### Choix, et alternatives écartées
+
+- **Comparaison contrôlée, même état écrit par les cinq classes** plutôt que cinq objets
+  « réalistes » différents : sans cela l'écart entre deux barres mêlerait le prix de la voie et
+  celui du document. Vérifié : 1 537 à 1 689 octets écrits, l'écart tenant au seul nom de classe
+  (et au `"__init__":[]` de `__reduce__`).
+- **Un témoin sans crochet** plutôt que les seules quatre voies : sans lui, rien ne dit ce que
+  coûte le fait même d'avoir un crochet, seulement ce que coûte l'un par rapport à l'autre.
+- **Module de corpus séparé** (`tests/objects/crochets_objects.py`) plutôt qu'un ajout à
+  `basic_objects.py` : ce dernier est le corpus de `test_serialize_vs_pickle` ; y ajouter cinq
+  classes changerait ce que teste un test, pour un besoin de banc.
+- **`Objet` recopié dans `pgo_workload.py`** plutôt qu'importé de `tests/objects/` : la roue est
+  construite sans l'arbre de tests (`SERIALIZEJSON_PGO_LIB`), un import le casserait.
+- **Écarté : mesurer le crochet seul, hors banc** (un `timeit` dans une note) — c'est ce qui a
+  manqué pendant deux mois ; la mesure doit vivre dans le rapport que l'on relit.
+
+### Pièges payés (deux, tous deux AVANT la mesure)
+
+- **`$ref`** : le premier `_lot` donnait la même liste `choix` aux huit objets → une écriture et
+  sept références, le banc aurait mesuré `$ref`. Chaque valeur liste est désormais copiée par
+  objet (compte de `$ref` vérifié nul dans les cinq catégories).
+- **Banc à vide** : le banc réplique ses lots **au pickle**, et un clone pickle d'une classe à
+  `__getstate__`/`__reduce__` ne restaure que les six attributs d'état — le crochet n'aurait plus
+  eu aucun défaut à écarter. Corrigé par `_Base.__setstate__`, qui repose les défauts avant
+  l'état ; vérifié : 10 attributs sur l'objet direct, sur son clone pickle et sur l'objet relu,
+  et json du clone identique à l'octet à celui de l'original.
+
+### Passe de simplification (par fichier du commit)
+
+- `tests/objects/crochets_objects.py` : les cinq classes partagent `_Base` (`__init__`,
+  `__setstate__`, la property) et une seule fonction `etat_python` — trois recopies supprimées
+  avant livraison. `_lot` est la seule fabrique. Rien d'autre à enlever : chaque élément porte un
+  cas (la property exerce la branche `proprietes`, `reponse=0` contre défaut `None` et la liste
+  contre un défaut tuple sont les deux cas limites de `_defaut`).
+- `tests/lance_benchmarks.py` : **deux lignes de code** (l'import et le `dict(...)`), le reste est
+  du texte de rapport ; `figure_types` et le tableau n'ont PAS été touchés — ils se déduisaient
+  déjà des lignes. Essayé et écarté : une page distincte pour les cinq voies — elle dupliquerait
+  tout le dispositif de figure pour cinq barres, et perdrait la comparaison avec les types.
+- `rapidjson/pgo_workload.py` : regardé, rien à enlever — la classe est le minimum qui exerce
+  `etat_sans_defauts` (défauts, une property, des valeurs hors défaut) et la ligne
+  `constructors["Objet"]` est ce qui permet la relecture dans la même charge.
+- `Notes/DONE/…` (ce fichier) : regardé.
+
+### Vérification
+
+394 verts × 3.12.13 / 3.13.14 / 3.14.6 (changement purement additif, aucun `.so` touché, goldens
+restaurés après le run) ; `pgo_workload.py` exécuté en entier avec le cas neuf (1,2 s, « charge PGO
+exécutée ») ; page de figure rendue et relue à l'image (28 catégories, libellés lisibles). **La PGO
+n'est pas rebâtie** : le corpus enrichi ne vaudra qu'au prochain `build_pgo.sh` — à faire lors du
+prochain chantier C, pas pour un changement sans source C++.
+
 ## Points ouverts / relecteur
 
 - À regarder en premier : `sj_etat_sans_defauts` dans `rapidjson.cpp` (refcounts et ordre des
