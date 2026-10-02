@@ -66,6 +66,12 @@
   include de plus, déjà présent indirectement ici) : les `.so` PGO commités ne sont pas rebâtis.
   La CI elle-même reste la seule preuve complète (gcc-toolset-14, clones réseau).
 
+## Second passage (commit 7b57caf, run 37023010139) : PUBLIÉ
+
+Trois jobs verts (roues 12 min, dont le smoke de cibuildwheel sur chaque version). PyPI rend
+0.4.0 (vérifié par l'API JSON, 02/10 17 h 27) : cinq roues cp310 → cp314
+`manylinux_2_26/2_28_x86_64` + sdist. Le Trusted Publisher était donc déjà configuré.
+
 ## Points ouverts
 
 - Le Trusted Publisher doit exister côté pypi.org pour ce dépôt, workflow
