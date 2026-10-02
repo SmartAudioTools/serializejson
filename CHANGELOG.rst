@@ -1,6 +1,6 @@
 Version 0.4.0
 -------------
-:Date: 2026-09-19
+:Date: 2026-10-02
 
 * optional authenticated encryption: ``encryption_key="password"`` on
   ``dump``/``dumps``/``dumpb``/``load``/``loads``/``Encoder``/``Decoder``
@@ -37,6 +37,24 @@ Version 0.4.0
   nested lists), decided in C++
 * fixes: segfault on 3.12/3.13 with deep/cyclic data, ``append()`` of objects,
   float subclasses written via ``repr()`` (numpy 2), docstring SyntaxWarnings
+* reading rebuilds objects as the parse goes (``rehydrate=True``, the new
+  default): each instance is built as soon as its envelope is read, and with
+  ``obj=`` the live objects are adopted in place (identities kept, arguments
+  reconciled one by one) instead of a dict tree then a second pass;
+  ``rehydrate=False`` restores the previous behaviour
+* Qt: signal/slot connections serialized by introspection (PySide6), whole
+  widget trees with ``qt_tree=True``, QTimer/QAction state, PySide6 enums;
+  ``qtpy6`` replaces ``qtpy`` (PySide6 by default); QImage rows with a stride
+  not multiple of 4 bytes are no longer shifted
+* ``datetime.datetime`` written as RFC 9557 text (``isoformat()``, plus
+  ``[Zone/Name]`` for ``ZoneInfo``, which was not serializable before); the
+  former reduce forms are still read
+* ``etat_sans_defauts(obj, defaults, properties)``: C helper building the flat
+  state of an object without its default values, for ``__serializejson__``
+  hooks written by applications
+* classes with ``__setstate__`` are decoded in C with a single
+  ``__setstate__`` call (-30 % on such objects, -43 % on a deep document of
+  452 objects), as are classes whose name is shortened by the application
 
 Version 0.3.4
 -------------
