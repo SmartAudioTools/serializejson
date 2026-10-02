@@ -617,3 +617,41 @@ calme.
 
 **Points ouverts.** `README.rst` ne référence que `benchmark_types_objets.svg` ; le nouveau
 `benchmark_classes_objets.svg` n'y est pas lié (README tenu par une autre instance).
+
+### Mesure après commit (a9f4feb, 6df1c45) — lecture, PGO contre PGO
+
+Question de Baptiste : « combien on a gagné sur les nouveaux objets du banc et en général ? ».
+Protocole : 3.13, `.so` PGO de a9f4feb~ contre a9f4feb, sous-processus interlacés, 5 tours ×
+min de 30 `loads`, témoin A/A (le neuf contre sa copie), deux passes dans des ordres INVERSES,
+charge 9-10. Lecture seule : l'écrivain n'a pas changé.
+
+| catégorie | passe 1 | passe 2 (ordre inversé) |
+|---|---|---|
+| document (452 objets) | −43 % | −44 % |
+| crochet_C, crochet_C_nom_court, getstate, reduce | −29 à −30 % | −33 / −34 % |
+| crochet_python | −18 % | −19 % |
+| sans_crochet (témoin sans `__setstate__`) | −4 % | −7 % |
+| object_* (32 classes du catalogue), médiane | −0,4 % (tous) | −5,8 % |
+| types python, médiane | +5 % | +3,5 % |
+
+Le témoin A/A donne ±5-7 % sur les petites catégories (8-20 µs) : les types python et
+`sans_crochet` sont dans le bruit (placement PGO, cf. datetime le 18/09). Le gain réel est
+concentré sur les classes à `__setstate__`, d'autant plus que le document en contient.
+
+### Effet de bord constaté chez SmartTeacher : une fuite de l'ancienne voie disparaît
+
+La session SmartTeacher a signalé que `tests_modele.py::test_personnalise` échoue depuis a9f4feb
+(« Internal C++ object (Texte/QPushButton) already deleted ») et passe avec le `.so` de 5abea26.
+Diagnostic par sonde (weakref + refcount du paquet après `del` + `gc.collect()`) :
+- **ancien binaire** : le paquet racine SURVIT (refcount 3). Le dict d'enveloppe racine, gardé
+  par l'instance `Decoder` par défaut, le garde en vie jusqu'au `loads` suivant. C'était une
+  fuite de la voie python `end_object` → `_inst_from_dict` ;
+- **a9f4feb** : la voie C `(cls, 3)` ne retient rien, et le paquet est libéré. Le test ne
+  garde qu'une question (`next(... charger(...).questions ...)`), dont le parent Qt est un
+  widget du paquet : Qt détruit alors ses enfants.
+
+Les séquences `__init__`/`__setstate__`/`_construire` sont identiques sur les deux binaires
+(trace sys.setprofile). En gardant `paquet = charger(...)` vivant, le test passe sur a9f4feb
+(vérifié). Verdict : le comportement de serializejson est correct, rien à annuler. Le
+correctif est côté SmartTeacher, transmis à sa session. Roue wasm rebâtie à 16 h 07, après
+le changement C.
