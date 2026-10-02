@@ -1,7 +1,6 @@
 ﻿import sys
 import pickle
 import io
-import inspect
 import codecs
 from time import perf_counter
 from serializejson._smartframework.files import joinPath, directory, removeExistingPathAndCreateFolder
@@ -43,149 +42,11 @@ def addInFile(path, element, encoding="utf_8_sig", newline="\n"):
 # --- DATAS -------------------------------------------------------------------
 
 if __package__:
-    from .objects import (
-        log,
-        basic_objects,
-        heriting_basic_object,
-        init_arg,
-        init_args,
-        init_args_filtered_state,
-        init_default,
-        init_default_filtered_state,
-        init_kwarg,
-        init_kwargs,
-        init_kwargs_filtered_state,
-        no_init,
-        no_init_filtered_state,
-        no_init_slots,
-        no_init_slots_and_dict,
-        no_init_slots_subclass,
-        no_init_setters,
-        new_getnewargs,
-        getstate_no_string_keys,
-        dict_subclasses,
-        tuple_subclasses,
-        properties,
-        # -------------------------------------
-        init_args_explicite_getstate,
-        init_args_filtered_state_explicite_getstate,
-        init_args_ghost_getinitargs,
-        init_default_explicite_getstate,
-        init_default_filtered_state_explicite_getstate,
-        init_default_ghots_getstate,
-        init_default_ghost_getinitargs,
-        init_kwargs_explicite_getstate,
-        init_kwargs_filtered_state_explicite_getstate,
-        init_and_new,
-    )
+    from .objects import log, catalogue
 else:
-    from objects import (
-        log,
-        basic_objects,
-        heriting_basic_object,
-        init_arg,
-        init_args,
-        init_args_filtered_state,
-        init_default,
-        init_default_filtered_state,
-        init_kwarg,
-        init_kwargs,
-        init_kwargs_filtered_state,
-        no_init,
-        no_init_filtered_state,
-        no_init_slots,
-        no_init_slots_and_dict,
-        no_init_slots_subclass,
-        no_init_setters,
-        new_getnewargs,
-        getstate_no_string_keys,
-        dict_subclasses,
-        tuple_subclasses,
-        properties,
-        # --------------------------------------------
-        init_args_explicite_getstate,
-        init_args_filtered_state_explicite_getstate,
-        init_args_ghost_getinitargs,
-        init_default_explicite_getstate,
-        init_default_filtered_state_explicite_getstate,
-        init_default_ghots_getstate,
-        init_default_ghost_getinitargs,
-        init_kwargs_explicite_getstate,
-        init_kwargs_filtered_state_explicite_getstate,
-        init_and_new,
-        single_line,
-    )
+    from objects import log, catalogue
 
-modules = [
-    new_getnewargs,
-    init_arg,
-    init_args_explicite_getstate,
-    init_args_filtered_state_explicite_getstate,
-    init_args_filtered_state,
-    init_args_ghost_getinitargs,
-    init_args,
-    init_default_explicite_getstate,
-    init_default_filtered_state_explicite_getstate,
-    init_default_filtered_state,
-    init_default_ghost_getinitargs,
-    init_default_ghots_getstate,
-    init_default,
-    init_kwarg,
-    init_kwargs_explicite_getstate,
-    init_kwargs_filtered_state_explicite_getstate,
-    init_kwargs_filtered_state,
-    init_kwargs,
-    no_init,
-    no_init_filtered_state,
-    no_init_slots,
-    no_init_slots_and_dict,
-    no_init_slots_subclass,
-    no_init_setters,
-    init_default_ghost_getinitargs,
-    new_getnewargs,
-    getstate_no_string_keys,
-    dict_subclasses,
-    tuple_subclasses,
-    properties,
-    init_and_new,
-    single_line,
-]
-objects = basic_objects.objects
-# objects.update(heriting_basic_object.objects)
-if use_pyqt5:
-    app = QtWidgets.QApplication(sys.argv)
-    if __package__:
-        from .objects import pyqt_objects
-    else:
-        from objects import pyqt_objects
-    modules.append(pyqt_objects)
-    objects.update(pyqt_objects.objects)
-if use_numpy:
-    if __package__:
-        from .objects import numpy_objects
-    else:
-        from objects import numpy_objects
-    objects.update(numpy_objects.objects)
-
-authorized_classes = []
-for module in modules:
-    if hasattr(module, "authorized_classes"):
-        authorized_classes.extend(module.__dict__["authorized_classes"])
-    if hasattr(module, "objects"):
-        module_objects = module.__dict__["objects"]
-        objects.update(module_objects)
-        for categorie, categorie_classes in module_objects.items():
-            for class_name, obj in categorie_classes.items():
-                if inspect.isclass(obj):
-                    authorized_classes.append(obj)
-                else:
-                    authorized_classes.append(type(obj))
-    else:
-        objects["object_" + module.__name__] = categorie_dict = dict()
-        for class_name, class_ in module.__dict__.items():
-            if class_name.startswith("C_"):
-                categorie_dict[class_name] = class_()
-                authorized_classes.append(class_)
+objects, authorized_classes = catalogue(pyqt5=use_pyqt5, numpy=use_numpy)
 
 # print(categorie_dict)
 """"

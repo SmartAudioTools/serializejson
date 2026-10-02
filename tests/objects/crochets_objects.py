@@ -1,4 +1,4 @@
-"""Objets APPLICATIFS : le même état écrit, par les cinq voies qu'une application peut prendre.
+"""Objets APPLICATIFS : le même état écrit, par les six voies qu'une application peut prendre.
 
 Le banc du dépôt mesure des TYPES python (`basic_objects`) : aucune de ses catégories n'exerce
 les crochets que l'APPELANT tend à serializejson (`__serializejson__`, `__getstate__`,
@@ -7,12 +7,16 @@ appelé une fois par objet, et il finit donc par dominer sans que rien dans le d
 Trouvé le 02/10/2026 : 3 806 appels d'un `__serializejson__` de six lignes pesaient 60 ms des
 1,7 s d'ouverture d'un sujet SmartTeacher — invisibles pour toutes les campagnes précédentes.
 
-La comparaison est CONTRÔLÉE : les cinq classes écrivent exactement les mêmes six clés (donc le
-même json à l'ordre des clés près), seule la VOIE change. L'écart entre les barres est donc le
-prix de la voie, pas celui du document :
+La comparaison est CONTRÔLÉE : les six classes écrivent exactement les mêmes six clés (donc le
+même json à l'ordre des clés et au nom de classe près), seule la VOIE change. L'écart entre les
+barres est donc le prix de la voie, pas celui du document :
 
 - `crochet_python`   : le filtrage des valeurs par défaut écrit en python (l'état d'avant) ;
 - `crochet_C`        : le même filtrage par `serializejson.etat_sans_defauts` (fonction C) ;
+- `crochet_C_nom_court` : le même, sous un nom de classe RACCOURCI inscrit dans
+  `serializejson.constructors` — la forme exacte de SmartTeacher. Jusqu'au commit 5abea26 ce
+  registre privait la classe du plan de décodage C (×5 en lecture) : la barre attendue est
+  désormais celle de `crochet_C` ;
 - `crochet_getstate` : même état, rendu par `__getstate__` ;
 - `crochet_reduce`   : même état, rendu par `__reduce__` (le crochet le plus répandu) ;
 - `sans_crochet`     : TÉMOIN, aucun crochet — serializejson lit le `__dict__` en C. Il n'a pas
@@ -99,6 +103,15 @@ class CrochetC(_Base):
                 serializejson.etat_sans_defauts(self, DEFAUTS, PROPRIETES))
 
 
+class CrochetCourt(_Base):
+    def __serializejson__(self):
+        return ("CrochetCourt", None, serializejson.etat_sans_defauts(self, DEFAUTS, PROPRIETES))
+
+
+# ce que fait SmartTeacher dans `__init_subclass__` : le nom court résout vers la classe
+serializejson.constructors["CrochetCourt"] = CrochetCourt
+
+
 class CrochetGetstate(_Base):
     def __getstate__(self):
         return etat_python(self)
@@ -132,7 +145,10 @@ def _lot(classe, attributs):
 objects = {
     "crochet_python": _lot(CrochetPython, POSES),
     "crochet_C": _lot(CrochetC, POSES),
+    "crochet_C_nom_court": _lot(CrochetCourt, POSES),
     "crochet_getstate": _lot(CrochetGetstate, POSES),
     "crochet_reduce": _lot(CrochetReduce, POSES),
     "sans_crochet": _lot(SansCrochet, ECRITS),
 }
+# objets par catégorie, pour la colonne « µs par objet » du rapport
+nombre_objets = {categorie: _COMBIEN for categorie in objects}
