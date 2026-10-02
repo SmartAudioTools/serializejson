@@ -5,3 +5,12 @@ recursive-include rapidjson *.h
 include scripts/construit_libblosc2_serializejson.sh
 # construits sur la machine de développement, jamais distribués
 global-exclude *.so
+# un greffon de fichiers git (setuptools_scm) ajouterait tout le dépôt :
+# ces dossiers ne servent ni à construire ni à utiliser le paquet
+prune Notes
+prune images_benchmarks
+prune docs
+prune docs_source
+prune tests
+prune .github
+exclude my_list.json requirements.txt Makefile make.bat CLAUDE.md .directory .hgignore .ignore

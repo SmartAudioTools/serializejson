@@ -22,18 +22,19 @@ serializejson
 **serializejson**  is a python library for fast serialization and deserialization
 of python objects in `JSON <http://json.org>`_  designed as a safe, interoperable and human-readable drop-in replacement for the Python `pickle <https://docs.python.org/3/library/pickle.html>`_ package.
 Complex python object hierarchies are serializable, deserializable or updatable in once, allowing for example to save or restore a complete application state in few lines of code.
-The library is build upon
-`python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_ and
-`blosc <https://github.com/Blosc/python-blosc>`_  for optional `zstandard <https://github.com/facebook/zstd>`_ compression.
+The library is built upon a C++ extension derived from
+`python-rapidjson <https://github.com/python-rapidjson/python-rapidjson>`_, with
+`c-blosc2 <https://github.com/Blosc/c-blosc2>`_ bundled for optional lossless compression (lz4, `zstandard <https://github.com/facebook/zstd>`_).
+Binary wheels are provided for Linux x86_64, CPython 3.10 to 3.14.
 
 Some of the main features:
 
-- supports Python 3.7 (maybe lower) or greater.
+- supports Python 3.10 or greater (tested on 3.10 to 3.14).
 - serializes arbitrary python objects into a dictionary by adding `__class__` ,and eventually `__init__`, `__new__`, `__state__`, `__items__` keys.
 - calls the same objects methods as pickle. Therefore almost all pickable objects are serializable with serializejson without any modification.
 - for not already pickable object, you will allways be able to serialize it by adding methodes to the object or creating plugins for pickle or serializejson.
-- generally 2x slower than pickle for dumping and 3x slower than pickle for loading (on your benchmark) except for big arrays (optimisation will soon be done).
-- serializes and deserializes bytes and bytearray very quickly in base64, encoded and decoded in C++ directly from and into the JSON stream, with lossless `blosc <https://github.com/Blosc/python-blosc>`_ compression.
+- fast: builtin types, envelopes of common classes (datetime, Decimal, sets, tuples, collections…) and ``__setstate__`` / ``__reduce__`` objects are written and read in C++ without python callbacks. Most types stay within 2x of pickle, some are faster (datetime and Decimal writing, str and lists reading); see the benchmarks below.
+- serializes and deserializes bytes and bytearray very quickly in base64, encoded and decoded in C++ directly from and into the JSON stream, with lossless `c-blosc2 <https://github.com/Blosc/c-blosc2>`_ compression; when dumping to a file, compression runs in a background writer thread.
 - serialize properties and attributes with getters and setters if wanted (unlike pickle).
 - json data will still be directly loadable if you have transform some attributes in slots or properties in your code since your last serialization. (unlike pickle)
 - can serialize `__init__(self,..)` arguments by name instead of positions, allowing to skip arguments with defauts values and making json datas robust to a change of `__init__` parameters order.
@@ -41,7 +42,9 @@ Some of the main features:
 - serialized objects are human-readable and easy to read. Unlike pickled data, your data will never become unreadable if your code evolves: you will always be able to modify your datas with a text editor (with find & replace for example if you change an attribut name).
 - serialized objects are text and therefore versionable and comparable with versionning and comparaison tools.
 - can safely load untrusted / unauthenticated sources if authorized_classes list parameter is set carefully with strictly necessary objects (unlike pickle).
-- can update existing objects recursively instead of override them. serializejson can be used to save and restore in place a complete application state (⚠ not yet well tested).
+- rebuilds objects as the parse goes (``rehydrate=True``, the default): with ``obj=``, existing objects are updated recursively in place instead of being replaced (identities kept, constructor arguments reconciled one by one), which allows to save and restore a complete application state, Qt widgets included.
+- Qt (PySide6 by default through ``qtpy6``): signal/slot connections, whole widget trees (``qt_tree=True``), QTimer/QAction state, enums and QImage are serializable.
+- ``datetime.datetime`` is written as readable `RFC 9557 <https://www.rfc-editor.org/rfc/rfc9557>`_ text (``"2026-10-02T16:30:00+02:00[Europe/Paris]"``), ``ZoneInfo`` time zones included.
 - filters attribute starting with "_" by default (unlike pickle). You can keep them if wanted with `filter_ = False`.
 - numpy arrays can be serialized as lists with automatic conversion in both ways or in a conservative way.
 - supports circular references and serialize only once duplicated objects, lists and dictionaries, using "$ref" key an path to the first occurance in the json : `{"$ref": "root.xxx.elt"}`.
@@ -50,6 +53,7 @@ Some of the main features:
 - serializejson is easly interoperable outside of the Python ecosystem with this recognition of objects from keys names or with `__class__` translation between python and other language classes.
 - dump and load support string path.
 - can iteratively encode (with append) and decode (with iterator) a list in json file, which helps saving memory space during the process of serialization and deserialization and useful for logs.
+- can write a position index beside the json (``index="sidecar"``) or at its end (``index="comment"``), and then load a single object from its path — ``load("base.json", path="root['clients'][3].name")`` — without parsing the rest of the document.
 - can encrypt with a password (``encryption_key="…"``) in the standard `age <https://age-encryption.org>`_ format, as binary or as ASCII armor (``encryption_in_base64``).
 - runs in the browser under `Pyodide <https://pyodide.org>`_ (WebAssembly wheel), encryption included.
 
@@ -266,6 +270,54 @@ Examples
     >0
     >1
     >2
+
+**Load one object from a big json, without reading the rest**
+
+.. code-block:: python
+
+    import serializejson
+
+    class Client:
+        def __init__(self, name=None):
+            self.name = name
+
+    base = {"clients": [Client("c%d" % i) for i in range(1000)]}
+
+    # write the json together with its position index
+    serializejson.dump(base, "base.json", index="sidecar", index_threshold=32)
+
+    # ... or index a json file that already exists
+    serializejson.index("base.json", threshold=32)
+    print(serializejson.paths("base.json"))     # what the index knows
+
+    # then load only what is wanted, with the `$ref` path grammar
+    client = serializejson.load("base.json", path="root['clients'][3]")
+    name   = serializejson.load("base.json", path="root['clients'][3].name")
+
+The path always gives what a full load would give: references shared with the
+rest of the document are followed, and a cycle simply falls back to reading
+the whole file. A path that is not in the index is served by its nearest
+indexed ancestor, and a file without any index still answers — only the time
+changes.
+
+Two ways of storing the index, to be chosen by use:
+
+- ``index="sidecar"`` writes a hidden file of the same name preceded by a dot.
+  The json itself stays **standard**, readable by any other parser, but the
+  index is a second file to copy and move along.
+- ``index="comment"`` appends two comment lines at the end of the json. One
+  single file, but the document is **no longer standard json** — other parsers
+  reject it (serializejson reads it back without trouble).
+
+Both cost the same to build and to use. On a 5.9 MB document of 50 objects
+(measured on the reference machine, Python 3.12): the index weighs 4.7 KB
+(0.08 %), loading one object takes 0.26 ms against 7.4 ms for the whole
+document (×28), and 0.03 ms for a lone attribute. The price is at writing
+time: the index is built by scanning the produced json at about 30 MB/s, here
+198 ms against 6.3 ms to write the file — nothing is paid when the index is
+not asked for. ``index_threshold`` (1024 bytes by default) is the lever:
+containers smaller than that are not indexed, which keeps the index marginal
+but leaves small objects to be reached through their ancestor.
 
 **Encryption with a password**
 
