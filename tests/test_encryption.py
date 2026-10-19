@@ -334,6 +334,24 @@ def test_document_chiffre_lu_sans_cle(tmp_path):
             pass
 
 
+class _Bombe:
+    def __init__(self):
+        self.x = 1
+
+    def __setstate__(self, etat):
+        raise RuntimeError("boum")
+
+
+def test_erreur_de_lecture_avec_la_cle_non_masquee():
+    # l'erreur d'un document déchiffré ne se fait pas passer pour une clé
+    # manquante (SmartTeacher, 19/10/2026 : un plantage de __setstate__ lu
+    # « this document is encrypted: pass its password »)
+    armure = serializejson.dumps(_Bombe(), encryption_key="secret")
+    with pytest.raises(RuntimeError, match="boum"):
+        serializejson.loads(armure, encryption_key="secret",
+                            authorized_classes=[_Bombe])
+
+
 def test_cle_sur_document_en_clair():
     with pytest.raises(_encryption.DecryptionError, match="not encrypted"):
         serializejson.loads(serializejson.dumps(DOC), encryption_key="secret")

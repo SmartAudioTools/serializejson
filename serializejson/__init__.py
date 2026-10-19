@@ -2690,8 +2690,10 @@ class Decoder(rapidjson.Decoder):
         try:
             return self._appel_clair(json, obj)
         except Exception as e:
-            # testé seulement après l'échec : le chemin nominal ne paie rien
-            if (not isinstance(e, DecryptionError)
+            # testé seulement après l'échec : le chemin nominal ne paie rien ;
+            # avec une clé, l'échec vient du document déchiffré, il passe tel quel
+            if (self.encryption_key is None
+                    and not isinstance(e, DecryptionError)
                     and _encryption.is_encrypted(json)):
                 raise ValueError(
                     "this document is encrypted: pass its password as"
