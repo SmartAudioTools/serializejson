@@ -129,6 +129,7 @@ _verrou = threading.Lock()
 _cles_lecture = {}
 _entetes_ecriture = {}
 _entetes_ouverts = {}
+_logn_par_cle = {}  # work_factor : le coût écrit pour une clé, LOGN_ECRITURE sinon
 _TAILLE_CACHE = 32
 
 
@@ -147,7 +148,7 @@ def _vide_caches():
 
 
 def _entete_ecriture(mot_de_passe, sel=None):
-    logn = LOGN_ECRITURE
+    logn = _logn_par_cle.get(mot_de_passe, LOGN_ECRITURE)
     if sel is None:
         trouve = _entetes_ecriture.get((mot_de_passe, logn))
         if trouve is not None:
@@ -178,6 +179,22 @@ def prime(password, salt):
     if not isinstance(salt, bytes) or len(salt) != 16:
         raise ValueError("salt must be 16 bytes")
     _entete_ecriture(password, salt)
+
+
+def work_factor(password, logn):
+    """Make the encryptions with ``password``, in this process, write a scrypt
+    cost of ``2**logn`` (memory ``128 * 8 * 2**logn`` bytes: 16 MiB at 14)
+    instead of ``LOGN_ECRITURE`` (18, 256 MiB, as the age tool).
+
+    For a key whose files are opened on modest devices (a browser tab) and
+    whose brute force stays costly enough at a lower cost. Reading accepts any
+    cost from 1 to ``LOGN_MAX``, written in the file.
+    """
+    check_key(password)
+    if not isinstance(logn, int) or not 1 <= logn <= LOGN_MAX:
+        raise ValueError("logn must be an int from 1 to %d" % LOGN_MAX)
+    with _verrou:
+        _logn_par_cle[password] = logn
 
 
 # --- chiffrement -----------------------------------------------------------------
@@ -333,7 +350,8 @@ def _ouvre_entete(data, mot_de_passe):
     mac = _de_b64(data[fin_mac + 5:fin_ligne])
     if len(mac) != 32 or not hmac.compare_digest(mac, _mac(file_key, entete)):
         raise DecryptionError(MESSAGE_AUTHENTIFICATION)
-    if logn == LOGN_ECRITURE and (mot_de_passe, logn) not in _entetes_ecriture:
+    if (logn == _logn_par_cle.get(mot_de_passe, LOGN_ECRITURE)
+            and (mot_de_passe, logn) not in _entetes_ecriture):
         _range(_entetes_ecriture, (mot_de_passe, logn),
                (data[:fin_ligne + 1], file_key))
     _range(_entetes_ouverts, ouvert, file_key)

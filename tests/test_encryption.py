@@ -15,6 +15,7 @@ import os
 import re
 
 import pytest
+from pathlib import Path
 
 import serializejson
 from serializejson import _encryption
@@ -55,6 +56,7 @@ def _scrypt_rapide(monkeypatch):
     # logN 18 (défaut d'écriture, celui de l'outil age) coûte ~1 s par
     # dérivation : les tests écrivent en logN 10 et repartent d'un cache vide
     monkeypatch.setattr(_encryption, "LOGN_ECRITURE", 10)
+    monkeypatch.setattr(_encryption, "_logn_par_cle", {})
     # un dump chiffré vers un CHEMIN est asynchrone : son fil range l'en-tête
     # dans le cache d'écriture. Sans cette attente, l'insertion d'un dump d'un
     # test précédent tombe APRÈS le vidage et le cache n'est pas vide à
@@ -531,3 +533,51 @@ def test_memes_octets_qu_une_implementation_independante(monkeypatch):
         assert chiffre == attendu, n
         assert _encryption.decrypt(attendu, "secret") == clair
 
+
+
+def test_work_factor_par_cle():
+    """Une clé réglée par work_factor écrit son coût ; les autres gardent le défaut ; la relecture suit l'en-tête."""
+    _encryption.work_factor("cle-legere", 4)
+    leger = _encryption.encrypt(b"abc", "cle-legere")
+    normal = _encryption.encrypt(b"abc", "autre-cle")
+    assert _encryption._stanza(leger[:_encryption._fin_entete(leger)[0] + 4])[1] == 4
+    assert _encryption._stanza(normal[:_encryption._fin_entete(normal)[0] + 4])[1] == 10
+    _encryption._vide_caches()
+    assert _encryption.decrypt(leger, "cle-legere") == b"abc"
+    with pytest.raises(ValueError):
+        _encryption.work_factor("cle-legere", _encryption.LOGN_MAX + 1)
+
+
+def test_work_factor_relit_les_fichiers_ecrits_au_defaut(monkeypatch):
+    """Un fichier écrit au coût par défaut (18, comme les pièces élève déjà déposées) s'ouvre encore une fois la clé
+    réglée plus bas : le coût se lit dans l'en-tête, il n'est pas supposé."""
+    monkeypatch.setattr(_encryption, "LOGN_ECRITURE", 18)
+    ancien = _encryption.encrypt(b"copie", "cle-de-classe")
+    _encryption._vide_caches()
+    _encryption.work_factor("cle-de-classe", 14)
+    assert _encryption.decrypt(ancien, "cle-de-classe") == b"copie"
+    nouveau = _encryption.encrypt(b"copie", "cle-de-classe")
+    assert _encryption._stanza(nouveau[:_encryption._fin_entete(nouveau)[0] + 4])[1] == 14
+    assert _encryption.decrypt(nouveau, "cle-de-classe") == b"copie"
+
+
+def test_work_factor_14_tient_en_16_mio():
+    """La mémoire que prend une écriture à 14 : 16 Mio de scrypt (128 * 8 * 2**14), loin des 256 Mio du défaut,
+    mesurée dans un processus neuf : pic de mémoire résidente (VmHWM) remis à zéro après l'import, qui a le sien."""
+    import subprocess, sys, textwrap
+    if not Path("/proc/self/clear_refs").exists():
+        pytest.skip("VmHWM : Linux seulement")
+    script = textwrap.dedent("""
+        from serializejson import _encryption
+        def pic():
+            return next(int(l.split()[1]) for l in open("/proc/self/status") if l.startswith("VmHWM"))
+        open("/proc/self/clear_refs", "w").write("5")
+        avant = pic()
+        _encryption.work_factor("cle", %d)
+        _encryption.encrypt(b"x", "cle")
+        print(pic() - avant)
+    """)
+    pics = {n: int(subprocess.run([sys.executable, "-c", script % n], capture_output=True, text=True,
+                                  check=True).stdout) / 1024 for n in (14, 18)}  # Mio
+    assert 12 <= pics[14] <= 24, pics
+    assert pics[18] >= 200, pics
