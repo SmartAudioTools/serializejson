@@ -119,6 +119,11 @@ def _de_b64(texte):
 #   de l'un connaît le mot de passe de tous, rien de plus.
 # Un document LU au mot de passe et au logN d'écriture fournit aussi son
 # en-tête à l'écriture : relire puis réécrire ne coûte qu'un seul scrypt.
+# Lu à un autre logN, il fournit son SEL : la prochaine écriture sous ce mot de
+# passe le garde (un scrypt au logN d'écriture, payé à l'écriture seule) au
+# lieu d'en tirer un. Sans cela, un mot de passe dérivé du sel (``prime``)
+# n'ouvrirait plus le fichier réécrit : relu au coût 18 puis réécrit au coût 14
+# sous un sel neuf, il ne s'ouvre plus qu'avec le mot de passe déjà connu.
 # - Ouverture : (mot de passe, en-tête EXACT, MAC compris) -> file key. Un
 #   en-tête déjà authentifié sous ce mot de passe l'est à nouveau à l'octet
 #   près (unwrap et MAC sont des fonctions de ces seules entrées) : relire un
@@ -130,6 +135,7 @@ _cles_lecture = {}
 _entetes_ecriture = {}
 _entetes_ouverts = {}
 _logn_par_cle = {}  # work_factor : le coût écrit pour une clé, LOGN_ECRITURE sinon
+_sels_lus = {}  # mot de passe -> sel du premier document lu, écrit à défaut d'en-tête d'écriture
 _TAILLE_CACHE = 32
 
 
@@ -145,6 +151,7 @@ def _vide_caches():
         _cles_lecture.clear()
         _entetes_ecriture.clear()
         _entetes_ouverts.clear()
+        _sels_lus.clear()
 
 
 def _entete_ecriture(mot_de_passe, sel=None):
@@ -153,7 +160,7 @@ def _entete_ecriture(mot_de_passe, sel=None):
         trouve = _entetes_ecriture.get((mot_de_passe, logn))
         if trouve is not None:
             return trouve
-        sel = os.urandom(16)
+        sel = _sels_lus.get(mot_de_passe) or os.urandom(16)
     emballage = _scrypt(mot_de_passe.encode("utf-8"), sel, logn)
     file_key = os.urandom(16)
     corps = rapidjson._chacha20poly1305(emballage, bytes(12), file_key, True)
@@ -354,6 +361,8 @@ def _ouvre_entete(data, mot_de_passe):
             and (mot_de_passe, logn) not in _entetes_ecriture):
         _range(_entetes_ecriture, (mot_de_passe, logn),
                (data[:fin_ligne + 1], file_key))
+    elif mot_de_passe not in _sels_lus:
+        _range(_sels_lus, mot_de_passe, sel)
     _range(_entetes_ouverts, ouvert, file_key)
     return file_key, fin_ligne + 1
 

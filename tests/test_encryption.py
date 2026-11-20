@@ -423,6 +423,24 @@ def test_sel_impose_puis_relu():
         _encryption.salt(b"en clair")
 
 
+def test_sel_garde_quand_relu_a_un_autre_cout(monkeypatch):
+    # écrit au coût 12 sous un sel imposé (un ancien fichier), relu puis réécrit
+    # par un processus neuf qui écrit au coût 10 : le sel reste, sans quoi un
+    # mot de passe dérivé du sel ne rouvrirait plus le fichier réécrit
+    sel = bytes(range(16, 32))
+    _encryption.work_factor("ancien", 12)
+    _encryption.prime("ancien", sel)
+    binaire = serializejson.dumpb(DOC, encryption_key="ancien")
+    _encryption._vide_caches()
+    _encryption._logn_par_cle.pop("ancien")
+    monkeypatch.setattr(_encryption, "LOGN_ECRITURE", 10)
+    assert serializejson.loads(binaire, encryption_key="ancien") == DOC
+    reecrit = serializejson.dumpb(DOC, encryption_key="ancien")
+    assert _encryption.salt(reecrit) == sel
+    assert _encryption._stanza(reecrit[:_encryption._fin_entete(reecrit)[0] + 4])[1] == 10
+    assert serializejson.loads(reecrit, encryption_key="ancien") == DOC
+
+
 def test_entete_deja_authentifie_non_rouvert(monkeypatch):
     binaire = serializejson.dumpb(DOC, encryption_key="secret")
     appels = []
